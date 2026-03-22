@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import SongCard from '../components/SongCard';
 import type { Song } from '../types';
 import { getPlaylistDetail, removeSongFromPlaylist } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { Music, MoreVertical, Trash2, Play } from 'lucide-react';
+import { Music, Trash2, Play } from 'lucide-react';
 import { useAudio } from '../context/AudioContext';
 
 const PlaylistDetail = () => {
@@ -81,7 +81,7 @@ const PlaylistDetail = () => {
 
       <div className="flex flex-col gap-1">
         {songs.length > 0 ? (
-          songs.map((song, index) => (
+          songs.map((song) => (
              <div key={song.id} className="group relative">
                 <SongCard song={song} />
                 <button 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Music } from 'lucide-react';
 import SongCard from '../components/SongCard';
 import type { Song } from '../types';

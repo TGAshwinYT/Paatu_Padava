@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Music, Check, Sparkles, X, Plus } from 'lucide-react';
+import { Search, Check, Sparkles, X, Plus } from 'lucide-react';
 import { updatePreferences, searchArtists } from '../services/api';
 import debounce from '../utils/debounce'; // I'll create this utility
 

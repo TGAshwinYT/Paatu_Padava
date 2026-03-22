@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search as SearchIcon, Clock, X } from 'lucide-react';
+import { Search as SearchIcon, X } from 'lucide-react';
 import { getListenHistory, deleteHistoryItem } from '../../services/api';
 import { useAudio } from '../../context/AudioContext';
 import type { Song } from '../../types';

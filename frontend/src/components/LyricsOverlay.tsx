@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { X, Music, Sparkles } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Sparkles } from 'lucide-react';
 import { getRecommendations } from '../services/api';
 import type { Song } from '../types';
 import { useAudio } from '../context/AudioContext';
@@ -16,7 +16,6 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
   const [lyrics, setLyrics] = useState<string>('');
   const [recommendations, setRecommendations] = useState<Song[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
   const { playTrack } = useAudio();
 
   useEffect(() => {

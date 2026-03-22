@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { 
   Play, 
   Pause, 
@@ -7,7 +7,6 @@ import {
   Repeat, 
   Shuffle, 
   Volume2, 
-  ListMusic, 
   MonitorSpeaker,
   Mic2,
   ChevronUp,

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Clock, Play, Music } from 'lucide-react';
+import { Clock, Play } from 'lucide-react';
 import { getListenHistory } from '../services/api';
 import { useAudio } from '../context/AudioContext';
 import type { Song } from '../types';

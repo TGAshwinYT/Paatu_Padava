@@ -1,3 +1,4 @@
+import uvicorn
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -85,6 +86,7 @@ async def get_user_followed_artists(user_id: str, db: AsyncSession = Depends(get
     
     return {"user_id": user_id, "followed_artist_ids": artist_ids}
 
-@app.get("/")
-async def root():
     return {"message": "Paaatu_Padava API is running!"}
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=7860, reload=False)

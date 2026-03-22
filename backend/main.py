@@ -11,7 +11,7 @@ import models
 
 load_dotenv()
 
-app = FastAPI(title="Paatu_Paaduva Backend")
+app = FastAPI(title="Paaatu_Padava Backend")
 
 # CORS Configuration
 # Hardcoded for local development to prevent port mismatch errors
@@ -87,4 +87,4 @@ async def get_user_followed_artists(user_id: str, db: AsyncSession = Depends(get
 
 @app.get("/")
 async def root():
-    return {"message": "Paatu_Paaduva API is running!"}
+    return {"message": "Paaatu_Padava API is running!"}

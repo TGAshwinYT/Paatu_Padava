@@ -134,7 +134,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       navigator.mediaSession.metadata = new MediaMetadata({
         title: currentTrack.title,
         artist: currentTrack.artist,
-        album: 'Paatu_Paaduva',
+        album: 'Paaatu_Padava',
         artwork: [
           { src: currentTrack.coverUrl, sizes: '512x512', type: 'image/jpeg' },
         ],

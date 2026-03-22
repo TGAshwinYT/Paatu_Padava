@@ -55,7 +55,7 @@ const MobilePlayerOverlay: React.FC = () => {
         </button>
         <div className="text-center">
           <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">Playing from</p>
-          <p className="text-sm font-bold"> Paatu_Paaduva</p>
+          <p className="text-sm font-bold"> Paaatu_Padava</p>
         </div>
         <button className="p-2 -mr-2">
           <MoreHorizontal size={24} />

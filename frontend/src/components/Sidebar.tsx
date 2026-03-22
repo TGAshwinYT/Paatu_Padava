@@ -62,7 +62,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogin }) => {
           <div className="bg-white p-1 rounded-full text-black">
             <Music size={24} />
           </div>
-          <span className="font-bold text-xl">Paatu_Paaduva</span>
+          <span className="font-bold text-xl">Paaatu_Padava</span>
         </div>
 
         <nav className="flex flex-col gap-4">

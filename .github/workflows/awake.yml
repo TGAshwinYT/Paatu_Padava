@@ -1,0 +1,14 @@
+name: Keep Hugging Face Awake
+on:
+  schedule:
+    - cron: '0 0 * * *' # Runs daily at midnight
+  workflow_dispatch: # Allows you to run it manually
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Space
+        run: |
+          # Replace with your actual Space URL
+          curl -I https://huggingface.co/spaces/TGAshwinYT/Paatu_Padava

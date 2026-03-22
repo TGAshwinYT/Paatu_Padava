@@ -60,6 +60,13 @@ ctx.check_hostname = False
 ctx.verify_mode = ssl.CERT_NONE
 
 # 2. Inject the custom context into the engine
+if not DB_URL or DB_URL == "postgresql+asyncpg://":
+    print("❌ ERROR: DATABASE_URL is missing or empty!")
+    print("👉 Please add DATABASE_URL (along with Redis credentials) to your Hugging Face Space 'Settings > Variables and Secrets'.")
+    # Provide a placeholder to prevent immediate SQLAlchemy crash, 
+    # but the app will still fail gracefully during check_db_connection
+    DB_URL = "postgresql+asyncpg://missing_db_url_check_hf_secrets"
+
 engine = create_async_engine(
     DB_URL,
     echo=True,

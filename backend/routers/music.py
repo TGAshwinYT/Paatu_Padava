@@ -175,6 +175,22 @@ async def get_song_lyrics(song_id: str):
         print(f"Lyrics Error: {str(e)}")
         raise HTTPException(status_code=500, detail="Error fetching lyrics")
 
+@router.get("/lyrics/synced")
+async def get_synced_lyrics(title: str = Query(...), artist: str = Query(...)):
+    """
+    Fetch synced lyrics (LRC) using the syncedlyrics service.
+    """
+    try:
+        from services import lyrics
+        lrc_data = await lyrics.get_synced_lyrics(title, artist)
+        if not lrc_data:
+            return {"synced": False, "lrc": None}
+        return {"synced": True, "lrc": lrc_data}
+    except Exception as e:
+        print(f"Synced Lyrics Error: {str(e)}")
+        # return {"synced": False, "lrc": None}
+        raise HTTPException(status_code=500, detail="Error fetching synced lyrics")
+
 @router.get("/artist/{artist_id}")
 async def get_artist_details(artist_id: str):
     """

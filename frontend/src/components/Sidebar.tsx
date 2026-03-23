@@ -19,16 +19,31 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogin }) => {
   const navigate = useNavigate();
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [followedArtists, setFollowedArtists] = useState<any[]>([]);
+  const [favoriteArtists, setFavoriteArtists] = useState<string[]>([]);
 
   useEffect(() => {
     if (user) {
       fetchPlaylists();
       fetchFollowedArtists();
+      fetchFavoriteArtists();
     } else {
       setPlaylists([]);
       setFollowedArtists([]);
+      setFavoriteArtists([]);
     }
   }, [user]);
+
+  const fetchFavoriteArtists = async () => {
+    try {
+      const response = await api.get('/api/auth/me');
+      const artistsStr = response.data.favoriteArtists;
+      if (artistsStr) {
+        setFavoriteArtists(JSON.parse(artistsStr));
+      }
+    } catch (error) {
+      console.error("Error fetching favorite artists:", error);
+    }
+  };
 
   const fetchFollowedArtists = async () => {
     try {
@@ -206,7 +221,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogin }) => {
               )}
 
               {/* Playlists List */}
-              <div className="text-[10px] uppercase font-bold text-neutral-500 px-3 mt-4 mb-2 tracking-widest">Your Playlists</div>
               {playlists.map((playlist) => (
                <Link 
                  key={playlist.id}
@@ -219,6 +233,24 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogin }) => {
                  <span className="truncate">{playlist.title}</span>
                </Link>
              ))}
+
+             {/* YOUR ARTISTS Section */}
+             {favoriteArtists.length > 0 && (
+               <>
+                 <p className="text-xs font-semibold text-neutral-400 tracking-wider mt-6 mb-4 px-2">YOUR ARTISTS</p>
+                 <div className="flex flex-col gap-1">
+                   {favoriteArtists.map((artistName, index) => (
+                     <Link 
+                       key={index}
+                       to={`/artist/${artistName}`}
+                       className="text-neutral-400 hover:text-white text-sm font-medium truncate cursor-pointer transition-colors px-2 pb-2 block"
+                     >
+                       {artistName}
+                     </Link>
+                   ))}
+                 </div>
+               </>
+             )}
           </div>
         </div>
       </div>

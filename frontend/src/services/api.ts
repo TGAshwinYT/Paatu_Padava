@@ -113,16 +113,15 @@ export const getSuggestions = async (query: string): Promise<any> => {
 
 export const addListenHistory = async (track: Song) => {
   try {
-    // Map frontend Song to backend SongSchema (snake_case) with safe defaults
     await api.post('/api/history/listen', {
-      id: track.id,
+      id: track.id,                 // <-- THIS IS THE MISSING PIECE!
       title: track.title || "Unknown Title",
       artist: track.artist || "Unknown Artist",
       cover_url: track.coverUrl || "",
       audio_url: track.audioUrl || ""
     });
   } catch (error) {
-    console.error("Error tracking history:", error);
+    console.error("Failed to add to history:", error);
   }
 };
 

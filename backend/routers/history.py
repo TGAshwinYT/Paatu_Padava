@@ -10,7 +10,7 @@ from services import saavn
 
 from pydantic import BaseModel # Added
 
-class SongSchema(BaseModel):
+class HistoryCreate(BaseModel):
     id: str
     title: Optional[str] = "Unknown Title"
     artist: Optional[str] = "Unknown Artist"
@@ -20,7 +20,7 @@ class SongSchema(BaseModel):
 router = APIRouter(prefix="/api/history", tags=["history"])
 
 @router.post("/listen")
-async def add_listen_history(song: SongSchema, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)): # Modified song_id to song: SongSchema
+async def add_listen_history(song: HistoryCreate, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """
     Tracks when a user starts listening to a song.
     """
@@ -161,7 +161,7 @@ async def get_search_history(user: User = Depends(get_current_user), db: AsyncSe
         raise HTTPException(status_code=500, detail="Failed to fetch search history")
 
 @router.post("/search-click")
-async def add_search_click_history(song: SongSchema, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def add_search_click_history(song: HistoryCreate, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """
     Tracks songs clicked specifically from search results.
     """

@@ -57,7 +57,7 @@ async def add_song_to_playlist(playlist_id: str, data: TrackAdd, user: User = De
     result = await db.execute(select(Playlist).where(Playlist.id == playlist_uuid, Playlist.user_id == user.id))
     playlist = result.scalars().first()
     if not playlist:
-        raise HTTPException(status_code=404, detail="Playlist not found or access denied")
+        raise HTTPException(status_code=404, detail="Playlist not found or unauthorized")
         
     # Check if already exists (Composite PK will handle this but error handling is better)
     check_exists = await db.execute(
@@ -98,7 +98,7 @@ async def remove_song_from_playlist(playlist_id: str, song_id: str, user: User =
     result = await db.execute(select(Playlist).where(Playlist.id == playlist_uuid, Playlist.user_id == user.id))
     playlist = result.scalars().first()
     if not playlist:
-        raise HTTPException(status_code=404, detail="Playlist not found or access denied")
+        raise HTTPException(status_code=404, detail="Playlist not found or unauthorized")
 
     # Delete the track record
     delete_query = delete(PlaylistTrack).where(
@@ -122,7 +122,7 @@ async def rename_playlist(playlist_id: str, data: PlaylistUpdate, user: User = D
     result = await db.execute(select(Playlist).where(Playlist.id == playlist_uuid, Playlist.user_id == user.id))
     playlist = result.scalars().first()
     if not playlist:
-        raise HTTPException(status_code=404, detail="Playlist not found or access denied")
+        raise HTTPException(status_code=404, detail="Playlist not found or unauthorized")
     
     playlist.title = data.title
     await db.commit()
@@ -142,7 +142,7 @@ async def delete_playlist(playlist_id: str, user: User = Depends(get_current_use
     result = await db.execute(select(Playlist).where(Playlist.id == playlist_uuid, Playlist.user_id == user.id))
     playlist = result.scalars().first()
     if not playlist:
-        raise HTTPException(status_code=404, detail="Playlist not found or access denied")
+        raise HTTPException(status_code=404, detail="Playlist not found or unauthorized")
     
     # 1. Delete associated tracks first
     await db.execute(delete(PlaylistTrack).where(PlaylistTrack.playlist_id == playlist_uuid))

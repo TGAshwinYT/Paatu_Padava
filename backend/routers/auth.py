@@ -21,6 +21,65 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+@router.post("/forgot-password")
+async def forgot_password(request: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Initiates password reset by generating a token and printing it to the terminal.
+    """
+    result = await db.execute(select(User).where(User.email == request.email))
+    user = result.scalars().first()
+    
+    if user:
+        from auth_utils import create_reset_password_token
+        token = create_reset_password_token(user.email)
+        
+        # Simulating email by printing to terminal
+        print("\n" + "="*50)
+        print("PASSWORD RESET REQUEST")
+        print(f"User: {user.email}")
+        print(f"Reset Link: http://localhost:5173/reset-password?token={token}")
+        print("="*50 + "\n")
+        
+    # Always return success to avoid email enumeration
+    return {"message": "If this email is registered, you will receive a reset link in your terminal block."}
+
+@router.post("/reset-password")
+async def reset_password(request: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Updates the user's password using a valid reset token.
+    """
+    from jose import jwt, JWTError
+    from auth_utils import SECRET_KEY, ALGORITHM, get_password_hash
+    
+    try:
+        payload = jwt.decode(request.token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        token_type: str = payload.get("type")
+        
+        if email is None or token_type != "reset_password":
+            raise HTTPException(status_code=400, detail="Invalid token type or missing email")
+    except JWTError:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+        
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalars().first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    # Update password
+    user.hashed_password = get_password_hash(request.password)
+    await db.commit()
+    
+    return {"message": "Password updated successfully. You can now log in with your new password."}
+
 @router.post("/register")
 async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
     try:

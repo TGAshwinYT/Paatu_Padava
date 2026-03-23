@@ -7,11 +7,10 @@ from models import ListeningHistory, SearchHistory, SearchClickHistory, User
 from auth_utils import get_current_user
 from typing import List, Optional, Dict, Any # Modified from typing import List
 from services import saavn
-
-from pydantic import BaseModel # Added
+from pydantic import BaseModel, Field # Modified
 
 class HistoryCreate(BaseModel):
-    id: str
+    id: str = Field(..., alias="id", validation_alias="jiosaavn_song_id")
     title: Optional[str] = "Unknown Title"
     artist: Optional[str] = "Unknown Artist"
     cover_url: Optional[str] = None
@@ -58,8 +57,6 @@ async def add_listen_history(song: HistoryCreate, user: User = Depends(get_curre
                 .where(ListeningHistory.user_id == user.id)
                 .order_by(ListeningHistory.played_at.asc())
                 .limit(count - 19) # If 21 items, delete 2 to get back to 19 (so new one makes 20) 
-                # Wait, if count is 20 before adding new one, it's fine. 
-                # After adding, if count is 21, delete 1.
             )
             # Actually, let's just delete anything beyond the last 19
             # So the new one makes it 20.
@@ -241,4 +238,3 @@ async def delete_search_click_item(history_id: str, user: User = Depends(get_cur
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail="Failed to delete search history item")
-

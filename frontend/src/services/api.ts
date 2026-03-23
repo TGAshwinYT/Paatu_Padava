@@ -77,6 +77,30 @@ export const searchArtists = async (query: string): Promise<any[]> => {
   }
 };
 
+export const getArtistDetails = async (id: string): Promise<{ id: string, name: string, image: string, topSongs: Song[] }> => {
+  try {
+    const response = await api.get(`/api/music/artist/${id}`);
+    const data = response.data;
+    const songs = (data.topSongs || []).map((item: any) => ({
+      id: item.id,
+      title: item.title,
+      artist: item.artist,
+      coverUrl: item.coverUrl || item.cover_url,
+      audioUrl: item.audioUrl || item.audio_url,
+      downloadUrls: item.downloadUrls || item.download_urls
+    }));
+    return { 
+      id: data.id, 
+      name: data.name, 
+      image: data.image, 
+      topSongs: songs 
+    };
+  } catch (error) {
+    console.error("Error fetching artist details:", error);
+    return { id: "", name: "Unknown Artist", image: "", topSongs: [] };
+  }
+};
+
 export const getSuggestions = async (query: string): Promise<any> => {
   if (!query) return { songs: [], artists: [], albums: [] };
   try {
@@ -288,6 +312,16 @@ export const removeSongFromPlaylist = async (playlistId: string, songId: string)
     await api.delete(`/api/playlists/${playlistId}/songs/${songId}`);
   } catch (error) {
     console.error("Error removing song from playlist:", error);
+  }
+};
+
+export const getFollowedArtists = async (): Promise<any[]> => {
+  try {
+    const response = await api.get('/api/users/me/followed-artists');
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching followed artists:", error);
+    return [];
   }
 };
 

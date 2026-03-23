@@ -120,3 +120,21 @@ async def delete_me(user: User = Depends(get_current_user), db: AsyncSession = D
         await db.rollback()
         print(f"DELETE ERROR: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to delete account")
+
+@router.get("/me/followed-artists")
+async def get_followed_artists(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """
+    Returns the full list of artists the user follows.
+    """
+    result = await db.execute(
+        select(User)
+        .options(selectinload(User.followed_artists))
+        .where(User.id == user.id)
+    )
+    db_user = result.scalar_one()
+    
+    return [{
+        "id": a.id,
+        "name": a.name,
+        "imageUrl": a.image_url
+    } for a in db_user.followed_artists]

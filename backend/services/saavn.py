@@ -266,6 +266,40 @@ async def search_artists(query: str) -> List[Dict[str, Any]]:
         })
     return mapped_artists
 
+async def get_artist_details(artist_id: str) -> Dict[str, Any]:
+    """
+    Fetches artist details and top songs.
+    Endpoint: artists?id={artist_id}
+    """
+    response = await fetch_from_saavn("artists", {"id": artist_id})
+    data = response.get("data", {})
+    
+    if not data:
+        return {"name": "Unknown Artist", "image": "", "topSongs": []}
+
+    # Extract image
+    images = data.get("image", [])
+    image_url = ""
+    if isinstance(images, list) and len(images) > 0:
+        image_url = images[-1].get("url", "")
+    elif isinstance(images, str):
+        image_url = images
+
+    # Extract and map top songs
+    top_songs_raw = data.get("topSongs", [])
+    mapped_songs = []
+    for item in top_songs_raw:
+        mapped = await map_saavn_song(item, lenient=False)
+        if mapped:
+            mapped_songs.append(mapped)
+
+    return {
+        "id": data.get("id"),
+        "name": html.unescape(str(data.get("name", "Unknown Artist"))),
+        "image": image_url,
+        "topSongs": mapped_songs
+    }
+
 async def get_personalized_feed(artist_names: List[str]) -> List[Dict[str, Any]]:
     """
     Fetches top tracks for each artist in artist_names and returns a shuffled mix.

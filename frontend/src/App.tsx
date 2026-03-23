@@ -9,6 +9,7 @@ import Signup from './pages/Signup';
 import Onboarding from './pages/Onboarding';
 import Settings from './pages/Settings';
 import PlaylistDetail from './pages/PlaylistDetail';
+import ArtistView from './pages/ArtistView';
 import ProtectedRoute from './components/ProtectedRoute';
 import Sidebar from './components/Sidebar';
 import PlayerBar from './components/PlayerBar';
@@ -58,6 +59,11 @@ const AppContent = () => {
             <Route path="/history" element={
               <ProtectedRoute>
                 <RecentlyListened />
+              </ProtectedRoute>
+            } />
+            <Route path="/artist/:artistId" element={
+              <ProtectedRoute>
+                <ArtistView />
               </ProtectedRoute>
             } />
             <Route path="/onboarding" element={

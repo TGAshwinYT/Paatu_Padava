@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Home, Search, Library, Music, Plus, Heart, Sparkles, Clock } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import api from '../services/api';
+import api, { getFollowedArtists } from '../services/api';
+import { User as UserIcon } from 'lucide-react';
 
 interface Playlist {
   id: string; // Updated to string for UUID
@@ -17,14 +18,27 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogin }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [followedArtists, setFollowedArtists] = useState<any[]>([]);
+  const isMobile = false; // Sidebar is desktop only in this layout
 
   useEffect(() => {
     if (user) {
       fetchPlaylists();
+      fetchFollowedArtists();
     } else {
       setPlaylists([]);
+      setFollowedArtists([]);
     }
   }, [user]);
+
+  const fetchFollowedArtists = async () => {
+    try {
+      const data = await getFollowedArtists();
+      setFollowedArtists(data);
+    } catch (error) {
+      console.error("Error fetching followed artists:", error);
+    }
+  };
 
   const fetchPlaylists = async () => {
     try {
@@ -157,18 +171,44 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogin }) => {
                <span>Liked Songs</span>
              </Link>
 
-             <Link 
-               to="/history"
-               className="flex items-center gap-4 text-neutral-400 hover:text-white transition-colors font-semibold p-2 rounded-lg hover:bg-[#282828] cursor-pointer"
-             >
-               <div className="bg-gradient-to-br from-purple-900 to-black p-1.5 rounded-sm">
-                 <Clock size={16} className="text-white" />
-               </div>
-               <span>Recently Listened</span>
-             </Link>
+              <Link 
+                to="/history"
+                className="flex items-center gap-4 text-neutral-400 hover:text-white transition-colors font-semibold p-2 rounded-lg hover:bg-[#282828] cursor-pointer"
+              >
+                <div className="bg-gradient-to-br from-purple-900 to-black p-1.5 rounded-sm">
+                  <Clock size={16} className="text-white" />
+                </div>
+                <span>Recently Listened</span>
+              </Link>
 
-             {/* Playlists List */}
-             {playlists.map((playlist) => (
+              {/* Favorite Artists */}
+              {followedArtists.length > 0 && (
+                <div className="mt-4 mb-2">
+                  <div className="text-[10px] uppercase font-bold text-neutral-500 px-3 mb-2 tracking-widest">Favorite Artists</div>
+                  <div className="flex flex-col gap-1">
+                    {followedArtists.map((artist) => (
+                      <Link 
+                        key={artist.id}
+                        to={`/artist/${artist.id}`}
+                        className="flex items-center gap-3 text-neutral-400 hover:text-green-500 hover:bg-neutral-800 transition-all font-semibold p-2 rounded-lg cursor-pointer group"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center flex-shrink-0 overflow-hidden ring-1 ring-white/10 group-hover:ring-green-500/50 transition-all">
+                          {artist.imageUrl ? (
+                            <img src={artist.imageUrl} className="w-full h-full object-cover" alt={artist.name} />
+                          ) : (
+                            <UserIcon size={14} />
+                          )}
+                        </div>
+                        <span className="truncate text-sm">{artist.name}</span>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Playlists List */}
+              <div className="text-[10px] uppercase font-bold text-neutral-500 px-3 mt-4 mb-2 tracking-widest">Your Playlists</div>
+              {playlists.map((playlist) => (
                <Link 
                  key={playlist.id}
                  to={`/playlist/${playlist.id}`}

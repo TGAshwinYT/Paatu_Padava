@@ -174,3 +174,15 @@ async def get_song_lyrics(song_id: str):
     except Exception as e:
         print(f"Lyrics Error: {str(e)}")
         raise HTTPException(status_code=500, detail="Error fetching lyrics")
+
+@router.get("/artist/{artist_id}")
+async def get_artist_details(artist_id: str):
+    """
+    Get artist profile and top songs.
+    """
+    try:
+        results = await saavn.get_artist_details(artist_id)
+        return results
+    except Exception as e:
+        print(f"Artist Error (Router): {str(e)}")
+        raise HTTPException(status_code=500, detail="Error fetching artist details")

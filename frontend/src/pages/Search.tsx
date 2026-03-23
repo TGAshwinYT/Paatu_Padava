@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Search as SearchIcon, Music, User as UserIcon, Album, Clock, X, Play } from 'lucide-react';
 import SongCard from '../components/SongCard';
 import type { Song } from '../types';
-import { searchTracks, getSuggestions, getListenHistory, deleteHistoryItem } from '../services/api';
+import { searchTracks, getSuggestions, getRecentSearches, deleteSearchHistoryItem, saveSearchClick } from '../services/api';
 import { useAudio } from '../context/AudioContext';
 import { useAuth } from '../context/AuthContext';
 
@@ -19,7 +19,7 @@ const Search = () => {
   useEffect(() => {
     if (user && !query) {
       const fetchRecent = async () => {
-        const history = await getListenHistory();
+        const history = await getRecentSearches();
         setRecentlyPlayed(history);
       };
       fetchRecent();
@@ -28,7 +28,7 @@ const Search = () => {
 
   const handleDeleteHistory = async (e: React.MouseEvent, historyId: string) => {
     e.stopPropagation();
-    await deleteHistoryItem(historyId);
+    await deleteSearchHistoryItem(historyId);
     setRecentlyPlayed(prev => prev.filter(item => item.historyId !== historyId));
   };
 
@@ -64,6 +64,7 @@ const Search = () => {
         coverUrl: item.image?.[item.image.length-1]?.url || item.cover_url || "",
         audioUrl: item.downloadUrl?.[item.downloadUrl.length-1]?.url || item.audio_url || ""
       };
+      saveSearchClick(song);
       playTrack(song);
     } else {
         // For artists/albums, we just set the query to trigger a full search
@@ -144,7 +145,7 @@ const Search = () => {
             <h2 className="text-xl font-bold mb-4">Top Results</h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
               {results.map(song => (
-                <SongCard key={song.id} song={song} />
+                <SongCard key={song.id} song={song} onPlay={(s) => saveSearchClick(s)} />
               ))}
             </div>
           </div>

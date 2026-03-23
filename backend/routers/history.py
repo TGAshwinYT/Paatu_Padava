@@ -106,13 +106,21 @@ async def get_listen_history(user: User = Depends(get_current_user), db: AsyncSe
     Fetches the user's 10 most recent tracks. # Modified docstring
     """
     try:
-        query = select(ListeningHistory).where(ListeningHistory.user_id == user.id).order_by(ListeningHistory.played_at.desc()).limit(20)
+        # Fetch more to allow for deduplication
+        query = select(ListeningHistory).where(ListeningHistory.user_id == user.id).order_by(ListeningHistory.played_at.desc()).limit(100)
         result = await db.execute(query)
-        history = result.scalars().all()
+        all_history = result.scalars().all()
         
-        # We might need to fetch metadata for these songs if they aren't in the DB
-        # For simplicity, we'll return the IDs for now, or just the list
-        return history
+        seen_ids = set()
+        unique_history = []
+        for item in all_history:
+            if item.jiosaavn_song_id not in seen_ids:
+                unique_history.append(item)
+                seen_ids.add(item.jiosaavn_song_id)
+            if len(unique_history) >= 20: # Keep it manageable
+                break
+                
+        return unique_history
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to fetch history")
 

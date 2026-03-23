@@ -91,7 +91,6 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       audio.removeEventListener('timeupdate', onTimeUpdate);
       audio.removeEventListener('loadedmetadata', onLoadedMetadata);
       audio.removeEventListener('ended', onEnded);
-      audio.pause();
     };
   }, [isRepeating, currentIndex, queue, userQueue, isShuffled]); // Re-bind onEnded when dependencies change
 

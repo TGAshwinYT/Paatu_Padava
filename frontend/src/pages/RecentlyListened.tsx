@@ -25,8 +25,8 @@ const History = () => {
       id: h.jiosaavn_song_id,
       title: h.title,
       artist: h.artist,
-      coverUrl: h.cover_url,
-      audioUrl: h.audio_url
+      coverUrl: h.cover_url || h.coverUrl || '',
+      audioUrl: h.audio_url || h.audioUrl || ''
     };
   };
 

@@ -10,9 +10,10 @@ import { likeSong, unlikeSong } from '../services/api';
 interface SongCardProps {
   song: Song;
   isInitiallyLiked?: boolean;
+  onPlay?: (song: Song) => void;
 }
 
-const SongCard: React.FC<SongCardProps> = ({ song, isInitiallyLiked = false }) => {
+const SongCard: React.FC<SongCardProps> = ({ song, isInitiallyLiked = false, onPlay }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { playTrack, addToQueue } = useAudio();
@@ -40,7 +41,10 @@ const SongCard: React.FC<SongCardProps> = ({ song, isInitiallyLiked = false }) =
   return (
     <div 
       className="bg-neutral-800/40 p-4 rounded-md hover:bg-neutral-700/50 transition-all duration-300 group cursor-pointer"
-      onClick={() => playTrack(song)}
+      onClick={() => {
+        if (onPlay) onPlay(song);
+        playTrack(song);
+      }}
     >
       <div className="relative mb-4">
         <img 
@@ -99,8 +103,7 @@ const SongCard: React.FC<SongCardProps> = ({ song, isInitiallyLiked = false }) =
            <button 
              className="p-3 bg-green-500 rounded-full text-black shadow-xl hover:scale-105"
              onClick={(e) => {
-               e.stopPropagation();
-               playTrack(song);
+               e.stopPropagation(); if (onPlay) onPlay(song); playTrack(song);
              }}
            >
              <Play fill="currentColor" size={20} />
@@ -114,3 +117,4 @@ const SongCard: React.FC<SongCardProps> = ({ song, isInitiallyLiked = false }) =
 };
 
 export default SongCard;
+

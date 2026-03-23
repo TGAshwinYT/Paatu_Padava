@@ -93,7 +93,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       audio.removeEventListener('ended', onEnded);
       audio.pause();
     };
-  }, [isRepeating, currentIndex, queue]); // Re-bind onEnded when dependencies change
+  }, [isRepeating, currentIndex, queue, userQueue, isShuffled]); // Re-bind onEnded when dependencies change
 
   // Handle track or quality changes
   useEffect(() => {
@@ -219,7 +219,6 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const index = newQueue.findIndex(s => s.id === track.id);
       setCurrentIndex(index);
     } else {
-      // If no new queue, add to existing or just play
       setQueue(prev => {
         const exists = prev.findIndex(s => s.id === track.id);
         if (exists !== -1) {
@@ -231,10 +230,9 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return updated;
       });
     }
-    audioRef.current.currentTime = 0; // Explicitly reset on new track
     
-    // Task 2: Explicit Autoplay
-    audioRef.current.load(); // Required for some mobile browsers
+    // REMOVED audioRef.current.load() and currentTime = 0
+    // Let the main useEffect handle the actual audio element
     setIsPlaying(true);
     setCurrentTrack(track);
   };

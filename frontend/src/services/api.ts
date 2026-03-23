@@ -224,6 +224,25 @@ export const getPlaylistDetail = async (id: string): Promise<{ title: string, so
   }
 };
 
+export const renamePlaylist = async (playlistId: string, title: string) => {
+  try {
+    const response = await api.patch(`/api/playlists/${playlistId}`, { title });
+    return response.data;
+  } catch (error) {
+    console.error("Error renaming playlist:", error);
+    throw error;
+  }
+};
+
+export const deletePlaylist = async (playlistId: string) => {
+  try {
+    await api.delete(`/api/playlists/${playlistId}`);
+  } catch (error) {
+    console.error("Error deleting playlist:", error);
+    throw error;
+  }
+};
+
 export const removeSongFromPlaylist = async (playlistId: string, songId: string) => {
   try {
     await api.delete(`/api/playlists/${playlistId}/songs/${songId}`);

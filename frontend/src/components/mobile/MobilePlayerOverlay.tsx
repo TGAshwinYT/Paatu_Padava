@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, ChevronDown, Share2, MoreHorizontal, Clock, Speaker } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, ChevronDown, Share2, MoreHorizontal, Clock, Speaker, ListMusic } from 'lucide-react';
 import { useAudio } from '../../context/AudioContext';
 import SleepTimerModal from '../SleepTimerModal';
+import QueueDrawer from './QueueDrawer';
 
 const MobilePlayerOverlay: React.FC = () => {
   const { currentTrack, isPlaying, togglePlay, playNext, playPrevious, progress, duration, seekTo, isShuffled, isRepeating, toggleShuffle, toggleRepeat, remainingSleepTime } = useAudio();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showSleepTimer, setShowSleepTimer] = useState(false);
+  const [isQueueOpen, setIsQueueOpen] = useState(false);
 
   if (!currentTrack) return null;
 
@@ -134,6 +136,9 @@ const MobilePlayerOverlay: React.FC = () => {
                    </span>
                  )}
               </div>
+              <button onClick={() => setIsQueueOpen(true)} className="p-1">
+                 <ListMusic size={20} className="text-neutral-400" />
+              </button>
            </div>
         </div>
       </div>
@@ -141,6 +146,11 @@ const MobilePlayerOverlay: React.FC = () => {
       <SleepTimerModal 
         isOpen={showSleepTimer} 
         onClose={() => setShowSleepTimer(false)} 
+      />
+
+      <QueueDrawer 
+        isOpen={isQueueOpen} 
+        onClose={() => setIsQueueOpen(false)} 
       />
     </div>
   );

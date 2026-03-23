@@ -15,6 +15,9 @@ class PlaylistCreate(BaseModel):
     title: str
     is_public: bool = False
 
+class PlaylistUpdate(BaseModel):
+    title: str
+
 class TrackAdd(BaseModel):
     jiosaavn_song_id: str
 
@@ -106,6 +109,50 @@ async def remove_song_from_playlist(playlist_id: str, song_id: str, user: User =
     await db.commit()
     return {"message": "Song removed from playlist"}
 
+@router.patch("/{playlist_id}")
+async def rename_playlist(playlist_id: str, data: PlaylistUpdate, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """
+    Rename a specific playlist.
+    """
+    try:
+        playlist_uuid = uuid.UUID(playlist_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid playlist ID format")
+
+    result = await db.execute(select(Playlist).where(Playlist.id == playlist_uuid, Playlist.user_id == user.id))
+    playlist = result.scalars().first()
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found or access denied")
+    
+    playlist.title = data.title
+    await db.commit()
+    await db.refresh(playlist)
+    return playlist
+
+@router.delete("/{playlist_id}")
+async def delete_playlist(playlist_id: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """
+    Delete a specific playlist and its associations.
+    """
+    try:
+        playlist_uuid = uuid.UUID(playlist_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid playlist ID format")
+
+    result = await db.execute(select(Playlist).where(Playlist.id == playlist_uuid, Playlist.user_id == user.id))
+    playlist = result.scalars().first()
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found or access denied")
+    
+    # 1. Delete associated tracks first
+    await db.execute(delete(PlaylistTrack).where(PlaylistTrack.playlist_id == playlist_uuid))
+    
+    # 2. Delete the playlist itself
+    await db.execute(delete(Playlist).where(Playlist.id == playlist_uuid))
+    
+    await db.commit()
+    return {"message": "Playlist deleted successfully"}
+
 @router.get("/{playlist_id}")
 async def get_playlist_detail(playlist_id: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """
@@ -120,5 +167,5 @@ async def get_playlist_detail(playlist_id: str, user: User = Depends(get_current
     playlist = result.scalars().first()
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
-    
+        
     return playlist

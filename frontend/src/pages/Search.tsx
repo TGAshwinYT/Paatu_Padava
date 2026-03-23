@@ -11,7 +11,6 @@ const Search = () => {
   const [results, setResults] = useState<Song[]>([]);
   const [suggestions, setSuggestions] = useState<any>({ songs: [], artists: [], albums: [] });
   const [isSearching, setIsSearching] = useState(false);
-  const [showDropdown, setShowDropdown] = useState(false);
   const [recentlyPlayed, setRecentlyPlayed] = useState<(Song & { historyId: string })[]>([]);
   const { playTrack } = useAudio();
   const { user } = useAuth();
@@ -36,36 +35,25 @@ const Search = () => {
     const delayDebounceFn = setTimeout(async () => {
       if (query.trim().length > 0) {
         setIsSearching(true);
-        // Fetch results for dropdown
-        const data = await searchTracks(query);
+        // Fetch results directly to page
+        const [data, suggestData] = await Promise.all([
+          searchTracks(query),
+          getSuggestions(query)
+        ]);
         setResults(data);
-        
-        // Fetch suggestions for other categories
-        const suggestData = await getSuggestions(query);
         setSuggestions(suggestData);
-        
         setIsSearching(false);
-        setShowDropdown(true);
       } else {
         setResults([]);
         setSuggestions({ songs: [], artists: [], albums: [] });
-        setShowDropdown(false);
       }
-    }, 300); // Debounce set to 300ms
+    }, 300);
 
     return () => clearTimeout(delayDebounceFn);
   }, [query]);
 
-  const handleResultClick = (song: Song) => {
-    saveSearchClick(song);
-    playTrack(song);
-    setShowDropdown(false);
-    setQuery('');
-  };
-
   const handleArtistClick = (artistName: string) => {
     setQuery(artistName);
-    setShowDropdown(false);
   };
 
   return (
@@ -78,61 +66,9 @@ const Search = () => {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => query.length > 0 && setShowDropdown(true)}
           placeholder="What do you want to listen to?"
           className="w-full bg-neutral-800 text-white rounded-full py-4 pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all font-medium placeholder-neutral-400 shadow-lg"
         />
-
-        {/* Live Search Dropdown */}
-        {showDropdown && (query.trim().length > 0) && (results.length > 0 || suggestions.artists?.length > 0) && (
-            <div className="absolute top-full left-0 right-0 mt-2 bg-neutral-900 border border-white/10 rounded-xl shadow-2xl z-[100] overflow-hidden animate-in slide-in-from-top-2 duration-200">
-                {results.length > 0 && (
-                    <div className="p-2">
-                        <h3 className="text-[10px] uppercase font-bold text-neutral-500 px-3 py-1">Best Match</h3>
-                        {results.slice(0, 5).map((song) => (
-                            <div 
-                                key={song.id} 
-                                onClick={() => handleResultClick(song)}
-                                className="flex items-center gap-3 p-2 hover:bg-neutral-800 rounded-lg cursor-pointer transition-colors group/item"
-                            >
-                                <div className="relative w-10 h-10 flex-shrink-0">
-                                   <img 
-                                      src={song.coverUrl || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=50&h=50&fit=crop'} 
-                                      className="w-full h-full rounded shadow-md object-cover" 
-                                      alt="" 
-                                   />
-                                   <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 group-hover/item:opacity-100 transition-opacity rounded">
-                                      <Play size={12} fill="white" className="text-white ml-0.5" />
-                                   </div>
-                                </div>
-                                <div className="truncate">
-                                    <p className="text-sm font-bold text-white truncate group-hover/item:text-green-500 transition-colors">{song.title}</p>
-                                    <p className="text-xs text-neutral-400 truncate tracking-tight">{song.artist}</p>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {suggestions.artists?.length > 0 && (
-                    <div className="p-2 border-t border-white/5 bg-neutral-950/30">
-                        <h3 className="text-[10px] uppercase font-bold text-neutral-500 px-3 py-1">Artists</h3>
-                        {suggestions.artists.slice(0, 3).map((a: any) => (
-                            <div 
-                                key={a.id} 
-                                onClick={() => handleArtistClick(a.name)}
-                                className="flex items-center gap-3 p-2 hover:bg-neutral-800 rounded-lg cursor-pointer transition-colors"
-                            >
-                                <div className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                                    {a.image?.[0]?.url ? <img src={a.image[0].url} className="w-full h-full object-cover" /> : <UserIcon size={14} className="text-neutral-500" />}
-                                </div>
-                                <p className="text-sm font-medium text-white truncate">{a.name}</p>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </div>
-        )}
       </div>
 
       <div className="mt-4">
@@ -141,17 +77,50 @@ const Search = () => {
              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
              <span>Searching database...</span>
           </div>
-        ) : results.length > 0 ? (
-          <div>
-            <div className="flex items-center justify-between mb-4">
-               <h2 className="text-2xl font-black">All Results</h2>
-               <button onClick={() => setResults([])} className="text-sm text-neutral-500 hover:text-white transition-colors">Clear</button>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-              {results.map(song => (
-                <SongCard key={song.id} song={song} onPlay={(s) => saveSearchClick(s)} />
-              ))}
-            </div>
+        ) : results.length > 0 || (suggestions.artists && suggestions.artists.length > 0) ? (
+          <div className="flex flex-col gap-10">
+            {/* Artists Section */}
+            {suggestions.artists && suggestions.artists.length > 0 && (
+              <section>
+                <h2 className="text-2xl font-black mb-6">Artists</h2>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+                  {suggestions.artists.slice(0, 6).map((a: any) => (
+                    <div 
+                      key={a.id} 
+                      onClick={() => handleArtistClick(a.name || a.artist)}
+                      className="bg-neutral-900/40 p-4 rounded-xl hover:bg-neutral-800 transition-all cursor-pointer group border border-white/5 active:scale-95 text-center"
+                    >
+                      <div className="aspect-square w-full mb-4 relative overflow-hidden rounded-full shadow-2xl border-2 border-white/5">
+                        {a.image?.[0]?.url ? (
+                          <img src={a.image[0].url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                        ) : (
+                          <div className="w-full h-full bg-neutral-800 flex items-center justify-center">
+                            <UserIcon size={40} className="text-neutral-500" />
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-white font-bold truncate text-sm">{a.name || a.artist}</p>
+                      <p className="text-neutral-500 text-xs mt-1 font-medium uppercase tracking-widest">Artist</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Songs Section */}
+            {results.length > 0 && (
+              <section>
+                <div className="flex items-center justify-between mb-6">
+                   <h2 className="text-2xl font-black">Songs</h2>
+                   <button onClick={() => setResults([])} className="text-sm text-neutral-500 hover:text-white transition-colors">Clear</button>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+                  {results.map(song => (
+                    <SongCard key={song.id} song={song} onPlay={(s) => saveSearchClick(s)} />
+                  ))}
+                </div>
+              </section>
+            )}
           </div>
         ) : query.length > 0 && !isSearching ? (
           <div className="flex flex-col items-center justify-center py-20 text-neutral-500">

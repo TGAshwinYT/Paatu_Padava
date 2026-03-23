@@ -113,18 +113,12 @@ export const getSuggestions = async (query: string): Promise<any> => {
 
 export const addListenHistory = async (track: Song) => {
   try {
-    const songId = track.id || (track as any).jiosaavn_song_id;
-    if (!songId) {
-      console.warn("Skipping history log: Track ID missing", track);
-      return;
-    }
-
     await api.post('/api/history/listen', {
-      id: songId,
+      id: track.id,                 // <-- THIS IS THE MISSING PIECE!
       title: track.title || "Unknown Title",
       artist: track.artist || "Unknown Artist",
-      cover_url: track.coverUrl || (track as any).cover_url || "",
-      audio_url: track.audioUrl || (track as any).audio_url || ""
+      cover_url: track.coverUrl || "",
+      audio_url: track.audioUrl || ""
     });
   } catch (error) {
     console.error("Failed to add to history:", error);
@@ -134,7 +128,7 @@ export const addListenHistory = async (track: Song) => {
 export const getRecommendations = async (songId: string): Promise<Song[]> => {
   try {
     const response = await api.get(`/api/music/recommendations/${songId}`);
-    const results = response.data.map((item: any) => ({
+    return response.data.map((item: any) => ({
       id: item.id,
       title: item.title,
       artist: item.artist,
@@ -142,14 +136,6 @@ export const getRecommendations = async (songId: string): Promise<Song[]> => {
       audioUrl: item.audio_url,
       downloadUrls: item.download_urls
     }));
-
-    // Deduplicate by ID and filter out the current song
-    const seen = new Set();
-    return results.filter((s: Song) => {
-      if (s.id === songId || seen.has(s.id)) return false;
-      seen.add(s.id);
-      return true;
-    });
   } catch (error) {
     return [];
   }
@@ -158,7 +144,7 @@ export const getRecommendations = async (songId: string): Promise<Song[]> => {
 export const getRelatedSongs = async (songId: string): Promise<Song[]> => {
   try {
     const response = await api.get(`/api/music/related/${songId}`);
-    const results = response.data.map((item: any) => ({
+    return response.data.map((item: any) => ({
       id: item.id,
       title: item.title,
       artist: item.artist,
@@ -166,14 +152,6 @@ export const getRelatedSongs = async (songId: string): Promise<Song[]> => {
       audioUrl: item.audio_url,
       downloadUrls: item.download_urls
     }));
-
-    // Deduplicate and filter out the current song
-    const seen = new Set();
-    return results.filter((s: Song) => {
-      if (s.id === songId || seen.has(s.id)) return false;
-      seen.add(s.id);
-      return true;
-    });
   } catch (error) {
     return [];
   }

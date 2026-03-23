@@ -2,14 +2,14 @@ import { useState, useEffect } from 'react';
 import { Music, Search as SearchIcon, Play, User as UserIcon } from 'lucide-react';
 import SongCard from '../components/SongCard';
 import type { Song } from '../types';
-import { getHomeFeed, searchTracks, getSuggestions, saveSearchClick } from '../services/api';
+import { getHomeFeed, searchTracks, getSuggestions, saveSearchClick, getListenHistory, getFollowedArtists } from '../services/api';
 import { useAudio } from '../context/AudioContext';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import 'swiper/css';
 
 const Home = () => {
   const [recentlyPlayed, setRecentlyPlayed] = useState<Song[]>([]);
-  const [topArtists, setTopArtists] = useState<Song[]>([]);
+  const [topArtists, setTopArtists] = useState<any[]>([]);
   const [recommended, setRecommended] = useState<Song[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { playTrack } = useAudio();
@@ -24,14 +24,22 @@ const Home = () => {
   useEffect(() => {
     const fetchFeed = async () => {
       setIsLoading(true);
-      const data = await getHomeFeed() as any;
-      
-      // Look for camelCase OR snake_case from the backend!
-      setRecentlyPlayed(data.recentlyPlayed || data.recently_played || []);
-      setTopArtists(data.topArtists || data.top_artists || []);
-      setRecommended(data.recommendedForYou || data.recommended_for_you || []);
-      
-      setIsLoading(false);
+      try {
+        const [feedData, historyData, artistsData] = await Promise.all([
+          getHomeFeed(),
+          getListenHistory(),
+          getFollowedArtists()
+        ]);
+        
+        const data = feedData as any;
+        setRecentlyPlayed(historyData.slice(0, 12));
+        setTopArtists(artistsData.slice(0, 12));
+        setRecommended(data.recommendedForYou || data.recommended_for_you || []);
+      } catch (error) {
+        console.error("Error fetching home feed:", error);
+      } finally {
+        setIsLoading(false);
+      }
     };
     fetchFeed();
   }, []);
@@ -214,10 +222,24 @@ const Home = () => {
 
       {topArtists.length > 0 && (
         <section>
-          <h2 className="text-2xl font-bold mb-4">Top Artists For You</h2>
+          <h2 className="text-2xl font-bold mb-4">Your Artists</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-            {topArtists.map(song => (
-              <SongCard key={song.id} song={song} />
+            {topArtists.map(artist => (
+              <div 
+                key={artist.id}
+                onClick={() => handleArtistClick(artist.name)}
+                className="bg-[#181818] p-4 rounded-lg hover:bg-[#282828] transition-all duration-300 cursor-pointer group flex flex-col items-center text-center"
+              >
+                <div className="relative w-full aspect-square mb-4 shadow-[0_8px_24px_rgba(0,0,0,0.5)] rounded-full overflow-hidden">
+                  <img 
+                    src={artist.imageUrl || artist.image || `https://ui-avatars.com/api/?name=${encodeURIComponent(artist.name)}&background=random`} 
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
+                    alt={artist.name} 
+                  />
+                </div>
+                <p className="text-white font-bold text-base truncate w-full">{artist.name}</p>
+                <p className="text-[#a7a7a7] text-sm font-medium uppercase mt-1 tracking-wider text-[10px]">Artist</p>
+              </div>
             ))}
           </div>
         </section>

@@ -100,6 +100,7 @@ async def map_saavn_song(item: Dict[str, Any], lenient: bool = False) -> Dict[st
             "artist": artist,
             "cover_url": cover_url,
             "audio_url": audio_url,
+            "duration": int(item.get("duration", 0)) if item.get("duration") else 0,
             "download_urls": [d.get("url") for d in downloads] if isinstance(downloads, list) else []
         }
     except Exception as e:

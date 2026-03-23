@@ -4,6 +4,7 @@ export interface Song {
   artist: string;
   coverUrl: string;
   audioUrl: string;
+  duration?: number;
   downloadUrls?: string[];
 }
 

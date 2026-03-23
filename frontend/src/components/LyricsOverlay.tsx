@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Sparkles } from 'lucide-react';
 import { getRecommendations } from '../services/api';
 import type { Song } from '../types';
 import { useAudio } from '../context/AudioContext';
 import api from '../services/api';
+import { parseLRC } from '../utils/LyricsParser';
+import type { LyricsLine } from '../utils/LyricsParser';
 
 interface LyricsOverlayProps {
   song: Song;
@@ -13,10 +15,15 @@ interface LyricsOverlayProps {
 
 const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) => {
   const [activeTab, setActiveTab] = useState<'lyrics' | 'related'>('lyrics');
-  const [lyrics, setLyrics] = useState<string>('');
+  const [lyricsLines, setLyricsLines] = useState<LyricsLine[]>([]);
+  const [plainLyrics, setPlainLyrics] = useState<string>('');
   const [recommendations, setRecommendations] = useState<Song[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
-  const { playTrack } = useAudio();
+  const [activeIndex, setActiveIndex] = useState<number>(-1);
+  
+  const { playTrack, progress } = useAudio();
+  const activeLineRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isOpen && song.id) {
@@ -25,26 +32,53 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
     }
   }, [isOpen, song.id, activeTab]);
 
+  // Handle active index based on progress
+  useEffect(() => {
+    if (lyricsLines.length > 0) {
+      const index = lyricsLines.findIndex((line, i) => {
+        const nextLine = lyricsLines[i + 1];
+        return progress >= line.time && (!nextLine || progress < nextLine.time);
+      });
+      if (index !== activeIndex) {
+        setActiveIndex(index);
+      }
+    }
+  }, [progress, lyricsLines, activeIndex]);
+
+  // Handle auto-scroll
+  useEffect(() => {
+    if (activeLineRef.current && activeIndex !== -1) {
+      activeLineRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center'
+      });
+    }
+  }, [activeIndex]);
+
   const fetchLyrics = async () => {
     setLoading(true);
-    setLyrics('');
+    setLyricsLines([]);
+    setPlainLyrics('');
     try {
-      // Use the new LRCLIB endpoint with title and artist
       const response = await api.get('/api/music/lyrics', {
         params: {
-          title: song.title,
-          artist: song.artist
+          track_name: song.title,
+          artist_name: song.artist,
+          duration: Math.floor(song.duration || 0)
         }
       });
       
-      const lyricsData = response.data;
-      let lyricsText = lyricsData.lyrics || "Lyrics not available for this track.";
-      
-      // Strip timestamps if they exist (LRC format [00:12.30])
-      const cleanLyrics = lyricsText.replace(/\[.*?\]/g, '').trim();
-      setLyrics(cleanLyrics);
+      const data = response.data;
+      if (data.syncedLyrics) {
+        const parsed = parseLRC(data.syncedLyrics);
+        setLyricsLines(parsed);
+      } else if (data.plainLyrics) {
+        setPlainLyrics(data.plainLyrics);
+      } else {
+        setPlainLyrics("Lyrics not available for this track.");
+      }
     } catch (error) {
-      setLyrics("Lyrics not available for this track.");
+      setPlainLyrics("Lyrics not available for this track.");
     } finally {
       setLoading(false);
     }
@@ -93,30 +127,51 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
         <div className="flex flex-col md:flex-row gap-12 h-full items-center md:items-start overflow-hidden">
           {/* Left Side: Big Album Art */}
           <div className="w-64 md:w-80 flex-shrink-0 animate-in zoom-in-95 duration-700 hidden md:block">
-            <img 
-              src={song.coverUrl || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745'} 
-              alt={song.title} 
-              className="w-full aspect-square object-cover rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/10"
-            />
-            <div className="mt-8">
-              <h2 className="text-3xl font-black text-white mb-2">{song.title}</h2>
-              <p className="text-xl text-neutral-400 font-medium">{song.artist}</p>
+            <div className="sticky top-0">
+                <img 
+                src={song.coverUrl || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745'} 
+                alt={song.title} 
+                className="w-full aspect-square object-cover rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/10"
+                />
+                <div className="mt-8">
+                <h2 className="text-3xl font-black text-white mb-2">{song.title}</h2>
+                <p className="text-xl text-neutral-400 font-medium">{song.artist}</p>
+                </div>
             </div>
           </div>
 
           {/* Right Side: Content */}
-          <div className="flex-1 w-full overflow-y-auto custom-scrollbar pr-4 py-4">
+          <div ref={scrollContainerRef} className="flex-1 w-full overflow-y-auto custom-scrollbar pr-4 py-32 md:py-[30vh]">
             {loading ? (
               <div className="h-full flex items-center justify-center">
                 <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500"></div>
               </div>
             ) : activeTab === 'lyrics' ? (
-              <div className="flex flex-col items-center md:items-start max-w-2xl mx-auto md:mx-0">
-                {lyrics.split('\n').map((line, i) => (
-                  <p key={i} className="text-lg text-neutral-300 font-semibold mb-2 text-center md:text-left">
-                    {line || '\u00A0'}
-                  </p>
-                ))}
+              <div className="flex flex-col gap-6 md:gap-8 max-w-3xl">
+                {lyricsLines.length > 0 ? (
+                  lyricsLines.map((line, i) => (
+                    <div 
+                      key={i} 
+                      ref={i === activeIndex ? activeLineRef : null}
+                      className={`transition-all duration-300 transform ${
+                        i === activeIndex 
+                          ? 'text-4xl md:text-5xl font-bold text-white scale-105 origin-left drop-shadow-2xl' 
+                          : 'text-2xl md:text-3xl font-semibold text-neutral-500 hover:text-neutral-300 cursor-pointer'
+                      }`}
+                      onClick={() => {
+                          // Optional: seek to time if clicked
+                      }}
+                    >
+                      {line.text}
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-2xl md:text-4xl font-bold text-neutral-400 leading-relaxed">
+                    {plainLyrics.split('\n').map((line, i) => (
+                      <p key={i} className="mb-4">{line || '\u00A0'}</p>
+                    ))}
+                  </div>
+                )}
               </div>
             ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-right-10 duration-500">

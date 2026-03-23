@@ -19,7 +19,7 @@ async def get_synced_lyrics(song_name: str, artist: str) -> Optional[str]:
 
 async def get_lrclib_lyrics(title: str, artist: str) -> Dict:
     """
-    Queries LRCLIB API for lyrics. Returns synced if available, else plain.
+    Queries LRCLIB /api/search endpoint for lyrics. Returns synced if available, else plain.
     """
     url = "https://lrclib.net/api/search"
     params = {"q": f"{artist} {title}"}
@@ -39,6 +39,30 @@ async def get_lrclib_lyrics(title: str, artist: str) -> Dict:
                     elif plain:
                         return {"lyrics": plain, "isSynced": False}
         except Exception as e:
-            print(f"LRCLIB Error: {e}")
+            print(f"LRCLIB Search Error: {e}")
             
     return {"lyrics": "Lyrics not available for this track.", "isSynced": False}
+
+async def get_synced_lyrics_lrclib(track_name: str, artist_name: str, duration: int) -> Dict:
+    """
+    Queries LRCLIB /api/get endpoint for specific track details including synced lyrics.
+    """
+    url = "https://lrclib.net/api/get"
+    params = {
+        "track_name": track_name,
+        "artist_name": artist_name,
+        "duration": duration
+    }
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, params=params, timeout=10.0)
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 404:
+                # Fallback to search if /get fails
+                return await get_lrclib_lyrics(track_name, artist_name)
+        except Exception as e:
+            print(f"LRCLIB Get Error: {e}")
+            
+    return {}

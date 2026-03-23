@@ -192,13 +192,17 @@ async def get_synced_lyrics(title: str = Query(...), artist: str = Query(...)):
         raise HTTPException(status_code=500, detail="Error fetching synced lyrics")
 
 @router.get("/lyrics")
-async def get_lrclib_lyrics_endpoint(title: str = Query(...), artist: str = Query(...)):
+async def get_lrclib_lyrics_endpoint(
+    track_name: str = Query(...), 
+    artist_name: str = Query(...),
+    duration: int = Query(...)
+):
     """
-    Fetch lyrics from LRCLIB (Synced with Plain fallback).
+    Fetch lyrics from LRCLIB using the /get endpoint for high precision.
     """
     try:
         from services import lyrics
-        return await lyrics.get_lrclib_lyrics(title, artist)
+        return await lyrics.get_synced_lyrics_lrclib(track_name, artist_name, duration)
     except Exception as e:
         print(f"LRCLIB Endpoint Error: {str(e)}")
         return {"lyrics": "Lyrics not available for this track.", "isSynced": False}

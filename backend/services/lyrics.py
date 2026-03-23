@@ -35,20 +35,20 @@ async def get_lrclib_lyrics(title: str, artist: str) -> Dict:
                     plain = result.get("plainLyrics")
                     
                     if synced:
-                        return {"lyrics": synced, "isSynced": True}
+                        return {"syncedLyrics": synced, "plainLyrics": plain}
                     elif plain:
-                        return {"lyrics": plain, "isSynced": False}
+                        return {"syncedLyrics": None, "plainLyrics": plain}
         except Exception as e:
             print(f"LRCLIB Search Error: {e}")
             
-    return {"lyrics": "Lyrics not available for this track.", "isSynced": False}
+    return {"syncedLyrics": None, "plainLyrics": "Lyrics not available for this track."}
 
 async def get_synced_lyrics_lrclib(title: Optional[str] = None, artist: Optional[str] = None, duration: int = 0) -> Dict:
     """
     Queries LRCLIB /api/get endpoint for specific track details including synced lyrics.
     """
     if not title or not artist:
-        return {"lyrics": "Title and artist are required query parameters.", "isSynced": False}
+        return {"syncedLyrics": None, "plainLyrics": "Title and artist are required query parameters."}
 
     url = "https://lrclib.net/api/get"
     params = {
@@ -62,10 +62,12 @@ async def get_synced_lyrics_lrclib(title: Optional[str] = None, artist: Optional
             response = await client.get(url, params=params, timeout=10.0)
             if response.status_code == 200:
                 return response.json()
-            elif response.status_code == 404:
-                # Fallback to search if /get fails
-                return await get_lrclib_lyrics(title, artist)
+            
+            # Fallback for any other status (404, 500, etc)
+            return await get_lrclib_lyrics(title, artist)
         except Exception as e:
             print(f"LRCLIB Get Error: {e}")
-            
-    return {}
+            return await get_lrclib_lyrics(title, artist)
+    
+    # Should not be reachable given the returns above, but for safety:
+    return await get_lrclib_lyrics(title if title else "", artist if artist else "")

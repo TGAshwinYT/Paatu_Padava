@@ -29,9 +29,19 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
     setLoading(true);
     setLyrics('');
     try {
-      const response = await api.get(`/api/music/lyrics/${song.id}`);
-      const lyricsText = response.data.lyrics || response.data || "Lyrics not available for this track.";
-      const cleanLyrics = lyricsText.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>?/gm, '');
+      // Use the new LRCLIB endpoint with title and artist
+      const response = await api.get('/api/music/lyrics', {
+        params: {
+          title: song.title,
+          artist: song.artist
+        }
+      });
+      
+      const lyricsData = response.data;
+      let lyricsText = lyricsData.lyrics || "Lyrics not available for this track.";
+      
+      // Strip timestamps if they exist (LRC format [00:12.30])
+      const cleanLyrics = lyricsText.replace(/\[.*?\]/g, '').trim();
       setLyrics(cleanLyrics);
     } catch (error) {
       setLyrics("Lyrics not available for this track.");
@@ -101,13 +111,13 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
                 <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500"></div>
               </div>
             ) : activeTab === 'lyrics' ? (
-              <pre className="whitespace-pre-wrap font-sans text-3xl md:text-5xl font-black leading-tight tracking-tight text-neutral-500 select-none text-center md:text-left">
+              <div className="flex flex-col items-center md:items-start max-w-2xl mx-auto md:mx-0">
                 {lyrics.split('\n').map((line, i) => (
-                  <div key={i} className="hover:text-white cursor-default transition-colors duration-300 mb-6 group">
-                    <span className="opacity-40 group-hover:opacity-100 transition-opacity">{line || '\u00A0'}</span>
-                  </div>
+                  <p key={i} className="text-lg text-neutral-300 font-semibold mb-2 text-center md:text-left">
+                    {line || '\u00A0'}
+                  </p>
                 ))}
-              </pre>
+              </div>
             ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-right-10 duration-500">
                     {recommendations.length > 0 ? recommendations.map(track => (

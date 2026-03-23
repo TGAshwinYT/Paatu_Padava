@@ -111,17 +111,16 @@ export const getSuggestions = async (query: string): Promise<any> => {
   }
 };
 
-export const addListenHistory = async (song: Song) => {
+export const addListenHistory = async (track: Song) => {
   try {
-    // Map frontend Song to backend SongSchema (snake_case)
-    const backendSong = {
-      id: song.id,
-      title: song.title,
-      artist: song.artist,
-      cover_url: song.coverUrl,
-      audio_url: song.audioUrl
-    };
-    await api.post('/api/history/listen', backendSong);
+    // Map frontend Song to backend SongSchema (snake_case) with safe defaults
+    await api.post('/api/history/listen', {
+      id: track.id,
+      title: track.title || "Unknown Title",
+      artist: track.artist || "Unknown Artist",
+      cover_url: track.coverUrl || "",
+      audio_url: track.audioUrl || ""
+    });
   } catch (error) {
     console.error("Error tracking history:", error);
   }
@@ -230,16 +229,15 @@ export const updatePreferences = async (artists: string[]) => {
   }
 };
 
-export const saveSearchClick = async (song: Song) => {
+export const saveSearchClick = async (track: Song) => {
   try {
-    const backendSong = {
-      id: song.id,
-      title: song.title,
-      artist: song.artist,
-      cover_url: song.coverUrl,
-      audio_url: song.audioUrl
-    };
-    await api.post('/api/history/search-click', backendSong);
+    await api.post('/api/history/search-click', {
+      id: track.id,
+      title: track.title || "Unknown Title",
+      artist: track.artist || "Unknown Artist",
+      cover_url: track.coverUrl || "",
+      audio_url: track.audioUrl || ""
+    });
   } catch (error) {
     console.error("Error saving search click:", error);
   }

@@ -10,10 +10,10 @@ from services import saavn
 
 from pydantic import BaseModel # Added
 
-class SongSchema(BaseModel): # Added
+class SongSchema(BaseModel):
     id: str
-    title: str
-    artist: str
+    title: Optional[str] = "Unknown Title"
+    artist: Optional[str] = "Unknown Artist"
     cover_url: Optional[str] = None
     audio_url: Optional[str] = None
 

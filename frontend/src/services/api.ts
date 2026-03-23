@@ -206,6 +206,46 @@ export const updatePreferences = async (artists: string[]) => {
   }
 };
 
+export const saveSearchClick = async (song: Song) => {
+  try {
+    const backendSong = {
+      id: song.id,
+      title: song.title,
+      artist: song.artist,
+      cover_url: song.coverUrl,
+      audio_url: song.audioUrl
+    };
+    await api.post('/api/history/search-click', backendSong);
+  } catch (error) {
+    console.error("Error saving search click:", error);
+  }
+};
+
+export const getRecentSearches = async (): Promise<(Song & { historyId: string })[]> => {
+  try {
+    const response = await api.get('/api/history/recent-searches');
+    return response.data.map((item: any) => ({
+      id: item.jiosaavn_song_id,
+      historyId: item.id,
+      title: item.title,
+      artist: item.artist,
+      coverUrl: item.cover_url,
+      audioUrl: item.audio_url
+    }));
+  } catch (error) {
+    console.error("Error fetching recent searches:", error);
+    return [];
+  }
+};
+
+export const deleteSearchHistoryItem = async (historyId: string) => {
+  try {
+    await api.delete(`/api/history/search-click/${historyId}`);
+  } catch (error) {
+    console.error("Error deleting search history item:", error);
+  }
+};
+
 export const getPlaylistDetail = async (id: string): Promise<{ title: string, songs: Song[] }> => {
   try {
     const response = await api.get(`/api/playlists/${id}`);

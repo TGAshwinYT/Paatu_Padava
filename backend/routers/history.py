@@ -3,7 +3,7 @@ from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func # Added for func.now()
 from connection import get_db
-from models import ListeningHistory, SearchHistory, User
+from models import ListeningHistory, SearchHistory, SearchClickHistory, User
 from auth_utils import get_current_user
 from typing import List, Optional, Dict, Any # Modified from typing import List
 from services import saavn
@@ -151,3 +151,86 @@ async def get_search_history(user: User = Depends(get_current_user), db: AsyncSe
         return history
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to fetch search history")
+
+@router.post("/search-click")
+async def add_search_click_history(song: SongSchema, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """
+    Tracks songs clicked specifically from search results.
+    """
+    try:
+        # Check for duplicates (last clicked)
+        last_query = select(SearchClickHistory).where(SearchClickHistory.user_id == user.id).order_by(SearchClickHistory.clicked_at.desc()).limit(1)
+        last_result = await db.execute(last_query)
+        last_entry = last_result.scalar_one_or_none()
+        
+        if last_entry and last_entry.jiosaavn_song_id == song.id:
+            last_entry.clicked_at = func.now()
+            await db.commit()
+            return {"message": "Search history updated"}
+
+        new_entry = SearchClickHistory(
+            user_id=user.id,
+            jiosaavn_song_id=song.id,
+            title=song.title,
+            artist=song.artist,
+            cover_url=song.cover_url,
+            audio_url=song.audio_url
+        )
+        db.add(new_entry)
+        
+        # Enforce 10-track limit for search clicks
+        count_query = select(func.count()).select_from(SearchClickHistory).where(SearchClickHistory.user_id == user.id)
+        count_result = await db.execute(count_query)
+        count = count_result.scalar()
+        
+        if count + 1 > 10:
+             oldest_query = (
+                select(SearchClickHistory)
+                .where(SearchClickHistory.user_id == user.id)
+                .order_by(SearchClickHistory.clicked_at.asc())
+                .limit((count + 1) - 10)
+            )
+             oldest_result = await db.execute(oldest_query)
+             for item in oldest_result.scalars().all():
+                 await db.delete(item)
+
+        await db.commit()
+        return {"message": "Search click tracked"}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to track search click")
+
+@router.get("/recent-searches")
+async def get_recent_searches(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """
+    Fetches the user's 10 most recent search-clicked songs.
+    """
+    try:
+        query = select(SearchClickHistory).where(SearchClickHistory.user_id == user.id).order_by(SearchClickHistory.clicked_at.desc()).limit(10)
+        result = await db.execute(query)
+        return result.scalars().all()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to fetch recent searches")
+
+@router.delete("/search-click/{history_id}")
+async def delete_search_click_item(history_id: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """
+    Removes a specific song from search history.
+    """
+    try:
+        query = select(SearchClickHistory).where(SearchClickHistory.id == history_id, SearchClickHistory.user_id == user.id)
+        result = await db.execute(query)
+        item = result.scalar_one_or_none()
+        
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+            
+        await db.delete(item)
+        await db.commit()
+        return {"message": "Item removed from search history"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to delete search history item")
+

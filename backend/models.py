@@ -32,6 +32,7 @@ class User(Base):
     history = relationship("ListeningHistory", back_populates="user")
     liked_songs = relationship("LikedSong", back_populates="user")
     search_history = relationship("SearchHistory", back_populates="user")
+    search_click_history = relationship("SearchClickHistory", back_populates="user")
 
 class Artist(Base):
     __tablename__ = "artists"
@@ -86,6 +87,20 @@ class SearchHistory(Base):
     searched_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="search_history")
+
+class SearchClickHistory(Base):
+    __tablename__ = "search_click_history"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    jiosaavn_song_id = Column(String(100), nullable=False)
+    title = Column(String(255))
+    artist = Column(String(255))
+    cover_url = Column(String)
+    audio_url = Column(String)
+    clicked_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="search_click_history")
 
 class LikedSong(Base):
     __tablename__ = "liked_songs"

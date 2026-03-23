@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search as SearchIcon, X, ArrowLeft, Clock, Music, Play, User as UserIcon } from 'lucide-react';
-import { searchTracks, getSuggestions, getListenHistory, deleteHistoryItem } from '../../services/api';
+import { searchTracks, getSuggestions, getRecentSearches, deleteSearchHistoryItem, saveSearchClick } from '../../services/api';
 import { useAudio } from '../../context/AudioContext';
 import type { Song } from '../../types';
 
@@ -18,7 +18,7 @@ const MobileSearch: React.FC = () => {
   // Fetch history on mount
   useEffect(() => {
     const fetchRecent = async () => {
-      const history = await getListenHistory();
+      const history = await getRecentSearches();
       setRecentlyPlayed(history);
     };
     fetchRecent();
@@ -53,14 +53,17 @@ const MobileSearch: React.FC = () => {
 
   const handleDeleteHistory = async (e: React.MouseEvent, historyId: string) => {
     e.stopPropagation();
-    await deleteHistoryItem(historyId);
+    await deleteSearchHistoryItem(historyId);
     setRecentlyPlayed(prev => prev.filter(item => item.historyId !== historyId));
   };
 
   const handleSongSelect = (song: Song) => {
+    saveSearchClick(song);
     playTrack(song);
     setIsOverlayOpen(false);
     setQuery('');
+    // Refresh history
+    getRecentSearches().then(setRecentlyPlayed);
   };
 
   return (

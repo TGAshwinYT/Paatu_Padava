@@ -55,6 +55,20 @@ async def create_tables():
             await conn.execute(text("ALTER TABLE liked_songs ADD COLUMN IF NOT EXISTS artist TEXT"))
             await conn.execute(text("ALTER TABLE liked_songs ADD COLUMN IF NOT EXISTS cover_url TEXT"))
             await conn.execute(text("ALTER TABLE liked_songs ADD COLUMN IF NOT EXISTS audio_url TEXT"))
+            
+            # Search Click History Migrations
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS search_click_history (
+                    id UUID PRIMARY KEY,
+                    user_id UUID REFERENCES users(id),
+                    jiosaavn_song_id TEXT NOT NULL,
+                    title TEXT,
+                    artist TEXT,
+                    cover_url TEXT,
+                    audio_url TEXT,
+                    clicked_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+            """))
         except Exception as e:
             print(f"Migration Note: {e}")
 

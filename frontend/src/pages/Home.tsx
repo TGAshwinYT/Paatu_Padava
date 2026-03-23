@@ -25,10 +25,12 @@ const Home = () => {
     const fetchFeed = async () => {
       setIsLoading(true);
       const data = await getHomeFeed();
-      setRecentlyPlayed(data.recentlyPlayed || []);
-      setTopArtists(data.topArtists || []);
-      // @ts-ignore - response might have dynamic field from backend
-      setRecommended(data.recommendedForYou || []);
+      
+      // Look for camelCase OR snake_case from the backend!
+      setRecentlyPlayed(data.recentlyPlayed || data.recently_played || []);
+      setTopArtists(data.topArtists || data.top_artists || []);
+      setRecommended(data.recommendedForYou || data.recommended_for_you || []);
+      
       setIsLoading(false);
     };
     fetchFeed();

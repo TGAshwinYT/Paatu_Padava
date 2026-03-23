@@ -18,7 +18,7 @@ async def fetch_from_saavn(endpoint: str, params: Dict[str, Any] = None) -> Dict
             response.raise_for_status()
             return response.json()
         except Exception as e:
-            print(f"❌ API Request Failed ({endpoint}): {str(e)}")
+            print(f"API Request Failed ({endpoint}): {str(e)}")
             return {"success": False, "data": None}
 
 async def map_saavn_song(item: Dict[str, Any], lenient: bool = False) -> Dict[str, Any]:
@@ -127,49 +127,50 @@ async def search_saavn(query: str) -> List[Dict[str, Any]]:
 async def get_trending() -> Dict[str, List[Dict[str, Any]]]:
     """
     Fetches trending modules for the home screen.
-    Includes fallbacks for different data structures in the 'modules' endpoint.
+    Includes a robust fallback that uses search results if the 'modules' endpoint fails.
     """
-    response = await fetch_from_saavn("modules", {"language": "hindi,english"})
-    data = response.get("data", {})
-    
-    if not data:
-        return {"recentlyPlayed": [], "topArtists": []}
-
-    # Extract trending songs and albums (new releases)
-    # Different versions of the API use 'trending' or 'charts' or 'new_releases'
     trending_raw = []
     albums_raw = []
     
-    # 1. Standard structure: data.trending.songs
-    if isinstance(data.get("trending"), dict):
-        trending_raw = data["trending"].get("songs", [])
-    elif isinstance(data.get("charts"), list): # Fallback 1: Charts
-        trending_raw = data["charts"]
-    
-    # 2. Standard structure: data.albums
-    if isinstance(data.get("albums"), (list, dict)):
-        albums_raw = data["albums"]
-        if isinstance(albums_raw, dict):
-            albums_raw = albums_raw.get("results", [])
-    elif isinstance(data.get("new_releases"), list): # Fallback 2: New Releases
-        albums_raw = data["new_releases"]
+    try:
+        response = await fetch_from_saavn("modules", {"language": "hindi,english"})
+        data = response.get("data", {})
+        
+        if data:
+            if isinstance(data.get("trending"), dict):
+                trending_raw = data["trending"].get("songs", [])
+            elif isinstance(data.get("charts"), list):
+                trending_raw = data["charts"]
+            
+            if isinstance(data.get("albums"), (list, dict)):
+                albums_raw = data["albums"]
+                if isinstance(albums_raw, dict):
+                    albums_raw = albums_raw.get("results", [])
+    except Exception as e:
+        print(f"Primary modules endpoint failed: {str(e)}")
 
-    print(f"🔎 DEBUG HOME FEED: Trending count: {len(trending_raw)}, Albums count: {len(albums_raw)}")
+    # FALLBACK: If primary failed or returned nothing, use search to populate the UI
+    if not trending_raw or not albums_raw:
+        print("Using search-based fallback for home feed...")
+        if not trending_raw:
+            trending_raw = await search_saavn("Trending 2026")
+        if not albums_raw:
+            albums_raw = await search_saavn("Pop Hits")
 
-    # Map with lenient=True so the Home screen shows results even if links are pending
     seen_ids = set()
     recently_played = []
-    for s in trending_raw:
+    for s in (trending_raw or []):
         if len(recently_played) >= 12: break
-        m = await map_saavn_song(s, lenient=True)
+        # item might already be mapped if coming from search_saavn
+        m = await map_saavn_song(s, lenient=True) if isinstance(s, dict) and 'id' in s and 'title' not in s else s
         if m and m.get('id') not in seen_ids:
             recently_played.append(m)
             seen_ids.add(m['id'])
         
     top_artists = []
-    for a in albums_raw:
+    for a in (albums_raw or []):
         if len(top_artists) >= 12: break
-        m = await map_saavn_song(a, lenient=True)
+        m = await map_saavn_song(a, lenient=True) if isinstance(a, dict) and 'id' in a and 'title' not in a else a
         if m and m.get('id') not in seen_ids:
             top_artists.append(m)
             seen_ids.add(m['id'])

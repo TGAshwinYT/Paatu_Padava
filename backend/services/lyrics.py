@@ -43,10 +43,13 @@ async def get_lrclib_lyrics(title: str, artist: str) -> Dict:
             
     return {"lyrics": "Lyrics not available for this track.", "isSynced": False}
 
-async def get_synced_lyrics_lrclib(title: str, artist: str, duration: int) -> Dict:
+async def get_synced_lyrics_lrclib(title: Optional[str] = None, artist: Optional[str] = None, duration: int = 0) -> Dict:
     """
     Queries LRCLIB /api/get endpoint for specific track details including synced lyrics.
     """
+    if not title or not artist:
+        return {"lyrics": "Title and artist are required query parameters.", "isSynced": False}
+
     url = "https://lrclib.net/api/get"
     params = {
         "track_name": title,

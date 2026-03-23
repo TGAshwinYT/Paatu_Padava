@@ -193,9 +193,9 @@ async def get_synced_lyrics(title: str = Query(...), artist: str = Query(...)):
 
 @router.get("/lyrics")
 async def get_lrclib_lyrics_endpoint(
-    title: str = Query(...), 
-    artist: str = Query(...),
-    duration: int = Query(...)
+    title: str = Query(None), 
+    artist: str = Query(None),
+    duration: int = Query(0)
 ):
     """
     Fetch lyrics from LRCLIB using the /get endpoint for high precision.

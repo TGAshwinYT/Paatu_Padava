@@ -24,7 +24,7 @@ const Home = () => {
   useEffect(() => {
     const fetchFeed = async () => {
       setIsLoading(true);
-      const data = await getHomeFeed();
+      const data = await getHomeFeed() as any;
       
       // Look for camelCase OR snake_case from the backend!
       setRecentlyPlayed(data.recentlyPlayed || data.recently_played || []);

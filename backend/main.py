@@ -85,20 +85,6 @@ app.include_router(history.router)
 app.include_router(users.router)
 
 from sqlalchemy import select
-from connection import get_db
-
-@app.get("/api/users/{user_id}/artists")
-async def get_user_followed_artists(user_id: str, db: AsyncSession = Depends(get_db)):
-    """
-    Returns the JioSaavn artist IDs a user follows.
-    """
-    # Note: In a real app, this would query the association table
-    # For now, we return a sample list to satisfy the requirement
-    query = select(models.Artist.id).join(models.user_followed_artists).where(models.user_followed_artists.c.user_id == user_id)
-    result = await db.execute(query)
-    artist_ids = result.scalars().all()
-    
-    return {"user_id": user_id, "followed_artist_ids": artist_ids}
 
     return {"message": "Paaatu_Padava API is running!"}
 

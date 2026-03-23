@@ -19,7 +19,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogin }) => {
   const navigate = useNavigate();
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [followedArtists, setFollowedArtists] = useState<any[]>([]);
-  const [favoriteArtists, setFavoriteArtists] = useState<string[]>([]);
+  const [favoriteArtists, setFavoriteArtists] = useState<{id: string, name: string, image: string}[]>([]);
 
   useEffect(() => {
     if (user) {
@@ -35,13 +35,10 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogin }) => {
 
   const fetchFavoriteArtists = async () => {
     try {
-      const response = await api.get('/api/auth/me');
-      const artistsStr = response.data.favoriteArtists;
-      if (artistsStr) {
-        setFavoriteArtists(JSON.parse(artistsStr));
-      }
+      const response = await api.get('/api/users/me/artists-details');
+      setFavoriteArtists(response.data);
     } catch (error) {
-      console.error("Error fetching favorite artists:", error);
+      console.error("Error fetching favorite artists details:", error);
     }
   };
 
@@ -239,13 +236,18 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogin }) => {
                <>
                  <p className="text-xs font-semibold text-neutral-400 tracking-wider mt-6 mb-4 px-2">YOUR ARTISTS</p>
                  <div className="flex flex-col gap-1">
-                   {favoriteArtists.map((artistName, index) => (
+                   {favoriteArtists.map((artist, index) => (
                      <Link 
-                       key={index}
-                       to={`/artist/${artistName}`}
-                       className="text-neutral-400 hover:text-white text-sm font-medium truncate cursor-pointer transition-colors px-2 pb-2 block"
+                       key={artist.id || index}
+                       to={`/artist/${artist.id || artist.name}`}
+                       className="flex items-center gap-3 py-2 text-neutral-400 hover:text-white transition-colors cursor-pointer group px-2"
                      >
-                       {artistName}
+                       <img 
+                         src={artist.image || 'https://via.placeholder.com/150'} 
+                         alt={artist.name} 
+                         className="w-8 h-8 rounded-full object-cover shadow-md group-hover:shadow-lg transition-shadow" 
+                       />
+                       <span className="text-sm font-medium truncate">{artist.name}</span>
                      </Link>
                    ))}
                  </div>

@@ -7,8 +7,50 @@ from models import User, LikedSong, Playlist, PlaylistTrack
 from auth_utils import get_current_user
 import json
 from typing import List
+from services import saavn
+import asyncio
 
 router = APIRouter(prefix="/api/users", tags=["users"])
+
+@router.get("/me/artists-details")
+async def get_user_artists_details(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """
+    Fetches the current user's favorite artists name from DB and 
+    aggregates their details (id, name, image) from JioSaavn.
+    """
+    # 1. Fetch user favorite_artists names
+    result = await db.execute(select(User.favorite_artists).where(User.id == user.id))
+    artists_json = result.scalar_one()
+    
+    try:
+        artist_names = json.loads(artists_json)
+    except:
+        artist_names = []
+        
+    if not artist_names:
+        return []
+
+    # 2. Fetch details from Saavn for each artist
+    # We use asyncio.gather for parallel fetching
+    async def get_artist_info(name):
+        try:
+            results = await saavn.search_artists(name)
+            if results:
+                # Take the first match
+                best_match = results[0]
+                return {
+                    "id": best_match.get("id"),
+                    "name": best_match.get("name"),
+                    "image": best_match.get("imageUrl")
+                }
+        except:
+            pass
+        return {"id": name, "name": name, "image": ""}
+
+    tasks = [get_artist_info(name) for name in artist_names]
+    artist_details = await asyncio.gather(*tasks)
+    
+    return [a for a in artist_details if a]
 
 @router.get("/export")
 async def export_data(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):

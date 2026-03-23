@@ -43,14 +43,14 @@ async def get_lrclib_lyrics(title: str, artist: str) -> Dict:
             
     return {"lyrics": "Lyrics not available for this track.", "isSynced": False}
 
-async def get_synced_lyrics_lrclib(track_name: str, artist_name: str, duration: int) -> Dict:
+async def get_synced_lyrics_lrclib(title: str, artist: str, duration: int) -> Dict:
     """
     Queries LRCLIB /api/get endpoint for specific track details including synced lyrics.
     """
     url = "https://lrclib.net/api/get"
     params = {
-        "track_name": track_name,
-        "artist_name": artist_name,
+        "track_name": title,
+        "artist_name": artist,
         "duration": duration
     }
     
@@ -61,7 +61,7 @@ async def get_synced_lyrics_lrclib(track_name: str, artist_name: str, duration: 
                 return response.json()
             elif response.status_code == 404:
                 # Fallback to search if /get fails
-                return await get_lrclib_lyrics(track_name, artist_name)
+                return await get_lrclib_lyrics(title, artist)
         except Exception as e:
             print(f"LRCLIB Get Error: {e}")
             

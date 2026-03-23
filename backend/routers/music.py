@@ -193,8 +193,8 @@ async def get_synced_lyrics(title: str = Query(...), artist: str = Query(...)):
 
 @router.get("/lyrics")
 async def get_lrclib_lyrics_endpoint(
-    track_name: str = Query(...), 
-    artist_name: str = Query(...),
+    title: str = Query(...), 
+    artist: str = Query(...),
     duration: int = Query(...)
 ):
     """
@@ -202,7 +202,7 @@ async def get_lrclib_lyrics_endpoint(
     """
     try:
         from services import lyrics
-        return await lyrics.get_synced_lyrics_lrclib(track_name, artist_name, duration)
+        return await lyrics.get_synced_lyrics_lrclib(title, artist, duration)
     except Exception as e:
         print(f"LRCLIB Endpoint Error: {str(e)}")
         return {"lyrics": "Lyrics not available for this track.", "isSynced": False}

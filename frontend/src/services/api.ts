@@ -295,6 +295,22 @@ export const renamePlaylist = async (playlistId: string, title: string) => {
   }
 };
 
+export const getLyrics = async (track: Song) => {
+  try {
+    const response = await api.get('/api/music/lyrics', {
+      params: {
+        title: track.title,
+        artist: track.artist,
+        duration: Math.floor(track.duration || 0)
+      }
+    });
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching lyrics:", error);
+    return null;
+  }
+};
+
 export const deletePlaylist = async (playlistId: string) => {
   try {
     await api.delete(`/api/playlists/${playlistId}`);

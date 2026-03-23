@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Sparkles } from 'lucide-react';
-import { getRecommendations } from '../services/api';
+import { getRecommendations, getLyrics } from '../services/api';
 import type { Song } from '../types';
 import { useAudio } from '../context/AudioContext';
-import api from '../services/api';
 import { parseLRC } from '../utils/LyricsParser';
 import type { LyricsLine } from '../utils/LyricsParser';
 
@@ -60,15 +59,9 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
     setLyricsLines([]);
     setPlainLyrics('');
     try {
-      const response = await api.get('/api/music/lyrics', {
-        params: {
-          track_name: song.title,
-          artist_name: song.artist,
-          duration: Math.floor(song.duration || 0)
-        }
-      });
+      const data = await getLyrics(song);
+      if (!data) throw new Error("No data");
       
-      const data = response.data;
       if (data.syncedLyrics) {
         const parsed = parseLRC(data.syncedLyrics);
         setLyricsLines(parsed);

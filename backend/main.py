@@ -84,8 +84,8 @@ app.include_router(playlists.router)
 app.include_router(history.router)
 app.include_router(users.router)
 
-from sqlalchemy import select
-
+@app.get("/")
+async def root():
     return {"message": "Paaatu_Padava API is running!"}
 
 if __name__ == "__main__":

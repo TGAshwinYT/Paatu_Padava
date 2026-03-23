@@ -11,11 +11,13 @@ import {
   Mic2,
   ChevronUp,
   Settings,
-  Clock
+  Clock,
+  ListMusic
 } from 'lucide-react';
 import { useAudio } from '../context/AudioContext';
 import LyricsOverlay from './LyricsOverlay';
 import SleepTimerModal from './SleepTimerModal';
+import QueuePanel from './QueuePanel';
 
 const PlayerBar = () => {
   const { 
@@ -42,6 +44,7 @@ const PlayerBar = () => {
   const [showSleepTimer, setShowSleepTimer] = useState(false);
   const [showQualityMenu, setShowQualityMenu] = useState(false);
   const [showDevicePicker, setShowDevicePicker] = useState(false);
+  const [showQueue, setShowQueue] = useState(false);
 
   const formatTime = (seconds: number) => {
     if (isNaN(seconds)) return '0:00';
@@ -164,6 +167,12 @@ const PlayerBar = () => {
             className={`cursor-pointer transition ${showLyrics ? 'text-green-500 hover:text-green-400' : 'text-neutral-400 hover:text-white'}`} 
             onClick={() => setShowLyrics(!showLyrics)}
           />
+
+          <ListMusic 
+            size={18} 
+            className={`cursor-pointer transition ${showQueue ? 'text-green-500 hover:text-green-400' : 'text-neutral-400 hover:text-white'}`} 
+            onClick={() => setShowQueue(!showQueue)}
+          />
           
           <div className="relative flex items-center gap-1 group">
              <Clock 
@@ -236,6 +245,11 @@ const PlayerBar = () => {
       <SleepTimerModal 
         isOpen={showSleepTimer} 
         onClose={() => setShowSleepTimer(false)} 
+      />
+
+      <QueuePanel 
+        isOpen={showQueue} 
+        onClose={() => setShowQueue(false)} 
       />
     </>
   );

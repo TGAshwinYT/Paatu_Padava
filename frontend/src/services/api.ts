@@ -301,6 +301,8 @@ export const getLyrics = async (track: Song) => {
       params: {
         title: track.title,
         artist: track.artist,
+        track_name: track.title,   // Added for legacy backend compatibility
+        artist_name: track.artist, // Added for legacy backend compatibility
         duration: Math.floor(track.duration || 0)
       }
     });

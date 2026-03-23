@@ -195,14 +195,23 @@ async def get_synced_lyrics(title: str = Query(...), artist: str = Query(...)):
 async def get_lrclib_lyrics_endpoint(
     title: str = Query(None), 
     artist: str = Query(None),
+    track_name: str = Query(None),
+    artist_name: str = Query(None),
     duration: int = Query(0)
 ):
     """
-    Fetch lyrics from LRCLIB using the /get endpoint for high precision.
+    Fetch lyrics from LRCLIB using the /get endpoint.
+    Hyper-compatible: Accepts [title, artist] OR [track_name, artist_name].
     """
+    final_title = title or track_name
+    final_artist = artist or artist_name
+    
+    if not final_title or not final_artist:
+        return {"lyrics": "Title and artist are required.", "isSynced": False}
+        
     try:
         from services import lyrics
-        return await lyrics.get_synced_lyrics_lrclib(title, artist, duration)
+        return await lyrics.get_synced_lyrics_lrclib(final_title, final_artist, duration)
     except Exception as e:
         print(f"LRCLIB Endpoint Error: {str(e)}")
         return {"lyrics": "Lyrics not available for this track.", "isSynced": False}

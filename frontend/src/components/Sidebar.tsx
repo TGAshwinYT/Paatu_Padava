@@ -19,7 +19,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogin }) => {
   const navigate = useNavigate();
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [followedArtists, setFollowedArtists] = useState<any[]>([]);
-  const isMobile = false; // Sidebar is desktop only in this layout
 
   useEffect(() => {
     if (user) {

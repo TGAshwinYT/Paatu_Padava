@@ -34,7 +34,7 @@ const Home = () => {
         const data = feedData as any;
         setRecentlyPlayed(historyData.slice(0, 12));
         setTopArtists(artistsData.slice(0, 12));
-        setRecommended(data.recommendedForYou || data.recommended_for_you || []);
+        setRecommended(data.recommendedForYou || []);
       } catch (error) {
         console.error("Error fetching home feed:", error);
       } finally {

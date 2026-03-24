@@ -1,6 +1,21 @@
 import axios from 'axios';
 import type { Song } from '../types';
 
+export const mapHistoryToSong = (item: any): Song => {
+  if (!item) return { id: '', title: 'Unknown', artist: 'Unknown', coverUrl: '', audioUrl: '' };
+  
+  return {
+    id: item.jiosaavn_song_id || item.song_id || item.id || '',
+    title: item.title || item.song_name || item.name || 'Unknown Title',
+    artist: item.artist || item.artist_name || item.artists || 'Unknown Artist',
+    album: item.album || item.album_name || '',
+    duration: Number(item.duration || item.song_duration || 0),
+    coverUrl: item.cover_url || item.coverUrl || item.image || item.imageUrl || '',
+    audioUrl: item.audio_url || item.audioUrl || item.url || item.streamUrl || '',
+    downloadUrls: item.download_urls || item.downloadUrls || []
+  };
+};
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const api = axios.create({
@@ -25,18 +40,10 @@ export const getHomeFeed = async (): Promise<{ recentlyPlayed: Song[], topArtist
   try {
     const response = await api.get('/api/music/home');
     const { recentlyPlayed, topArtists, recommendedForYou } = response.data;
-    const mapSong = (item: any): Song => ({
-      id: item.id,
-      title: item.title,
-      artist: item.artist,
-      coverUrl: item.cover_url,
-      audioUrl: item.audio_url,
-      downloadUrls: item.download_urls
-    });
     return { 
-      recentlyPlayed: (recentlyPlayed || []).map(mapSong), 
-      topArtists: (topArtists || []).map(mapSong),
-      recommendedForYou: (recommendedForYou || []).map(mapSong)
+      recentlyPlayed: (recentlyPlayed || []).map(mapHistoryToSong), 
+      topArtists: (topArtists || []).map(mapHistoryToSong),
+      recommendedForYou: (recommendedForYou || []).map(mapHistoryToSong)
     };
   } catch (error) {
     console.error("Error fetching home feed:", error);
@@ -52,14 +59,7 @@ export const searchTracks = async (query: string): Promise<Song[]> => {
     // We no longer track every search query character by character
     // api.post('/api/music/history/search', null, { params: { query } }).catch(() => {});
     
-    return response.data.map((item: any) => ({
-      id: item.id,
-      title: item.title,
-      artist: item.artist,
-      coverUrl: item.cover_url,
-      audioUrl: item.audio_url,
-      downloadUrls: item.download_urls
-    }));
+    return response.data.map(mapHistoryToSong);
   } catch (error) {
     console.error("Error searching tracks:", error);
     return [];
@@ -81,14 +81,7 @@ export const getArtistDetails = async (id: string): Promise<{ id: string, name: 
   try {
     const response = await api.get(`/api/music/artist/${id}`);
     const data = response.data;
-    const songs = (data.topSongs || []).map((item: any) => ({
-      id: item.id,
-      title: item.title,
-      artist: item.artist,
-      coverUrl: item.coverUrl || item.cover_url,
-      audioUrl: item.audioUrl || item.audio_url,
-      downloadUrls: item.downloadUrls || item.download_urls
-    }));
+    const songs = (data.topSongs || []).map(mapHistoryToSong);
     return { 
       id: data.id, 
       name: data.name, 
@@ -128,14 +121,7 @@ export const addListenHistory = async (track: Song) => {
 export const getRecommendations = async (songId: string): Promise<Song[]> => {
   try {
     const response = await api.get(`/api/music/recommendations/${songId}`);
-    return response.data.map((item: any) => ({
-      id: item.id,
-      title: item.title,
-      artist: item.artist,
-      coverUrl: item.cover_url,
-      audioUrl: item.audio_url,
-      downloadUrls: item.download_urls
-    }));
+    return (response.data || []).map(mapHistoryToSong);
   } catch (error) {
     return [];
   }
@@ -144,14 +130,7 @@ export const getRecommendations = async (songId: string): Promise<Song[]> => {
 export const getRelatedSongs = async (songId: string): Promise<Song[]> => {
   try {
     const response = await api.get(`/api/music/related/${songId}`);
-    return response.data.map((item: any) => ({
-      id: item.id,
-      title: item.title,
-      artist: item.artist,
-      coverUrl: item.cover_url,
-      audioUrl: item.audio_url,
-      downloadUrls: item.download_urls
-    }));
+    return (response.data || []).map(mapHistoryToSong);
   } catch (error) {
     return [];
   }
@@ -160,7 +139,7 @@ export const getRelatedSongs = async (songId: string): Promise<Song[]> => {
 export const getLikedSongs = async (): Promise<Song[]> => {
   try {
     const response = await api.get('/api/music/liked');
-    return response.data;
+    return (response.data || []).map(mapHistoryToSong);
   } catch (error) {
     console.error("Error fetching liked songs:", error);
     return [];
@@ -186,13 +165,10 @@ export const unlikeSong = async (songId: string) => {
 export const getListenHistory = async (): Promise<(Song & { historyId: string })[]> => {
   try {
     const response = await api.get('/api/history/listen');
-    return response.data.map((item: any) => ({
-      id: item.jiosaavn_song_id,
-      historyId: item.id, // The UUID of the history record
-      title: item.title,
-      artist: item.artist,
-      coverUrl: item.cover_url,
-      audioUrl: item.audio_url
+    return (response.data || []).map((item: any) => ({
+      ...mapHistoryToSong(item),
+      historyId: item.id,
+      played_at: item.played_at // Preserve this for UI
     }));
   } catch (error) {
     console.error("Error fetching listen history:", error);
@@ -245,13 +221,9 @@ export const saveSearchClick = async (track: Song) => {
 export const getRecentSearches = async (): Promise<(Song & { historyId: string })[]> => {
   try {
     const response = await api.get('/api/history/recent-searches');
-    return response.data.map((item: any) => ({
-      id: item.jiosaavn_song_id,
-      historyId: item.id,
-      title: item.title,
-      artist: item.artist,
-      coverUrl: item.cover_url,
-      audioUrl: item.audio_url
+    return (response.data || []).map((item: any) => ({
+      ...mapHistoryToSong(item),
+      historyId: item.id
     }));
   } catch (error) {
     console.error("Error fetching recent searches:", error);
@@ -271,13 +243,7 @@ export const getPlaylistDetail = async (id: string): Promise<{ title: string, so
   try {
     const response = await api.get(`/api/playlists/${id}`);
     const { title, tracks } = response.data;
-    const songs = (tracks || []).map((t: any) => ({
-      id: t.jiosaavn_song_id,
-      title: t.title || "Unknown Title",
-      artist: t.artist || "Unknown Artist",
-      coverUrl: t.cover_url || t.coverUrl,
-      audioUrl: t.audio_url || t.audioUrl
-    }));
+    const songs = (tracks || []).map(mapHistoryToSong);
     return { title, songs };
   } catch (error) {
     console.error("Error fetching playlist detail:", error);

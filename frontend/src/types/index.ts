@@ -5,6 +5,7 @@ export interface Song {
   coverUrl: string;
   audioUrl: string;
   duration?: number;
+  album?: string;
   downloadUrls?: string[];
 }
 

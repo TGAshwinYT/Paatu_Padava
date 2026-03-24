@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Clock, Play } from 'lucide-react';
-import { getListenHistory } from '../services/api';
+import { getListenHistory, mapHistoryToSong } from '../services/api';
 import { useAudio } from '../context/AudioContext';
-import type { Song } from '../types';
 
 const History = () => {
   const [history, setHistory] = useState<any[]>([]);
@@ -19,16 +18,6 @@ const History = () => {
     fetchHistory();
   }, []);
 
-  // Mapping backend History object to Song type
-  const mapHistoryToSong = (h: any): Song => {
-    return {
-      id: h.jiosaavn_song_id,
-      title: h.title,
-      artist: h.artist,
-      coverUrl: h.cover_url || h.coverUrl || '',
-      audioUrl: h.audio_url || h.audioUrl || ''
-    };
-  };
 
   return (
     <div className="flex flex-col gap-8 pb-24 animate-in fade-in duration-700">
@@ -72,7 +61,7 @@ const History = () => {
                     <h3 className="font-semibold text-white truncate mb-1">{song.title}</h3>
                     <p className="text-xs text-neutral-400 truncate">{song.artist}</p>
                     <p className="text-[10px] text-neutral-500 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {new Date(h.played_at).toLocaleDateString()}
+                      {h.played_at ? new Date(h.played_at).toLocaleDateString() : 'Recently'}
                     </p>
                  </div>
               </div>

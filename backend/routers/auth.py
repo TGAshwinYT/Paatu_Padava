@@ -7,8 +7,19 @@ from auth_utils import get_password_hash, verify_password, create_access_token, 
 from email_utils import send_verification_email
 import uuid
 from typing import List
-import json
 from pydantic import BaseModel, EmailStr
+import random
+import time
+import json
+from typing import Dict, Any
+
+# Temporary in-memory store for OTPs
+# Format: {email: {"otp": str, "expires": float}}
+OTP_STORE: Dict[str, Dict[str, Any]] = {}
+
+def generate_otp() -> str:
+    """Generates a random 6-digit OTP."""
+    return f"{random.randint(0, 999999):06d}"
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -25,58 +36,67 @@ class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
 class ResetPasswordRequest(BaseModel):
-    token: str
+    email: EmailStr
+    otp: str
     new_password: str
 
 @router.post("/forgot-password")
 async def forgot_password(request: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
     """
-    Initiates password reset by generating a token and printing it to the terminal.
+    Initiates password reset by generating a 6-digit OTP and printing it to the terminal.
     """
     result = await db.execute(select(User).where(User.email == request.email))
     user = result.scalars().first()
     
     if user:
-        from auth_utils import create_reset_password_token
-        token = create_reset_password_token(user.email)
+        otp = generate_otp()
+        OTP_STORE[request.email] = {
+            "otp": otp,
+            "expires": time.time() + 900 # 15 minutes
+        }
         
         # Simulating email by printing to terminal
         print("\n" + "="*50)
-        print("PASSWORD RESET REQUEST")
+        print("PASSWORD RESET OTP")
         print(f"User: {user.email}")
-        print(f"Reset Link: http://localhost:5173/reset-password?token={token}")
+        print(f"OTP: {otp}")
+        print("Expires in: 15 minutes")
         print("="*50 + "\n")
         
     # Always return success to avoid email enumeration
-    return {"message": "If this email is registered, you will receive a reset link in your terminal block."}
+    return {"message": "If this email is registered, you will receive a 6-digit OTP in your terminal block."}
 
 @router.post("/reset-password")
 async def reset_password(request: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
     """
-    Updates the user's password using a valid reset token.
+    Updates the user's password using a valid 6-digit OTP.
     """
-    from jose import jwt, JWTError
-    from auth_utils import SECRET_KEY, ALGORITHM, get_password_hash
+    otp_data = OTP_STORE.get(request.email)
     
-    try:
-        payload = jwt.decode(request.token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        token_type: str = payload.get("type")
+    if not otp_data:
+        raise HTTPException(status_code=400, detail="No OTP found for this email block. Please request a new one.")
         
-        if email is None or token_type != "reset_password":
-            raise HTTPException(status_code=400, detail="Invalid token type or missing email")
-    except JWTError:
-        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+    if otp_data["otp"] != request.otp:
+        raise HTTPException(status_code=400, detail="Invalid OTP. Please check and try again.")
         
-    result = await db.execute(select(User).where(User.email == email))
+    if time.time() > otp_data["expires"]:
+        del OTP_STORE[request.email]
+        raise HTTPException(status_code=400, detail="OTP has expired. Please request a new one.")
+        
+    # Valid OTP, update password
+    result = await db.execute(select(User).where(User.email == request.email))
     user = result.scalars().first()
     
     if not user:
+        # This shouldn't happen if they have an OTP, but for safety:
         raise HTTPException(status_code=404, detail="User not found")
         
     # Update password
-    user.hashed_password = get_password_hash(request.password)
+    user.hashed_password = get_password_hash(request.new_password)
     await db.commit()
+    
+    # Clear OTP from store
+    del OTP_STORE[request.email]
     
     return {"message": "Password updated successfully. You can now log in with your new password."}
 

@@ -11,11 +11,10 @@ interface Playlist {
 }
 
 interface SidebarProps {
-  onLogin?: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ onLogin }) => {
-  const { user, logout } = useAuth();
+const Sidebar: React.FC<SidebarProps> = () => {
+  const { user, logout, openLibraryAuthModal } = useAuth();
   const navigate = useNavigate();
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [followedArtists, setFollowedArtists] = useState<any[]>([]);
@@ -62,7 +61,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogin }) => {
 
   const handleCreatePlaylist = async () => {
     if (!user) {
-      if (onLogin) onLogin();
+      openLibraryAuthModal();
       return;
     }
 
@@ -144,38 +143,41 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogin }) => {
             </div>
           )}
           
-          <div className="flex flex-col gap-2 mt-2 overflow-y-auto max-h-[40vh] scrollbar-hide">
+          <div className="flex flex-col gap-2 mt-2 overflow-y-auto max-h-[60vh] scrollbar-hide">
+            {/* Core Actions (Visible to All) */}
+            <div 
+              onClick={handleCreatePlaylist}
+              className="flex items-center gap-4 text-neutral-400 hover:text-white transition-colors font-semibold p-2 rounded-lg hover:bg-[#282828] cursor-pointer"
+            >
+              <div className="bg-gradient-to-br from-indigo-700 to-indigo-300 p-1.5 rounded-sm flex-shrink-0">
+                <Plus size={16} className="text-white" />
+              </div>
+              <span>Create Playlist</span>
+            </div>
+
+            <div 
+              onClick={() => user ? navigate('/library') : openLibraryAuthModal()}
+              className="flex items-center gap-4 text-neutral-400 hover:text-white transition-colors font-semibold p-2 rounded-lg hover:bg-[#282828] cursor-pointer"
+            >
+              <div className="bg-gradient-to-br from-purple-800 to-pink-300 p-1.5 rounded-sm flex-shrink-0">
+                <Heart size={16} className="text-white fill-current" />
+              </div>
+              <span>Liked Songs</span>
+            </div>
+
+            <div 
+              onClick={() => user ? navigate('/history') : openLibraryAuthModal()}
+              className="flex items-center gap-4 text-neutral-400 hover:text-white transition-colors font-semibold p-2 rounded-lg hover:bg-[#282828] cursor-pointer"
+            >
+              <div className="bg-gradient-to-br from-purple-900 to-black p-1.5 rounded-sm flex-shrink-0">
+                <Clock size={16} className="text-white" />
+              </div>
+              <span>Recently Listened</span>
+            </div>
+
+            {/* User-Specific Content (Restricted) */}
             {user && (
               <>
-                <div 
-                  onClick={handleCreatePlaylist}
-                  className="flex items-center gap-4 text-neutral-400 hover:text-white transition-colors font-semibold p-2 rounded-lg hover:bg-[#282828] cursor-pointer"
-                >
-                  <div className="bg-gradient-to-br from-indigo-700 to-indigo-300 p-1.5 rounded-sm">
-                    <Plus size={16} className="text-white" />
-                  </div>
-                  <span>Create Playlist</span>
-                </div>
-                <Link 
-                  to="/library"
-                  className="flex items-center gap-4 text-neutral-400 hover:text-white transition-colors font-semibold p-2 rounded-lg hover:bg-[#282828] cursor-pointer"
-                >
-                  <div className="bg-gradient-to-br from-purple-800 to-pink-300 p-1.5 rounded-sm">
-                    <Heart size={16} className="text-white fill-current" />
-                  </div>
-                  <span>Liked Songs</span>
-                </Link>
-
-                <Link 
-                  to="/history"
-                  className="flex items-center gap-4 text-neutral-400 hover:text-white transition-colors font-semibold p-2 rounded-lg hover:bg-[#282828] cursor-pointer"
-                >
-                  <div className="bg-gradient-to-br from-purple-900 to-black p-1.5 rounded-sm">
-                    <Clock size={16} className="text-white" />
-                  </div>
-                  <span>Recently Listened</span>
-                </Link>
-
                 {/* Favorite Artists */}
                 {followedArtists.length > 0 && (
                   <div className="mt-4 mb-2">
@@ -208,7 +210,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogin }) => {
                     to={`/playlist/${playlist.id}`}
                     className="flex items-center gap-4 text-neutral-400 hover:text-white transition-colors font-semibold p-2 rounded-lg hover:bg-[#282828] cursor-pointer truncate"
                   >
-                    <div className="bg-neutral-800 p-2 rounded-md">
+                    <div className="bg-neutral-800 p-2 rounded-md flex-shrink-0">
                       <Music size={20} />
                     </div>
                     <span className="truncate">{playlist.title}</span>

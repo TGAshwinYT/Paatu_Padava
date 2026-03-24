@@ -8,6 +8,9 @@ interface AuthContextType {
   register: (email: string, pass: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
   isLoading: boolean;
+  isLibraryAuthModalOpen: boolean;
+  openLibraryAuthModal: () => void;
+  closeLibraryAuthModal: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -16,6 +19,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<any>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
   const [isLoading, setIsLoading] = useState(false);
+  const [isLibraryAuthModalOpen, setIsLibraryAuthModalOpen] = useState(false);
+
+  const openLibraryAuthModal = () => setIsLibraryAuthModalOpen(true);
+  const closeLibraryAuthModal = () => setIsLibraryAuthModalOpen(false);
 
   useEffect(() => {
     const initAuth = async () => {
@@ -75,7 +82,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, register, logout, isLoading }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      token, 
+      login, 
+      register, 
+      logout, 
+      isLoading,
+      isLibraryAuthModalOpen,
+      openLibraryAuthModal,
+      closeLibraryAuthModal
+    }}>
       {children}
     </AuthContext.Provider>
   );

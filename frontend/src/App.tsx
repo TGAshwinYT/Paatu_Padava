@@ -9,9 +9,9 @@ import Signup from './pages/Signup';
 import Onboarding from './pages/Onboarding';
 import Settings from './pages/Settings';
 import ForgotPassword from './pages/ForgotPassword';
-import ResetPassword from './pages/ResetPassword';
 import PlaylistDetail from './pages/PlaylistDetail';
 import ArtistView from './pages/ArtistView';
+import LibraryAuthModal from './components/modals/LibraryAuthModal';
 import ProtectedRoute from './components/ProtectedRoute';
 import Sidebar from './components/Sidebar';
 import PlayerBar from './components/PlayerBar';
@@ -28,7 +28,12 @@ const AppContent = () => {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const { isOpen: isPlaylistModalOpen, songId, closeModal } = usePlaylistModal();
   const isMobile = useMobile();
-  const { user, logout } = useAuth();
+  const { 
+    user, 
+    logout, 
+    isLibraryAuthModalOpen, 
+    closeLibraryAuthModal 
+  } = useAuth();
   const navigate = useNavigate();
 
   // Profile Dropdown State
@@ -66,9 +71,10 @@ const AppContent = () => {
 
   return (
     <div className="flex h-screen bg-black text-white overflow-hidden p-2 gap-2 font-display">
-      <Sidebar onLogin={() => setIsAuthModalOpen(true)} />
+      <Sidebar />
       
       <main className="flex-1 overflow-y-auto bg-neutral-900 rounded-xl relative pb-24 md:pb-32">
+        <LibraryAuthModal isOpen={isLibraryAuthModalOpen} onClose={closeLibraryAuthModal} />
         {/* Top-Right Area: Profile Menu or Login/Signup */}
         <div className="absolute top-6 right-6 z-50 flex items-center gap-4" ref={profileMenuRef}>
           {user ? (
@@ -154,7 +160,6 @@ const AppContent = () => {
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route path="/reset-password" element={<ResetPassword />} />
           </Routes>
         </div>
       </main>

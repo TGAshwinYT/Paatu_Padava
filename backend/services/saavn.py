@@ -200,86 +200,78 @@ async def get_song_details(song_id: str) -> Dict[str, Any]:
 
 async def get_related_songs(song_id: str) -> List[Dict[str, Any]]:
     """
-    Refined fetch for related songs using official JioSaavn API.
-    Uses web6dot0 context and a browser User-Agent to avoid empty responses.
+    Two-step Smart Fallback strategy for Related Songs:
+    Step 1: Try the wrapper API suggestions.
+    Step 2: If Step 1 fails, fallback to searching for the primary artist's top tracks.
     """
-    url = f"https://www.jiosaavn.com/api.php?__call=reco.getreco&api_version=4&_format=json&_marker=0&ctx=web6dot0&pid={song_id}"
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json",
-        "Referer": "https://www.jiosaavn.com/"
-    }
-    
+    # Step 1: Try Wrapper API Suggestions
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, headers=headers, timeout=10.0)
-            response.raise_for_status()
-            
-            try:
-                data = response.json()
-            except ValueError:
-                print(f"❌ Failed to parse JSON from JioSaavn for {song_id}")
-                return []
-
-            # Task 2: Safe JSON Extraction
-            # JioSaavn sometimes returns a list directly, sometimes a dict with 'results'
-            raw_songs = []
+        # Task 1: Fetch suggestions from wrapper
+        response_json = await fetch_from_saavn(f"songs/{song_id}/suggestions", {"limit": 15})
+        
+        # Handle various response formats (list or dict)
+        results = []
+        if isinstance(response_json, list):
+            results = response_json
+        elif isinstance(response_json, dict):
+            # Try 'data' or nested 'results'
+            data = response_json.get("data", [])
             if isinstance(data, list):
-                raw_songs = data
+                results = data
             elif isinstance(data, dict):
-                raw_songs = data.get("results", [])
-                # Fallback: some responses have the list at the top level even if it's a dict
-                if not raw_songs and not any(k in data for k in ["song", "title"]):
-                    # If it's a dict but doesn't look like a single song, maybe it's just a dict of songs?
-                    # But usually, it's in 'results'.
-                    pass
-            
-            mapped_songs = []
-            for s in raw_songs:
-                # Task 3: Data Mapping and High-Quality Images (500x500)
-                image_url = s.get("image", "")
-                if image_url:
-                    image_url = image_url.replace("150x150", "500x500").replace("50x50", "500x500")
+                results = data.get("results", [])
+                if not results:
+                    results = response_json.get("results", [])
 
-                # The user requested specific keys: id, title, artist, coverUrl, audioUrl
-                mapped = {
-                    "id": s.get("id"),
-                    "title": html.unescape(str(s.get("song") or s.get("title") or "Unknown")),
-                    "artist": html.unescape(str(s.get("subtitle") or s.get("singers") or s.get("primary_artists") or "Unknown")),
-                    "coverUrl": image_url,
-                    "audioUrl": s.get("media_url") or s.get("url") or s.get("perma_url") or "",
-                    "duration": int(s.get("duration", 0))
-                }
-                
-                if mapped["id"] and mapped["title"]:
-                    mapped_songs.append(mapped)
-
-            # Fallback if no results
-            if not mapped_songs:
-                print(f"⚠️ No related songs found for {song_id} via official API. Trying internal fallback...")
-                details = await get_song_details(song_id)
-                artist_name = details.get("artist")
-                if artist_name and artist_name != "Unknown Artist":
-                    artist_results = await search_saavn(artist_name)
-                    # Standardize search results to match the requested format
-                    for s in artist_results:
-                        mapped_songs.append({
-                            "id": s.get("id"),
-                            "title": s.get("title"),
-                            "artist": s.get("artist"),
-                            "coverUrl": s.get("cover_url"),
-                            "audioUrl": s.get("audio_url"),
-                            "duration": s.get("duration")
-                        })
-            
-            return mapped_songs
+        mapped_songs = []
+        for item in results:
+            # Use existing mapper with lenient mode (Task 1)
+            mapped = await map_saavn_song(item, lenient=True)
+            if mapped:
+                mapped_songs.append(mapped)
+        
+        if mapped_songs:
+            # Task 3: Filter current song and slice
+            final_list = [s for s in mapped_songs if s.get("id") != song_id]
+            return final_list[:12]
 
     except Exception as e:
-        print(f"❌ Refined get_related_songs failed: {str(e)}")
-        return []
+        print(f"⚠️ Suggestions API failed: {str(e)}")
 
-# Alias for backward compatibility if needed
+    # Step 2: Artist Search Fallback (If Step 1 failed or returned empty)
+    try:
+        print(f"🔎 Triggering Artist Search Fallback for {song_id}...")
+        
+        # 2a: Fetch current song details to get artist
+        song_response = await fetch_from_saavn(f"songs/{song_id}")
+        song_data = {}
+        if isinstance(song_response, dict):
+            data_list = song_response.get("data", [])
+            if data_list and isinstance(data_list, list):
+                song_data = data_list[0]
+            else:
+                song_data = song_response
+
+        # 2b: Extract and split primary artist
+        artist_string = str(song_data.get("singers") or song_data.get("primary_artists") or "Unknown Artist")
+        # Grab the very first artist (Task 2)
+        primary_artist = artist_string.split(",")[0].split("&")[0].strip()
+        
+        if primary_artist and primary_artist != "Unknown Artist":
+            print(f"🎨 Fallback: Searching for top tracks by '{primary_artist}'")
+            # 2c: Search for the artist's tracks
+            artist_tracks = await search_saavn(primary_artist)
+            
+            # Task 3: Filter current song and slice
+            final_list = [s for s in artist_tracks if s.get("id") != song_id]
+            return final_list[:12]
+
+    except Exception as e:
+        print(f"❌ Smart Fallback completely failed: {str(e)}")
+    
+    return []
+
+# Alias for backward compatibility
 async def get_recommendations(song_id: str) -> List[Dict[str, Any]]:
     return await get_related_songs(song_id)
 

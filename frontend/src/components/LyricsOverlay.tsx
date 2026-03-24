@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Sparkles } from 'lucide-react';
-import { getRecommendations, getLyrics } from '../services/api';
+import { getRelatedSongs, getLyrics } from '../services/api';
 import type { Song } from '../types';
 import { useAudio } from '../context/AudioContext';
 import { parseLRC } from '../utils/LyricsParser';
@@ -79,11 +79,12 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
 
   const fetchRecs = async () => {
     setLoading(true);
+    setRecommendations([]); // Clear old recommendations immediately (Task 1)
     try {
-      const data = await getRecommendations(song.id);
+      const data = await getRelatedSongs(song.id);
       setRecommendations(data);
     } catch (error) {
-      console.error(error);
+      console.error("Error fetching related songs:", error);
     } finally {
       setLoading(false);
     }
@@ -136,8 +137,9 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
           {/* Right Side: Content */}
           <div ref={scrollContainerRef} className="flex-1 w-full overflow-y-auto custom-scrollbar pr-4 py-32 md:py-[30vh]">
             {loading ? (
-              <div className="h-full flex items-center justify-center">
+              <div className="h-full flex flex-col items-center justify-center text-neutral-400 gap-4">
                 <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500"></div>
+                <p className="animate-pulse">Taking a moment to find similar vibes...</p>
               </div>
             ) : activeTab === 'lyrics' ? (
               <div className="flex flex-col gap-6 md:gap-8 max-w-3xl">
@@ -181,9 +183,10 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
                             </div>
                         </div>
                     )) : (
-                        <div className="col-span-full flex flex-col items-center justify-center text-neutral-400 py-20">
+                        <div className="col-span-full flex flex-col items-center justify-center text-neutral-400 py-20 bg-neutral-900/20 rounded-2xl border border-white/5 animate-in fade-in duration-500">
                             <Sparkles size={48} className="mb-4 opacity-20" />
-                            <p>Taking a moment to find similar vibes...</p>
+                            <p className="text-xl font-medium">No related songs found for this track.</p>
+                            <p className="text-sm mt-2">Try playing another song to see more vibes!</p>
                         </div>
                     )}
                 </div>

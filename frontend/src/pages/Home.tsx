@@ -7,7 +7,11 @@ import { useAudio } from '../context/AudioContext';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import 'swiper/css';
 
-const Home = () => {
+interface HomeProps {
+  isLoggedIn: boolean;
+}
+
+const Home = ({ isLoggedIn }: HomeProps) => {
   const [recentlyPlayed, setRecentlyPlayed] = useState<Song[]>([]);
   const [topArtists, setTopArtists] = useState<any[]>([]);
   const [recommended, setRecommended] = useState<Song[]>([]);
@@ -27,13 +31,13 @@ const Home = () => {
       try {
         const [feedData, historyData, artistsData] = await Promise.all([
           getHomeFeed(),
-          getListenHistory(),
-          getFollowedArtists()
+          isLoggedIn ? getListenHistory() : Promise.resolve([]),
+          isLoggedIn ? getFollowedArtists() : Promise.resolve([])
         ]);
         
         const data = feedData as any;
-        setRecentlyPlayed(historyData.slice(0, 12));
-        setTopArtists(artistsData.slice(0, 12));
+        setRecentlyPlayed((historyData || []).slice(0, 12));
+        setTopArtists((artistsData || []).slice(0, 12));
         setRecommended(data.recommendedForYou || []);
       } catch (error) {
         console.error("Error fetching home feed:", error);
@@ -42,7 +46,7 @@ const Home = () => {
       }
     };
     fetchFeed();
-  }, []);
+  }, [isLoggedIn]);
 
   // Search Logic (Debounced)
   useEffect(() => {
@@ -183,8 +187,8 @@ const Home = () => {
             {recommended.map((song) => (
               <SwiperSlide key={song.id}>
                 <div 
-                  onClick={() => playTrack(song)}
-                  className="bg-[#181818] p-4 rounded-lg hover:bg-[#282828] transition-all duration-300 cursor-pointer group flex flex-col h-full"
+                   onClick={() => playTrack(song)}
+                   className="bg-[#181818] p-4 rounded-lg hover:bg-[#282828] transition-all duration-300 cursor-pointer group flex flex-col h-full"
                 >
                   <div className="relative mb-4">
                     <img 
@@ -209,7 +213,7 @@ const Home = () => {
         </section>
       )}
 
-      {recentlyPlayed.length > 0 && (
+      {isLoggedIn && recentlyPlayed.length > 0 && (
         <section>
           <h2 className="text-2xl font-bold mb-4">Recently Played</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 border-b border-white/5 pb-8">
@@ -220,7 +224,7 @@ const Home = () => {
         </section>
       )}
 
-      {topArtists.length > 0 && (
+      {isLoggedIn && topArtists.length > 0 && (
         <section>
           <h2 className="text-2xl font-bold mb-4">Your Artists</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
@@ -245,7 +249,7 @@ const Home = () => {
         </section>
       )}
 
-      {recentlyPlayed.length === 0 && topArtists.length === 0 && (
+      {isLoggedIn && recentlyPlayed.length === 0 && topArtists.length === 0 && (
         <div className="text-neutral-400 text-center mt-20 flex flex-col items-center">
           <p className="text-xl mb-2 font-semibold">No data available.</p>
           <p className="text-sm">Please ensure your FastAPI backend is running.</p>

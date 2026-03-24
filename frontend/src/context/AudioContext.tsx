@@ -76,10 +76,19 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       if (isRepeating) {
         audio.currentTime = 0;
-        audio.play();
-        return; // Explicit return to prevent conflicts
+        audio.play().then(() => setIsPlaying(true));
+        return;
       }
       
+      // If we're at the end of the queue and autoplay is off, stop
+      const isLastInQueue = currentIndex === queue.length - 1;
+      if (isLastInQueue && userQueue.length === 0) {
+        setIsPlaying(false);
+        // We still call playNext() to trigger autoplay/related songs if possible
+        playNext();
+        return;
+      }
+
       playNext();
     };
 
@@ -242,6 +251,10 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       audio.pause();
       setIsPlaying(false);
     } else {
+      // Task 2: Restart if song finished
+      if (audio.currentTime >= audio.duration) {
+        audio.currentTime = 0;
+      }
       audio.play().then(() => setIsPlaying(true));
     }
   };
@@ -270,9 +283,8 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // 1. User Queue Logic (Prioritize)
     if (userQueue.length > 0) {
       const nextTrack = userQueue[0];
-      setUserQueue(prev => prev.slice(1)); // Remove from user queue as it's being played
+      setUserQueue(prev => prev.slice(1)); 
       setCurrentTrack(nextTrack);
-      // We don't set a new queue here, just play the next one from user queue
       setIsPlaying(true);
       return;
     }
@@ -285,6 +297,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       } while (nextIndex === currentIndex && queue.length > 1);
       setCurrentIndex(nextIndex);
       setCurrentTrack(queue[nextIndex]);
+      setIsPlaying(true);
       return;
     }
 
@@ -301,6 +314,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             const nextIdx = queue.length; // The index of the first new song
             setCurrentIndex(nextIdx);
             setCurrentTrack(newSongs[0]);
+            setIsPlaying(true);
             return;
           }
         }
@@ -314,6 +328,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const nextIndex = (currentIndex + 1) % queue.length;
       setCurrentIndex(nextIndex);
       setCurrentTrack(queue[nextIndex]);
+      setIsPlaying(true);
     }
   };
 
@@ -322,6 +337,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const prevIndex = (currentIndex - 1 + queue.length) % queue.length;
     setCurrentIndex(prevIndex);
     setCurrentTrack(queue[prevIndex]);
+    setIsPlaying(true);
   };
 
   return (

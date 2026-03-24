@@ -5,12 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from connection import get_db
 import models
-from auth_utils import get_current_user
+from auth_utils import get_current_user, get_current_user_optional
 
 router = APIRouter(prefix="/api/music", tags=["music"])
 
 @router.get("/home")
-async def get_home_feed(user: models.User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def get_home_feed(user: models.User = Depends(get_current_user_optional), db: AsyncSession = Depends(get_db)):
     """
     Fetches trending music and mixes in personalized recommendations.
     If preferences exist, it builds a tailored feed.
@@ -18,16 +18,17 @@ async def get_home_feed(user: models.User = Depends(get_current_user), db: Async
     try:
         import json
         
-        # 1. Fetch preferences from DB
-        result = await db.execute(select(models.User).where(models.User.id == user.id))
-        db_user = result.scalar_one()
-        
         favorites = []
-        if db_user.favorite_artists:
-            try:
-                favorites = json.loads(db_user.favorite_artists)
-            except:
-                pass
+        if user:
+            # 1. Fetch preferences from DB
+            result = await db.execute(select(models.User).where(models.User.id == user.id))
+            db_user = result.scalar_one()
+            
+            if db_user.favorite_artists:
+                try:
+                    favorites = json.loads(db_user.favorite_artists)
+                except:
+                    pass
 
         # 2. Fetch standard trending feed as base
         feed_data = await saavn.get_trending()
@@ -39,8 +40,6 @@ async def get_home_feed(user: models.User = Depends(get_current_user), db: Async
             if personalized:
                 # Add to feed_data
                 feed_data["recommendedForYou"] = personalized
-                # Optional: Replace trending if we want a fully personalized feel
-                # feed_data["recentlyPlayed"] = personalized[:12]
         
         return feed_data
     except Exception as e:

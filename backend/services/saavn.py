@@ -198,78 +198,90 @@ async def get_song_details(song_id: str) -> Dict[str, Any]:
         return await map_saavn_song(data[0], lenient=True)
     return {}
 
-async def get_recommendations(song_id: str) -> List[Dict[str, Any]]:
+async def get_related_songs(song_id: str) -> List[Dict[str, Any]]:
     """
-    Fetches recommended songs using the official internal JioSaavn API.
-    Endpoint: reco.getreco
+    Refined fetch for related songs using official JioSaavn API.
+    Uses web6dot0 context and a browser User-Agent to avoid empty responses.
     """
-    url = f"https://www.jiosaavn.com/api.php?__call=reco.getreco&api_version=4&_format=json&_marker=0&ctx=android&pid={song_id}"
+    url = f"https://www.jiosaavn.com/api.php?__call=reco.getreco&api_version=4&_format=json&_marker=0&ctx=web6dot0&pid={song_id}"
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+        "Referer": "https://www.jiosaavn.com/"
+    }
     
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, timeout=10.0)
+            response = await client.get(url, headers=headers, timeout=10.0)
             response.raise_for_status()
-            results = response.json()
             
-            # The API might return a list directly or a dict with results
-            if isinstance(results, dict):
-                results = results.get("results", [])
-            
-            if not isinstance(results, list):
-                print(f"⚠️ Unexpected results format from official API: {type(results)}")
-                results = []
+            try:
+                data = response.json()
+            except ValueError:
+                print(f"❌ Failed to parse JSON from JioSaavn for {song_id}")
+                return []
 
+            # Task 2: Safe JSON Extraction
+            # JioSaavn sometimes returns a list directly, sometimes a dict with 'results'
+            raw_songs = []
+            if isinstance(data, list):
+                raw_songs = data
+            elif isinstance(data, dict):
+                raw_songs = data.get("results", [])
+                # Fallback: some responses have the list at the top level even if it's a dict
+                if not raw_songs and not any(k in data for k in ["song", "title"]):
+                    # If it's a dict but doesn't look like a single song, maybe it's just a dict of songs?
+                    # But usually, it's in 'results'.
+                    pass
+            
             mapped_songs = []
-            for item in results:
-                # 1. Official API Image Mapping
-                cover_url = item.get("image", "")
-                if cover_url:
-                    # Upgrade to high quality (Task 2)
-                    cover_url = cover_url.replace("150x150", "500x500").replace("50x50", "500x500")
+            for s in raw_songs:
+                # Task 3: Data Mapping and High-Quality Images (500x500)
+                image_url = s.get("image", "")
+                if image_url:
+                    image_url = image_url.replace("150x150", "500x500").replace("50x50", "500x500")
 
-                # 2. Extract Audio URL
-                # The official internal API might use 'media_url' or similar, but often it needs decryption
-                # However, our existing map_saavn_song handles standard JioSaavn fields.
-                # Let's try to adapt the official fields to our standard 'mapped' format.
-                
-                title = html.unescape(str(item.get("song") or item.get("title") or "Unknown Title"))
-                artist = html.unescape(str(item.get("singers") or item.get("primary_artists") or "Unknown Artist"))
-                
-                # Check for audio URL fallbacks
-                audio_url = item.get("media_url") or item.get("url") or item.get("perma_url")
-                
-                # If audio_url is missing, we might need to use the public API as a fallback for this specific song
-                # OR we can just skip it if it's not playable.
-                # NOTE: The sumit.co API mapper is very robust, so let's try to use it if possible.
-                
+                # The user requested specific keys: id, title, artist, coverUrl, audioUrl
                 mapped = {
-                    "id": item.get("id"),
-                    "title": title,
-                    "artist": artist,
-                    "cover_url": cover_url,
-                    "audio_url": audio_url or "", # May be empty if restricted
-                    "duration": int(item.get("duration", 0)),
-                    "download_urls": [audio_url] if audio_url else []
+                    "id": s.get("id"),
+                    "title": html.unescape(str(s.get("song") or s.get("title") or "Unknown")),
+                    "artist": html.unescape(str(s.get("subtitle") or s.get("singers") or s.get("primary_artists") or "Unknown")),
+                    "coverUrl": image_url,
+                    "audioUrl": s.get("media_url") or s.get("url") or s.get("perma_url") or "",
+                    "duration": int(s.get("duration", 0))
                 }
                 
                 if mapped["id"] and mapped["title"]:
                     mapped_songs.append(mapped)
 
-            # 3. Last Fallback: If official API returns no playable tracks, use our previous artist-search fallback
+            # Fallback if no results
             if not mapped_songs:
-                print(f"⚠️ Official Recs API returned nothing for {song_id}. Triggering artist fallback...")
+                print(f"⚠️ No related songs found for {song_id} via official API. Trying internal fallback...")
                 details = await get_song_details(song_id)
                 artist_name = details.get("artist")
                 if artist_name and artist_name != "Unknown Artist":
                     artist_results = await search_saavn(artist_name)
-                    mapped_songs = [s for s in artist_results if s.get("id") != song_id]
+                    # Standardize search results to match the requested format
+                    for s in artist_results:
+                        mapped_songs.append({
+                            "id": s.get("id"),
+                            "title": s.get("title"),
+                            "artist": s.get("artist"),
+                            "coverUrl": s.get("cover_url"),
+                            "audioUrl": s.get("audio_url"),
+                            "duration": s.get("duration")
+                        })
             
             return mapped_songs
 
     except Exception as e:
-        print(f"❌ Official Recommendation API Request Failed: {str(e)}")
-        # Ultimate fallback to search
+        print(f"❌ Refined get_related_songs failed: {str(e)}")
         return []
+
+# Alias for backward compatibility if needed
+async def get_recommendations(song_id: str) -> List[Dict[str, Any]]:
+    return await get_related_songs(song_id)
 
 async def search_all(query: str) -> Dict[str, Any]:
     """

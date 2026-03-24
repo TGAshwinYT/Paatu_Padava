@@ -14,7 +14,7 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = () => {
-  const { user, logout, openLibraryAuthModal } = useAuth();
+  const { user, openLibraryAuthModal } = useAuth();
   const navigate = useNavigate();
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [followedArtists, setFollowedArtists] = useState<any[]>([]);
@@ -115,33 +115,6 @@ const Sidebar: React.FC<SidebarProps> = () => {
             />
           </div>
 
-          {user && (
-            <div className="bg-[#1c1c1c] rounded-lg p-4 flex flex-col gap-4">
-              <div className="space-y-4">
-                <div className="text-xs text-gray-400 font-bold uppercase tracking-wider">Account</div>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center text-black font-bold text-xs ring-2 ring-white/10">
-                    {user.username[0].toUpperCase()}
-                  </div>
-                  <div className="text-sm truncate font-bold text-white tracking-tight">{user.username}</div>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <button 
-                    onClick={() => navigate('/settings')}
-                    className="bg-neutral-800 text-white text-xs font-bold py-2 px-4 rounded-full hover:bg-neutral-700 transition-colors flex items-center justify-center gap-2"
-                  >
-                    Settings
-                  </button>
-                  <button 
-                    onClick={logout}
-                    className="bg-neutral-800 text-white text-xs font-bold py-2 px-4 rounded-full hover:bg-neutral-700 transition-colors"
-                  >
-                    Sign Out
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
           
           <div className="flex flex-col gap-2 mt-2 overflow-y-auto max-h-[60vh] scrollbar-hide">
             {/* Core Actions (Visible to All) */}

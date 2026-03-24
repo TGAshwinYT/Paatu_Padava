@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Trash2, ShieldAlert, User as UserIcon, Download, Upload, CheckCircle2, AlertCircle } from 'lucide-react';
+import { LogOut, Trash2, ShieldAlert, User as UserIcon, Download, Upload, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
 import api from '../services/api';
 
 const Settings = () => {
@@ -146,6 +146,14 @@ const Settings = () => {
                 )}
               </div>
             </div>
+            
+            <button 
+              onClick={() => navigate('/onboarding')}
+              className="w-full flex items-center justify-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-white p-3 rounded-lg font-bold transition-all border border-neutral-700 mt-4 group"
+            >
+              <Sparkles size={18} className="text-green-500 group-hover:scale-110 transition-transform" />
+              Update Music Preferences
+            </button>
           </div>
         </section>
 

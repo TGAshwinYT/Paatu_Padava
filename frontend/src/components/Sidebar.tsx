@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Home, Search, Library, Music, Plus, Heart, Sparkles, Clock } from 'lucide-react';
+import { Home, Search, Library, Music, Plus, Heart, Clock } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api, { getFollowedArtists } from '../services/api';
@@ -116,8 +116,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogin }) => {
             />
           </div>
 
-          <div className="bg-[#1c1c1c] rounded-lg p-4 flex flex-col gap-4">
-            {user ? (
+          {user && (
+            <div className="bg-[#1c1c1c] rounded-lg p-4 flex flex-col gap-4">
               <div className="space-y-4">
                 <div className="text-xs text-gray-400 font-bold uppercase tracking-wider">Account</div>
                 <div className="flex items-center gap-3">
@@ -127,13 +127,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogin }) => {
                   <div className="text-sm truncate font-bold text-white tracking-tight">{user.username}</div>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <button 
-                    onClick={() => navigate('/onboarding')}
-                    className="bg-neutral-800 text-white text-xs font-bold py-2 px-4 rounded-full hover:bg-neutral-700 transition-colors flex items-center justify-center gap-2"
-                  >
-                    <Sparkles size={12} className="text-green-500" />
-                    Update Preferences
-                  </button>
                   <button 
                     onClick={() => navigate('/settings')}
                     className="bg-neutral-800 text-white text-xs font-bold py-2 px-4 rounded-full hover:bg-neutral-700 transition-colors flex items-center justify-center gap-2"
@@ -148,111 +141,104 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogin }) => {
                   </button>
                 </div>
               </div>
-            ) : (
-              <div className="space-y-4">
-                <p className="text-sm font-bold">Sign in to save songs</p>
-                <p className="text-xs text-gray-400 leading-relaxed">It's free and always will be.</p>
-                <button 
-                  onClick={onLogin}
-                  className="bg-white text-black text-sm font-bold py-2 px-4 rounded-full hover:scale-105 transition-transform"
-                >
-                  Log In
-                </button>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
           
           <div className="flex flex-col gap-2 mt-2 overflow-y-auto max-h-[40vh] scrollbar-hide">
-             <div 
-               onClick={handleCreatePlaylist}
-               className="flex items-center gap-4 text-neutral-400 hover:text-white transition-colors font-semibold p-2 rounded-lg hover:bg-[#282828] cursor-pointer"
-             >
-               <div className="bg-gradient-to-br from-indigo-700 to-indigo-300 p-1.5 rounded-sm">
-                 <Plus size={16} className="text-white" />
-               </div>
-               <span>Create Playlist</span>
-             </div>
-             <Link 
-               to="/library"
-               className="flex items-center gap-4 text-neutral-400 hover:text-white transition-colors font-semibold p-2 rounded-lg hover:bg-[#282828] cursor-pointer"
-             >
-               <div className="bg-gradient-to-br from-purple-800 to-pink-300 p-1.5 rounded-sm">
-                 <Heart size={16} className="text-white fill-current" />
-               </div>
-               <span>Liked Songs</span>
-             </Link>
-
-              <Link 
-                to="/history"
-                className="flex items-center gap-4 text-neutral-400 hover:text-white transition-colors font-semibold p-2 rounded-lg hover:bg-[#282828] cursor-pointer"
-              >
-                <div className="bg-gradient-to-br from-purple-900 to-black p-1.5 rounded-sm">
-                  <Clock size={16} className="text-white" />
-                </div>
-                <span>Recently Listened</span>
-              </Link>
-
-              {/* Favorite Artists */}
-              {followedArtists.length > 0 && (
-                <div className="mt-4 mb-2">
-                  <div className="text-[10px] uppercase font-bold text-neutral-500 px-3 mb-2 tracking-widest">Favorite Artists</div>
-                  <div className="flex flex-col gap-1">
-                    {followedArtists.map((artist) => (
-                      <Link 
-                        key={artist.id}
-                        to={`/artist/${artist.id}`}
-                        className="flex items-center gap-3 text-neutral-400 hover:text-green-500 hover:bg-neutral-800 transition-all font-semibold p-2 rounded-lg cursor-pointer group"
-                      >
-                        <div className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center flex-shrink-0 overflow-hidden ring-1 ring-white/10 group-hover:ring-green-500/50 transition-all">
-                          {artist.imageUrl ? (
-                            <img src={artist.imageUrl} className="w-full h-full object-cover" alt={artist.name} />
-                          ) : (
-                            <UserIcon size={14} />
-                          )}
-                        </div>
-                        <span className="truncate text-sm">{artist.name}</span>
-                      </Link>
-                    ))}
+            {user && (
+              <>
+                <div 
+                  onClick={handleCreatePlaylist}
+                  className="flex items-center gap-4 text-neutral-400 hover:text-white transition-colors font-semibold p-2 rounded-lg hover:bg-[#282828] cursor-pointer"
+                >
+                  <div className="bg-gradient-to-br from-indigo-700 to-indigo-300 p-1.5 rounded-sm">
+                    <Plus size={16} className="text-white" />
                   </div>
+                  <span>Create Playlist</span>
                 </div>
-              )}
+                <Link 
+                  to="/library"
+                  className="flex items-center gap-4 text-neutral-400 hover:text-white transition-colors font-semibold p-2 rounded-lg hover:bg-[#282828] cursor-pointer"
+                >
+                  <div className="bg-gradient-to-br from-purple-800 to-pink-300 p-1.5 rounded-sm">
+                    <Heart size={16} className="text-white fill-current" />
+                  </div>
+                  <span>Liked Songs</span>
+                </Link>
 
-              {/* Playlists List */}
-              {playlists.map((playlist) => (
-               <Link 
-                 key={playlist.id}
-                 to={`/playlist/${playlist.id}`}
-                 className="flex items-center gap-4 text-neutral-400 hover:text-white transition-colors font-semibold p-2 rounded-lg hover:bg-[#282828] cursor-pointer truncate"
-               >
-                 <div className="bg-neutral-800 p-2 rounded-md">
-                   <Music size={20} />
-                 </div>
-                 <span className="truncate">{playlist.title}</span>
-               </Link>
-             ))}
+                <Link 
+                  to="/history"
+                  className="flex items-center gap-4 text-neutral-400 hover:text-white transition-colors font-semibold p-2 rounded-lg hover:bg-[#282828] cursor-pointer"
+                >
+                  <div className="bg-gradient-to-br from-purple-900 to-black p-1.5 rounded-sm">
+                    <Clock size={16} className="text-white" />
+                  </div>
+                  <span>Recently Listened</span>
+                </Link>
 
-             {/* YOUR ARTISTS Section */}
-             {favoriteArtists.length > 0 && (
-               <>
-                 <p className="text-xs font-semibold text-neutral-400 tracking-wider mt-6 mb-4 px-2">YOUR ARTISTS</p>
-                 <div className="flex flex-col gap-1">
-                   {favoriteArtists.map((artist, index) => (
-                     <Link 
-                       key={artist.id || index}
-                       to={`/artist/${artist.id || artist.name}`}
-                       className="flex items-center gap-3 py-2 text-neutral-400 hover:text-white transition-colors cursor-pointer group px-2"
-                     >
-                       <img 
-                         src={artist.image || 'https://via.placeholder.com/150'} 
-                         alt={artist.name} 
-                         className="w-8 h-8 rounded-full object-cover shadow-md group-hover:shadow-lg transition-shadow" 
-                       />
-                       <span className="text-sm font-medium truncate">{artist.name}</span>
-                     </Link>
-                   ))}
-                 </div>
-               </>
-             )}
+                {/* Favorite Artists */}
+                {followedArtists.length > 0 && (
+                  <div className="mt-4 mb-2">
+                    <div className="text-[10px] uppercase font-bold text-neutral-500 px-3 mb-2 tracking-widest">Favorite Artists</div>
+                    <div className="flex flex-col gap-1">
+                      {followedArtists.map((artist) => (
+                        <Link 
+                          key={artist.id}
+                          to={`/artist/${artist.id}`}
+                          className="flex items-center gap-3 text-neutral-400 hover:text-green-500 hover:bg-neutral-800 transition-all font-semibold p-2 rounded-lg cursor-pointer group"
+                        >
+                          <div className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center flex-shrink-0 overflow-hidden ring-1 ring-white/10 group-hover:ring-green-500/50 transition-all">
+                            {artist.imageUrl ? (
+                              <img src={artist.imageUrl} className="w-full h-full object-cover" alt={artist.name} />
+                            ) : (
+                              <UserIcon size={14} />
+                            )}
+                          </div>
+                          <span className="truncate text-sm">{artist.name}</span>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Playlists List */}
+                {playlists.map((playlist) => (
+                  <Link 
+                    key={playlist.id}
+                    to={`/playlist/${playlist.id}`}
+                    className="flex items-center gap-4 text-neutral-400 hover:text-white transition-colors font-semibold p-2 rounded-lg hover:bg-[#282828] cursor-pointer truncate"
+                  >
+                    <div className="bg-neutral-800 p-2 rounded-md">
+                      <Music size={20} />
+                    </div>
+                    <span className="truncate">{playlist.title}</span>
+                  </Link>
+                ))}
+
+                {/* YOUR ARTISTS Section */}
+                {favoriteArtists.length > 0 && (
+                  <>
+                    <p className="text-xs font-semibold text-neutral-400 tracking-wider mt-6 mb-4 px-2">YOUR ARTISTS</p>
+                    <div className="flex flex-col gap-1">
+                      {favoriteArtists.map((artist, index) => (
+                        <Link 
+                          key={artist.id || index}
+                          to={`/artist/${artist.id || artist.name}`}
+                          className="flex items-center gap-3 py-2 text-neutral-400 hover:text-white transition-colors cursor-pointer group px-2"
+                        >
+                          <img 
+                            src={artist.image || 'https://via.placeholder.com/150'} 
+                            alt={artist.name} 
+                            className="w-8 h-8 rounded-full object-cover shadow-md group-hover:shadow-lg transition-shadow" 
+                          />
+                          <span className="text-sm font-medium truncate">{artist.name}</span>
+                        </Link>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
           </div>
         </div>
       </div>

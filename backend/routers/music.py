@@ -142,12 +142,12 @@ async def get_liked_songs(user: models.User = Depends(get_current_user), db: Asy
         raise HTTPException(status_code=500, detail="Failed to fetch liked songs")
 
 @router.get("/recommendations/{song_id}")
-async def get_recommendations(song_id: str):
+async def get_recommendations(song_id: str, artist: str = Query(None)):
     """
     Get recommended songs based on a song ID.
     """
     try:
-        results = await saavn.get_recommendations(song_id)
+        results = await saavn.get_recommendations(song_id, artist)
         return results
     except Exception as e:
         print(f"Recommendations Error (Router): {str(e)}")
@@ -155,12 +155,12 @@ async def get_recommendations(song_id: str):
         return []
 
 @router.get("/related/{song_id}")
-async def get_related_songs(song_id: str):
+async def get_related_songs(song_id: str, artist: str = Query(None)):
     """
     Alias for recommendations, used for infinite autoplay.
     """
     try:
-        results = await saavn.get_recommendations(song_id)
+        results = await saavn.get_recommendations(song_id, artist)
         return results
     except Exception as e:
         print(f"Related Songs Error (Router): {str(e)}")

@@ -118,18 +118,22 @@ export const addListenHistory = async (track: Song) => {
   }
 };
 
-export const getRecommendations = async (songId: string): Promise<Song[]> => {
+export const getRecommendations = async (songId: string, artist?: string): Promise<Song[]> => {
   try {
-    const response = await api.get(`/api/music/recommendations/${songId}`);
+    const response = await api.get(`/api/music/recommendations/${songId}`, {
+      params: artist ? { artist } : {}
+    });
     return (response.data || []).map(mapHistoryToSong);
   } catch (error) {
     return [];
   }
 };
 
-export const getRelatedSongs = async (songId: string): Promise<Song[]> => {
+export const getRelatedSongs = async (songId: string, artist?: string): Promise<Song[]> => {
   try {
-    const response = await api.get(`/api/music/related/${songId}`);
+    const response = await api.get(`/api/music/related/${songId}`, {
+      params: artist ? { artist } : {}
+    });
     return (response.data || []).map(mapHistoryToSong);
   } catch (error) {
     return [];

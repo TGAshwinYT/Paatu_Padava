@@ -81,7 +81,7 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
     setLoading(true);
     setRecommendations([]); // Clear old recommendations immediately (Task 1)
     try {
-      const data = await getRelatedSongs(song.id);
+      const data = await getRelatedSongs(song.id, song.artist);
       setRecommendations(data);
     } catch (error) {
       console.error("Error fetching related songs:", error);

@@ -114,7 +114,7 @@ async def search_saavn(query: str) -> List[Dict[str, Any]]:
     response = await fetch_from_saavn("search/songs", {"query": query})
     results = response.get("data", {}).get("results", [])
     
-    print(f"🔎 DEBUG: Found {len(results)} items in API results for '{query}'")
+    print(f"[SEARCH DEBUG] Found {len(results)} items in API results for '{query}'")
     
     mapped_songs = []
     for item in results:
@@ -198,7 +198,7 @@ async def get_song_details(song_id: str) -> Dict[str, Any]:
         return await map_saavn_song(data[0], lenient=True)
     return {}
 
-async def get_related_songs(song_id: str) -> List[Dict[str, Any]]:
+async def get_related_songs(song_id: str, artist: str = None) -> List[Dict[str, Any]]:
     """
     Two-step Smart Fallback strategy for Related Songs:
     Step 1: Try the wrapper API suggestions.
@@ -208,6 +208,9 @@ async def get_related_songs(song_id: str) -> List[Dict[str, Any]]:
     try:
         # Task 1: Fetch suggestions from wrapper
         response_json = await fetch_from_saavn(f"songs/{song_id}/suggestions", {"limit": 15})
+        
+        if response_json.get("success") is False:
+            raise Exception("Suggestions API returned success=False")
         
         # Handle various response formats (list or dict)
         results = []
@@ -236,11 +239,23 @@ async def get_related_songs(song_id: str) -> List[Dict[str, Any]]:
             return final_list[:12]
 
     except Exception as e:
-        print(f"⚠️ Suggestions API failed: {str(e)}")
+        print(f"[WARNING] Suggestions API failed: {str(e)}")
+        
+        # New Fallback: If artist provided, use it directly to avoid extra API call
+        if artist:
+            try:
+                print(f"[ARTIST FALLBACK] Using direct artist fallback: {artist}")
+                primary_artist = artist.split(",")[0].strip()
+                artist_tracks = await search_saavn(primary_artist)
+                
+                final_list = [s for s in artist_tracks if s.get("id") != song_id]
+                return final_list[:12]
+            except Exception as fallback_err:
+                print(f"[ERROR] Direct artist fallback failed: {str(fallback_err)}")
 
     # Step 2: Artist Search Fallback (If Step 1 failed or returned empty)
     try:
-        print(f"🔎 Triggering Artist Search Fallback for {song_id}...")
+        print(f"[DEBUG] Triggering Artist Search Fallback for {song_id}...")
         
         # 2a: Fetch current song details to get artist
         song_response = await fetch_from_saavn(f"songs/{song_id}")
@@ -258,7 +273,7 @@ async def get_related_songs(song_id: str) -> List[Dict[str, Any]]:
         primary_artist = artist_string.split(",")[0].split("&")[0].strip()
         
         if primary_artist and primary_artist != "Unknown Artist":
-            print(f"🎨 Fallback: Searching for top tracks by '{primary_artist}'")
+            print(f"[FALLBACK] Searching for top tracks by '{primary_artist}'")
             # 2c: Search for the artist's tracks
             artist_tracks = await search_saavn(primary_artist)
             
@@ -267,13 +282,13 @@ async def get_related_songs(song_id: str) -> List[Dict[str, Any]]:
             return final_list[:12]
 
     except Exception as e:
-        print(f"❌ Smart Fallback completely failed: {str(e)}")
+        print(f"[ERROR] Smart Fallback completely failed: {str(e)}")
     
     return []
 
 # Alias for backward compatibility
-async def get_recommendations(song_id: str) -> List[Dict[str, Any]]:
-    return await get_related_songs(song_id)
+async def get_recommendations(song_id: str, artist: str = None) -> List[Dict[str, Any]]:
+    return await get_related_songs(song_id, artist)
 
 async def search_all(query: str) -> Dict[str, Any]:
     """
@@ -368,7 +383,7 @@ async def get_personalized_feed(artist_names: List[str]) -> List[Dict[str, Any]]
                         unique_tracks.append(song)
                         seen_ids.add(song['id'])
         except Exception as e:
-            print(f"⚠️ Error fetching tracks for {artist}: {str(e)}")
+            print(f"[WARNING] Error fetching tracks for {artist}: {str(e)}")
             continue
             
     # Shuffle for freshness

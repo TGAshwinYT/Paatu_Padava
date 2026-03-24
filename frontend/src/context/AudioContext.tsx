@@ -292,7 +292,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const isLastSong = currentIndex === queue.length - 1 || currentIndex === -1;
     if (isLastSong && currentTrack) {
       try {
-        const related = await getRelatedSongs(currentTrack.id);
+        const related = await getRelatedSongs(currentTrack.id, currentTrack.artist);
         if (related && related.length > 0) {
           // Filter to avoid immediate duplicates
           const newSongs = related.filter(s => !queue.some(q => q.id === s.id));

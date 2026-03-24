@@ -2,12 +2,12 @@ import httpx
 import os
 import json
 import html
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 # Primary API instance
 SAAVN_API_URL = "https://saavn.sumit.co/api"
 
-async def fetch_from_saavn(endpoint: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
+async def fetch_from_saavn(endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Generic fetch utility for JioSaavn API.
     """
@@ -188,18 +188,24 @@ async def get_lyrics(song_id: str) -> Dict[str, Any]:
     response = await fetch_from_saavn("songs/lyrics", {"id": song_id})
     return response.get("data", {})
 
+async def get_song_details(song_id: str) -> Dict[str, Any]:
+    """
+    Fetches comprehensive details for a single song.
+    """
+    response = await fetch_from_saavn("songs", {"id": song_id})
+    data = response.get("data", [])
+    if data and isinstance(data, list):
+        return await map_saavn_song(data[0], lenient=True)
+    return {}
+
 async def get_recommendations(song_id: str) -> List[Dict[str, Any]]:
     """
     Fetches recommended songs based on a song ID.
     Endpoint: songs/{id}/suggestions
     """
-    # Use the specific suggestions endpoint
+    # 1. Try the primary suggestions endpoint
     response_json = await fetch_from_saavn(f"songs/{song_id}/suggestions")
     
-    # Task 3: Debug Logging
-    print(f"SUGGESTION DATA FOR {song_id}: {response_json}")
-    
-    # Task 1: Handle both flat list and nested results
     results = []
     if isinstance(response_json, list):
         results = response_json
@@ -218,7 +224,6 @@ async def get_recommendations(song_id: str) -> List[Dict[str, Any]]:
     for item in results:
         # Task 1 Fallback mapping for suggestion objects that might lack the full 'downloadUrl' structure
         if not item.get("downloadUrl") and (item.get("url") or item.get("link")):
-            # Construct a minimal downloadUrl list if 'url' or 'link' exists
             playback_url = item.get("url") or item.get("link")
             if playback_url:
                 item["downloadUrl"] = [{"quality": "320kbps", "url": playback_url}]
@@ -226,6 +231,20 @@ async def get_recommendations(song_id: str) -> List[Dict[str, Any]]:
         mapped = await map_saavn_song(item, lenient=False)
         if mapped:
             mapped_songs.append(mapped)
+
+    # 2. Fallback Mechanism: If suggestions failed (common in saavn.sumit.co recently)
+    if not mapped_songs:
+        print(f"⚠️ Suggestions API failed for {song_id}. Triggering artist fallback search...")
+        details = await get_song_details(song_id)
+        artist_name = details.get("artist")
+        
+        if artist_name and artist_name != "Unknown Artist":
+            print(f"🔎 Fallback: Searching for top songs by {artist_name}")
+            # Search for the artist and return their top songs
+            artist_results = await search_saavn(artist_name)
+            # Filter out the current song to avoid redundancy
+            mapped_songs = [s for s in artist_results if s.get("id") != song_id]
+            
     return mapped_songs
 
 async def search_all(query: str) -> Dict[str, Any]:

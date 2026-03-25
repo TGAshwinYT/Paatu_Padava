@@ -167,17 +167,17 @@ async def get_trending() -> Dict[str, List[Dict[str, Any]]]:
             recently_played.append(m)
             seen_ids.add(m['id'])
         
-    top_artists = []
+    top_albums = []
     for a in (albums_raw or []):
-        if len(top_artists) >= 12: break
+        if len(top_albums) >= 12: break
         m = await map_saavn_song(a, lenient=True) if isinstance(a, dict) and 'id' in a and 'title' not in a else a
         if m and m.get('id') not in seen_ids:
-            top_artists.append(m)
+            top_albums.append(m)
             seen_ids.add(m['id'])
         
     return {
         "recentlyPlayed": recently_played,
-        "topArtists": top_artists
+        "topAlbums": top_albums
     }
 
 async def get_lyrics(song_id: str) -> Dict[str, Any]:

@@ -36,18 +36,18 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-export const getHomeFeed = async (): Promise<{ recentlyPlayed: Song[], topArtists: Song[], recommendedForYou: Song[] }> => {
+export const getHomeFeed = async (): Promise<{ recentlyPlayed: Song[], topAlbums: Song[], recommendedForYou: Song[] }> => {
   try {
     const response = await api.get('/api/music/home');
-    const { recentlyPlayed, topArtists, recommendedForYou } = response.data;
+    const { recentlyPlayed, topAlbums, recommendedForYou } = response.data;
     return { 
       recentlyPlayed: (recentlyPlayed || []).map(mapHistoryToSong), 
-      topArtists: (topArtists || []).map(mapHistoryToSong),
+      topAlbums: (topAlbums || []).map(mapHistoryToSong),
       recommendedForYou: (recommendedForYou || []).map(mapHistoryToSong)
     };
   } catch (error) {
     console.error("Error fetching home feed:", error);
-    return { recentlyPlayed: [], topArtists: [], recommendedForYou: [] };
+    return { recentlyPlayed: [], topAlbums: [], recommendedForYou: [] };
   }
 };
 

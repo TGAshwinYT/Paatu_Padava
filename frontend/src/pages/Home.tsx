@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Music, Search as SearchIcon, Play, User as UserIcon } from 'lucide-react';
+import { Search as SearchIcon, Play, User as UserIcon } from 'lucide-react';
 import SongCard from '../components/SongCard';
+import HomeSection from '../components/HomeSection';
+import PopularArtists from '../components/PopularArtists';
+import PopularAlbums from '../components/PopularAlbums';
 import type { Song } from '../types';
 import { getHomeFeed, searchTracks, getSuggestions, saveSearchClick, getListenHistory, getFollowedArtists } from '../services/api';
 import { useAudio } from '../context/AudioContext';
@@ -15,6 +18,7 @@ const Home = ({ isLoggedIn }: HomeProps) => {
   const [recentlyPlayed, setRecentlyPlayed] = useState<Song[]>([]);
   const [topArtists, setTopArtists] = useState<any[]>([]);
   const [recommended, setRecommended] = useState<Song[]>([]);
+  const [topAlbums, setTopAlbums] = useState<Song[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { playTrack } = useAudio();
 
@@ -39,6 +43,7 @@ const Home = ({ isLoggedIn }: HomeProps) => {
         setRecentlyPlayed((historyData || []).slice(0, 12));
         setTopArtists((artistsData || []).slice(0, 12));
         setRecommended(data.recommendedForYou || []);
+        setTopAlbums(data.topAlbums || []);
       } catch (error) {
         console.error("Error fetching home feed:", error);
       } finally {
@@ -93,9 +98,9 @@ const Home = ({ isLoggedIn }: HomeProps) => {
   }
 
   return (
-    <div className="flex flex-col gap-8 pb-24">
+    <div className="flex flex-col gap-12 pb-24">
       {/* Global Search Bar */}
-      <div className="relative w-full max-w-2xl group mt-2 mb-4">
+      <div className="relative w-full max-w-2xl group mt-2 mb-2">
         <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none z-10">
           <SearchIcon className={`h-5 w-5 transition-colors ${query ? 'text-white' : 'text-neutral-400 group-focus-within:text-white'}`} />
         </div>
@@ -168,13 +173,7 @@ const Home = ({ isLoggedIn }: HomeProps) => {
       </div>
 
       {recommended.length > 0 && (
-        <section className="bg-gradient-to-r from-green-500/10 to-transparent p-6 rounded-2xl border border-white/5">
-          <div className="flex items-center gap-2 mb-6">
-            <div className="p-1.5 bg-green-500 rounded-lg shadow-lg shadow-green-500/20">
-                <Music size={20} className="text-black" />
-            </div>
-            <h2 className="text-2xl font-black">Recommended For You</h2>
-          </div>
+        <HomeSection title="Recommended For You" showAllLink="/recommendations" className="bg-gradient-to-r from-green-500/10 to-transparent p-6 rounded-2xl border border-white/5">
           <Swiper
             spaceBetween={16}
             slidesPerView={2}
@@ -212,47 +211,26 @@ const Home = ({ isLoggedIn }: HomeProps) => {
               </SwiperSlide>
             ))}
           </Swiper>
-        </section>
+        </HomeSection>
       )}
 
       {isLoggedIn && recentlyPlayed.length > 0 && (
-        <section>
-          <h2 className="text-2xl font-bold mb-4">Recently Played</h2>
+        <HomeSection title="Recently Played" showAllLink="/history">
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 border-b border-white/5 pb-8">
             {recentlyPlayed.map(song => (
               <SongCard key={song.id} song={song} />
             ))}
           </div>
-        </section>
+        </HomeSection>
       )}
 
       {isLoggedIn && topArtists.length > 0 && (
-        <section>
-          <h2 className="text-2xl font-bold mb-4">Your Artists</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-            {topArtists.map(artist => (
-              <div 
-                key={artist.id}
-                onClick={() => handleArtistClick(artist.name)}
-                className="bg-[#181818] p-4 rounded-lg hover:bg-[#282828] transition-all duration-300 cursor-pointer group flex flex-col items-center text-center"
-              >
-                <div className="relative w-full aspect-square mb-4 shadow-[0_8px_24px_rgba(0,0,0,0.5)] rounded-full overflow-hidden">
-                  <img 
-                    src={artist.imageUrl || artist.image || `https://ui-avatars.com/api/?name=${encodeURIComponent(artist.name)}&background=random`} 
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
-                    alt={artist.name} 
-                    loading="lazy"
-                  />
-                </div>
-                <p className="text-white font-bold text-base truncate w-full">{artist.name}</p>
-                <p className="text-[#a7a7a7] text-sm font-medium uppercase mt-1 tracking-wider text-[10px]">Artist</p>
-              </div>
-            ))}
-          </div>
-        </section>
+        <PopularArtists artists={topArtists} onArtistClick={handleArtistClick} />
       )}
 
-      {isLoggedIn && recentlyPlayed.length === 0 && topArtists.length === 0 && (
+      {topAlbums.length > 0 && <PopularAlbums albums={topAlbums} />}
+
+      {isLoggedIn && recentlyPlayed.length === 0 && topArtists.length === 0 && topAlbums.length === 0 && (
         <div className="text-neutral-400 text-center mt-20 flex flex-col items-center">
           <p className="text-xl mb-2 font-semibold">No data available.</p>
           <p className="text-sm">Please ensure your FastAPI backend is running.</p>

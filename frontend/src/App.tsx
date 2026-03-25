@@ -26,7 +26,7 @@ import MobileLayout from './layouts/MobileLayout';
 
 const AppContent = () => {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const { isOpen: isPlaylistModalOpen, songId, closeModal } = usePlaylistModal();
+  const { isOpen: isPlaylistModalOpen, song, closeModal } = usePlaylistModal();
   const isMobile = useMobile();
   const { 
     user, 
@@ -61,7 +61,7 @@ const AppContent = () => {
       <>
         <MobileLayout />
         <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
-        <AddToPlaylistModal isOpen={isPlaylistModalOpen} songId={songId} onClose={closeModal} />
+        <AddToPlaylistModal isOpen={isPlaylistModalOpen} song={song} onClose={closeModal} />
       </>
     );
   }
@@ -164,7 +164,7 @@ const AppContent = () => {
       <PlayerBar />
       
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
-      <AddToPlaylistModal isOpen={isPlaylistModalOpen} songId={songId} onClose={closeModal} />
+      <AddToPlaylistModal isOpen={isPlaylistModalOpen} song={song} onClose={closeModal} />
     </div>
   );
 };

@@ -11,23 +11,21 @@ interface HomeSectionProps {
 
 const HomeSection: React.FC<HomeSectionProps> = ({ title, showAllLink, children, className = "" }) => {
   return (
-    <section className={`flex flex-col gap-4 ${className}`}>
-      <div className="flex items-center justify-between px-2">
+    <section className={`w-full ${className}`}>
+      <div className="flex items-center justify-between mb-4 pr-4">
         <h2 className="text-2xl font-bold text-white hover:underline cursor-pointer">
           {showAllLink ? <Link to={showAllLink}>{title}</Link> : title}
         </h2>
         {showAllLink && (
           <Link 
             to={showAllLink} 
-            className="text-sm font-bold text-neutral-400 hover:text-white transition-colors duration-200"
+            className="text-sm font-bold text-[#a7a7a7] hover:text-white transition-colors duration-200"
           >
             Show all
           </Link>
         )}
       </div>
-      <div className="w-full">
-        {children}
-      </div>
+      {children}
     </section>
   );
 };

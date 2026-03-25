@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useState } from 'react';
 import type { ReactNode } from 'react';
+import type { Song } from '../types';
 
 interface PlaylistModalContextType {
   isOpen: boolean;
-  songId: string;
-  openModal: (songId: string) => void;
+  song: Song | null;
+  openModal: (song: Song) => void;
   closeModal: () => void;
 }
 
@@ -12,20 +13,20 @@ const PlaylistModalContext = createContext<PlaylistModalContextType | undefined>
 
 export const PlaylistModalProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [songId, setSongId] = useState('');
+  const [song, setSong] = useState<Song | null>(null);
 
-  const openModal = (id: string) => {
-    setSongId(id);
+  const openModal = (song: Song) => {
+    setSong(song);
     setIsOpen(true);
   };
 
   const closeModal = () => {
     setIsOpen(false);
-    setSongId('');
+    setSong(null);
   };
 
   return (
-    <PlaylistModalContext.Provider value={{ isOpen, songId, openModal, closeModal }}>
+    <PlaylistModalContext.Provider value={{ isOpen, song, openModal, closeModal }}>
       {children}
     </PlaylistModalContext.Provider>
   );

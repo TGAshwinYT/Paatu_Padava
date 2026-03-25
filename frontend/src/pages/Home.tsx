@@ -131,6 +131,7 @@ const Home = ({ isLoggedIn }: HomeProps) => {
                                       src={song.coverUrl || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=50&h=50&fit=crop'} 
                                       className="w-full h-full rounded shadow-md object-cover" 
                                       alt="" 
+                                      loading="lazy"
                                    />
                                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover/item:opacity-100 transition-opacity rounded">
                                       <Play size={12} fill="white" className="text-white ml-0.5" />
@@ -155,7 +156,7 @@ const Home = ({ isLoggedIn }: HomeProps) => {
                                 className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg cursor-pointer transition-colors"
                             >
                                 <div className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center flex-shrink-0 overflow-hidden border border-white/10">
-                                    {a.image?.[0]?.url ? <img src={a.image[0].url} className="w-full h-full object-cover" /> : <UserIcon size={14} className="text-neutral-500" />}
+                                    {a.image?.[0]?.url ? <img src={a.image[0].url} className="w-full h-full object-cover" loading="lazy" /> : <UserIcon size={14} className="text-neutral-500" />}
                                 </div>
                                 <p className="text-sm font-medium text-white truncate">{a.name || a.artist}</p>
                             </div>
@@ -195,6 +196,7 @@ const Home = ({ isLoggedIn }: HomeProps) => {
                       src={song.coverUrl || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop'} 
                       className="w-full aspect-square object-cover rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.5)]" 
                       alt={song.title} 
+                      loading="lazy"
                     />
                     <button 
                       className="absolute bottom-2 right-2 bg-[#1ed760] w-12 h-12 rounded-full shadow-lg opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 ease-out flex items-center justify-center hover:scale-105 active:scale-95"
@@ -239,6 +241,7 @@ const Home = ({ isLoggedIn }: HomeProps) => {
                     src={artist.imageUrl || artist.image || `https://ui-avatars.com/api/?name=${encodeURIComponent(artist.name)}&background=random`} 
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
                     alt={artist.name} 
+                    loading="lazy"
                   />
                 </div>
                 <p className="text-white font-bold text-base truncate w-full">{artist.name}</p>

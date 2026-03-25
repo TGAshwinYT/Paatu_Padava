@@ -47,6 +47,7 @@ const ArtistView = () => {
             src={artist.image || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&h=500&fit=crop'} 
             alt={artist.name} 
             className="w-full h-full object-cover rounded-full shadow-2xl border-4 border-white/10"
+            loading="lazy"
           />
         </div>
         <div className="flex flex-col gap-2 text-center md:text-left">
@@ -80,6 +81,7 @@ const ArtistView = () => {
                   src={song.coverUrl} 
                   alt="" 
                   className="w-12 h-12 rounded-lg shadow-lg object-cover" 
+                  loading="lazy"
                 />
                 
                 <div className="flex-1 min-w-0">

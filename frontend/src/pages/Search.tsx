@@ -5,6 +5,7 @@ import type { Song } from '../types';
 import { searchTracks, getSuggestions, getRecentSearches, deleteSearchHistoryItem, saveSearchClick } from '../services/api';
 import { useAudio } from '../context/AudioContext';
 import { useAuth } from '../context/AuthContext';
+import useDebounce from '../hooks/useDebounce';
 
 const Search = () => {
   const [query, setQuery] = useState('');
@@ -14,6 +15,9 @@ const Search = () => {
   const [recentlyPlayed, setRecentlyPlayed] = useState<(Song & { historyId: string })[]>([]);
   const { playTrack } = useAudio();
   const { user } = useAuth();
+  
+  // Debounce the search query with 300ms delay
+  const debouncedQuery = useDebounce(query, 300);
 
   useEffect(() => {
     if (user && !query) {
@@ -32,25 +36,30 @@ const Search = () => {
   };
 
   useEffect(() => {
-    const delayDebounceFn = setTimeout(async () => {
-      if (query.trim().length > 0) {
+    const performSearch = async () => {
+      if (debouncedQuery.trim().length > 0) {
         setIsSearching(true);
-        // Fetch results directly to page
-        const [data, suggestData] = await Promise.all([
-          searchTracks(query),
-          getSuggestions(query)
-        ]);
-        setResults(data);
-        setSuggestions(suggestData);
-        setIsSearching(false);
+        try {
+          // Fetch results directly to page
+          const [data, suggestData] = await Promise.all([
+            searchTracks(debouncedQuery),
+            getSuggestions(debouncedQuery)
+          ]);
+          setResults(data);
+          setSuggestions(suggestData);
+        } catch (error) {
+          console.error("Search failed:", error);
+        } finally {
+          setIsSearching(false);
+        }
       } else {
         setResults([]);
         setSuggestions({ songs: [], artists: [], albums: [] });
       }
-    }, 300);
+    };
 
-    return () => clearTimeout(delayDebounceFn);
-  }, [query]);
+    performSearch();
+  }, [debouncedQuery]);
 
   const handleArtistClick = (artistName: string) => {
     setQuery(artistName);
@@ -92,7 +101,7 @@ const Search = () => {
                     >
                       <div className="aspect-square w-full mb-4 relative overflow-hidden rounded-full shadow-2xl border-2 border-white/5">
                         {a.image?.[0]?.url ? (
-                          <img src={a.image[0].url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                          <img src={a.image[0].url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" loading="lazy" />
                         ) : (
                           <div className="w-full h-full bg-neutral-800 flex items-center justify-center">
                             <UserIcon size={40} className="text-neutral-500" />
@@ -147,6 +156,7 @@ const Search = () => {
                             src={song.coverUrl || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=50&h=50&fit=crop'} 
                             className="w-full h-full rounded-lg object-cover shadow-2xl" 
                             alt="" 
+                            loading="lazy"
                         />
                         <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-lg">
                            <Play size={16} fill="white" className="text-white ml-0.5" />

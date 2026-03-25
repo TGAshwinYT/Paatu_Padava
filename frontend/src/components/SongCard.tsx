@@ -51,6 +51,7 @@ const SongCard: React.FC<SongCardProps> = ({ song, isInitiallyLiked = false, onP
           src={song.coverUrl || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&h=500&fit=crop'} 
           alt={song.title} 
           className="w-full aspect-square object-cover rounded-md shadow-lg"
+          loading="lazy"
         />
         <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
            <button 

@@ -65,6 +65,7 @@ const PlayerBar = () => {
             src={currentTrack.coverUrl || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=100&h=100&fit=crop'} 
             alt={currentTrack.title} 
             className="w-14 h-14 rounded shadow-lg object-cover"
+            loading="lazy"
           />
           <div className="flex flex-col truncate">
             <h4 className="text-sm font-bold text-white hover:underline cursor-pointer truncate">

@@ -164,7 +164,7 @@ const Sidebar: React.FC<SidebarProps> = () => {
                         >
                           <div className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center flex-shrink-0 overflow-hidden ring-1 ring-white/10 group-hover:ring-green-500/50 transition-all">
                             {artist.imageUrl ? (
-                              <img src={artist.imageUrl} className="w-full h-full object-cover" alt={artist.name} />
+                              <img src={artist.imageUrl} className="w-full h-full object-cover" alt={artist.name} loading="lazy" />
                             ) : (
                               <UserIcon size={14} />
                             )}
@@ -205,6 +205,7 @@ const Sidebar: React.FC<SidebarProps> = () => {
                             src={artist.image || 'https://via.placeholder.com/150'} 
                             alt={artist.name} 
                             className="w-8 h-8 rounded-full object-cover shadow-md group-hover:shadow-lg transition-shadow" 
+                            loading="lazy"
                           />
                           <span className="text-sm font-medium truncate">{artist.name}</span>
                         </Link>

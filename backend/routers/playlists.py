@@ -156,7 +156,7 @@ async def delete_playlist(playlist_id: str, user: User = Depends(get_current_use
 @router.get("/{playlist_id}")
 async def get_playlist_detail(playlist_id: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """
-    Get a playlist with its songs.
+    Get basic playlist details.
     """
     try:
         playlist_uuid = uuid.UUID(playlist_id)
@@ -169,3 +169,32 @@ async def get_playlist_detail(playlist_id: str, user: User = Depends(get_current
         raise HTTPException(status_code=404, detail="Playlist not found")
         
     return playlist
+
+@router.get("/{playlist_id}/tracks")
+async def get_playlist_tracks(
+    playlist_id: str, 
+    limit: int = 20, 
+    offset: int = 0, 
+    user: User = Depends(get_current_user), 
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get paginated tracks for a specific playlist.
+    """
+    try:
+        playlist_uuid = uuid.UUID(playlist_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid playlist ID format")
+
+    # Verify ownership
+    result = await db.execute(select(Playlist).where(Playlist.id == playlist_uuid, Playlist.user_id == user.id))
+    if not result.scalars().first():
+        raise HTTPException(status_code=404, detail="Playlist not found or unauthorized")
+
+    # Fetch paginated tracks
+    query = select(PlaylistTrack).where(PlaylistTrack.playlist_id == playlist_uuid).order_by(PlaylistTrack.added_at.desc()).limit(limit).offset(offset)
+    result = await db.execute(query)
+    tracks = result.scalars().all()
+    
+    # Map to expected frontend format (fetching IDs for now)
+    return [{"id": t.jiosaavn_song_id, "added_at": t.added_at} for t in tracks]

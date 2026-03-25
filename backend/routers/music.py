@@ -3,21 +3,30 @@ from typing import List, Dict, Any
 from services import saavn
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
-from connection import get_db
+from connection import get_db, get_redis
+from upstash_redis.asyncio import Redis as UpstashRedis
 import models
 from auth_utils import get_current_user, get_current_user_optional
+import json
 
 router = APIRouter(prefix="/api/music", tags=["music"])
 
 @router.get("/home")
-async def get_home_feed(user: models.User = Depends(get_current_user_optional), db: AsyncSession = Depends(get_db)):
+async def get_home_feed(
+    user: models.User = Depends(get_current_user_optional), 
+    db: AsyncSession = Depends(get_db),
+    redis_client: UpstashRedis = Depends(get_redis)
+):
     """
     Fetches trending music and mixes in personalized recommendations.
-    If preferences exist, it builds a tailored feed.
+    Caches the global trending feed to Redis for 1 hour.
     """
     try:
-        import json
-        
+        # 1. Check Cache
+        cached_data = await redis_client.get("trending_songs")
+        if cached_data:
+            return json.loads(cached_data)
+
         favorites = []
         if user:
             # 1. Fetch preferences from DB
@@ -40,6 +49,9 @@ async def get_home_feed(user: models.User = Depends(get_current_user_optional), 
             if personalized:
                 # Add to feed_data
                 feed_data["recommendedForYou"] = personalized
+        
+        # 4. Cache the results for 1 hour
+        await redis_client.setex("trending_songs", 3600, json.dumps(feed_data))
         
         return feed_data
     except Exception as e:
@@ -122,9 +134,14 @@ async def unlike_song(song_id: str, user: models.User = Depends(get_current_user
         raise HTTPException(status_code=500, detail="Failed to unlike song")
 
 @router.get("/liked")
-async def get_liked_songs(user: models.User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def get_liked_songs(
+    limit: int = 20, 
+    offset: int = 0, 
+    user: models.User = Depends(get_current_user), 
+    db: AsyncSession = Depends(get_db)
+):
     try:
-        query = select(models.LikedSong).where(models.LikedSong.user_id == user.id).order_by(models.LikedSong.created_at.desc())
+        query = select(models.LikedSong).where(models.LikedSong.user_id == user.id).order_by(models.LikedSong.created_at.desc()).limit(limit).offset(offset)
         result = await db.execute(query)
         likes = result.scalars().all()
         return [{

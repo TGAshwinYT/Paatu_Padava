@@ -9,6 +9,7 @@ from connection import check_redis_connection, check_db_connection, engine
 from base import Base
 from routers import music, auth, playlists, history, users
 import models
+import mysql.connection
 
 load_dotenv()
 

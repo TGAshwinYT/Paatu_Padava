@@ -89,7 +89,7 @@ const SongCard: React.FC<SongCardProps> = ({ song, isInitiallyLiked = false, onP
                  <button 
                    onClick={(e) => {
                      e.stopPropagation();
-                     openModal(song.id);
+                     openModal(song);
                      setShowPlusMenu(false);
                    }}
                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors border-t border-white/5"
@@ -118,4 +118,3 @@ const SongCard: React.FC<SongCardProps> = ({ song, isInitiallyLiked = false, onP
 };
 
 export default SongCard;
-

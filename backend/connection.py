@@ -12,7 +12,7 @@ REDIS_REST_URL = os.getenv("UPSTASH_REDIS_REST_URL", "")
 REDIS_REST_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
 
 if not REDIS_REST_URL or not REDIS_REST_TOKEN:
-    print("⚠️ WARNING: UPSTASH_REDIS_REST credentials not found in environment variables!")
+    print("WARNING: UPSTASH_REDIS_REST credentials not found in environment variables!")
 
 async def get_redis():
     """
@@ -35,17 +35,17 @@ async def check_redis_connection():
     try:
         # Diagnostic: Log the host to help identify network blocks
         display_url = REDIS_REST_URL
-        print(f"🔍 Attempting to connect to Redis REST URL: {display_url}")
+        print(f"[*] Attempting to connect to Redis REST URL: {display_url}")
         
         # Consuming the async generator
         async for client in get_redis():
             await client.ping()
-            print("✅ Redis (REST): Connected!")
+            print("[SUCCESS] Redis (REST): Connected!")
             return True
     except Exception as e:
-        print(f"❌ Redis: Connection failed: {str(e)}")
+        print(f"[ERROR] Redis: Connection failed: {str(e)}")
         if "10061" in str(e):
-            print("💡 TIP: 'Errno 10061' usually means port 6379 is blocked by your firewall/network OR the port in your dashboard is different. Please verify the port on Upstash!")
+            print("[TIP] 'Errno 10061' usually means port 6379 is blocked by your firewall/network OR the port in your dashboard is different. Please verify the port on Upstash!")
         return False
 
 import ssl
@@ -61,8 +61,8 @@ ctx.verify_mode = ssl.CERT_NONE
 
 # 2. Inject the custom context into the engine
 if not DB_URL or DB_URL == "postgresql+asyncpg://":
-    print("❌ ERROR: DATABASE_URL is missing or empty!")
-    print("👉 Please add DATABASE_URL (along with Redis credentials) to your Hugging Face Space 'Settings > Variables and Secrets'.")
+    print("[ERROR] DATABASE_URL is missing or empty!")
+    print("[INFO] Please add DATABASE_URL (along with Redis credentials) to your environment.")
     # Provide a placeholder to prevent immediate SQLAlchemy crash, 
     # but the app will still fail gracefully during check_db_connection
     DB_URL = "postgresql+asyncpg://missing_db_url_check_hf_secrets"
@@ -98,8 +98,8 @@ async def check_db_connection():
         async with engine.connect() as conn:
             # Task 2 Fix: Wrap raw SQL in text() for SQLAlchemy 2.0 compatibility
             await conn.execute(text("SELECT 1"))
-            print("✅ Supabase/Postgres: Connected!")
+            print("[SUCCESS] Supabase/Postgres: Connected!")
         return True
     except Exception as e:
-        print(f"❌ Supabase/Postgres: Connection failed: {e}")
+        print(f"[ERROR] Supabase/Postgres: Connection failed: {e}")
         return False

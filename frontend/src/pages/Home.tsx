@@ -223,11 +223,22 @@ const Home = ({ isLoggedIn }: HomeProps) => {
 
       {isLoggedIn && recentlyPlayed.length > 0 && (
         <HomeSection title="Recently Played" showAllLink="/history">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 border-b border-white/5 pb-8">
-            {recentlyPlayed.map(song => (
-              <SongCard key={song.id} song={song} />
+          <Swiper
+            spaceBetween={16}
+            slidesPerView={2}
+            breakpoints={{
+              640: { slidesPerView: 3 },
+              768: { slidesPerView: 4 },
+              1024: { slidesPerView: 5 },
+              1280: { slidesPerView: 6 },
+            }}
+          >
+            {recentlyPlayed.map((song) => (
+              <SwiperSlide key={song.id}>
+                <SongCard song={song} />
+              </SwiperSlide>
             ))}
-          </div>
+          </Swiper>
         </HomeSection>
       )}
 

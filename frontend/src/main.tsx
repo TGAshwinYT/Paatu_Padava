@@ -7,10 +7,10 @@ import { AuthProvider } from './context/AuthContext.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AudioProvider>
-      <AuthProvider>
+    <AuthProvider>
+      <AudioProvider>
         <App />
-      </AuthProvider>
-    </AudioProvider>
+      </AudioProvider>
+    </AuthProvider>
   </StrictMode>,
 )

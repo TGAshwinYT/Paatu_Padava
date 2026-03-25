@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useRef, useEffect } from 'react';
 import type { Song } from '../types';
 import api, { addListenHistory, getRelatedSongs } from '../services/api';
+import { useAuth } from './AuthContext';
+
 
 interface AudioContextType {
   currentTrack: Song | null;
@@ -33,6 +35,7 @@ interface AudioContextType {
 const AudioContext = createContext<AudioContextType | undefined>(undefined);
 
 export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
   const [currentTrack, setCurrentTrack] = useState<Song | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -196,10 +199,12 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   useEffect(() => {
-    // We can't import useAuth here because of circular dependency probably? 
-    // Actually api handles auth headers. We just need to trigger it.
-    refreshPlaylists();
-  }, []);
+    if (user) {
+      refreshPlaylists();
+    } else {
+      setUserPlaylists([]);
+    }
+  }, [user]);
 
   const addToQueue = (track: Song) => {
     setUserQueue(prev => {

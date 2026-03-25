@@ -38,12 +38,9 @@ const AppContent = () => {
 
   // Profile Dropdown State
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(!!localStorage.getItem('token'));
   const profileMenuRef = useRef<HTMLDivElement>(null);
 
   const handleSignOut = () => {
-    localStorage.removeItem('token');
-    setIsLoggedIn(false);
     setIsProfileMenuOpen(false);
     logout();
   };
@@ -125,7 +122,7 @@ const AppContent = () => {
         <div className="absolute inset-0 bg-gradient-to-b from-neutral-800/50 to-transparent pointer-events-none h-64" />
         <div className="relative z-10 p-6">
           <Routes>
-            <Route path="/" element={<Home isLoggedIn={isLoggedIn} />} />
+            <Route path="/" element={<Home isLoggedIn={!!user} />} />
             <Route path="/search" element={<Search />} />
             <Route path="/library" element={
               <ProtectedRoute>

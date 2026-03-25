@@ -41,8 +41,33 @@ const Home = ({ isLoggedIn }: HomeProps) => {
         
         const data = feedData as any;
         setRecentlyPlayed((historyData || []).slice(0, 12));
-        // Try personal artists first, if empty, grab global popular artists from the feed
-        setTopArtists((artistsData?.length > 0 ? artistsData : data.topArtists || data.popularArtists || []).slice(0, 12)); 
+        
+        // 1. SPY ON THE BACKEND:
+        console.log("🚨 DEBUG BACKEND DATA:", data);
+
+        // 2. CREATE EMERGENCY DUMMY DATA:
+        const dummyArtists = [
+          { id: '1', name: 'Anirudh Ravichander', image: [{url: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop'}] },
+          { id: '2', name: 'A.R. Rahman', image: [{url: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200&h=200&fit=crop'}] },
+          { id: '3', name: 'Sid Sriram', image: [{url: 'https://images.unsplash.com/photo-1493225457124-a1a2a5ea3a26?w=200&h=200&fit=crop'}] }
+        ];
+
+        // 3. NORMALIZE PERSONAL ARTISTS (from Supabase) TO MATCH JIOSAAVN FORMAT:
+        let normalizedArtists = (artistsData || []).map((a: any) => ({
+          id: a.id || a.artist_id || '',
+          name: a.name || a.artist_name || a.artist || 'Unknown Artist',
+          image: [{ url: a.image_url || a.image || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop' }]
+        }));
+
+        // 4. TRY TO USE REAL DATA, FALLBACK TO DUMMY DATA IF EMPTY:
+        let finalArtists = normalizedArtists.length > 0 ? normalizedArtists : (data.topArtists || data.popularArtists || []);
+        
+        if (finalArtists.length === 0) {
+            console.log("🚨 No artists found in database! Using dummy data so UI doesn't break.");
+            finalArtists = dummyArtists;
+        }
+
+        setTopArtists(finalArtists.slice(0, 12));
         setRecommended(data.recommendedForYou || []);
         setTopAlbums(data.topAlbums || []);
       } catch (error) {

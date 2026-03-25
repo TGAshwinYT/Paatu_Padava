@@ -199,10 +199,6 @@ const Home = ({ isLoggedIn }: HomeProps) => {
         )}
       </div>
 
-      {topArtists?.length > 0 && (
-        <PopularArtists artists={topArtists} onArtistClick={handleArtistClick} />
-      )}
-
       {topAlbums.length > 0 && <PopularAlbums albums={topAlbums} />}
 
       {recommended.length > 0 && (
@@ -266,6 +262,10 @@ const Home = ({ isLoggedIn }: HomeProps) => {
             ))}
           </Swiper>
         </HomeSection>
+      )}
+
+      {topArtists?.length > 0 && (
+        <PopularArtists artists={topArtists} onArtistClick={handleArtistClick} />
       )}
 
       {isLoggedIn && recentlyPlayed.length === 0 && topArtists.length === 0 && topAlbums.length === 0 && (

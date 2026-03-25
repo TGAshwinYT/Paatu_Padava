@@ -203,9 +203,14 @@ const Home = ({ isLoggedIn }: HomeProps) => {
 
       {recommended.length > 0 && (
         <HomeSection title="Recommended For You" showAllLink="/recommendations" className="bg-gradient-to-r from-green-500/10 to-transparent p-6 rounded-2xl border border-white/5">
+          <style>{`
+            .hide-scrollbar::-webkit-scrollbar { display: none; }
+            .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+          `}</style>
           <Swiper
             spaceBetween={16}
             slidesPerView={2}
+            className="hide-scrollbar"
             breakpoints={{
               640: { slidesPerView: 3 },
               768: { slidesPerView: 4 },
@@ -248,6 +253,7 @@ const Home = ({ isLoggedIn }: HomeProps) => {
           <Swiper
             spaceBetween={16}
             slidesPerView={2}
+            className="hide-scrollbar"
             breakpoints={{
               640: { slidesPerView: 3 },
               768: { slidesPerView: 4 },

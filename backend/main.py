@@ -8,7 +8,7 @@ import os
 from dotenv import load_dotenv
 from connection import check_redis_connection, check_db_connection, engine
 from base import Base
-from routers import music, auth, playlists, history, users
+from routers import music, auth, playlists, history, users, utils
 import models
 
 load_dotenv()
@@ -86,6 +86,7 @@ app.include_router(auth.router)
 app.include_router(playlists.router)
 app.include_router(history.router)
 app.include_router(users.router)
+app.include_router(utils.router)
 
 @app.get("/")
 async def root():

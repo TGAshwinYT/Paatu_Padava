@@ -12,7 +12,8 @@ import {
   ChevronUp,
   Settings,
   Clock,
-  ListMusic
+  ListMusic,
+  PlusCircle
 } from 'lucide-react';
 import { useAudio } from '../context/AudioContext';
 import LyricsOverlay from './LyricsOverlay';
@@ -75,6 +76,11 @@ const PlayerBar = () => {
               {currentTrack.artist}
             </p>
           </div>
+          <PlusCircle 
+            size={20} 
+            className="text-neutral-400 hover:text-white hover:scale-105 transition-all cursor-pointer flex-shrink-0"
+            onClick={() => console.log("Open Playlist Modal")}
+          />
         </div>
 
         {/* Center: Controls & Progress */}

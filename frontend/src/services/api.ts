@@ -106,6 +106,7 @@ export const getSuggestions = async (query: string): Promise<any> => {
 };
 
 export const addListenHistory = async (track: Song) => {
+  if (!localStorage.getItem('token')) return; // Silently skip for guests
   try {
     await api.post('/api/history/listen', {
       id: track.id,                 // <-- THIS IS THE MISSING PIECE!
@@ -210,6 +211,7 @@ export const updatePreferences = async (artists: string[]) => {
 };
 
 export const saveSearchClick = async (track: Song) => {
+  if (!localStorage.getItem('token')) return; // Silently skip for guests
   try {
     await api.post('/api/history/search-click', {
       id: track.id,

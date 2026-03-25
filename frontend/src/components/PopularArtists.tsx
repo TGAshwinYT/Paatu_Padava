@@ -20,6 +20,12 @@ const PopularArtists = ({ artists, onArtistClick }: Props) => {
 
   return (
     <HomeSection title="Popular artists" showAllLink="/artists">
+      {/* CSS to hide scrollbars while keeping functionality */}
+      <style>{`
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      `}</style>
+
       {/* Premium Swiper Slider for Artists */}
       <Swiper
         spaceBetween={24}
@@ -32,17 +38,25 @@ const PopularArtists = ({ artists, onArtistClick }: Props) => {
           1280: { slidesPerView: 7 },
           1536: { slidesPerView: 8 },
         }}
-        className="pt-2 pb-4"
+        className="pt-2 pb-4 hide-scrollbar"
       >
         {artists.map((artist, index) => {
           
-          // 🚨 ULTIMATE IMAGE FALLBACK LOGIC 🚨
+          // 🚨 AGGRESSIVE BULLETPROOF IMAGE EXTRACTION 🚨
           let imageUrl = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200&h=200&fit=crop'; 
           
-          if (typeof artist.image === 'string') {
-            imageUrl = artist.image;
-          } else if (Array.isArray(artist.image) && artist.image.length > 0) {
-            imageUrl = artist.image[0].url || artist.image[0]; 
+          const imgData = artist.image;
+          
+          if (typeof imgData === 'string' && imgData.startsWith('http')) {
+            imageUrl = imgData;
+          } else if (Array.isArray(imgData) && imgData.length > 0) {
+            // Priority: Index 2 (high res), then 1, then 0. Check both .link and .url
+            const bestImage = imgData[2] || imgData[1] || imgData[0];
+            if (typeof bestImage === 'string') {
+                imageUrl = bestImage;
+            } else {
+                imageUrl = bestImage.link || bestImage.url || imageUrl;
+            }
           } else if (artist.image_url) {
             imageUrl = artist.image_url;
           }
@@ -62,6 +76,9 @@ const PopularArtists = ({ artists, onArtistClick }: Props) => {
                     alt={displayName} 
                     className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                     loading="lazy"
+                    onError={(e) => {
+                        (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop';
+                    }}
                   />
                 </div>
                 

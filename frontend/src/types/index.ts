@@ -7,6 +7,7 @@ export interface Song {
   duration?: number;
   album?: string;
   downloadUrls?: string[];
+  image?: any;
 }
 
 export const DUMMY_SONGS: Song[] = [

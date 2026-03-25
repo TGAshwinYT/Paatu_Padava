@@ -199,7 +199,6 @@ const Home = ({ isLoggedIn }: HomeProps) => {
         )}
       </div>
 
-      {topAlbums.length > 0 && <PopularAlbums albums={topAlbums} />}
 
       {recommended.length > 0 && (
         <HomeSection title="Recommended For You" showAllLink="/recommendations" className="bg-gradient-to-r from-green-500/10 to-transparent p-6 rounded-2xl border border-white/5">
@@ -248,7 +247,7 @@ const Home = ({ isLoggedIn }: HomeProps) => {
         </HomeSection>
       )}
 
-      {isLoggedIn && recentlyPlayed.length > 0 && (
+      {recentlyPlayed.length > 0 && (
         <HomeSection title="Recently Played" showAllLink="/history">
           <Swiper
             spaceBetween={16}
@@ -270,9 +269,15 @@ const Home = ({ isLoggedIn }: HomeProps) => {
         </HomeSection>
       )}
 
+
+
+
+
       {topArtists?.length > 0 && (
         <PopularArtists artists={topArtists} onArtistClick={handleArtistClick} />
       )}
+
+      {topAlbums.length > 0 && <PopularAlbums albums={topAlbums} />}
 
       {isLoggedIn && recentlyPlayed.length === 0 && topArtists.length === 0 && topAlbums.length === 0 && (
         <div className="text-neutral-400 text-center mt-20 flex flex-col items-center">

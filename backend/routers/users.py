@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from connection import get_db
+import models
 from models import User, LikedSong, Playlist, PlaylistTrack
 from auth_utils import get_current_user
 import json
@@ -142,3 +143,63 @@ async def get_followed_artists(user: User = Depends(get_current_user), db: Async
         "name": a.name,
         "imageUrl": a.image_url
     } for a in db_user.followed_artists]
+
+@router.post("/follow-artist")
+async def follow_artist(artist_data: dict, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """
+    Follows an artist. Creates the artist in the DB if they don't exist.
+    """
+    artist_id = artist_data.get("id")
+    if not artist_id:
+        raise HTTPException(status_code=400, detail="Artist ID is required")
+
+    # 1. Check if artist exists in our DB
+    result = await db.execute(select(models.Artist).where(models.Artist.id == artist_id))
+    artist = result.scalar_one_or_none()
+
+    if not artist:
+        # Create the artist in our DB
+        artist = models.Artist(
+            id=artist_id,
+            name=artist_data.get("name", "Unknown Artist"),
+            image_url=artist_data.get("imageUrl") or artist_data.get("image_url")
+        )
+        db.add(artist)
+        await db.flush()
+
+    # 2. Check if user is already following
+    result = await db.execute(
+        select(User)
+        .options(selectinload(User.followed_artists))
+        .where(User.id == user.id)
+    )
+    db_user = result.scalar_one()
+
+    if artist not in db_user.followed_artists:
+        db_user.followed_artists.append(artist)
+        await db.commit()
+        return {"message": f"Now following {artist.name}"}
+    
+    return {"message": "Already following this artist"}
+
+@router.delete("/unfollow-artist/{artist_id}")
+async def unfollow_artist(artist_id: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """
+    Unfollows an artist.
+    """
+    result = await db.execute(
+        select(User)
+        .options(selectinload(User.followed_artists))
+        .where(User.id == user.id)
+    )
+    db_user = result.scalar_one()
+
+    # Find the artist in the user's followed list
+    artist_to_remove = next((a for a in db_user.followed_artists if a.id == artist_id), None)
+
+    if artist_to_remove:
+        db_user.followed_artists.remove(artist_to_remove)
+        await db.commit()
+        return {"message": "Unfollowed successfully"}
+    
+    raise HTTPException(status_code=404, detail="Artist not found in your following list")

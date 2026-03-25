@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
 import Home from './pages/Home';
 import Search from './pages/Search';
@@ -11,6 +11,8 @@ import Settings from './pages/Settings';
 import ForgotPassword from './pages/ForgotPassword';
 import PlaylistDetail from './pages/PlaylistDetail';
 import ArtistView from './pages/ArtistView';
+import Profile from './pages/Profile';
+import Album from './pages/Album';
 import LibraryAuthModal from './components/modals/LibraryAuthModal';
 import ProtectedRoute from './components/ProtectedRoute';
 import Sidebar from './components/Sidebar';
@@ -23,6 +25,7 @@ import { useAuth } from './context/AuthContext';
 
 import { useMobile } from './hooks/useMobile';
 import MobileLayout from './layouts/MobileLayout';
+import UserDropdown from './components/UserDropdown';
 
 const AppContent = () => {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -35,26 +38,6 @@ const AppContent = () => {
     closeLibraryAuthModal 
   } = useAuth();
   const navigate = useNavigate();
-
-  // Profile Dropdown State
-  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-  const profileMenuRef = useRef<HTMLDivElement>(null);
-
-  const handleSignOut = () => {
-    setIsProfileMenuOpen(false);
-    logout();
-  };
-
-  // Close menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target as Node)) {
-        setIsProfileMenuOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
   if (isMobile) {
     return (
@@ -73,34 +56,9 @@ const AppContent = () => {
       <main className="flex-1 overflow-y-auto bg-neutral-900 rounded-xl relative pb-24 md:pb-32">
         <LibraryAuthModal isOpen={isLibraryAuthModalOpen} onClose={closeLibraryAuthModal} />
         {/* Top-Right Area: Profile Menu or Login/Signup */}
-        <div className="absolute top-6 right-6 z-50 flex items-center gap-4" ref={profileMenuRef}>
+        <div className="absolute top-6 right-6 z-50 flex items-center gap-4">
           {user ? (
-            <div className="relative">
-              <button 
-                onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)} 
-                className="w-10 h-10 rounded-full bg-pink-500 text-white font-black text-base flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all duration-200 border border-white/10"
-              >
-                {user?.username?.[0]?.toUpperCase() || 'A'}
-              </button>
-              
-              {isProfileMenuOpen && (
-                <div className="absolute top-12 right-0 z-[60] w-48 bg-[#282828] p-1 rounded-md shadow-[0_16px_24px_rgba(0,0,0,0.3)] border border-white/10 animate-in fade-in zoom-in-95 duration-100 origin-top-right">
-                  <div 
-                    onClick={() => { navigate('/settings'); setIsProfileMenuOpen(false); }}
-                    className="text-sm text-neutral-200 p-3 hover:bg-neutral-700/60 rounded-sm cursor-pointer transition-colors font-medium flex items-center justify-between"
-                  >
-                    Profile
-                  </div>
-                  <hr className="border-white/10 my-1" />
-                  <div 
-                    onClick={handleSignOut}
-                    className="text-sm text-neutral-200 p-3 hover:bg-neutral-700/60 rounded-sm cursor-pointer transition-colors font-medium"
-                  >
-                    Sign out
-                  </div>
-                </div>
-              )}
-            </div>
+            <UserDropdown user={user} onLogout={logout} />
           ) : (
             <div className="flex items-center gap-6">
               <button 
@@ -154,6 +112,12 @@ const AppContent = () => {
                 <Settings />
               </ProtectedRoute>
             } />
+            <Route path="/profile" element={
+              <ProtectedRoute>
+                <Profile />
+              </ProtectedRoute>
+            } />
+            <Route path="/album/:id" element={<Album />} />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />

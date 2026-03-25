@@ -313,4 +313,24 @@ export const getFollowedArtists = async (): Promise<any[]> => {
   }
 };
 
+export const followArtist = async (artist: { id: string, name: string, imageUrl: string }) => {
+  try {
+    const response = await api.post('/api/users/follow-artist', artist);
+    return response.data;
+  } catch (error) {
+    console.error("Error following artist:", error);
+    throw error;
+  }
+};
+
+export const unfollowArtist = async (artistId: string) => {
+  try {
+    const response = await api.delete(`/api/users/unfollow-artist/${artistId}`);
+    return response.data;
+  } catch (error) {
+    console.error("Error unfollowing artist:", error);
+    throw error;
+  }
+};
+
 export default api;

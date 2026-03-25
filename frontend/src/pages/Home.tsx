@@ -41,7 +41,8 @@ const Home = ({ isLoggedIn }: HomeProps) => {
         
         const data = feedData as any;
         setRecentlyPlayed((historyData || []).slice(0, 12));
-        setTopArtists((artistsData || []).slice(0, 12));
+        // Try personal artists first, if empty, grab global popular artists from the feed
+        setTopArtists((artistsData?.length > 0 ? artistsData : data.topArtists || data.popularArtists || []).slice(0, 12)); 
         setRecommended(data.recommendedForYou || []);
         setTopAlbums(data.topAlbums || []);
       } catch (error) {
@@ -173,7 +174,7 @@ const Home = ({ isLoggedIn }: HomeProps) => {
         )}
       </div>
 
-      {isLoggedIn && topArtists.length > 0 && (
+      {topArtists?.length > 0 && (
         <PopularArtists artists={topArtists} onArtistClick={handleArtistClick} />
       )}
 

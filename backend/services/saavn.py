@@ -131,6 +131,7 @@ async def get_trending() -> Dict[str, List[Dict[str, Any]]]:
     """
     trending_raw = []
     albums_raw = []
+    artists_raw = []
     
     try:
         response = await fetch_from_saavn("modules", {"language": "hindi,english"})
@@ -146,22 +147,29 @@ async def get_trending() -> Dict[str, List[Dict[str, Any]]]:
                 albums_raw = data["albums"]
                 if isinstance(albums_raw, dict):
                     albums_raw = albums_raw.get("results", [])
+
+            if isinstance(data.get("top_playlists"), (list, dict)):
+                 # Sometimes artists are under top_playlists or other modules, 
+                 # but for simplicity and reliability, we'll use a specific search fallback if not found
+                 pass
     except Exception as e:
         print(f"Primary modules endpoint failed: {str(e)}")
 
     # FALLBACK: If primary failed or returned nothing, use search to populate the UI
-    if not trending_raw or not albums_raw:
+    if not trending_raw or not albums_raw or not artists_raw:
         print("Using search-based fallback for home feed...")
         if not trending_raw:
             trending_raw = await search_saavn("Trending 2026")
         if not albums_raw:
             albums_raw = await search_saavn("Pop Hits")
+        if not artists_raw:
+            # We search for "Top Artists" and use the search results
+            artists_raw = await search_saavn("Top Artists 2026")
 
     seen_ids = set()
     recently_played = []
     for s in (trending_raw or []):
         if len(recently_played) >= 12: break
-        # item might already be mapped if coming from search_saavn
         m = await map_saavn_song(s, lenient=True) if isinstance(s, dict) and 'id' in s and 'title' not in s else s
         if m and m.get('id') not in seen_ids:
             recently_played.append(m)
@@ -174,10 +182,22 @@ async def get_trending() -> Dict[str, List[Dict[str, Any]]]:
         if m and m.get('id') not in seen_ids:
             top_albums.append(m)
             seen_ids.add(m['id'])
+
+    top_artists = []
+    for art in (artists_raw or []):
+        if len(top_artists) >= 12: break
+        # Search results might already be mapped, or we can treat them as songs for now 
+        # but they usually contain artist info in the metadata.
+        # For a true PopularArtists component, we just need Song objects where 'artist' is the name.
+        m = await map_saavn_song(art, lenient=True) if isinstance(art, dict) and 'id' in art and 'title' not in art else art
+        if m and m.get('id') not in seen_ids:
+            top_artists.append(m)
+            seen_ids.add(m['id'])
         
     return {
         "recentlyPlayed": recently_played,
-        "topAlbums": top_albums
+        "topAlbums": top_albums,
+        "topArtists": top_artists
     }
 
 async def get_lyrics(song_id: str) -> Dict[str, Any]:

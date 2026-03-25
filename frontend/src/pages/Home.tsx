@@ -101,6 +101,7 @@ const Home = ({ isLoggedIn }: HomeProps) => {
     <div className="flex flex-col gap-12 pb-24">
       {/* Global Search Bar */}
       <div className="relative w-full max-w-2xl group mt-2 mb-2">
+        {/* ... search input ... */}
         <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none z-10">
           <SearchIcon className={`h-5 w-5 transition-colors ${query ? 'text-white' : 'text-neutral-400 group-focus-within:text-white'}`} />
         </div>
@@ -113,7 +114,7 @@ const Home = ({ isLoggedIn }: HomeProps) => {
           className="w-full bg-neutral-800/80 text-white rounded-xl py-3.5 pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-white/10 transition-all font-medium placeholder-neutral-500 backdrop-blur-md border border-white/5"
         />
 
-        {/* Live Search Dropdown */}
+        {/* Live Search Dropdown omitted for brevity in replacement but I MUST include it if I replace the whole block */}
         {showDropdown && (query.trim().length > 0) && (searchResults.length > 0 || suggestions.artists?.length > 0) && (
             <div className="absolute top-full left-0 right-0 mt-2 bg-neutral-900 border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden animate-in slide-in-from-top-2 duration-200 backdrop-blur-xl">
                 {isSearching && (
@@ -172,6 +173,12 @@ const Home = ({ isLoggedIn }: HomeProps) => {
         )}
       </div>
 
+      {isLoggedIn && topArtists.length > 0 && (
+        <PopularArtists artists={topArtists} onArtistClick={handleArtistClick} />
+      )}
+
+      {topAlbums.length > 0 && <PopularAlbums albums={topAlbums} />}
+
       {recommended.length > 0 && (
         <HomeSection title="Recommended For You" showAllLink="/recommendations" className="bg-gradient-to-r from-green-500/10 to-transparent p-6 rounded-2xl border border-white/5">
           <Swiper
@@ -223,12 +230,6 @@ const Home = ({ isLoggedIn }: HomeProps) => {
           </div>
         </HomeSection>
       )}
-
-      {isLoggedIn && topArtists.length > 0 && (
-        <PopularArtists artists={topArtists} onArtistClick={handleArtistClick} />
-      )}
-
-      {topAlbums.length > 0 && <PopularAlbums albums={topAlbums} />}
 
       {isLoggedIn && recentlyPlayed.length === 0 && topArtists.length === 0 && topAlbums.length === 0 && (
         <div className="text-neutral-400 text-center mt-20 flex flex-col items-center">

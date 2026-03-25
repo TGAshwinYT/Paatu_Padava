@@ -44,20 +44,24 @@ class ResetPasswordRequest(BaseModel):
 @router.post("/forgot-password")
 async def forgot_password(request: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
     """
-    Initiates password reset by generating a 6-digit OTP and printing it to the terminal.
+    Initiates password reset by generating a 6-digit OTP and sending it via email.
     """
-    result = await db.execute(select(User).where(User.email == request.email))
-    user = result.scalars().first()
+    print(f"🚨 DEBUG: Received email: '{request.email}'")
     
-    if user:
-        otp = generate_otp()
-        OTP_STORE[request.email] = {
-            "otp": otp,
-            "expires": time.time() + 900 # 15 minutes
-        }
-        
-        # Call the real email utility
-        send_password_reset_email(request.email, otp)
+    # Temporarily Bypass Database Check for Testing
+    # result = await db.execute(select(User).where(User.email == request.email))
+    # user = result.scalars().first()
+    
+    # if user:
+    otp = generate_otp()
+    OTP_STORE[request.email] = {
+        "otp": otp,
+        "expires": time.time() + 900 # 15 minutes
+    }
+    
+    print(f"🚨 DEBUG: Attempting to send OTP to {request.email}...")
+    # Call the real email utility
+    send_password_reset_email(request.email, otp)
         
     # Always return success to avoid email enumeration
     return {"message": "If an account exists, an OTP has been sent to your email."}

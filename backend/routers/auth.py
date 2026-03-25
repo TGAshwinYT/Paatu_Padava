@@ -4,7 +4,7 @@ from sqlalchemy.future import select
 from connection import get_db
 from models import User
 from auth_utils import get_password_hash, verify_password, create_access_token, get_current_user
-from email_utils import send_verification_email, send_password_reset_email
+from email_utils import send_verification_email
 import uuid
 from typing import List
 from pydantic import BaseModel, EmailStr
@@ -55,11 +55,16 @@ async def forgot_password(request: ForgotPasswordRequest, db: AsyncSession = Dep
             "expires": time.time() + 900 # 15 minutes
         }
         
-        # Send real email via SMTP
-        send_password_reset_email(request.email, otp)
+        # Simulating email by printing to terminal
+        print("\n" + "="*50)
+        print("PASSWORD RESET OTP")
+        print(f"User: {user.email}")
+        print(f"OTP: {otp}")
+        print("Expires in: 15 minutes")
+        print("="*50 + "\n")
         
-    # Always return a generic success message to prevent email enumeration
-    return {"message": "If an account exists, an OTP has been sent to your email."}
+    # Always return success to avoid email enumeration
+    return {"message": "If this email is registered, you will receive a 6-digit OTP in your terminal block."}
 
 @router.post("/reset-password")
 async def reset_password(request: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):

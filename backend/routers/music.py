@@ -8,6 +8,9 @@ from upstash_redis.asyncio import Redis as UpstashRedis
 import models
 from auth_utils import get_current_user, get_current_user_optional
 import json
+from utils.location import get_search_languages
+from urllib.parse import quote
+
 
 router = APIRouter(prefix="/api/music", tags=["music"])
 
@@ -60,9 +63,16 @@ async def get_home_feed(
         return {"recentlyPlayed": [], "topArtists": [], "recommendedForYou": []}
 
 @router.get("/search")
-async def search_tracks(query: str = Query(..., min_length=1)):
+async def search_tracks(query: str = Query(..., min_length=1), region: str = Query(None)):
     try:
-        results = await saavn.search_saavn(query)
+        # Step 1: Get weighted language string based on region
+        lang_str = get_search_languages(region)
+        
+        # Step 2: Strict URI encoding for the query
+        encoded_query = quote(query)
+        
+        # Step 3: Pass to JioSaavn service
+        results = await saavn.search_saavn(encoded_query, language=lang_str)
         return results
     except Exception as e:
         print(f"Router Error (search): {str(e)}")

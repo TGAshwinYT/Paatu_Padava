@@ -1,55 +1,39 @@
 import os
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import requests
 
 def send_password_reset_email(to_email: str, otp: str) -> bool:
     """
-    Sends a password reset email with a 6-digit OTP using Gmail SMTP over SSL (Port 465).
-    Bypasses port 587 blocking on many hosting providers.
+    Sends a password reset email via a Google Apps Script Webhook.
+    Bypasses SMTP port blocking on Hugging Face using HTTP POST.
     """
-    sender_email = os.getenv("GMAIL_EMAIL")
-    app_password = os.getenv("GMAIL_APP_PASSWORD")
+    webhook_url = os.getenv("GOOGLE_SCRIPT_URL")
 
-    if not sender_email or not app_password:
-        print("Error: GMAIL_EMAIL or GMAIL_APP_PASSWORD environment variables not set.")
+    if not webhook_url:
+        print("Error: GOOGLE_SCRIPT_URL environment variable is not set.")
         return False
 
-    # Create the email message
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Reset your Paatu Padava Password"
-    msg["From"] = f"Paatu Padava <{sender_email}>"
-    msg["To"] = to_email
-
-    # HTML Body
-    html_content = f"""
-    <html>
-      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-        <div style="max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
-          <h2 style="color: #1DB954;">Password Reset Request</h2>
-          <p>Hi,</p>
-          <p>A password reset was requested for your account. Use the following 6-digit OTP code to proceed:</p>
-          <div style="background-color: #f4f4f4; padding: 15px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; border-radius: 5px;">
-            {otp}
-          </div>
-          <p>This code will expire in <strong>15 minutes</strong>.</p>
-          <p>If you did not request this, please ignore this email.</p>
-          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-          <p style="font-size: 12px; color: #888;">This is an automated message. Please do not reply.</p>
-        </div>
-      </body>
-    </html>
-    """
-    
-    msg.attach(MIMEText(html_content, "html"))
-
     try:
-        # Use SMTP_SSL for Port 465
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(sender_email, app_password)
-            server.send_message(msg)
-            print(f"Success: Password reset email sent to {to_email}")
-            return True
+        # Step 2: Make the POST request to the webhook
+        # The payload matches the Google Apps Script EXPECTATIONS (to, otp)
+        response = requests.post(
+            webhook_url, 
+            json={"to": to_email, "otp": otp}, 
+            timeout=10
+        )
+        
+        # Step 3: Parse response and check for success
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("status") == "success":
+                print(f"Success: Password reset email sent via Webhook to {to_email}")
+                return True
+            else:
+                print(f"Webhook error: {result.get('message', 'Unknown error')}")
+        else:
+            print(f"Server error: Received status code {response.status_code}")
+            
+        return False
+        
     except Exception as e:
-        print(f"Exception while sending Gmail SMTP email: {str(e)}")
+        print(f"Exception while sending email via Webhook: {str(e)}")
         return False

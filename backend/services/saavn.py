@@ -107,11 +107,23 @@ async def map_saavn_song(item: Dict[str, Any], lenient: bool = False) -> Dict[st
         print(f"⚠️ Mapping failed for item: {str(e)}")
         return {}
 
-async def search_saavn(query: str) -> List[Dict[str, Any]]:
+async def search_saavn(query: str, language: str = None) -> List[Dict[str, Any]]:
     """
     Official Search implementation. Strictly returns playable tracks.
+    Expects 'query' to be potentially pre-encoded or contain special characters.
+    'language' is a comma-separated string of prioritized languages.
     """
-    response = await fetch_from_saavn("search/songs", {"query": query})
+    # Note: httpx.get with params=params handles URI encoding automatically.
+    # To avoid double-encoding if 'query' was pre-quoted, we ensure it's unquoted first
+    # so that the library can handle it cleanly and consistently.
+    from urllib.parse import unquote
+    clean_query = unquote(query)
+    
+    params = {"query": clean_query}
+    if language:
+        params["language"] = language
+        
+    response = await fetch_from_saavn("search/songs", params)
     results = response.get("data", {}).get("results", [])
     
     print(f"[SEARCH DEBUG] Found {len(results)} items in API results for '{query}'")

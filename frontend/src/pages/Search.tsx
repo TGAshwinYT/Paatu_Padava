@@ -45,7 +45,7 @@ const Search = () => {
             searchTracks(debouncedQuery),
             getSuggestions(debouncedQuery)
           ]);
-          setResults(data);
+          setResults(data.songs);
           setSuggestions(suggestData);
         } catch (error) {
           console.error("Search failed:", error);

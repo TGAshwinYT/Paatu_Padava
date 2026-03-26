@@ -30,7 +30,7 @@ const MobileSearch: React.FC = () => {
       if (query.trim().length > 0) {
         setIsSearching(true);
         const data = await searchTracks(query);
-        setResults(data);
+        setResults(data.songs);
         
         const suggestData = await getSuggestions(query);
         setSuggestions(suggestData);

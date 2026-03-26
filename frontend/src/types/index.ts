@@ -10,6 +10,22 @@ export interface Song {
   image?: any;
 }
 
+export interface Album {
+  id: string;
+  title: string;
+  artist: string;
+  cover_url: string;
+  year?: string;
+  type: 'album';
+}
+
+export interface Artist {
+  id: string;
+  name: string;
+  imageUrl: string;
+  type: 'artist';
+}
+
 export const DUMMY_SONGS: Song[] = [
   {
     id: "1",

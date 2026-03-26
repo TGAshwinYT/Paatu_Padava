@@ -4,7 +4,8 @@ import SongCard from '../components/SongCard';
 import HomeSection from '../components/HomeSection';
 import PopularArtists from '../components/PopularArtists';
 import PopularAlbums from '../components/PopularAlbums';
-import type { Song } from '../types';
+import type { Song, Album, Artist } from '../types';
+import { useNavigate } from 'react-router-dom';
 import { getHomeFeed, searchTracks, getSuggestions, saveSearchClick, getListenHistory, getFollowedArtists } from '../services/api';
 import { useAudio } from '../context/AudioContext';
 import { Swiper, SwiperSlide } from 'swiper/react';
@@ -21,10 +22,11 @@ const Home = ({ isLoggedIn }: HomeProps) => {
   const [topAlbums, setTopAlbums] = useState<Song[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { playTrack } = useAudio();
+  const navigate = useNavigate();
 
   // Search States
   const [query, setQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<Song[]>([]);
+  const [searchResults, setSearchResults] = useState<{ songs: Song[], albums: Album[], artists: Artist[] }>({ songs: [], albums: [], artists: [] });
   const [suggestions, setSuggestions] = useState<any>({ songs: [], artists: [], albums: [] });
   const [isSearching, setIsSearching] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -84,16 +86,16 @@ const Home = ({ isLoggedIn }: HomeProps) => {
     const delayDebounceFn = setTimeout(async () => {
       if (query.trim().length > 0) {
         setIsSearching(true);
-        const [tracks, suggestData] = await Promise.all([
+        const [results, suggestData] = await Promise.all([
           searchTracks(query),
           getSuggestions(query)
         ]);
-        setSearchResults(tracks);
+        setSearchResults(results);
         setSuggestions(suggestData);
         setIsSearching(false);
         setShowDropdown(true);
       } else {
-        setSearchResults([]);
+        setSearchResults({ songs: [], albums: [], artists: [] });
         setSuggestions({ songs: [], artists: [], albums: [] });
         setShowDropdown(false);
       }
@@ -140,8 +142,8 @@ const Home = ({ isLoggedIn }: HomeProps) => {
           className="w-full bg-neutral-800/80 text-white rounded-xl py-3.5 pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-white/10 transition-all font-medium placeholder-neutral-500 backdrop-blur-md border border-white/5"
         />
 
-        {/* Live Search Dropdown omitted for brevity in replacement but I MUST include it if I replace the whole block */}
-        {showDropdown && (query.trim().length > 0) && (searchResults.length > 0 || suggestions.artists?.length > 0) && (
+        {/* Live Search Dropdown */}
+        {showDropdown && (query.trim().length > 0) && (searchResults.songs.length > 0 || searchResults.albums.length > 0 || suggestions.artists?.length > 0) && (
             <div className="absolute top-full left-0 right-0 mt-2 bg-neutral-900 border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden animate-in slide-in-from-top-2 duration-200 backdrop-blur-xl">
                 {isSearching && (
                     <div className="p-4 flex items-center justify-center gap-2 text-neutral-400">
@@ -149,10 +151,10 @@ const Home = ({ isLoggedIn }: HomeProps) => {
                         <span className="text-xs font-medium">Searching...</span>
                     </div>
                 )}
-                {!isSearching && searchResults.length > 0 && (
+                {!isSearching && searchResults.songs.length > 0 && (
                     <div className="p-2">
                         <h3 className="text-[10px] uppercase font-bold text-neutral-500 px-3 py-1 tracking-wider">Tracks</h3>
-                        {searchResults.slice(0, 5).map((song) => (
+                        {searchResults.songs.slice(0, 5).map((song) => (
                             <div 
                                 key={song.id} 
                                 onClick={() => handleResultClick(song)}
@@ -172,6 +174,30 @@ const Home = ({ isLoggedIn }: HomeProps) => {
                                 <div className="truncate">
                                     <p className="text-sm font-bold text-white truncate group-hover/item:text-green-500 transition-colors">{song.title}</p>
                                     <p className="text-xs text-neutral-400 truncate tracking-tight">{song.artist}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* Albums Section */}
+                {!isSearching && searchResults.albums.length > 0 && (
+                    <div className="p-2 border-t border-white/5 bg-black/10">
+                        <h3 className="text-[10px] uppercase font-bold text-neutral-500 px-3 py-1 tracking-wider">Albums</h3>
+                        {searchResults.albums.slice(0, 3).map((album) => (
+                            <div 
+                                key={album.id} 
+                                onClick={() => { navigate(`/album/${album.id}`); setShowDropdown(false); setQuery(''); }}
+                                className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg cursor-pointer transition-colors group/album"
+                            >
+                                <img 
+                                    src={album.cover_url || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=40&h=40&fit=crop'} 
+                                    className="w-10 h-10 rounded shadow-sm object-cover" 
+                                    alt="" 
+                                />
+                                <div className="truncate">
+                                    <p className="text-sm font-bold text-white truncate group-hover/album:text-green-500 transition-colors">{album.title}</p>
+                                    <p className="text-xs text-neutral-400 truncate font-medium">{album.artist} • {album.year}</p>
                                 </div>
                             </div>
                         ))}

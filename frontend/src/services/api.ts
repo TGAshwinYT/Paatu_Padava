@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Song } from '../types';
+import type { Song, Album, Artist } from '../types';
 
 export const mapHistoryToSong = (item: any): Song => {
   if (!item) return { id: '', title: 'Unknown', artist: 'Unknown', coverUrl: '', audioUrl: '' };
@@ -52,18 +52,20 @@ export const getHomeFeed = async (): Promise<{ recentlyPlayed: Song[], topAlbums
   }
 };
 
-export const searchTracks = async (query: string): Promise<Song[]> => {
-  if (!query) return [];
+export const searchTracks = async (query: string): Promise<{ songs: Song[], albums: Album[], artists: Artist[] }> => {
+  if (!query) return { songs: [], albums: [], artists: [] };
   try {
     const response = await api.get('/api/music/search', { params: { query } });
+    const data = response.data;
     
-    // We no longer track every search query character by character
-    // api.post('/api/music/history/search', null, { params: { query } }).catch(() => {});
-    
-    return response.data.map(mapHistoryToSong);
+    return {
+      songs: (data.songs || []).map(mapHistoryToSong),
+      albums: data.albums || [],
+      artists: data.artists || []
+    };
   } catch (error) {
-    console.error("Error searching tracks:", error);
-    return [];
+    console.error("Error searching globally:", error);
+    return { songs: [], albums: [], artists: [] };
   }
 };
 

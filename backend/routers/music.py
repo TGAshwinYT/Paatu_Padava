@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query, Depends
+import asyncio
 from typing import List, Dict, Any
 from services import saavn
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -71,9 +72,19 @@ async def search_tracks(query: str = Query(..., min_length=1), region: str = Que
         # Step 2: Strict URI encoding for the query
         encoded_query = quote(query)
         
-        # Step 3: Pass to JioSaavn service
-        results = await saavn.search_saavn(encoded_query, language=lang_str)
-        return results
+        # Step 3: Parallel search for Songs, Albums, and Artists
+        # This provides a Spotify-like comprehensive result set
+        song_task = saavn.search_saavn(encoded_query, language=lang_str)
+        album_task = saavn.search_albums(encoded_query, language=lang_str)
+        artist_task = saavn.search_artists(encoded_query, language=lang_str)
+        
+        songs, albums, artists = await asyncio.gather(song_task, album_task, artist_task)
+        
+        return {
+            "songs": songs,
+            "albums": albums,
+            "artists": artists
+        }
     except Exception as e:
         print(f"Router Error (search): {str(e)}")
         raise HTTPException(status_code=500, detail="Error searching for music")

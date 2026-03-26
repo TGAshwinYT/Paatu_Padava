@@ -337,12 +337,16 @@ async def search_all(query: str) -> Dict[str, Any]:
         "albums": data.get("albums", {}).get("results", [])[:3]
     }
 
-async def search_artists(query: str) -> List[Dict[str, Any]]:
+async def search_artists(query: str, language: str = None) -> List[Dict[str, Any]]:
     """
     Search specifically for artists.
     Endpoint: search/artists?query={query}
     """
-    response = await fetch_from_saavn("search/artists", {"query": query})
+    params = {"query": query}
+    if language:
+        params["language"] = language
+        
+    response = await fetch_from_saavn("search/artists", params)
     results = response.get("data", {}).get("results", [])
     
     mapped_artists = []
@@ -358,9 +362,39 @@ async def search_artists(query: str) -> List[Dict[str, Any]]:
         mapped_artists.append({
             "id": item.get("id"),
             "name": html.unescape(str(item.get("name", ""))),
-            "imageUrl": image_url
+            "imageUrl": image_url,
+            "type": "artist"
         })
     return mapped_artists
+
+async def search_albums(query: str, language: str = None) -> List[Dict[str, Any]]:
+    """
+    Search specifically for albums.
+    Endpoint: search/albums?query={query}
+    """
+    params = {"query": query}
+    if language:
+        params["language"] = language
+        
+    response = await fetch_from_saavn("search/albums", params)
+    results = response.get("data", {}).get("results", [])
+    
+    mapped_albums = []
+    for item in results:
+        images = item.get("image", [])
+        image_url = ""
+        if isinstance(images, list) and len(images) > 0:
+            image_url = images[-1].get("url", "")
+            
+        mapped_albums.append({
+            "id": item.get("id"),
+            "title": html.unescape(str(item.get("name", ""))),
+            "artist": html.unescape(str(item.get("primaryArtists", ""))),
+            "cover_url": image_url,
+            "year": item.get("year"),
+            "type": "album"
+        })
+    return mapped_albums
 
 async def get_artist_details(artist_id: str) -> Dict[str, Any]:
     """

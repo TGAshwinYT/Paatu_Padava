@@ -5,8 +5,10 @@ import 'swiper/css';
 interface Artist {
   id: string;
   name: string;
-  image?: any; 
+  image?: any;
   image_url?: string;
+  imageUrl?: string;
+  coverUrl?: string;
 }
 
 interface Props {

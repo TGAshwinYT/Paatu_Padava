@@ -52,7 +52,10 @@ import ssl
 
 # Supabase / PostgreSQL Setup
 # Convert postgresql:// to postgresql+asyncpg:// for SQLAlchemy async
-DB_URL = os.getenv("DATABASE_URL", "").replace("postgresql://", "postgresql+asyncpg://")
+DB_URL_RAW = os.getenv("DATABASE_URL", "")
+print(f"[*] RAW DATABASE_URL from .env: {repr(DB_URL_RAW)}")
+DB_URL = DB_URL_RAW.replace("postgresql://", "postgresql+asyncpg://")
+print(f"[*] Processed DB_URL for SQLAlchemy: {repr(DB_URL)}")
 
 # 1. Create a custom SSL context that ignores verification (for MSYS/Local dev issues)
 ctx = ssl.create_default_context()

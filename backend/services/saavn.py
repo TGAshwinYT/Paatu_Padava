@@ -2,10 +2,144 @@ import httpx
 import os
 import json
 import html
+import logging
+import time
+from graph import recommendation_graph
 from typing import List, Dict, Any, Optional
+from functools import wraps
+
+logger = logging.getLogger(__name__)
 
 # Primary API instance
 SAAVN_API_URL = "https://saavn.sumit.co/api"
+
+REGIONAL_VIP_ARTISTS = {
+    "tamil": ["Anirudh Ravichander", "A.R. Rahman", "G.V. Prakash Kumar", "Hiphop Tamizha", "Harris Jayaraj", "Yuvan Shankar Raja"],
+    "telugu": ["Devi Sri Prasad", "Thaman S", "Sid Sriram", "Anurag Kulkarni", "K. S. Chithra"],
+    "hindi": ["Arijit Singh", "Shreya Ghoshal", "Pritam", "Amit Trivedi", "Neha Kakkar"],
+    "malayalam": ["Sushin Shyam", "Gopi Sundar", "Hesham Abdul Wahab", "Vineeth Sreenivasan"],
+    "english": ["The Weeknd", "Taylor Swift", "Ed Sheeran", "Dua Lipa", "Drake"],
+    "default": ["A.R. Rahman", "Arijit Singh", "Anirudh Ravichander", "Shreya Ghoshal"]
+}
+
+def async_ttl_cache(ttl_seconds=900):
+    """
+    Custom Async TTL Cache decorator for I/O bound FastAPI tasks.
+    """
+    def decorator(func):
+        cache = {}
+
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            # Create a unique key from args and kwargs
+            key = f"{args}_{kwargs}"
+            now = time.time()
+
+            if key in cache:
+                result, timestamp = cache[key]
+                if now - timestamp < ttl_seconds:
+                    print(f"[CACHE HIT] Serving fast data for {func.__name__}!")
+                    return result
+
+            # Cache miss or expired
+            print(f"[CACHE MISS] Fetching fresh data for {func.__name__}...")
+            result = await func(*args, **kwargs)
+            cache[key] = (result, now)
+            return result
+        return wrapper
+    return decorator
+
+def extract_artist_name(artist_data: Any) -> str:
+    """
+    Bulletproof extraction of artist name from various potential keys.
+    Checks name, title, listname, subtitle in prioritized order.
+    """
+    if not artist_data:
+        return "Unknown Artist"
+    
+    if isinstance(artist_data, str):
+        return html.unescape(artist_data)
+        
+    # Priority keys for names/titles
+    keys = ["name", "title", "listname", "subtitle", "artist"]
+    
+    for key in keys:
+        val = artist_data.get(key)
+        if val and isinstance(val, str) and val.strip().lower() not in ["null", "none", "artist", "unknown"]:
+            return html.unescape(val.strip())
+        if val and isinstance(val, list) and len(val) > 0:
+            # Handle lists of strings or dicts
+            item = val[0]
+            if isinstance(item, str):
+                return html.unescape(item)
+            if isinstance(item, dict):
+                inner_name = item.get("name") or item.get("title")
+                if inner_name:
+                    return html.unescape(inner_name)
+                    
+    return "Unknown Artist"
+
+def extract_high_res_image(image_data: Any) -> str:
+    """
+    Robust extraction of highest resolution image from various formats.
+    Checks 'image', 'images', and 'image_url'. 
+    Forces 500x500 for JioSaavn CDN links.
+    """
+    default_image = "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&h=500&fit=crop"
+    
+    if not image_data:
+        return default_image
+
+    url = ""
+    # 1. Handle if image_data itself is a dict (e.g. {'image': ..., 'image_url': ...})
+    if isinstance(image_data, dict):
+        url = image_data.get("image") or image_data.get("image_url") or image_data.get("images") or ""
+    else:
+        url = image_data
+
+    # 2. If it's a list, grab the last (usually highest quality)
+    if isinstance(url, list) and len(url) > 0:
+        last_item = url[-1]
+        if isinstance(last_item, dict):
+            url = last_item.get("link") or last_item.get("url") or ""
+        else:
+            url = str(last_item)
+
+    # 3. Clean and transform
+    if not isinstance(url, str) or not url.startswith("http"):
+        return default_image
+
+    # Force high resolution for JioSaavn/SaavnCDN URLs
+    if "jiosaavn.com" in url or "saavncdn.com" in url:
+        url = url.replace("50x50", "500x500").replace("150x150", "500x500")
+        
+    return url
+
+def extract_audio_url(item: Dict[str, Any]) -> str:
+    """
+    Robustly extracts the highest quality audio URL from JioSaavn song data.
+    """
+    if not item or not isinstance(item, dict):
+        return ""
+        
+    # 1. Check downloadUrl list (Standard sumit.co 2026 format)
+    downloads = item.get("downloadUrl", [])
+    if isinstance(downloads, list) and len(downloads) > 0:
+        # Prio: 320kbps (idx 4), then 160kbps (idx 3), etc.
+        if len(downloads) > 4:
+            url = downloads[4].get("url")
+            if url: return url
+        
+        # Fallback to the last (highest available) in the list
+        url = downloads[-1].get("url")
+        if url: return url
+
+    # 2. Check direct link/url fields (Some modules return this)
+    direct_url = item.get("url") or item.get("link") or item.get("download_url")
+    if direct_url and (".mp3" in direct_url or ".m4a" in direct_url or "http" in direct_url):
+        return direct_url
+        
+    return ""
 
 async def fetch_from_saavn(endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
@@ -30,31 +164,17 @@ async def map_saavn_song(item: Dict[str, Any], lenient: bool = False) -> Dict[st
         return {}
 
     try:
-        # 1. Images are a list of {quality: str, url: str}
-        images = item.get("image", [])
-        cover_url = ""
-        if isinstance(images, list) and len(images) > 0:
-            cover_url = images[-1].get("url", "")
-        elif isinstance(images, str):
-            cover_url = images
+        # 1. Images are normalized using robust helper
+        cover_url = extract_high_res_image(item.get("image"))
 
-        # 2. Download links are a list of {quality: str, url: str}
-        downloads = item.get("downloadUrl", [])
-        audio_url = ""
-        
-        if isinstance(downloads, list) and len(downloads) > 0:
-            if len(downloads) > 4:
-                audio_url = downloads[4].get("url", "")
-            
-            if not audio_url:
-                audio_url = downloads[-1].get("url", "")
+        # 2. Audio URL extraction via robust helper
+        audio_url = extract_audio_url(item)
 
-        # Universal Mapping Fallback (Task 1)
-        if not audio_url:
-            audio_url = item.get("url") or item.get("link")
-            # If we found a direct URL, create a mock downloads structure for consistency
-            if audio_url and not downloads:
-                downloads = [{"quality": "320kbps", "url": audio_url}]
+        # Ensure downloads structure exists for backward compatibility if needed
+        if audio_url and not item.get("downloadUrl"):
+            downloads = [{"quality": "320kbps", "url": audio_url}]
+        else:
+            downloads = item.get("downloadUrl", [])
 
         # 3. Artists & Metadata Fallback Chain
         artist = item.get("primaryArtists")
@@ -136,78 +256,160 @@ async def search_saavn(query: str, language: str = None) -> List[Dict[str, Any]]
             
     return mapped_songs
 
-async def get_trending() -> Dict[str, List[Dict[str, Any]]]:
+@async_ttl_cache(ttl_seconds=1800)
+async def get_trending(languages: str = None) -> Dict[str, List[Dict[str, Any]]]:
     """
-    Fetches trending modules for the home screen.
-    Includes a robust fallback that uses search results if the 'modules' endpoint fails.
+    Fetches trending music, albums, and artists for the home screen.
+    Uses normalization loop and robust image extraction.
+    Localized by prioritized languages if provided.
     """
-    trending_raw = []
+    songs_raw = []
     albums_raw = []
     artists_raw = []
     
+    # Extract primary language for fallback searches
+    primary_lang = "hindi"
+    if languages:
+        primary_lang = languages.split(',')[0].strip()
+
     try:
-        response = await fetch_from_saavn("modules", {"language": "hindi,english"})
+        # 1. Fetch from modules (Default Home Feed) with language context
+        response = await fetch_from_saavn("modules", {"language": languages or "hindi,english"})
+        
+        logger.error("============= RAW JIOSAAVN DATA START =============")
+        logger.error(response)
+        logger.error("============= RAW JIOSAAVN DATA END =============")
+        
         data = response.get("data", {})
         
         if data:
-            if isinstance(data.get("trending"), dict):
-                trending_raw = data["trending"].get("songs", [])
-            elif isinstance(data.get("charts"), list):
-                trending_raw = data["charts"]
+            # Extract Songs
+            if data.get("trending") and isinstance(data["trending"], dict):
+                songs_raw = data["trending"].get("songs", [])
             
-            if isinstance(data.get("albums"), (list, dict)):
+            # Extract Albums
+            if data.get("albums") and isinstance(data["albums"], list):
                 albums_raw = data["albums"]
-                if isinstance(albums_raw, dict):
-                    albums_raw = albums_raw.get("results", [])
-
-            if isinstance(data.get("top_playlists"), (list, dict)):
-                 # Sometimes artists are under top_playlists or other modules, 
-                 # but for simplicity and reliability, we'll use a specific search fallback if not found
-                 pass
+                
+            # Extract Artists (Check trending.artists or specific artist objects)
+            if data.get("trending") and isinstance(data["trending"], dict):
+                artists_raw = data["trending"].get("artists", [])
+            
+            # Fallback if trending.artists is empty, check if top_playlists contains artist objects (rare but possible)
+            if not artists_raw and data.get("top_playlists") and isinstance(data["top_playlists"], list):
+                # Only use it if they look like artists (e.g. have 'artist' or 'type' == 'artist')
+                potential = data["top_playlists"]
+                if potential and (potential[0].get("type") == "artist" or "artist" in potential[0]):
+                    artists_raw = potential
     except Exception as e:
         print(f"Primary modules endpoint failed: {str(e)}")
 
-    # FALLBACK: If primary failed or returned nothing, use search to populate the UI
-    if not trending_raw or not albums_raw or not artists_raw:
-        print("Using search-based fallback for home feed...")
-        if not trending_raw:
-            trending_raw = await search_saavn("Trending 2026")
+    # 2. Robust Fallback: If modules are thin, search for fresh content using primary language
+    if len(songs_raw) < 5 or len(albums_raw) < 5:
+        print(f"Home feed thin for {primary_lang}, triggering search-based population...")
+        
+        # We fetch RAW data from saavn to avoid double mapping
+        if not songs_raw:
+            songs_resp = await fetch_from_saavn("search/songs", {"query": f"Trending {primary_lang.capitalize()} Songs"})
+            songs_raw = songs_resp.get("data", {}).get("results", [])
+        
         if not albums_raw:
-            albums_raw = await search_saavn("Pop Hits")
+            albums_resp = await fetch_from_saavn("search/albums", {"query": f"New {primary_lang.capitalize()} Albums"})
+            albums_raw = albums_resp.get("data", {}).get("results", [])
+            
         if not artists_raw:
-            # We search for "Top Artists" and use the search results
-            artists_raw = await search_saavn("Top Artists 2026")
+            print(f"[LOCALIZATION] Fetching VIP regional artists for {primary_lang}...")
+            import asyncio
+            
+            # Get the VIP list for the region, or use default
+            vip_names = REGIONAL_VIP_ARTISTS.get(primary_lang, REGIONAL_VIP_ARTISTS["default"])
+            
+            # Helper function to fetch the top 1 exact match for a specific artist
+            async def fetch_vip_artist(name):
+                resp = await fetch_from_saavn("search/artists", {"query": name})
+                results = resp.get("data", {}).get("results", [])
+                return results[0] if results else None
 
-    seen_ids = set()
-    recently_played = []
-    for s in (trending_raw or []):
-        if len(recently_played) >= 12: break
-        m = await map_saavn_song(s, lenient=True) if isinstance(s, dict) and 'id' in s and 'title' not in s else s
-        if m and m.get('id') not in seen_ids:
-            recently_played.append(m)
-            seen_ids.add(m['id'])
-        
+            # Run all exact name searches concurrently for instant response
+            tasks = [fetch_vip_artist(name) for name in vip_names]
+            vip_results = await asyncio.gather(*tasks)
+            
+            # Filter out any None values if an artist search failed
+            artists_raw = [artist for artist in vip_results if artist]
+            
+            print(f"DEBUG: Found {len(artists_raw)} VIP artists for {primary_lang}")
+
+            # If that's still empty, fallback to generic trending
+            if not artists_raw:
+                artists_resp = await fetch_from_saavn("search/artists", {"query": "Trending Artists"})
+                artists_raw = artists_resp.get("data", {}).get("results", [])
+                print("DEBUG: RAW TRENDING ARTIST DATA FALLBACK:", artists_raw[:2] if artists_raw else "EMPTY")
+
+    # 3. Normalization Loops (Task 2)
+    # Songs: {id, title, artist, coverUrl, audioUrl}
+    recommended_for_you = []
+    for s in songs_raw[:15]:
+        recommended_for_you.append({
+            "id": s.get("id"),
+            "title": html.unescape(s.get("name") or s.get("title") or "Unknown"),
+            "artist": html.unescape(s.get("primaryArtists") or s.get("artist") or "Various Artists"),
+            "coverUrl": extract_high_res_image(s.get("image")),
+            "audioUrl": extract_audio_url(s)
+        })
+
+    # Albums: {id, title, subtitle, image}
     top_albums = []
-    for a in (albums_raw or []):
-        if len(top_albums) >= 12: break
-        m = await map_saavn_song(a, lenient=True) if isinstance(a, dict) and 'id' in a and 'title' not in a else a
-        if m and m.get('id') not in seen_ids:
-            top_albums.append(m)
-            seen_ids.add(m['id'])
+    for a in albums_raw[:15]:
+        top_albums.append({
+            "id": a.get("id"),
+            "title": html.unescape(a.get("name") or a.get("title") or "Unknown Album"),
+            "subtitle": html.unescape(a.get("primaryArtists") or a.get("artist") or a.get("subtitle") or "Artist"),
+            "image": extract_high_res_image(a.get("image"))
+        })
 
+    # Artists: {id, name, image}
     top_artists = []
-    for art in (artists_raw or []):
-        if len(top_artists) >= 12: break
-        # Search results might already be mapped, or we can treat them as songs for now 
-        # but they usually contain artist info in the metadata.
-        # For a true PopularArtists component, we just need Song objects where 'artist' is the name.
-        m = await map_saavn_song(art, lenient=True) if isinstance(art, dict) and 'id' in art and 'title' not in art else art
-        if m and m.get('id') not in seen_ids:
-            top_artists.append(m)
-            seen_ids.add(m['id'])
+    # Use a set to avoid duplicates
+    seen_artist_names = set()
+    
+    for art in artists_raw:
+        # 🚨 BULLETPROOF EXTRACTION 🚨
+        name = extract_artist_name(art)
         
+        # Filter out generic or invalid entries
+        if name == "Unknown Artist":
+            continue
+            
+        if name in seen_artist_names:
+            continue
+            
+        seen_artist_names.add(name)
+        
+        top_artists.append({
+            "id": art.get("id"),
+            "name": name,
+            "image": extract_high_res_image(art) # Pass entire object to helper
+        })
+        
+        if len(top_artists) >= 15:
+            break
+        
+    # Task 1: Feed songs into the global recommendation graph
+    try:
+        if recommended_for_you:
+            for song in recommended_for_you:
+                recommendation_graph.add_song(song)
+                
+            # Create connections (Clique) for trending batch
+            song_ids = [s['id'] for s in recommended_for_you]
+            for i in range(len(song_ids)):
+                for j in range(i + 1, len(song_ids)):
+                    recommendation_graph.add_connection(song_ids[i], song_ids[j])
+    except Exception as e:
+        print(f"[GRAPH WARNING] Trending injection failed: {e}")
+
     return {
-        "recentlyPlayed": recently_played,
+        "recommendedForYou": recommended_for_you,
         "topAlbums": top_albums,
         "topArtists": top_artists
     }
@@ -348,21 +550,12 @@ async def search_artists(query: str, language: str = None) -> List[Dict[str, Any
         
     response = await fetch_from_saavn("search/artists", params)
     results = response.get("data", {}).get("results", [])
-    
     mapped_artists = []
     for item in results:
-        # Extract the highest quality image
-        images = item.get("image", [])
-        image_url = ""
-        if isinstance(images, list) and len(images) > 0:
-            image_url = images[-1].get("url", "")
-        elif isinstance(images, str):
-            image_url = images
-            
         mapped_artists.append({
             "id": item.get("id"),
             "name": html.unescape(str(item.get("name", ""))),
-            "imageUrl": image_url,
+            "image": extract_high_res_image(item.get("image")),
             "type": "artist"
         })
     return mapped_artists
@@ -378,19 +571,13 @@ async def search_albums(query: str, language: str = None) -> List[Dict[str, Any]
         
     response = await fetch_from_saavn("search/albums", params)
     results = response.get("data", {}).get("results", [])
-    
     mapped_albums = []
     for item in results:
-        images = item.get("image", [])
-        image_url = ""
-        if isinstance(images, list) and len(images) > 0:
-            image_url = images[-1].get("url", "")
-            
         mapped_albums.append({
             "id": item.get("id"),
             "title": html.unescape(str(item.get("name", ""))),
             "artist": html.unescape(str(item.get("primaryArtists", ""))),
-            "cover_url": image_url,
+            "image": extract_high_res_image(item.get("image")),
             "year": item.get("year"),
             "type": "album"
         })
@@ -408,12 +595,7 @@ async def get_artist_details(artist_id: str) -> Dict[str, Any]:
         return {"name": "Unknown Artist", "image": "", "topSongs": []}
 
     # Extract image
-    images = data.get("image", [])
-    image_url = ""
-    if isinstance(images, list) and len(images) > 0:
-        image_url = images[-1].get("url", "")
-    elif isinstance(images, str):
-        image_url = images
+    image_url = extract_high_res_image(data.get("image"))
 
     # Extract and map top songs
     top_songs_raw = data.get("topSongs", [])
@@ -457,3 +639,46 @@ async def get_personalized_feed(artist_names: List[str]) -> List[Dict[str, Any]]
     
     # Limit total results
     return unique_tracks[:30]
+
+@async_ttl_cache(ttl_seconds=86400)
+async def get_album_details(album_id: str) -> Dict[str, Any]:
+    """
+    Fetches the full details and tracklist of a specific album from JioSaavn.
+    """
+    response = await fetch_from_saavn("albums", {"id": album_id})
+    data = response.get("data", {})
+
+    if not data:
+        return {}
+
+    # Extract cover art and map songs
+    cover_url = extract_high_res_image(data.get("image"))
+    raw_songs = data.get("songs", [])
+    mapped_songs = []
+    for song in raw_songs:
+        # Use existing mapper with lenient mode to ensure we get as many playable tracks as possible
+        mapped = await map_saavn_song(song, lenient=True)
+        if mapped:
+            mapped_songs.append(mapped)
+
+    # Task 1: Feed album songs into the global recommendation graph
+    try:
+        if mapped_songs:
+            for song in mapped_songs:
+                recommendation_graph.add_song(song)
+            
+            # Create connections (Clique) for all songs in the same album
+            song_ids = [s['id'] for s in mapped_songs]
+            for i in range(len(song_ids)):
+                for j in range(i + 1, len(song_ids)):
+                    recommendation_graph.add_connection(song_ids[i], song_ids[j])
+    except Exception as e:
+        print(f"[GRAPH WARNING] Album injection failed: {e}")
+
+    return {
+        "id": data.get("id"),
+        "title": html.unescape(data.get("name", "Unknown Album")),
+        "artist": html.unescape(data.get("primaryArtists", "Various Artists")),
+        "image": cover_url,
+        "songs": mapped_songs
+    }

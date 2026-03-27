@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import HomeSection from './HomeSection';
 import type { Song } from '../types';
 
@@ -35,9 +36,10 @@ const PopularAlbums: React.FC<PopularAlbumsProps> = ({ albums, title = "Popular 
           }
 
           return (
-            <div 
+            <Link 
               key={album.id}
-              className="flex-shrink-0 w-36 group cursor-pointer"
+              to={`/album/${album.id}`}
+              className="flex-shrink-0 w-36 group cursor-pointer block"
             >
               <div className="relative mb-3">
                 <img 
@@ -58,7 +60,7 @@ const PopularAlbums: React.FC<PopularAlbumsProps> = ({ albums, title = "Popular 
                   Album
                 </p>
               </div>
-            </div>
+            </Link>
           );
         })}
       </div>

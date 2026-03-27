@@ -11,26 +11,32 @@ from auth_utils import get_current_user, get_current_user_optional
 import json
 from utils.location import get_search_languages
 from urllib.parse import quote
+from graph import recommendation_graph
 
 
 router = APIRouter(prefix="/api/music", tags=["music"])
 
 @router.get("/home")
 async def get_home_feed(
+    region: str = Query(None),
     user: models.User = Depends(get_current_user_optional), 
     db: AsyncSession = Depends(get_db),
     redis_client: UpstashRedis = Depends(get_redis)
 ):
     """
     Fetches trending music and mixes in personalized recommendations.
-    Caches the global trending feed to Redis for 1 hour.
+    Localized by region if provided.
     """
     try:
-        # 1. Check Cache
-        cached_data = await redis_client.get("trending_songs")
+        # Cache Key should include region for localization
+        cache_key = f"trending_songs_{region or 'global'}"
+        cached_data = await redis_client.get(cache_key)
         if cached_data:
             return json.loads(cached_data)
 
+        # 1. Determine Language Priority based on Region
+        languages = get_search_languages(region)
+        
         favorites = []
         if user:
             # 1. Fetch preferences from DB
@@ -43,25 +49,38 @@ async def get_home_feed(
                 except:
                     pass
 
-        # 2. Fetch standard trending feed as base
-        feed_data = await saavn.get_trending()
+        # 2. Fetch standard trending feed as base (Songs, Albums, Artists)
+        # Now passing regional languages to localize results
+        feed_data = await saavn.get_trending(languages)
         
-        # 3. If favorites exist, build personalized section
+        # 3. If favorites exist, build and merge personalized recommendations
         if favorites:
-            # Build a dedicated personalized feed
             personalized = await saavn.get_personalized_feed(favorites)
             if personalized:
-                # Add to feed_data
-                feed_data["recommendedForYou"] = personalized
+                # Map personalized songs to the required format
+                mapped_personalized = []
+                for p in personalized:
+                    mapped_personalized.append({
+                        "id": p.get("id"),
+                        "title": p.get("title") or p.get("name"),
+                        "artist": p.get("artist") or p.get("primaryArtists"),
+                        "coverUrl": p.get("coverUrl") or p.get("cover_url") or saavn.extract_high_res_image(p.get("image")),
+                        "audioUrl": p.get("audioUrl") or p.get("audio_url") or saavn.extract_audio_url(p)
+                    })
+                
+                # Merge: Prepended personalized items to standard trending songs
+                # Standard trending songs are already in feed_data["recommendedForYou"]
+                standard_trending = feed_data.get("recommendedForYou", [])
+                feed_data["recommendedForYou"] = (mapped_personalized + standard_trending)[:30]
         
         # 4. Cache the results for 1 hour
-        await redis_client.setex("trending_songs", 3600, json.dumps(feed_data))
+        await redis_client.setex(cache_key, 3600, json.dumps(feed_data))
         
         return feed_data
     except Exception as e:
         print(f"Router Error (home): {str(e)}")
-        # Fallback to absolute minimum if something crashes
-        return {"recentlyPlayed": [], "topArtists": [], "recommendedForYou": []}
+        # Fallback to absolute minimum if something crashes but maintain structure
+        return {"recommendedForYou": [], "topAlbums": [], "topArtists": []}
 
 @router.get("/search")
 async def search_tracks(query: str = Query(..., min_length=1), region: str = Query(None)):
@@ -181,14 +200,19 @@ async def get_liked_songs(
 @router.get("/recommendations/{song_id}")
 async def get_recommendations(song_id: str, artist: str = Query(None)):
     """
-    Get recommended songs based on a song ID.
+    Get recommended songs based on a song ID using the path-based BFS graph.
     """
     try:
-        results = await saavn.get_recommendations(song_id, artist)
+        # Task 2: Use the global recommendation graph
+        results = recommendation_graph.get_recommendations(song_id, limit=6)
+        
+        # Fallback to standard suggestions if the graph is cold for this track
+        if not results:
+            results = await saavn.get_recommendations(song_id, artist)
+            
         return results
     except Exception as e:
         print(f"Recommendations Error (Router): {str(e)}")
-        # Task 2: Return 200 OK with empty list instead of 500
         return []
 
 @router.get("/related/{song_id}")
@@ -264,3 +288,18 @@ async def get_artist_details(artist_id: str):
     except Exception as e:
         print(f"Artist Error (Router): {str(e)}")
         raise HTTPException(status_code=500, detail="Error fetching artist details")
+@router.get("/albums/{album_id}")
+async def get_album_details(album_id: str):
+    """
+    Fetch full details and tracklist for a specific album.
+    """
+    try:
+        results = await saavn.get_album_details(album_id)
+        if not results or not results.get("id"):
+            raise HTTPException(status_code=404, detail="Album not found or unavailable")
+        return results
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Album Error (Router): {str(e)}")
+        raise HTTPException(status_code=500, detail="Error fetching album details")

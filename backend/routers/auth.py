@@ -198,41 +198,61 @@ async def get_user_artists_details(user: User = Depends(get_current_user), db: A
     """
     Fetches the current user's favorite artists names from DB and 
     aggregates their details (id, name, image) from JioSaavn.
+    Bulletproofed to handle null/empty preferences and API failures.
     """
     from services import saavn
     import asyncio
-    
-    # 1. Fetch user favorite_artists names
-    result = await db.execute(select(User.favorite_artists).where(User.id == user.id))
-    artists_json = result.scalar_one()
+    import json
     
     try:
-        artist_names = json.loads(artists_json)
-    except:
-        artist_names = []
+        # 1. Fetch user favorite_artists names
+        result = await db.execute(select(User.favorite_artists).where(User.id == user.id))
+        artists_json = result.scalar_one_or_none()
         
-    if not artist_names:
-        return []
-
-    # 2. Fetch details from Saavn for each artist
-    async def get_artist_info(name):
+        # 🚨 BULLETPROOF CHECK 🚨
+        if not artists_json or artists_json == "[]" or artists_json == "":
+            return []
+            
         try:
-            results = await saavn.search_artists(name)
-            if results:
-                best_match = results[0]
-                return {
-                    "id": best_match.get("id"),
-                    "name": best_match.get("name"),
-                    "image": best_match.get("imageUrl")
-                }
+            artist_names = json.loads(artists_json)
+            if not isinstance(artist_names, list):
+                return []
         except:
-            pass
-        return {"id": name, "name": name, "image": ""}
+            return []
+            
+        if not artist_names:
+            return []
 
-    tasks = [get_artist_info(name) for name in artist_names]
-    artist_details = await asyncio.gather(*tasks)
-    
-    return [a for a in artist_details if a]
+        # 2. Fetch details from Saavn for each artist
+        async def get_artist_info(name):
+            if not name: return None
+            try:
+                # Search for the artist to get their ID and Image
+                results = await saavn.search_artists(name)
+                if results:
+                    best_match = results[0]
+                    return {
+                        "id": best_match.get("id"),
+                        "name": best_match.get("name") or name,
+                        "image": best_match.get("image") or best_match.get("imageUrl") or ""
+                    }
+            except Exception as inner_e:
+                print(f"Warning: Failed to fetch info for artist {name}: {inner_e}")
+            
+            # Fallback for individual artist failures
+            return {"id": name, "name": name, "image": ""}
+
+        tasks = [get_artist_info(name) for name in artist_names]
+        artist_details = await asyncio.gather(*tasks)
+        
+        # Filter out invalid entries
+        return [a for a in artist_details if a]
+        
+    except Exception as e:
+        print("\n" + "!" * 60)
+        print(f"CRASH IN ARTISTS-DETAILS: {str(e)}")
+        print("!" * 60 + "\n")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/verify/{token}")
 async def verify_email(token: str, db: AsyncSession = Depends(get_db)):

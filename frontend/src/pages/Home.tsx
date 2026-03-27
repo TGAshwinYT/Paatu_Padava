@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Search as SearchIcon, Play, User as UserIcon } from 'lucide-react';
+import { Search as SearchIcon, Play } from 'lucide-react';
+import api from '../services/api';
 import SongCard from '../components/SongCard';
 import HomeSection from '../components/HomeSection';
 import PopularArtists from '../components/PopularArtists';
 import PopularAlbums from '../components/PopularAlbums';
 import type { Song, Album, Artist } from '../types';
 import { useNavigate } from 'react-router-dom';
-import { getHomeFeed, searchTracks, getSuggestions, saveSearchClick, getListenHistory, getFollowedArtists } from '../services/api';
+import { getHomeFeed, searchTracks, saveSearchClick, getListenHistory, getFollowedArtists } from '../services/api';
 import { useAudio } from '../context/AudioContext';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import 'swiper/css';
@@ -27,9 +28,11 @@ const Home = ({ isLoggedIn }: HomeProps) => {
   // Search States
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<{ songs: Song[], albums: Album[], artists: Artist[] }>({ songs: [], albums: [], artists: [] });
-  const [suggestions, setSuggestions] = useState<any>({ songs: [], artists: [], albums: [] });
   const [isSearching, setIsSearching] = useState(false);
-  const [showDropdown, setShowDropdown] = useState(false);
+  
+  // Trie Autocomplete state
+  const [autoSuggestions, setAutoSuggestions] = useState<any[]>([]);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   useEffect(() => {
     const fetchFeed = async () => {
@@ -47,27 +50,16 @@ const Home = ({ isLoggedIn }: HomeProps) => {
         // 1. SPY ON THE BACKEND:
         console.log("🚨 DEBUG BACKEND DATA:", data);
 
-        // 2. CREATE EMERGENCY DUMMY DATA:
-        const dummyArtists = [
-          { id: '1', name: 'Anirudh Ravichander', image: [{url: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop'}] },
-          { id: '2', name: 'A.R. Rahman', image: [{url: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200&h=200&fit=crop'}] },
-          { id: '3', name: 'Sid Sriram', image: [{url: 'https://images.unsplash.com/photo-1493225457124-a1a2a5ea3a26?w=200&h=200&fit=crop'}] }
-        ];
-
-        // 3. NORMALIZE PERSONAL ARTISTS (from Supabase) TO MATCH JIOSAAVN FORMAT:
+        // 1. Normalize Personal Artists (from Supabase) TO MATCH JIOSAAVN FORMAT:
         let normalizedArtists = (artistsData || []).map((a: any) => ({
           id: a.id || a.artist_id || '',
           name: a.name || a.artist_name || a.artist || 'Unknown Artist',
           image: [{ url: a.image_url || a.image || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop' }]
         }));
 
-        // 4. TRY TO USE REAL DATA, FALLBACK TO DUMMY DATA IF EMPTY:
-        let finalArtists = normalizedArtists.length > 0 ? normalizedArtists : (data.topArtists || data.popularArtists || []);
-        
-        if (finalArtists.length === 0) {
-            console.log("🚨 No artists found in database! Using dummy data so UI doesn't break.");
-            finalArtists = dummyArtists;
-        }
+        // 2. Use real data from backend
+        const backendArtists = data.topArtists || data.popularArtists || [];
+        const finalArtists = normalizedArtists.length > 0 ? normalizedArtists : backendArtists;
 
         setTopArtists(finalArtists.slice(0, 12));
         setRecommended(data.recommendedForYou || []);
@@ -86,18 +78,26 @@ const Home = ({ isLoggedIn }: HomeProps) => {
     const delayDebounceFn = setTimeout(async () => {
       if (query.trim().length > 0) {
         setIsSearching(true);
-        const [results, suggestData] = await Promise.all([
-          searchTracks(query),
-          getSuggestions(query)
-        ]);
-        setSearchResults(results);
-        setSuggestions(suggestData);
-        setIsSearching(false);
-        setShowDropdown(true);
+        try {
+          // Fetch Trie-based artist autocomplete suggestions
+          const response = await api.get(`/api/search/autocomplete?q=${query}`);
+          const data = Array.isArray(response.data) ? response.data : [];
+          setAutoSuggestions(data);
+          
+          // Original search logic for full results
+          const results = await searchTracks(query);
+          setSearchResults(results);
+          setIsSearching(false);
+          setIsDropdownOpen(true);
+        } catch (error) {
+          console.error("Autocomplete failed:", error);
+          setAutoSuggestions([]);
+          setIsSearching(false);
+        }
       } else {
         setSearchResults({ songs: [], albums: [], artists: [] });
-        setSuggestions({ songs: [], artists: [], albums: [] });
-        setShowDropdown(false);
+        setAutoSuggestions([]);
+        setIsDropdownOpen(false);
       }
     }, 300);
 
@@ -107,13 +107,20 @@ const Home = ({ isLoggedIn }: HomeProps) => {
   const handleResultClick = (song: Song) => {
     saveSearchClick(song);
     playTrack(song);
-    setShowDropdown(false);
+    setIsDropdownOpen(false);
     setQuery('');
   };
 
   const handleArtistClick = (artistName: string) => {
     setQuery(artistName);
-    setShowDropdown(false);
+    setIsDropdownOpen(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      setIsDropdownOpen(false);
+      navigate(`/search?q=${query}`);
+    }
   };
 
   if (isLoading) {
@@ -137,91 +144,61 @@ const Home = ({ isLoggedIn }: HomeProps) => {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => query.length > 0 && setShowDropdown(true)}
+          onFocus={() => query.length > 0 && setIsDropdownOpen(true)}
+          onKeyDown={handleKeyDown}
           placeholder="Search for songs, artists, or albums..."
           className="w-full bg-neutral-800/80 text-white rounded-xl py-3.5 pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-white/10 transition-all font-medium placeholder-neutral-500 backdrop-blur-md border border-white/5"
         />
 
         {/* Live Search Dropdown */}
-        {showDropdown && (query.trim().length > 0) && (searchResults.songs.length > 0 || searchResults.albums.length > 0 || suggestions.artists?.length > 0) && (
-            <div className="absolute top-full left-0 right-0 mt-2 bg-neutral-900 border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden animate-in slide-in-from-top-2 duration-200 backdrop-blur-xl">
-                {isSearching && (
-                    <div className="p-4 flex items-center justify-center gap-2 text-neutral-400">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                        <span className="text-xs font-medium">Searching...</span>
+        {isDropdownOpen && (autoSuggestions.length > 0 || searchResults.songs.length > 0) && (
+          <div className="absolute top-full left-0 mt-2 w-full bg-[#282828] rounded-md shadow-2xl z-50 overflow-hidden border border-neutral-700 animate-in slide-in-from-top-2 duration-200">
+            {/* 1. Artist Suggestions (from Trie) */}
+            {Array.isArray(autoSuggestions) && autoSuggestions.length > 0 && (
+              <div className="p-1">
+                {autoSuggestions.map((artist) => (
+                  <div 
+                    key={artist.id} 
+                    className="flex items-center gap-3 p-3 hover:bg-[#3E3E3E] cursor-pointer transition-colors group/item"
+                    onClick={() => {
+                       setIsDropdownOpen(false);
+                       navigate(`/artist/${artist.id.startsWith('vip_') ? artist.name : artist.id}`);
+                    }}
+                  >
+                    <img 
+                      src={artist.image} 
+                      alt={artist.name} 
+                      className="w-10 h-10 rounded-full object-cover border border-white/10 shadow-lg" 
+                    />
+                    <div className="flex flex-col">
+                      <span className="text-white font-bold text-sm group-hover/item:text-[#1ed760] transition-colors">{artist.name}</span>
+                      <span className="text-neutral-400 text-xs font-semibold uppercase tracking-wider">Artist</span>
                     </div>
-                )}
-                {!isSearching && searchResults.songs.length > 0 && (
-                    <div className="p-2">
-                        <h3 className="text-[10px] uppercase font-bold text-neutral-500 px-3 py-1 tracking-wider">Tracks</h3>
-                        {searchResults.songs.slice(0, 5).map((song) => (
-                            <div 
-                                key={song.id} 
-                                onClick={() => handleResultClick(song)}
-                                className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg cursor-pointer transition-colors group/item"
-                            >
-                                <div className="relative w-10 h-10 flex-shrink-0">
-                                   <img 
-                                      src={song.coverUrl || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=50&h=50&fit=crop'} 
-                                      className="w-full h-full rounded shadow-md object-cover" 
-                                      alt="" 
-                                      loading="lazy"
-                                   />
-                                   <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover/item:opacity-100 transition-opacity rounded">
-                                      <Play size={12} fill="white" className="text-white ml-0.5" />
-                                   </div>
-                                </div>
-                                <div className="truncate">
-                                    <p className="text-sm font-bold text-white truncate group-hover/item:text-green-500 transition-colors">{song.title}</p>
-                                    <p className="text-xs text-neutral-400 truncate tracking-tight">{song.artist}</p>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
+                  </div>
+                ))}
+              </div>
+            )}
 
-                {/* Albums Section */}
-                {!isSearching && searchResults.albums.length > 0 && (
-                    <div className="p-2 border-t border-white/5 bg-black/10">
-                        <h3 className="text-[10px] uppercase font-bold text-neutral-500 px-3 py-1 tracking-wider">Albums</h3>
-                        {searchResults.albums.slice(0, 3).map((album) => (
-                            <div 
-                                key={album.id} 
-                                onClick={() => { navigate(`/album/${album.id}`); setShowDropdown(false); setQuery(''); }}
-                                className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg cursor-pointer transition-colors group/album"
-                            >
-                                <img 
-                                    src={album.cover_url || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=40&h=40&fit=crop'} 
-                                    className="w-10 h-10 rounded shadow-sm object-cover" 
-                                    alt="" 
-                                />
-                                <div className="truncate">
-                                    <p className="text-sm font-bold text-white truncate group-hover/album:text-green-500 transition-colors">{album.title}</p>
-                                    <p className="text-xs text-neutral-400 truncate font-medium">{album.artist} • {album.year}</p>
-                                </div>
-                            </div>
-                        ))}
+            {/* 2. Quick Track Results (from Search) */}
+            {!isSearching && searchResults.songs.length > 0 && (
+              <div className="p-1 border-t border-white/5">
+                <h3 className="text-[10px] uppercase font-bold text-neutral-500 px-3 py-2 tracking-wider">Popular Results</h3>
+                {searchResults.songs.slice(0, 3).map((song) => (
+                  <div 
+                    key={song.id} 
+                    onClick={() => handleResultClick(song as Song)}
+                    className="flex items-center gap-3 p-2 hover:bg-[#3E3E3E] rounded-md cursor-pointer transition-colors group/song"
+                  >
+                    <img src={song.coverUrl} className="w-8 h-8 rounded object-cover" alt="" />
+                    <div className="truncate">
+                      <p className="text-sm font-bold text-white truncate group-hover/song:text-[#1ed760]">{song.title}</p>
+                      <p className="text-xs text-neutral-400 truncate">{song.artist}</p>
                     </div>
-                )}
-
-                {suggestions.artists?.length > 0 && (
-                    <div className="p-2 border-t border-white/5 bg-black/20">
-                        <h3 className="text-[10px] uppercase font-bold text-neutral-500 px-3 py-1 tracking-wider">Artists</h3>
-                        {suggestions.artists.slice(0, 3).map((a: any) => (
-                            <div 
-                                key={a.id} 
-                                onClick={() => handleArtistClick(a.name || a.artist)}
-                                className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg cursor-pointer transition-colors"
-                            >
-                                <div className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center flex-shrink-0 overflow-hidden border border-white/10">
-                                    {a.image?.[0]?.url ? <img src={a.image[0].url} className="w-full h-full object-cover" loading="lazy" /> : <UserIcon size={14} className="text-neutral-500" />}
-                                </div>
-                                <p className="text-sm font-medium text-white truncate">{a.name || a.artist}</p>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -300,7 +277,7 @@ const Home = ({ isLoggedIn }: HomeProps) => {
 
 
       {topArtists?.length > 0 && (
-        <PopularArtists artists={topArtists} onArtistClick={handleArtistClick} />
+        <PopularArtists artists={topArtists.slice(0, 5)} onArtistClick={handleArtistClick} />
       )}
 
       {topAlbums.length > 0 && <PopularAlbums albums={topAlbums} />}

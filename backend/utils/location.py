@@ -1,31 +1,30 @@
-# Regional Weighting Matrix for JioSaavn Search
-# Prioritizes local, neighboring, then national languages (Hindi/English)
+# Regional Weighting Matrix for JioSaavn Search (Normalized)
 REGION_LANGUAGE_PRIORITY = {
-    "Tamil Nadu": "tamil,telugu,malayalam,english,hindi",
-    "Kerala": "malayalam,tamil,english,hindi",
-    "Karnataka": "kannada,telugu,tamil,english,hindi",
-    "Andhra Pradesh": "telugu,tamil,english,hindi",
-    "Telangana": "telugu,tamil,english,hindi",
-    "Maharashtra": "marathi,hindi,english",
-    "Gujarat": "gujarati,hindi,english",
-    "Punjab": "punjabi,hindi,english",
-    "West Bengal": "bengali,hindi,english"
+    "tamilnadu": "tamil,english,hindi",
+    "tn": "tamil,english,hindi",
+    "kerala": "malayalam,tamil,english,hindi",
+    "karnataka": "kannada,telugu,tamil,english,hindi",
+    "andhrapradesh": "telugu,tamil,english,hindi",
+    "telangana": "telugu,tamil,english,hindi",
+    "maharashtra": "marathi,hindi,english"
 }
 
 def get_search_languages(region: str) -> str:
     """
     Returns a prioritized, comma-separated string of languages for JioSaavn searches.
-    Defaults to a solid Indian base if region is not found.
+    Normalizes region strings (e.g. 'Tamil Nadu' -> 'tamilnadu') to avoid dictionary misses.
     """
     if not region:
         return "hindi,english,tamil,telugu"
     
-    # Check for direct match or substring (e.g. "Andhra Pradesh" matching "Andhra")
-    for state, languages in REGION_LANGUAGE_PRIORITY.items():
-        if region.lower() == state.lower():
-            return languages
+    # 🚨 STRICT BULLETPROOF NORMALIZATION 🚨
+    clean_region = str(region).lower().replace(" ", "").strip()
+    
+    # Check for direct match in normalized dictionary
+    if clean_region in REGION_LANGUAGE_PRIORITY:
+        return REGION_LANGUAGE_PRIORITY[clean_region]
             
-    # Default Indian priority if direct mapping fails
+    # Default Indian priority if mapping fails
     return "hindi,english,tamil,telugu"
 
 # Keeping get_preferred_language for backward compatibility if needed elsewhere

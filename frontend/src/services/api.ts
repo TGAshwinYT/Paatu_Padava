@@ -36,9 +36,29 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+// 🚨 REGION DETECTION HELPER 🚨
+const getUserRegion = async (): Promise<string> => {
+  const cachedRegion = localStorage.getItem('user_region');
+  if (cachedRegion) return cachedRegion;
+
+  try {
+    const response = await axios.get('https://ipapi.co/json/');
+    const region = response.data.region || 'Maharashtra';
+    localStorage.setItem('user_region', region);
+    return region;
+  } catch (error) {
+    console.warn("Region detection failed, falling back to Maharashtra:", error);
+    return 'Maharashtra';
+  }
+};
+
 export const getHomeFeed = async (): Promise<{ recentlyPlayed: Song[], topAlbums: Song[], topArtists: Song[], recommendedForYou: Song[] }> => {
   try {
-    const response = await api.get('/api/music/home');
+    // 1. Fetch user region for localization
+    const region = await getUserRegion();
+    
+    // 2. Pass region as query param
+    const response = await api.get('/api/music/home', { params: { region } });
     const { recentlyPlayed, topAlbums, topArtists, recommendedForYou } = response.data;
     return { 
       recentlyPlayed: (recentlyPlayed || []).map(mapHistoryToSong), 
@@ -94,6 +114,24 @@ export const getArtistDetails = async (id: string): Promise<{ id: string, name: 
   } catch (error) {
     console.error("Error fetching artist details:", error);
     return { id: "", name: "Unknown Artist", image: "", topSongs: [] };
+  }
+};
+
+export const getAlbumDetails = async (id: string): Promise<{ id: string, title: string, artist: string, image: string, songs: Song[] }> => {
+  try {
+    const response = await api.get(`/api/music/albums/${id}`);
+    const data = response.data;
+    
+    return {
+      id: data.id,
+      title: data.title,
+      artist: data.artist,
+      image: data.image,
+      songs: (data.songs || []).map(mapHistoryToSong)
+    };
+  } catch (error) {
+    console.error("Error fetching album details:", error);
+    throw error;
   }
 };
 

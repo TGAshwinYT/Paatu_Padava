@@ -131,18 +131,30 @@ async def get_followed_artists(user: User = Depends(get_current_user), db: Async
     """
     Returns the full list of artists the user follows.
     """
-    result = await db.execute(
-        select(User)
-        .options(selectinload(User.followed_artists))
-        .where(User.id == user.id)
-    )
-    db_user = result.scalar_one()
-    
-    return [{
-        "id": a.id,
-        "name": a.name,
-        "imageUrl": a.image_url
-    } for a in db_user.followed_artists]
+    try:
+        # 1. Fetch user with followed artists relationship preloaded
+        result = await db.execute(
+            select(User)
+            .options(selectinload(User.followed_artists))
+            .where(User.id == user.id)
+        )
+        db_user = result.scalar_one_or_none()
+        
+        if not db_user:
+            return []
+
+        # 2. Map and return followed artists
+        return [{
+            "id": a.id,
+            "name": a.name,
+            "image": a.image_url
+        } for a in db_user.followed_artists]
+        
+    except Exception as e:
+        print("\n" + "!" * 60)
+        print(f"CRASH IN FOLLOWED ARTISTS: {str(e)}")
+        print("!" * 60 + "\n")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/follow-artist")
 async def follow_artist(artist_data: dict, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
@@ -162,7 +174,7 @@ async def follow_artist(artist_data: dict, user: User = Depends(get_current_user
         artist = models.Artist(
             id=artist_id,
             name=artist_data.get("name", "Unknown Artist"),
-            image_url=artist_data.get("imageUrl") or artist_data.get("image_url")
+            image_url=artist_data.get("image") or artist_data.get("imageUrl") or artist_data.get("image_url")
         )
         db.add(artist)
         await db.flush()

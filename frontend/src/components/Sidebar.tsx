@@ -85,8 +85,8 @@ const Sidebar: React.FC<SidebarProps> = () => {
     <aside className={`hidden md:flex flex-col gap-2 h-full transition-all duration-300 ease-in-out ${isCollapsed ? 'w-20' : 'w-64'}`}>
       <div className="bg-[#121212] rounded-xl p-5 flex flex-col gap-6">
         <div className={`flex items-center gap-2 text-white px-2 overflow-hidden transition-all duration-300 ${isCollapsed ? 'justify-center' : ''}`}>
-          <div className="bg-white p-1 rounded-full text-black flex-shrink-0">
-            <Music size={24} />
+          <div className="w-8 h-8 rounded-lg flex-shrink-0 overflow-hidden shadow-lg border border-white/10 group-hover:scale-110 transition-transform duration-300">
+            <img src="/logo.png" className="w-full h-full object-cover" alt="Logo" />
           </div>
           {!isCollapsed && <span className="font-bold text-xl truncate animate-in fade-in duration-500">Paaatu_Padava</span>}
         </div>
@@ -186,8 +186,8 @@ const Sidebar: React.FC<SidebarProps> = () => {
                           className={`flex items-center gap-3 text-neutral-400 hover:text-green-500 hover:bg-neutral-800 transition-all font-semibold p-2 rounded-lg cursor-pointer group ${isCollapsed ? 'justify-center' : ''}`}
                         >
                           <div className="w-10 h-10 rounded-full bg-neutral-800 flex items-center justify-center flex-shrink-0 overflow-hidden ring-1 ring-white/10 group-hover:ring-green-500/50 transition-all">
-                            {artist.imageUrl ? (
-                              <img src={artist.imageUrl} className="w-full h-full object-cover" alt={artist.name} loading="lazy" />
+                            {artist.image ? (
+                              <img src={typeof artist.image === 'string' ? artist.image : artist.image[0]?.url} className="w-full h-full object-cover" alt={artist.name} loading="lazy" />
                             ) : (
                               <UserIcon size={18} />
                             )}
@@ -225,7 +225,7 @@ const Sidebar: React.FC<SidebarProps> = () => {
                           className={`flex items-center gap-3 py-2 text-neutral-400 hover:text-white transition-all cursor-pointer group px-2 ${isCollapsed ? 'justify-center' : ''}`}
                         >
                           <img 
-                            src={artist.image || 'https://via.placeholder.com/150'} 
+                            src={artist.image || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=100&h=100&fit=crop'} 
                             alt={artist.name} 
                             className="w-10 h-10 rounded-full object-cover shadow-md group-hover:shadow-lg transition-shadow" 
                             loading="lazy"

@@ -19,7 +19,7 @@ const PopularArtists = ({ artists, onArtistClick }: Props) => {
   if (!artists || artists.length === 0) return null;
 
   return (
-    <HomeSection title="Popular artists" showAllLink="/artists">
+    <HomeSection title="Popular artists" showAllLink="/local-artists">
       {/* CSS to hide scrollbars while keeping functionality */}
       <style>{`
         .hide-scrollbar::-webkit-scrollbar { display: none; }
@@ -43,25 +43,8 @@ const PopularArtists = ({ artists, onArtistClick }: Props) => {
         {artists.map((artist, index) => {
           
           // 🚨 AGGRESSIVE BULLETPROOF IMAGE EXTRACTION 🚨
-          let imageUrl = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200&h=200&fit=crop'; 
-          
-          const imgData = artist.image;
-          
-          if (typeof imgData === 'string' && imgData.startsWith('http')) {
-            imageUrl = imgData;
-          } else if (Array.isArray(imgData) && imgData.length > 0) {
-            // Priority: Index 2 (high res), then 1, then 0. Check both .link and .url
-            const bestImage = imgData[2] || imgData[1] || imgData[0];
-            if (typeof bestImage === 'string') {
-                imageUrl = bestImage;
-            } else {
-                imageUrl = bestImage.link || bestImage.url || imageUrl;
-            }
-          } else if (artist.image_url) {
-            imageUrl = artist.image_url;
-          }
-
-          const displayName = artist.name || (artist as any).artist || "Unknown Artist";
+          const imageUrl = artist.image || artist.coverUrl || artist.imageUrl || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200&h=200&fit=crop';
+          const displayName = artist.name || (artist as any).title || "UNKNOWN ARTIST";
 
           return (
             <SwiperSlide key={artist.id || index}>

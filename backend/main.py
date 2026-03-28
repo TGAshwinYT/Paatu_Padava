@@ -1,4 +1,5 @@
 import uvicorn
+import asyncio
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -83,6 +84,47 @@ async def create_tables():
         except Exception as e:
             print(f"Migration Note: {e}")
 
+async def load_initial_graph_data():
+    """
+    Background task to populate the recommendation graph without blocking startup.
+    """
+    print("[INIT] Populating Music Recommendation Graph in background...")
+    languages = ["tamil", "hindi", "telugu"]
+    total_added = 0
+    
+    for lang in languages:
+        try:
+            print(f"[GRAPH] Loading trending songs for: {lang}")
+            # Fetch trending data for the specific language
+            trending_data = await get_trending(lang)
+            trending_songs = trending_data.get("recommendedForYou", [])
+            
+            # Map for connections
+            song_ids = []
+            
+            # Step 1: Add Songs as Nodes
+            for song in trending_songs:
+                recommendation_graph.add_song({
+                    "id": song["id"],
+                    "title": song["title"],
+                    "artist": song["artist"],
+                    "cover_url": song["coverUrl"],
+                    "audio_url": song["audioUrl"]
+                })
+                song_ids.append(song["id"])
+                total_added += 1
+                
+            # Connect every song in this trending batch to each other (Clique)
+            for i in range(len(song_ids)):
+                for j in range(i + 1, len(song_ids)):
+                    recommendation_graph.add_connection(song_ids[i], song_ids[j])
+                    
+        except Exception as e:
+            # We fail silently here to ensure the server starts even if JioSaavn is down
+            print(f"[WARNING] Could not pre-load {lang} graph data: {e}")
+
+    print(f"[GRAPH] Successfully pre-loaded {total_added} songs into the recommendation engine!")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic
@@ -122,43 +164,8 @@ async def lifespan(app: FastAPI):
             count += 1
     print(f"[INIT] Trie populated with {count} VIP artists.")
     
-    # 2. Populate Recommendation Graph
-    print("[INIT] Populating Music Recommendation Graph...")
-    languages = ["tamil", "hindi", "telugu"]
-    total_added = 0
-    
-    for lang in languages:
-        try:
-            print(f"[GRAPH] Loading trending songs for: {lang}")
-            # Fetch trending data for the specific language
-            trending_data = await get_trending(lang)
-            trending_songs = trending_data.get("recommendedForYou", [])
-            
-            # Map for connections
-            song_ids = []
-            
-            # Step 1: Add Songs as Nodes
-            for song in trending_songs:
-                recommendation_graph.add_song({
-                    "id": song["id"],
-                    "title": song["title"],
-                    "artist": song["artist"],
-                    "cover_url": song["coverUrl"],
-                    "audio_url": song["audioUrl"]
-                })
-                song_ids.append(song["id"])
-                total_added += 1
-                
-            # Connect every song in this trending batch to each other (Clique)
-            for i in range(len(song_ids)):
-                for j in range(i + 1, len(song_ids)):
-                    recommendation_graph.add_connection(song_ids[i], song_ids[j])
-                    
-        except Exception as e:
-            # We fail silently here to ensure the server starts even if JioSaavn is down
-            print(f"[WARNING] Could not pre-load {lang} graph data: {e}")
-
-    print(f"[GRAPH] Successfully pre-loaded {total_added} songs into the recommendation engine!")
+    # 2. Populate Recommendation Graph (Backgrounded)
+    asyncio.create_task(load_initial_graph_data())
     
     yield
     # Shutdown logic (can be added here)

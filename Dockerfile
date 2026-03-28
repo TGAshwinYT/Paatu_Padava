@@ -15,8 +15,9 @@ COPY . .
 EXPOSE 7860
 
 # --- THE FIX ---
-# Step inside the backend folder before running the app
+# Step inside the backend folder and add it to PYTHONPATH
 WORKDIR /code/backend
+ENV PYTHONPATH=/code/backend
 
-# Run the app locally as if we are already inside the folder
+# Run the app
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]

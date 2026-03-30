@@ -3,9 +3,26 @@ import { Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, ChevronDown, Share
 import { useAudio } from '../../context/AudioContext';
 import SleepTimerModal from '../SleepTimerModal';
 import QueueDrawer from './QueueDrawer';
+import { getValidImage } from '../../utils/imageUtils';
 
 const MobilePlayerOverlay: React.FC = () => {
-  const { currentTrack, isPlaying, togglePlay, playNext, playPrevious, progress, duration, seekTo, isShuffled, isRepeating, toggleShuffle, toggleRepeat, remainingSleepTime } = useAudio();
+  const { 
+    currentTrack, 
+    isPlaying, 
+    togglePlay, 
+    playNext, 
+    playPrevious, 
+    progress, 
+    duration, 
+    seekTo, 
+    isShuffle, 
+    repeatMode, 
+    toggleShuffle, 
+    toggleRepeat, 
+    remainingSleepTime,
+    audioRef,
+    onEnded
+  } = useAudio();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showSleepTimer, setShowSleepTimer] = useState(false);
   const [isQueueOpen, setIsQueueOpen] = useState(false);
@@ -25,7 +42,12 @@ const MobilePlayerOverlay: React.FC = () => {
         className="fixed bottom-[90px] left-2 right-2 bg-neutral-800 rounded-lg p-2 h-14 flex items-center justify-between z-50 animate-in slide-in-from-bottom"
       >
         <div className="flex items-center gap-3 truncate">
-          <img src={currentTrack.coverUrl} className="w-10 h-10 rounded object-cover shadow-lg" alt="" />
+          <img 
+            src={getValidImage(currentTrack)} 
+            className="w-10 h-10 rounded object-cover shadow-lg" 
+            alt="" 
+            onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
+          />
           <div className="truncate">
             <p className="text-sm font-bold truncate text-white">{currentTrack.title}</p>
             <p className="text-[10px] text-neutral-400 truncate">{currentTrack.artist}</p>
@@ -47,7 +69,7 @@ const MobilePlayerOverlay: React.FC = () => {
       {/* Background Blur */}
       <div 
         className="absolute inset-0 opacity-40 blur-[100px] pointer-events-none scale-150 transition-all duration-1000"
-        style={{ background: `url(${currentTrack.coverUrl}) no-repeat center center`, backgroundSize: 'cover' }}
+        style={{ background: `url(${getValidImage(currentTrack)}) no-repeat center center`, backgroundSize: 'cover' }}
       />
 
       {/* Header */}
@@ -67,9 +89,10 @@ const MobilePlayerOverlay: React.FC = () => {
       {/* Album Art */}
       <div className="flex-1 flex items-center justify-center py-4 z-10">
         <img 
-          src={currentTrack.coverUrl} 
+          src={getValidImage(currentTrack)} 
           className="w-full aspect-square rounded-lg shadow-2xl object-cover" 
           alt="" 
+          onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
         />
       </div>
 
@@ -103,7 +126,7 @@ const MobilePlayerOverlay: React.FC = () => {
 
         {/* Main Controls */}
         <div className="flex items-center justify-between mb-8">
-          <button onClick={toggleShuffle} className={isShuffled ? 'text-green-500' : 'text-white'}>
+          <button onClick={toggleShuffle} className={isShuffle ? 'text-green-500' : 'text-white'}>
             <Shuffle size={24} />
           </button>
           <button onClick={playPrevious} className="text-white">
@@ -118,7 +141,7 @@ const MobilePlayerOverlay: React.FC = () => {
           <button onClick={playNext} className="text-white">
             <SkipForward size={36} fill="white" />
           </button>
-          <button onClick={toggleRepeat} className={isRepeating ? 'text-green-500' : 'text-white'}>
+          <button onClick={toggleRepeat} className={repeatMode !== 'none' ? 'text-green-500' : 'text-white'}>
             <Repeat size={24} />
           </button>
         </div>
@@ -151,6 +174,11 @@ const MobilePlayerOverlay: React.FC = () => {
       <QueueDrawer 
         isOpen={isQueueOpen} 
         onClose={() => setIsQueueOpen(false)} 
+      />
+
+      <audio 
+        ref={audioRef}
+        onEnded={onEnded}
       />
     </div>
   );

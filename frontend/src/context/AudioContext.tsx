@@ -1,8 +1,16 @@
-import React, { createContext, useContext, useState, useRef, useEffect } from 'react';
+import React, { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react';
 import type { Song } from '../types';
-import api, { addListenHistory, getRelatedSongs } from '../services/api';
+import api, { addListenHistory, mapHistoryToSong } from '../services/api';
 import { useAuth } from './AuthContext';
 
+const shuffleArray = (array: any[]) => {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+};
 
 interface AudioContextType {
   currentTrack: Song | null;
@@ -10,10 +18,10 @@ interface AudioContextType {
   progress: number;
   duration: number;
   volume: number;
-  isRepeating: boolean;
-  isShuffled: boolean;
+  isShuffle: boolean;
+  repeatMode: 'none' | 'all' | 'one';
   audioQuality: 'low' | 'medium' | 'high';
-  playTrack: (track: Song, queue?: Song[]) => void;
+  playContext: (track: Song, tracks?: Song[]) => void;
   togglePlay: () => void;
   seekTo: (value: number) => void;
   setVolume: (value: number) => void;
@@ -24,12 +32,18 @@ interface AudioContextType {
   playPrevious: () => void;
   setSleepTimer: (minutes: number | 'end' | null) => void;
   remainingSleepTime: number | null;
+  queue: Song[]; 
   userQueue: Song[];
+  history: Song[];
   userPlaylists: any[];
   addToQueue: (track: Song) => void;
   removeFromQueue: (trackId: string) => void;
   reorderQueue: (startIndex: number, endIndex: number) => void;
   refreshPlaylists: () => Promise<void>;
+  setQueue: React.Dispatch<React.SetStateAction<Song[]>>;
+  clearHistory: () => void;
+  audioRef: React.RefObject<HTMLAudioElement>;
+  onEnded: () => void;
 }
 
 const AudioContext = createContext<AudioContextType | undefined>(undefined);
@@ -41,11 +55,12 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolumeState] = useState(0.7);
-  const [isRepeating, setIsRepeating] = useState(false);
-  const [isShuffled, setIsShuffled] = useState(false);
+  const [isShuffle, setIsShuffle] = useState(false);
+  const [repeatMode, setRepeatMode] = useState<'none' | 'all' | 'one'>('none');
+  const [contextMemory, setContextMemory] = useState<Song[] | null>(null);
   const [audioQuality, setAudioQualityState] = useState<'low' | 'medium' | 'high'>('high');
   const [queue, setQueue] = useState<Song[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(-1);
+  const [history, setHistory] = useState<Song[]>([]);
   const [remainingSleepTime, setRemainingSleepTime] = useState<number | null>(null);
   const [isEndOfTrackTimer, setIsEndOfTrackTimer] = useState(false);
   const [userQueue, setUserQueue] = useState<Song[]>([]);
@@ -53,128 +68,129 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   
   const audioRef = useRef<HTMLAudioElement>(new Audio());
   const lastTrackId = useRef<string | null>(null);
+  const isFetchingRadio = useRef(false);
+  const isActionLocked = useRef(false);
 
-  // Helper to get URL by quality
-  const getUrlByQuality = (song: Song, quality: 'low' | 'medium' | 'high') => {
-    if (!song.downloadUrls || song.downloadUrls.length === 0) return song.audioUrl;
-    
-    // Mapping: low -> index 0, medium -> index 2, high -> index 4
+  // --- 1. HELPERS ---
+  const getUrlByQuality = useCallback((song: Song | any, quality: 'low' | 'medium' | 'high') => {
+    const backupUrl = song.audioUrl || song.audio_url || song.url;
+    if (!song.downloadUrls || song.downloadUrls.length === 0) return backupUrl;
     const index = quality === 'low' ? 0 : quality === 'medium' ? 2 : 4;
-    return song.downloadUrls[Math.min(index, song.downloadUrls.length - 1)] || song.audioUrl;
-  };
+    return song.downloadUrls[Math.min(index, song.downloadUrls.length - 1)] || backupUrl;
+  }, []);
 
-  useEffect(() => {
-    const audio = audioRef.current;
-    audio.volume = volume;
-
-    const onTimeUpdate = () => setProgress(audio.currentTime);
-    const onLoadedMetadata = () => setDuration(audio.duration);
-    const onEnded = () => {
-      if (isEndOfTrackTimer) {
-        setIsEndOfTrackTimer(false);
-        setIsPlaying(false);
-        audio.pause();
-        return;
-      }
-
-      if (isRepeating) {
-        audio.currentTime = 0;
-        audio.play().then(() => setIsPlaying(true));
-        return;
-      }
-      
-      // If we're at the end of the queue and autoplay is off, stop
-      const isLastInQueue = currentIndex === queue.length - 1;
-      if (isLastInQueue && userQueue.length === 0) {
-        setIsPlaying(false);
-        // We still call playNext() to trigger autoplay/related songs if possible
-        playNext();
-        return;
-      }
-
-      playNext();
-    };
-
-    audio.addEventListener('timeupdate', onTimeUpdate);
-    audio.addEventListener('loadedmetadata', onLoadedMetadata);
-    audio.addEventListener('ended', onEnded);
-
-    return () => {
-      audio.removeEventListener('timeupdate', onTimeUpdate);
-      audio.removeEventListener('loadedmetadata', onLoadedMetadata);
-      audio.removeEventListener('ended', onEnded);
-    };
-  }, [isRepeating, currentIndex, queue, userQueue, isShuffled]); // Re-bind onEnded when dependencies change
-
-  // Handle track or quality changes
-  useEffect(() => {
-    if (!currentTrack) return;
-
-    const audio = audioRef.current;
-    const targetUrl = getUrlByQuality(currentTrack, audioQuality);
-    
-    if (!targetUrl) {
-      console.warn("⚠️ Cannot play track: audioUrl is empty");
+  // --- 2. STABLE ACTION HANDLERS ---
+  const playNext = useCallback(() => {
+    if (isActionLocked.current) return;
+    if (queue.length === 0 && userQueue.length === 0) {
       setIsPlaying(false);
       return;
     }
 
-    // ONLY restore currentTime if the track hasn't changed (quality switch)
-    const isQualitySwitch = lastTrackId.current === currentTrack.id;
-    const currentTime = isQualitySwitch ? audio.currentTime : 0;
-    const wasPlaying = !audio.paused;
+    isActionLocked.current = true;
+    setTimeout(() => isActionLocked.current = false, 800);
 
-    audio.src = targetUrl;
-    audio.currentTime = currentTime;
-    lastTrackId.current = currentTrack.id;
+    const nextTrack = userQueue.length > 0 ? userQueue[0] : queue[0];
+
+    setCurrentTrack(currentlyPlaying => {
+      if (currentlyPlaying) {
+        setHistory(h => {
+          if (h.length > 0 && h[h.length - 1].id === currentlyPlaying.id) return h;
+          return [...h, currentlyPlaying];
+        });
+      }
+      return nextTrack;
+    });
+
+    if (userQueue.length > 0) {
+      setUserQueue(prev => prev.slice(1));
+    } else {
+      setQueue(prev => prev.slice(1));
+    }
     
-    if (wasPlaying || isPlaying) {
-      audio.play()
-        .then(() => {
-          setIsPlaying(true);
-          if (currentTrack) addListenHistory(currentTrack);
-        })
-        .catch((err) => {
-          console.error("Playback failed:", err);
-          setIsPlaying(false);
+    setIsPlaying(true);
+  }, [queue, userQueue]);
+
+  const playPrevious = useCallback(() => {
+    if (isActionLocked.current) return;
+
+    const currentTime = audioRef.current ? audioRef.current.currentTime : 0;
+    if (currentTime > 3) {
+      if (audioRef.current) audioRef.current.currentTime = 0;
+      return;
+    }
+
+    if (history.length === 0) {
+      if (audioRef.current) audioRef.current.currentTime = 0;
+      return;
+    }
+
+    isActionLocked.current = true;
+    setTimeout(() => isActionLocked.current = false, 800);
+
+    const songToRestore = history[history.length - 1];
+
+    setCurrentTrack(currentlyPlaying => {
+      if (currentlyPlaying && currentlyPlaying.id !== songToRestore.id) {
+        setQueue(prevQueue => {
+          const cleanQueue = prevQueue.filter(s => s.id !== currentlyPlaying.id && s.id !== songToRestore.id);
+          return [currentlyPlaying, ...cleanQueue];
         });
+      }
+      return songToRestore;
+    });
+
+    setHistory(prevHistory => prevHistory.slice(0, -1));
+    setIsPlaying(true);
+  }, [history]);
+
+  const togglePlay = useCallback(() => {
+    const audio = audioRef.current;
+    if (isPlaying) {
+      audio.pause();
+      setIsPlaying(false);
+    } else {
+      if (!audio.src || audio.src.includes('undefined')) {
+         if (currentTrack) {
+            const url = getUrlByQuality(currentTrack, audioQuality);
+            if (url) audio.src = url;
+         }
+      }
+      if (audio.currentTime >= audio.duration) {
+        audio.currentTime = 0;
+      }
+      audio.play().then(() => setIsPlaying(true)).catch(e => console.error("Play failed:", e));
     }
+  }, [isPlaying, currentTrack, audioQuality, getUrlByQuality]);
 
-    // MediaSession API
-    if ('mediaSession' in navigator && currentTrack) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: currentTrack.title,
-        artist: currentTrack.artist,
-        album: 'Paaatu_Padava',
-        artwork: [
-          { src: currentTrack.coverUrl, sizes: '512x512', type: 'image/jpeg' },
-        ],
-      });
 
-      navigator.mediaSession.setActionHandler('play', () => togglePlay());
-      navigator.mediaSession.setActionHandler('pause', () => togglePlay());
-      navigator.mediaSession.setActionHandler('previoustrack', () => playPrevious());
-      navigator.mediaSession.setActionHandler('nexttrack', () => playNext());
-    }
-  }, [currentTrack, audioQuality, isPlaying]);
-
-  // Timer Countdown Logic
-  useEffect(() => {
-    let interval: any;
-    if (remainingSleepTime !== null && remainingSleepTime > 0) {
-      interval = setInterval(() => {
-        setRemainingSleepTime(prev => {
-          if (prev === null || prev <= 1) {
-            clearInterval(interval);
-            togglePlay(); 
-            return null;
-          }
-          return prev - 1;
+  const playContext = useCallback((clickedSong: Song, contextArray: Song[] = []) => {
+    // 1. Save current track to history before switching
+    setCurrentTrack(prev => {
+      if (prev && prev.id !== clickedSong.id) {
+        setHistory(h => {
+          if (h.length > 0 && h[h.length - 1].id === prev.id) return h;
+          return [...h, prev];
         });
-      }, 1000);
+      }
+      return clickedSong;
+    });
+
+    // 2. Overwrite the Queue with the REST of the array
+    if (contextArray.length > 0) {
+      const songIndex = contextArray.findIndex(s => s.id === clickedSong.id);
+      if (songIndex !== -1) {
+        setQueue(contextArray.slice(songIndex + 1));
+      } else {
+        setQueue([]); // Fallback
+      }
+      setContextMemory(contextArray);
+    } else {
+      setQueue([]);
+      setContextMemory(null);
     }
-    return () => clearInterval(interval);
-  }, [remainingSleepTime]);
+    setIsPlaying(true);
+  }, []);
 
   const setSleepTimer = (value: number | 'end' | null) => {
     if (value === 'end') {
@@ -189,28 +205,8 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  const refreshPlaylists = async () => {
-    try {
-      const { data } = await api.get('/api/playlists/');
-      setUserPlaylists(data);
-    } catch (error) {
-      console.error("Error refreshing playlists:", error);
-    }
-  };
-
-  useEffect(() => {
-    if (user) {
-      refreshPlaylists();
-    } else {
-      setUserPlaylists([]);
-    }
-  }, [user]);
-
   const addToQueue = (track: Song) => {
-    setUserQueue(prev => {
-      if (prev.some(s => s.id === track.id)) return prev;
-      return [...prev, track];
-    });
+    setUserQueue(prev => prev.some(s => s.id === track.id) ? prev : [...prev, track]);
   };
 
   const removeFromQueue = (trackId: string) => {
@@ -226,44 +222,6 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
   };
 
-  const playTrack = (track: Song, newQueue?: Song[]) => {
-    if (newQueue) {
-      setQueue(newQueue);
-      const index = newQueue.findIndex(s => s.id === track.id);
-      setCurrentIndex(index);
-    } else {
-      setQueue(prev => {
-        const exists = prev.findIndex(s => s.id === track.id);
-        if (exists !== -1) {
-          setCurrentIndex(exists);
-          return prev;
-        }
-        const updated = [...prev, track];
-        setCurrentIndex(updated.length - 1);
-        return updated;
-      });
-    }
-    
-    // REMOVED audioRef.current.load() and currentTime = 0
-    // Let the main useEffect handle the actual audio element
-    setIsPlaying(true);
-    setCurrentTrack(track);
-  };
-
-  const togglePlay = () => {
-    const audio = audioRef.current;
-    if (isPlaying) {
-      audio.pause();
-      setIsPlaying(false);
-    } else {
-      // Task 2: Restart if song finished
-      if (audio.currentTime >= audio.duration) {
-        audio.currentTime = 0;
-      }
-      audio.play().then(() => setIsPlaying(true));
-    }
-  };
-
   const seekTo = (value: number) => {
     audioRef.current.currentTime = value;
     setProgress(value);
@@ -275,84 +233,195 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     audioRef.current.volume = vol;
   };
 
-  const toggleRepeat = () => setIsRepeating(prev => !prev);
-  const toggleShuffle = () => setIsShuffled(prev => !prev);
+  const toggleRepeat = () => {
+    setRepeatMode(prev => {
+      if (contextMemory) {
+        if (prev === 'none') return 'all';
+        if (prev === 'all') return 'one';
+        return 'none';
+      }
+      return prev === 'none' ? 'one' : 'none';
+    });
+  };
+
+  const toggleShuffle = () => {
+    setIsShuffle(prev => {
+      const next = !prev;
+      if (next) {
+        setQueue(current => shuffleArray(current));
+      } else if (contextMemory && currentTrack) {
+        const idx = contextMemory.findIndex(s => s.id === currentTrack.id);
+        if (idx !== -1) setQueue(contextMemory.slice(idx + 1));
+      }
+      return next;
+    });
+  };
 
   const setAudioQuality = (quality: 'low' | 'medium' | 'high') => {
     setAudioQualityState(quality);
   };
 
-  const playNext = async () => {
-    if (queue.length === 0 && !currentTrack) return;
+  const refreshPlaylists = async () => {
+    if (!user) return;
+    try {
+      const { data } = await api.get('/api/playlists/');
+      setUserPlaylists(data);
+    } catch (error) {
+      console.error("Error refreshing playlists:", error);
+    }
+  };
 
-    // 1. User Queue Logic (Prioritize)
-    if (userQueue.length > 0) {
-      const nextTrack = userQueue[0];
-      setUserQueue(prev => prev.slice(1)); 
-      setCurrentTrack(nextTrack);
+  const clearHistory = () => setHistory([]);
+
+  // --- 3. EFFECTS ---
+  
+  // Audio Lifecycle & Event Listeners
+  const onEnded = useCallback(() => {
+    const audio = audioRef.current;
+    if (isEndOfTrackTimer) {
+      setIsEndOfTrackTimer(false);
+      setIsPlaying(false);
+      audio.pause();
+      return;
+    }
+    if (repeatMode === 'one') {
+      audio.currentTime = 0;
+      audio.play().then(() => setIsPlaying(true)).catch(e => console.error("Repeat failed:", e));
+      return;
+    }
+    if (repeatMode === 'all' && (queue.length === 0 && userQueue.length === 0) && contextMemory && contextMemory.length > 0) {
+      setCurrentTrack(prev => {
+        if (prev) setHistory(h => [...h, prev]);
+        return contextMemory[0];
+      });
+      setQueue(contextMemory.slice(1));
       setIsPlaying(true);
       return;
     }
+    playNext();
+  }, [isEndOfTrackTimer, repeatMode, queue.length, userQueue.length, contextMemory, playNext]);
 
-    // 2. Shuffle Logic
-    if (isShuffled && queue.length > 1) {
-      let nextIndex;
-      do {
-        nextIndex = Math.floor(Math.random() * queue.length);
-      } while (nextIndex === currentIndex && queue.length > 1);
-      setCurrentIndex(nextIndex);
-      setCurrentTrack(queue[nextIndex]);
-      setIsPlaying(true);
+  useEffect(() => {
+    const audio = audioRef.current;
+    audio.volume = volume;
+
+    const onTimeUpdate = () => setProgress(audio.currentTime);
+    const onLoadedMetadata = () => setDuration(audio.duration);
+
+    audio.addEventListener('timeupdate', onTimeUpdate);
+    audio.addEventListener('loadedmetadata', onLoadedMetadata);
+    // audio.addEventListener('ended', onEnded); // Moving to synthetic event to prevent desync
+    return () => {
+      audio.removeEventListener('timeupdate', onTimeUpdate);
+      audio.removeEventListener('loadedmetadata', onLoadedMetadata);
+      // audio.removeEventListener('ended', onEnded);
+    };
+  }, [volume, isEndOfTrackTimer, repeatMode, queue.length, userQueue.length, contextMemory, playNext]);
+
+  // Track/Quality Changes
+  useEffect(() => {
+    if (!currentTrack) return;
+    const audio = audioRef.current;
+    const targetUrl = getUrlByQuality(currentTrack, audioQuality);
+    if (!targetUrl) {
+      setIsPlaying(false);
       return;
     }
+    const isQualitySwitch = lastTrackId.current === currentTrack.id;
+    const currentTime = isQualitySwitch ? audio.currentTime : 0;
+    const wasPlaying = !audio.paused || isPlaying;
+    audio.pause();
+    audio.src = targetUrl;
+    audio.load();
+    audio.currentTime = currentTime;
+    lastTrackId.current = currentTrack.id;
+    if (wasPlaying) {
+      audio.play().then(() => {
+        setIsPlaying(true);
+        if (!isQualitySwitch) addListenHistory(currentTrack);
+      }).catch(err => {
+        console.error("Playback failed:", err);
+        setIsPlaying(false);
+      });
+    }
+    if ('mediaSession' in navigator) {
+      const art = currentTrack.coverUrl || (currentTrack as any).cover_url || (currentTrack as any).image || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=512&h=512&fit=crop';
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: currentTrack.title,
+        artist: currentTrack.artist,
+        artwork: [{ src: art, sizes: '512x512', type: 'image/jpeg' }]
+      });
+      navigator.mediaSession.setActionHandler('play', () => togglePlay());
+      navigator.mediaSession.setActionHandler('pause', () => togglePlay());
+      navigator.mediaSession.setActionHandler('previoustrack', () => playPrevious());
+      navigator.mediaSession.setActionHandler('nexttrack', () => playNext());
+    }
+  }, [currentTrack, audioQuality, getUrlByQuality, playNext, playPrevious, togglePlay, isPlaying]);
 
-    // 2. Autoplay / Related Songs Logic
-    const isLastSong = currentIndex === queue.length - 1 || currentIndex === -1;
-    if (isLastSong && currentTrack) {
+  // Pre-fetch
+  useEffect(() => {
+    if (!currentTrack || repeatMode !== 'none' || isFetchingRadio.current) return;
+    if (queue.length > 2 || userQueue.length > 0) return;
+    const preFetch = async () => {
+      isFetchingRadio.current = true;
       try {
-        const related = await getRelatedSongs(currentTrack.id, currentTrack.artist);
-        if (related && related.length > 0) {
-          // Filter to avoid immediate duplicates
-          const newSongs = related.filter(s => !queue.some(q => q.id === s.id));
-          if (newSongs.length > 0) {
-            setQueue(prev => [...prev, ...newSongs]);
-            const nextIdx = queue.length; // The index of the first new song
-            setCurrentIndex(nextIdx);
-            setCurrentTrack(newSongs[0]);
-            setIsPlaying(true);
-            return;
-          }
+        const token = localStorage.getItem('token');
+        const res = await api.get(`/api/music/recommendations/${currentTrack.id}`, {
+          params: { lang: currentTrack.language || 'tamil', artist: (currentTrack as any).primaryArtists || currentTrack.artist || '' },
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        
+        if (res.data && res.data.length > 0) {
+          const mappedSongs = res.data.map(mapHistoryToSong);
+          setQueue(prevQueue => {
+            // Create a Set of all IDs currently in the queue, history, and the currently playing song
+            const existingIds = new Set(prevQueue.map(song => song.id));
+            if (currentTrack) existingIds.add(currentTrack.id);
+            history.forEach(h => existingIds.add(h.id));
+
+            // Only keep mapped songs that are NOT already in the existingIds Set
+            const completelyNewSongs = mappedSongs.filter((newSong: Song) => !existingIds.has(newSong.id));
+
+            return [...prevQueue, ...completelyNewSongs];
+          });
         }
-      } catch (error) {
-        console.error("Autoplay failed:", error);
-      }
-    }
+      } catch (e) { console.error("Pre-fetch failed:", e); }
+      finally { isFetchingRadio.current = false; }
+    };
+    preFetch();
+  }, [currentTrack?.id, queue.length, userQueue.length, repeatMode, history]);
 
-    // 3. Default Sequential Logic
-    if (queue.length > 0) {
-      const nextIndex = (currentIndex + 1) % queue.length;
-      setCurrentIndex(nextIndex);
-      setCurrentTrack(queue[nextIndex]);
-      setIsPlaying(true);
-    }
-  };
+  // Playlist Refresh
+  useEffect(() => {
+    if (user) refreshPlaylists();
+    else setUserPlaylists([]);
+  }, [user]);
 
-  const playPrevious = () => {
-    if (queue.length === 0) return;
-    const prevIndex = (currentIndex - 1 + queue.length) % queue.length;
-    setCurrentIndex(prevIndex);
-    setCurrentTrack(queue[prevIndex]);
-    setIsPlaying(true);
-  };
+  // Sleep Timer
+  useEffect(() => {
+    let interval: any;
+    if (remainingSleepTime !== null && remainingSleepTime > 0) {
+      interval = setInterval(() => {
+        setRemainingSleepTime(prev => {
+          if (prev === null || prev <= 1) {
+            clearInterval(interval);
+            togglePlay(); 
+            return null;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [remainingSleepTime, togglePlay]);
 
   return (
     <AudioContext.Provider value={{ 
-      currentTrack, isPlaying, progress, duration, volume, isRepeating, isShuffled, audioQuality,
-      remainingSleepTime,
-      userQueue,
-      userPlaylists,
-      playTrack, togglePlay, seekTo, setVolume, toggleRepeat, toggleShuffle, setAudioQuality, playNext, playPrevious,
-      setSleepTimer, addToQueue, removeFromQueue, reorderQueue, refreshPlaylists
+      currentTrack, isPlaying, progress, duration, volume, isShuffle, repeatMode, audioQuality,
+      remainingSleepTime, queue, userQueue, history, userPlaylists,
+      togglePlay, seekTo, setVolume, toggleRepeat, toggleShuffle, setAudioQuality, playNext, playPrevious,
+      setSleepTimer, addToQueue, removeFromQueue, reorderQueue, refreshPlaylists, setQueue, clearHistory, playContext,
+      audioRef, onEnded
     }}>
       {children}
     </AudioContext.Provider>
@@ -361,8 +430,6 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
 export const useAudio = () => {
   const context = useContext(AudioContext);
-  if (context === undefined) {
-    throw new Error('useAudio must be used within an AudioProvider');
-  }
+  if (context === undefined) throw new Error('useAudio must be used within an AudioProvider');
   return context;
 };

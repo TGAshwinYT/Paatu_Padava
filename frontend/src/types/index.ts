@@ -8,6 +8,7 @@ export interface Song {
   album?: string;
   downloadUrls?: string[];
   image?: any;
+  language?: string;
 }
 
 export interface Album {

@@ -34,50 +34,27 @@ async def add_listen_history(song: HistoryCreate, user: User = Depends(get_curre
             # Update the played_at timestamp instead of creating a new entry
             last_entry.played_at = func.now()
             await db.commit()
-            return {"message": "History updated"}
-
-        new_entry = ListeningHistory(
-            user_id=user.id,
-            jiosaavn_song_id=song.id,
-            title=song.title,
-            artist=song.artist,
-            cover_url=song.cover_url,
-            audio_url=song.audio_url
-        )
-        db.add(new_entry)
-        
-        # Enforce 20-track limit per user
-        count_query = select(func.count()).select_from(ListeningHistory).where(ListeningHistory.user_id == user.id)
-        count_result = await db.execute(count_query)
-        count = count_result.scalar()
-        
-        if count >= 20:
-            # Delete the oldest entries (over the 20 limit)
-            oldest_query = (
-                select(ListeningHistory.id)
-                .where(ListeningHistory.user_id == user.id)
-                .order_by(ListeningHistory.played_at.asc())
-                .limit(count - 19) # If 21 items, delete 2 to get back to 19 (so new one makes 20) 
-                # Wait, if count is 20 before adding new one, it's fine. 
-                # After adding, if count is 21, delete 1.
+            msg = "History updated"
+        else:
+            new_entry = ListeningHistory(
+                user_id=user.id,
+                jiosaavn_song_id=song.id,
+                title=song.title,
+                artist=song.artist,
+                cover_url=song.cover_url,
+                audio_url=song.audio_url
             )
-            # Actually, let's just delete anything beyond the last 19
-            # So the new one makes it 20.
-            await db.flush() # Ensure ID is assigned if needed? 
-            # Re-count after add
-            if count + 1 > 20:
-                oldest_items_query = (
-                    select(ListeningHistory)
-                    .where(ListeningHistory.user_id == user.id)
-                    .order_by(ListeningHistory.played_at.asc())
-                    .limit((count + 1) - 20)
-                )
-                oldest_result = await db.execute(oldest_items_query)
-                for item in oldest_result.scalars().all():
-                    await db.delete(item)
-
+            db.add(new_entry)
+            await db.commit()
+            msg = "Listening history tracked"
+            
+        # Self-Cleaning Step (90-day retention policy) executes after commit
+        from sqlalchemy import text
+        cleanup_query = text("DELETE FROM listening_history WHERE user_id = :uid AND played_at < NOW() - INTERVAL '90 days'")
+        await db.execute(cleanup_query, {"uid": user.id})
         await db.commit()
-        return {"message": "Listening history tracked"}
+
+        return {"message": f"{msg} and cleaned"}
     except Exception as e:
         await db.rollback()
         print(f"History Error: {e}") # Added print statement
@@ -103,49 +80,77 @@ async def add_search_history(query: str, user: User = Depends(get_current_user),
 @router.get("/listen")
 async def get_listen_history(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """
-    Fetches the user's 10 most recent tracks. # Modified docstring
+    Fetches the user's listening history strictly ordered by play date.
     """
     try:
-        # Fetch more to allow for deduplication
-        query = select(ListeningHistory).where(ListeningHistory.user_id == user.id).order_by(ListeningHistory.played_at.desc()).limit(100)
+        query = select(ListeningHistory).where(ListeningHistory.user_id == user.id).order_by(ListeningHistory.played_at.desc())
         result = await db.execute(query)
-        all_history = result.scalars().all()
         
-        seen_ids = set()
-        unique_history = []
-        for item in all_history:
-            if item.jiosaavn_song_id not in seen_ids:
-                unique_history.append(item)
-                seen_ids.add(item.jiosaavn_song_id)
-            if len(unique_history) >= 20: # Keep it manageable
-                break
-                
-        return unique_history
+        return result.scalars().all()
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to fetch history")
 
-@router.delete("/remove/{history_id}") # Task Fix: Move to specific subpath to avoid potential 404/collision
+@router.delete("/song/{history_id}")
 async def delete_history_item(history_id: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """
     Removes a specific song from history.
+    Handles both native UUIDs and JioSaavn ID strings to resolve type-mismatch errors.
     """
-    print(f"DEBUG: DELETE hit for {history_id} by user {user.id}")
     try:
-        query = select(ListeningHistory).where(ListeningHistory.id == history_id, ListeningHistory.user_id == user.id)
-        result = await db.execute(query)
-        item = result.scalar_one_or_none()
+        from sqlalchemy import delete
+        import uuid
         
-        if not item:
-            raise HTTPException(status_code=404, detail="Item not found")
+        # Determine if ID is a valid database UUID
+        is_uuid = False
+        try:
+            uuid.UUID(str(history_id))
+            is_uuid = True
+        except ValueError:
+            is_uuid = False
             
-        await db.delete(item)
+        if is_uuid:
+            query = delete(ListeningHistory).where(ListeningHistory.id == history_id, ListeningHistory.user_id == user.id)
+        else:
+            # Fallback to JioSaavn ID if the provided string is not a UUID
+            query = delete(ListeningHistory).where(ListeningHistory.jiosaavn_song_id == history_id, ListeningHistory.user_id == user.id)
+            
+        await db.execute(query)
         await db.commit()
         return {"message": "Item removed from history"}
-    except HTTPException:
-        raise
     except Exception as e:
         await db.rollback()
+        print(f"Delete Error: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete history item")
+
+@router.delete("/date/{date_string}")
+async def delete_history_date(date_string: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """
+    Removes all songs played on a specific date (YYYY-MM-DD).
+    """
+    try:
+        from sqlalchemy import delete, func
+        query = delete(ListeningHistory).where(ListeningHistory.user_id == user.id, func.date(ListeningHistory.played_at) == date_string)
+        await db.execute(query)
+        await db.commit()
+        return {"message": f"History for {date_string} removed"}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to delete history for date")
+
+@router.delete("/all")
+async def delete_all_history(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """
+    Clears the completely history for a user.
+    """
+    try:
+        from sqlalchemy import delete
+        query = delete(ListeningHistory).where(ListeningHistory.user_id == user.id)
+        await db.execute(query)
+        await db.commit()
+        return {"message": "All history cleared"}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to clear history")
 
 @router.get("/search")
 async def get_search_history(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
@@ -241,4 +246,31 @@ async def delete_search_click_item(history_id: str, user: User = Depends(get_cur
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail="Failed to delete search history item")
+
+async def get_user_top_artists(db: AsyncSession, user_id: str, limit: int = 2):
+    """
+    Analyzes the user's PostgreSQL listening_history to find their top artists based on playback frequency.
+    """
+    try:
+        # Fetch the most recent 50 listening history tracks
+        query = select(ListeningHistory.artist).where(ListeningHistory.user_id == user_id).order_by(ListeningHistory.played_at.desc()).limit(50)
+        result = await db.execute(query)
+        artists = result.scalars().all()
+        
+        if not artists:
+            return []
+            
+        freq = {}
+        for artist in artists:
+            if artist:
+                # Naively extract primary artist and map frequencies
+                primary = artist.split(',')[0].strip()
+                freq[primary] = freq.get(primary, 0) + 1
+                
+        # Sort map by frequencies descending
+        sorted_artists = sorted(freq.items(), key=lambda x: x[1], reverse=True)
+        return [artist for artist, count in sorted_artists[:limit]]
+    except Exception as e:
+        print(f"Failed to extract top artists: {e}")
+        return []
 

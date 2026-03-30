@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search as SearchIcon, X, ArrowLeft, Clock, Music, Play, User as UserIcon } from 'lucide-react';
-import { searchTracks, getSuggestions, getRecentSearches, deleteSearchHistoryItem, saveSearchClick } from '../../services/api';
+import { Search as SearchIcon, X, ArrowLeft, Clock, Music, Play, User as UserIcon, ChevronRight } from 'lucide-react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAudio } from '../../context/AudioContext';
 import type { Song } from '../../types';
+import useDebounce from '../../hooks/useDebounce';
+import { getRecentSearches, searchTracks, getSuggestions, deleteSearchHistoryItem, saveSearchClick } from '../../services/api';
 
 const MobileSearch: React.FC = () => {
   const [query, setQuery] = useState('');
@@ -12,37 +14,93 @@ const MobileSearch: React.FC = () => {
   const [isOverlayOpen, setIsOverlayOpen] = useState(false);
   const [recentlyPlayed, setRecentlyPlayed] = useState<(Song & { historyId: string })[]>([]);
   
-  const { playTrack, currentTrack } = useAudio();
+  const { playContext, currentTrack } = useAudio();
   const inputRef = useRef<HTMLInputElement>(null);
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const initialQuery = searchParams.get('q');
+
+  // Debounce the search query with 500ms delay
+  const debouncedQuery = useDebounce(query, 500);
 
   // Fetch history on mount
   useEffect(() => {
     const fetchRecent = async () => {
-      const history = await getRecentSearches();
-      setRecentlyPlayed(history);
+      try {
+        const history = await getRecentSearches();
+        setRecentlyPlayed(history);
+      } catch (error) {
+        console.error("Failed to fetch search history:", error);
+      }
     };
     fetchRecent();
   }, []);
 
-  // Debounced Search Logic
+  // Handle initial query from URL (Handoff from Home)
   useEffect(() => {
-    const delayDebounceFn = setTimeout(async () => {
-      if (query.trim().length > 0) {
+    if (initialQuery && initialQuery !== query) {
+      setQuery(initialQuery);
+      setIsOverlayOpen(true);
+      
+      const performInitialSearch = async () => {
         setIsSearching(true);
-        const data = await searchTracks(query);
-        setResults(data.songs);
-        
-        const suggestData = await getSuggestions(query);
-        setSuggestions(suggestData);
-        setIsSearching(false);
+        try {
+          const data = await searchTracks(initialQuery);
+          setResults(data.songs);
+        } catch (error) {
+          console.error("Initial mobile search failed:", error);
+        } finally {
+          setIsSearching(false);
+        }
+      };
+      
+      performInitialSearch();
+    }
+  }, [initialQuery]);
+
+  // Use the debounced query for suggestions
+  useEffect(() => {
+    let ignore = false;
+
+    const fetchSuggestions = async () => {
+      if (debouncedQuery.trim().length > 0) {
+        setIsSearching(true);
+        try {
+          const suggestData = await getSuggestions(debouncedQuery);
+          if (!ignore) {
+            setSuggestions(suggestData);
+          }
+        } catch (error) {
+          console.error("Mobile suggestions failed:", error);
+        } finally {
+          if (!ignore) setIsSearching(false);
+        }
       } else {
-        setResults([]);
         setSuggestions({ songs: [], artists: [], albums: [] });
       }
-    }, 400);
+    };
 
-    return () => clearTimeout(delayDebounceFn);
-  }, [query]);
+    fetchSuggestions();
+
+    return () => {
+      ignore = true;
+    };
+  }, [debouncedQuery]);
+
+  const handleKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && query.trim().length > 0) {
+      setSuggestions({ songs: [], artists: [], albums: [] }); // Explicit clear on Enter
+      setIsSearching(true);
+      try {
+        const data = await searchTracks(query);
+        setResults(data.songs);
+      } catch (error) {
+        console.error("Mobile full search failed:", error);
+      } finally {
+        setIsSearching(false);
+      }
+    }
+  };
 
   // Handle auto-focus when overlay opens
   useEffect(() => {
@@ -54,16 +112,25 @@ const MobileSearch: React.FC = () => {
   const handleDeleteHistory = async (e: React.MouseEvent, historyId: string) => {
     e.stopPropagation();
     await deleteSearchHistoryItem(historyId);
-    setRecentlyPlayed(prev => prev.filter(item => item.historyId !== historyId));
+    setRecentlyPlayed((prev: any[]) => prev.filter((item: any) => item.historyId !== historyId));
   };
 
   const handleSongSelect = (song: Song) => {
     saveSearchClick(song);
-    playTrack(song);
+    playContext(song, results.length > 0 ? results : suggestions.songs);
     setIsOverlayOpen(false);
     setQuery('');
+    setSuggestions({ songs: [], artists: [], albums: [] });
     // Refresh history
     getRecentSearches().then(setRecentlyPlayed);
+  };
+
+  const handleArtistSelect = (artist: any) => {
+    setIsOverlayOpen(false);
+    setQuery('');
+    setSuggestions({ songs: [], artists: [], albums: [] });
+    const artistId = artist.id.startsWith('vip_') ? artist.name : artist.id;
+    navigate(`/artist/${artistId}`);
   };
 
   return (
@@ -91,16 +158,21 @@ const MobileSearch: React.FC = () => {
                <h2 className="text-xl font-bold">Recently Played</h2>
             </div>
             <div className="flex flex-col gap-4">
-              {recentlyPlayed.map((song) => (
+              {recentlyPlayed.map((song: any) => (
                 <div 
                   key={song.historyId} 
-                  onClick={() => playTrack(song)}
+                  onClick={() => playContext(song, recentlyPlayed)}
                   className={`flex items-center gap-4 group rounded-xl p-2 transition-colors ${
                     currentTrack?.id === song.id ? 'bg-neutral-800/80' : 'active:bg-neutral-900'
                   }`}
                 >
                   <div className="relative w-14 h-14 flex-shrink-0">
-                    <img src={song.coverUrl} className="w-full h-full rounded-lg object-cover shadow-lg" alt="" />
+                    <img 
+                      src={song.coverUrl || (song as any).cover_url || (song as any).image || (song as any).thumbnail || '/logo.png'} 
+                      className="w-full h-full rounded-lg object-cover shadow-lg" 
+                      alt="" 
+                      onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
+                    />
                     <div className="absolute inset-0 bg-black/20 flex items-center justify-center rounded-lg opacity-0 group-active:opacity-100 transition-opacity">
                        <Play size={20} fill="white" className="ml-1" />
                     </div>
@@ -161,6 +233,7 @@ const MobileSearch: React.FC = () => {
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={handleKeyDown}
                 placeholder="Search artists, songs..."
                 className="w-full bg-neutral-700 text-white py-3 pl-4 pr-11 rounded-lg font-bold placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all text-lg"
               />
@@ -184,10 +257,38 @@ const MobileSearch: React.FC = () => {
               </div>
             ) : query.length > 0 ? (
               <div className="space-y-8 animate-in fade-in duration-300">
-                {/* Suggestions Section */}
+                {/* Suggestions Section: Artists */}
+                {suggestions.artists?.length > 0 && (
+                   <section>
+                      <h3 className="text-[11px] font-black text-neutral-500 uppercase tracking-widest px-2 mb-4">Best Matches</h3>
+                      <div className="flex flex-col gap-2">
+                        {suggestions.artists.slice(0, 3).map((a: any) => (
+                           <div 
+                              key={a.id} 
+                              onClick={() => handleArtistSelect(a)}
+                              className="flex items-center gap-4 p-2 rounded-xl active:bg-neutral-800 transition-colors cursor-pointer"
+                           >
+                              <img 
+                                src={a.image?.[0]?.url || a.image || '/logo.png'} 
+                                className="w-12 h-12 rounded-full object-cover" 
+                                alt="" 
+                                onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
+                              />
+                              <div className="flex-1 min-w-0">
+                                 <p className="font-bold text-[15px] truncate">{a.name || a.artist}</p>
+                                 <p className="text-xs text-neutral-400 truncate uppercase tracking-tight">Verified Artist</p>
+                              </div>
+                              <ChevronRight size={18} className="text-neutral-600 mr-2" />
+                           </div>
+                        ))}
+                      </div>
+                   </section>
+                )}
+
+                {/* Suggestions Section: Songs */}
                 {suggestions.songs?.length > 0 && (
                    <section>
-                      <h3 className="text-sm font-bold text-neutral-500 uppercase tracking-widest px-2 mb-4">Songs</h3>
+                      <h3 className="text-[11px] font-black text-neutral-500 uppercase tracking-widest px-2 mb-4">Songs</h3>
                       <div className="flex flex-col gap-2">
                         {suggestions.songs.slice(0, 5).map((s: any) => (
                            <div 
@@ -204,11 +305,17 @@ const MobileSearch: React.FC = () => {
                               }}
                               className="flex items-center gap-4 p-2 rounded-xl active:bg-neutral-800 transition-colors cursor-pointer"
                            >
-                              <img src={s.image?.[0]?.url} className="w-12 h-12 rounded object-cover" alt="" />
+                              <img 
+                                src={s.image?.[0]?.url || (s as any).coverUrl || '/logo.png'} 
+                                className="w-12 h-12 rounded object-cover" 
+                                alt="" 
+                                onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
+                              />
                               <div className="flex-1 min-w-0">
                                  <p className="font-bold text-[15px] truncate">{s.name}</p>
                                  <p className="text-xs text-neutral-400 truncate">{s.primaryArtists}</p>
                               </div>
+                              <Play size={16} fill="white" className="text-neutral-400 mr-2" />
                            </div>
                         ))}
                       </div>
@@ -220,13 +327,18 @@ const MobileSearch: React.FC = () => {
                    <section>
                       <h3 className="text-sm font-bold text-neutral-500 uppercase tracking-widest px-2 mb-4">Top Matches</h3>
                       <div className="grid grid-cols-2 gap-4">
-                        {results.slice(0, 10).map((song) => (
+                        {results.slice(0, 10).map((song: any) => (
                            <div 
                               key={song.id} 
                               onClick={() => handleSongSelect(song)}
                               className="bg-neutral-800 rounded-xl p-3 flex flex-col gap-3 active:scale-[0.97] transition-transform"
                            >
-                              <img src={song.coverUrl} className="w-full aspect-square rounded-lg object-cover shadow-lg" alt="" />
+                              <img 
+                                src={song.coverUrl || (song as any).cover_url || (song as any).image || (song as any).thumbnail || '/logo.png'} 
+                                className="w-full aspect-square rounded-lg object-cover shadow-lg" 
+                                alt="" 
+                                onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
+                              />
                               <div className="min-w-0">
                                  <p className="font-bold text-sm truncate">{song.title}</p>
                                  <p className="text-xs text-neutral-400 truncate">{song.artist}</p>

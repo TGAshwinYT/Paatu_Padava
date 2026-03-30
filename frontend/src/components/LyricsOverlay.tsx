@@ -20,7 +20,7 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
   const [loading, setLoading] = useState<boolean>(false);
   const [activeIndex, setActiveIndex] = useState<number>(-1);
   
-  const { playTrack, progress } = useAudio();
+  const { playContext, progress } = useAudio();
   const activeLineRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -173,7 +173,7 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
                     {recommendations.length > 0 ? recommendations.map(track => (
                         <div 
                             key={track.id}
-                            onClick={() => playTrack(track)}
+                            onClick={() => playContext(track, recommendations)}
                             className="bg-white/5 p-4 rounded-xl hover:bg-white/10 transition-all group flex items-center gap-4 cursor-pointer"
                         >
                             <img src={track.coverUrl} className="w-16 h-16 rounded-lg object-cover" alt="" />

@@ -19,6 +19,7 @@ import { useAudio } from '../context/AudioContext';
 import LyricsOverlay from './LyricsOverlay';
 import SleepTimerModal from './SleepTimerModal';
 import QueuePanel from './QueuePanel';
+import { getValidImage } from '../utils/imageUtils';
 
 const PlayerBar = () => {
   const { 
@@ -30,15 +31,18 @@ const PlayerBar = () => {
     seekTo,
     volume,
     setVolume,
-    isRepeating,
-    isShuffled,
+    repeatMode,
+    isShuffle,
     toggleRepeat,
     toggleShuffle,
     audioQuality,
     setAudioQuality,
     playNext,
     playPrevious,
-    remainingSleepTime
+    remainingSleepTime,
+    history,
+    audioRef,
+    onEnded
   } = useAudio();
 
   const [showLyrics, setShowLyrics] = useState(false);
@@ -63,10 +67,11 @@ const PlayerBar = () => {
         {/* Left: Track Info */}
         <div className="flex items-center gap-4 w-[30%]">
           <img 
-            src={currentTrack.coverUrl || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=100&h=100&fit=crop'} 
+            src={getValidImage(currentTrack)} 
             alt={currentTrack.title} 
             className="w-14 h-14 rounded shadow-lg object-cover"
             loading="lazy"
+            onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
           />
           <div className="flex flex-col truncate">
             <h4 className="text-sm font-bold text-white hover:underline cursor-pointer truncate">
@@ -86,15 +91,27 @@ const PlayerBar = () => {
         {/* Center: Controls & Progress */}
         <div className="flex flex-col items-center max-w-[40%] w-full gap-2">
           <div className="flex items-center gap-6">
-            <Shuffle 
-              size={18} 
-              className={`cursor-pointer transition ${isShuffled ? 'text-green-500' : 'text-neutral-500 hover:text-white'}`} 
-              onClick={toggleShuffle}
-            />
+            <div className="relative group/shuffle">
+              <Shuffle 
+                size={18} 
+                className={`cursor-pointer transition ${isShuffle ? 'text-green-500 hover:text-green-400' : 'text-neutral-500 hover:text-white'}`} 
+                onClick={toggleShuffle}
+              />
+              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-neutral-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover/shuffle:opacity-100 transition whitespace-nowrap pointer-events-none border border-white/5">
+                {isShuffle ? 'Disable Shuffle' : 'Enable Shuffle'}
+              </div>
+            </div>
             <SkipBack 
               size={24} 
-              className="text-neutral-400 hover:text-white cursor-pointer transition" 
-              onClick={playPrevious}
+              className={`transition ${
+                history.length === 0 && progress < 3 
+                  ? 'text-neutral-600 cursor-not-allowed opacity-50' 
+                  : 'text-neutral-400 hover:text-white cursor-pointer hover:scale-105 active:scale-95'
+              }`} 
+              onClick={() => {
+                if (history.length === 0 && progress < 3) return;
+                playPrevious();
+              }}
             />
             
             <button 
@@ -113,11 +130,22 @@ const PlayerBar = () => {
               className="text-neutral-400 hover:text-white cursor-pointer transition" 
               onClick={playNext}
             />
-            <Repeat 
-              size={18} 
-              className={`cursor-pointer transition ${isRepeating ? 'text-green-500' : 'text-neutral-400 hover:text-white'}`} 
-              onClick={toggleRepeat}
-            />
+            <div className="relative group">
+              <Repeat 
+                size={18} 
+                className={`cursor-pointer transition ${repeatMode !== 'none' ? 'text-green-500' : 'text-neutral-400 hover:text-white'}`} 
+                onClick={toggleRepeat}
+              />
+              {repeatMode === 'one' && (
+                <span className="absolute -top-1 -right-1 bg-green-500 text-black text-[8px] font-bold w-3 h-3 flex items-center justify-center rounded-full pointer-events-none">
+                  1
+                </span>
+              )}
+              {/* Tooltip for accessibility/clarity */}
+              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-neutral-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition whitespace-nowrap pointer-events-none border border-white/5">
+                {repeatMode === 'none' ? 'Enable Repeat' : repeatMode === 'all' ? 'Repeat All' : 'Repeat One'}
+              </div>
+            </div>
           </div>
 
           <div className="flex items-center gap-3 w-full">
@@ -257,6 +285,11 @@ const PlayerBar = () => {
       <QueuePanel 
         isOpen={showQueue} 
         onClose={() => setShowQueue(false)} 
+      />
+
+      <audio 
+        ref={audioRef}
+        onEnded={onEnded}
       />
     </>
   );

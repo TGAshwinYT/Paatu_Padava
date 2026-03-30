@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Music } from 'lucide-react';
 import { useAudio } from '../../context/AudioContext';
+import { getValidImage } from '../../utils/imageUtils';
 
 interface QueueDrawerProps {
   isOpen: boolean;
@@ -8,7 +9,8 @@ interface QueueDrawerProps {
 }
 
 const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => {
-  const { userQueue, removeFromQueue, currentTrack } = useAudio();
+  const { userQueue, queue, removeFromQueue, currentTrack } = useAudio();
+  const combinedQueue = [...userQueue, ...queue];
 
   if (!isOpen) return null;
 
@@ -40,23 +42,24 @@ const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => {
         </div>
 
         <div className="flex-1 overflow-y-auto space-y-4 pr-2">
-          {userQueue.length === 0 ? (
+          {combinedQueue.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-neutral-500 italic">Queue is empty</p>
               <p className="text-xs text-neutral-600 mt-2">Add some songs to see them here!</p>
             </div>
           ) : (
-            userQueue.map((track) => (
+            combinedQueue.map((track, index) => (
               <div 
-                key={track.id} 
+                key={`${track.id}-${index}`} 
                 className={`flex items-center gap-4 rounded-xl p-2 transition-colors ${
                   currentTrack?.id === track.id ? 'bg-neutral-800/50' : 'hover:bg-neutral-800/30'
-                }`}
+                } ${index >= userQueue.length ? 'opacity-80' : ''}`}
               >
                 <img 
-                  src={track.coverUrl} 
+                  src={getValidImage(track)} 
                   alt="" 
                   className="w-12 h-12 rounded-lg object-cover shadow-md"
+                  onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
                 />
                 <div className="flex-1 min-w-0">
                   <p className={`text-sm font-bold truncate ${
@@ -66,12 +69,14 @@ const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => {
                   </p>
                   <p className="text-xs text-neutral-400 truncate">{track.artist}</p>
                 </div>
-                <button 
-                  onClick={() => removeFromQueue(track.id)}
-                  className="p-2 text-neutral-500 hover:text-red-400 active:scale-90 transition-all"
-                >
-                  <X size={18} />
-                </button>
+                {index < userQueue.length && (
+                  <button 
+                    onClick={() => removeFromQueue(track.id)}
+                    className="p-2 text-neutral-500 hover:text-red-400 active:scale-90 transition-all"
+                  >
+                    <X size={18} />
+                  </button>
+                )}
               </div>
             ))
           )}

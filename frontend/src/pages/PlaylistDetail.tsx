@@ -14,7 +14,7 @@ const PlaylistDetail = () => {
   const [playlistTitle, setPlaylistTitle] = useState('Playlist');
   const [isLoading, setIsLoading] = useState(true);
   const { user } = useAuth();
-  const { playTrack } = useAudio();
+  const { playContext } = useAudio();
   const [showMenu, setShowMenu] = useState(false);
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -43,7 +43,7 @@ const PlaylistDetail = () => {
 
   const handlePlayAll = () => {
     if (songs.length > 0) {
-      playTrack(songs[0], songs);
+      playContext(songs[0], songs);
     }
   };
 
@@ -181,7 +181,7 @@ const PlaylistDetail = () => {
         {songs.length > 0 ? (
           songs.map((song) => (
              <div key={song.id} className="group relative">
-                <SongCard song={song} />
+                <SongCard song={song} context={songs} />
                 <button 
                   onClick={(e) => {
                     e.stopPropagation();

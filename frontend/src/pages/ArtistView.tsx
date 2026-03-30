@@ -9,7 +9,7 @@ const ArtistView = () => {
   const { artistId } = useParams<{ artistId: string }>();
   const [artist, setArtist] = useState<{ id: string, name: string, image: string, topSongs: Song[] } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const { playTrack } = useAudio();
+  const { playContext } = useAudio();
 
   useEffect(() => {
     const fetchArtist = async () => {
@@ -68,7 +68,7 @@ const ArtistView = () => {
               <div 
                 key={song.id} 
                 className="group flex items-center gap-4 p-4 rounded-xl hover:bg-white/5 transition-all cursor-pointer border border-transparent hover:border-white/5"
-                onClick={() => playTrack(song)}
+                onClick={() => playContext(song, artist?.topSongs || [])}
               >
                 <div className="text-neutral-500 w-4 font-medium group-hover:hidden">
                   {idx + 1}
@@ -100,7 +100,7 @@ const ArtistView = () => {
                 <button 
                   onClick={(e) => {
                     e.stopPropagation();
-                    playTrack(song);
+                    playContext(song, artist?.topSongs || []);
                   }}
                   className="p-3 bg-green-500 rounded-full text-black opacity-0 group-hover:opacity-100 shadow-xl hover:scale-110 transition-all"
                 >

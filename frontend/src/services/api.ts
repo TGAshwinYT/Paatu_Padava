@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { Song, Album, Artist } from '../types';
+import { getValidImage } from '../utils/imageUtils';
 
 export const mapHistoryToSong = (item: any): Song => {
   if (!item) return { id: '', title: 'Unknown', artist: 'Unknown', coverUrl: '', audioUrl: '' };
@@ -10,9 +11,10 @@ export const mapHistoryToSong = (item: any): Song => {
     artist: item.artist || item.artist_name || item.artists || 'Unknown Artist',
     album: item.album || item.album_name || '',
     duration: Number(item.duration || item.song_duration || 0),
-    coverUrl: item.cover_url || item.coverUrl || item.image || item.imageUrl || '',
+    coverUrl: getValidImage(item),
     audioUrl: item.audio_url || item.audioUrl || item.url || item.streamUrl || '',
-    downloadUrls: item.download_urls || item.downloadUrls || []
+    downloadUrls: item.download_urls || item.downloadUrls || [],
+    language: item.language || ''
   };
 };
 
@@ -149,10 +151,10 @@ export const addListenHistory = async (track: Song) => {
   if (!localStorage.getItem('token')) return; // Silently skip for guests
   try {
     await api.post('/api/history/listen', {
-      id: track.id,                 // <-- THIS IS THE MISSING PIECE!
+      id: track.id,
       title: track.title || "Unknown Title",
       artist: track.artist || "Unknown Artist",
-      cover_url: track.coverUrl || "",
+      cover_url: getValidImage(track),
       audio_url: track.audioUrl || ""
     });
   } catch (error) {
@@ -160,10 +162,13 @@ export const addListenHistory = async (track: Song) => {
   }
 };
 
-export const getRecommendations = async (songId: string, artist?: string): Promise<Song[]> => {
+export const getRecommendations = async (songId: string, artist?: string, language?: string): Promise<Song[]> => {
   try {
     const response = await api.get(`/api/music/recommendations/${songId}`, {
-      params: artist ? { artist } : {}
+      params: {
+        ...(artist ? { artist } : {}),
+        ...(language ? { lang: language } : {})
+      }
     });
     return (response.data || []).map(mapHistoryToSong);
   } catch (error) {
@@ -171,10 +176,13 @@ export const getRecommendations = async (songId: string, artist?: string): Promi
   }
 };
 
-export const getRelatedSongs = async (songId: string, artist?: string): Promise<Song[]> => {
+export const getRelatedSongs = async (songId: string, artist?: string, language?: string): Promise<Song[]> => {
   try {
     const response = await api.get(`/api/music/related/${songId}`, {
-      params: artist ? { artist } : {}
+      params: {
+        ...(artist ? { artist } : {}),
+        ...(language ? { lang: language } : {})
+      }
     });
     return (response.data || []).map(mapHistoryToSong);
   } catch (error) {

@@ -7,7 +7,7 @@ import type { Song } from '../types';
 
 const AlbumView = () => {
   const { id } = useParams<{ id: string }>();
-  const { playTrack } = useAudio();
+  const { playContext } = useAudio();
   const [albumData, setAlbumData] = useState<any>(null);
   const [recommendations, setRecommendations] = useState<Song[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -55,13 +55,6 @@ const AlbumView = () => {
     );
   }
 
-  const handlePlaySong = (track: Song) => {
-    if (albumData?.songs) {
-      playTrack(track, albumData.songs);
-    } else {
-      playTrack(track);
-    }
-  };
 
   return (
     <div className="flex flex-col min-h-full bg-black">
@@ -102,7 +95,7 @@ const AlbumView = () => {
         {/* Action Bar */}
         <div className="flex items-center gap-8 py-10">
           <button 
-            onClick={() => albumData.songs?.[0] && handlePlaySong(albumData.songs[0])}
+            onClick={() => albumData.songs?.[0] && playContext(albumData.songs[0], albumData.songs)}
             className="w-16 h-16 bg-[#1ed760] rounded-full text-black flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-2xl hover:bg-[#1fdf64]"
             title="Play"
           >
@@ -130,7 +123,7 @@ const AlbumView = () => {
             {albumData.songs?.map((track: Song, index: number) => (
               <div 
                 key={track.id}
-                onClick={() => handlePlaySong(track)}
+                onClick={() => playContext(track, albumData.songs)}
                 className="grid grid-cols-[32px_1fr_120px] gap-6 px-4 py-4 hover:bg-[#2a2a2a] rounded-lg group transition-all cursor-pointer items-center border border-transparent hover:border-white/5"
               >
                 <div className="flex items-center justify-center w-8 h-8 text-neutral-500 font-bold font-mono">
@@ -157,7 +150,7 @@ const AlbumView = () => {
               {recommendations.map((rec) => (
                 <div 
                   key={rec.id}
-                  onClick={() => playTrack(rec)}
+                  onClick={() => playContext(rec, recommendations)}
                   className="flex-shrink-0 w-40 md:w-48 bg-[#181818] p-4 rounded-xl hover:bg-[#282828] transition-all cursor-pointer group shadow-lg border border-white/5 active:scale-95"
                 >
                   <div className="relative aspect-square mb-4 shadow-[0_8px_24px_rgba(0,0,0,0.5)] rounded-lg overflow-hidden">

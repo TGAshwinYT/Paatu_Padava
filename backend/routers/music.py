@@ -12,6 +12,7 @@ import json
 from utils.location import get_search_languages
 from urllib.parse import quote
 from graph import recommendation_graph
+from .history import get_user_top_artists
 
 
 router = APIRouter(prefix="/api/music", tags=["music"])
@@ -198,17 +199,30 @@ async def get_liked_songs(
         raise HTTPException(status_code=500, detail="Failed to fetch liked songs")
 
 @router.get("/recommendations/{song_id}")
-async def get_recommendations(song_id: str, artist: str = Query(None)):
+async def get_recommendations(
+    song_id: str, 
+    artist: str = Query(None), 
+    lang: str = Query(None),
+    user: models.User = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db)
+):
     """
     Get recommended songs based on a song ID using the path-based BFS graph.
+    Includes personal favorites blended into the fallback.
     """
     try:
-        # Task 2: Use the global recommendation graph
-        results = recommendation_graph.get_recommendations(song_id, limit=6)
+        # Task 2: Use the global recommendation graph with language context
+        results = recommendation_graph.get_recommendations(song_id, limit=6, current_language=lang)
         
+        # Fetch user's top historical artists for personalization (if logged in)
+        historical_artists = []
+        if user:
+            historical_artists = await get_user_top_artists(db, user.id, limit=2)
+            print(f"[PERSONALIZATION] Blending top artists {historical_artists} into recommendations for {user.id}")
+
         # Fallback to standard suggestions if the graph is cold for this track
         if not results:
-            results = await saavn.get_recommendations(song_id, artist)
+            results = await saavn.get_recommendations(song_id, target_language=lang, artist=artist, historical_artists=historical_artists)
             
         return results
     except Exception as e:
@@ -221,7 +235,7 @@ async def get_related_songs(song_id: str, artist: str = Query(None)):
     Alias for recommendations, used for infinite autoplay.
     """
     try:
-        results = await saavn.get_recommendations(song_id, artist)
+        results = await saavn.get_recommendations(song_id, target_language=None, artist=artist)
         return results
     except Exception as e:
         print(f"Related Songs Error (Router): {str(e)}")

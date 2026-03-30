@@ -4,6 +4,7 @@ import { Play, Plus, Heart, ListMusic, PlusCircle } from 'lucide-react';
 import type { Song } from '../types';
 import { useAudio } from '../context/AudioContext';
 import { usePlaylistModal } from '../context/PlaylistModalContext';
+import { getValidImage } from '../utils/imageUtils';
 import { useAuth } from '../context/AuthContext';
 import { likeSong, unlikeSong } from '../services/api';
 
@@ -11,12 +12,13 @@ interface SongCardProps {
   song: Song;
   isInitiallyLiked?: boolean;
   onPlay?: (song: Song) => void;
+  context?: Song[];
 }
 
-const SongCard: React.FC<SongCardProps> = ({ song, isInitiallyLiked = false, onPlay }) => {
+const SongCard: React.FC<SongCardProps> = ({ song, isInitiallyLiked = false, onPlay, context }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { playTrack, addToQueue } = useAudio();
+  const { playContext, addToQueue } = useAudio();
   const { openModal } = usePlaylistModal();
   const { user } = useAuth();
   const [isLiked, setIsLiked] = useState(isInitiallyLiked);
@@ -43,15 +45,16 @@ const SongCard: React.FC<SongCardProps> = ({ song, isInitiallyLiked = false, onP
       className="bg-neutral-800/40 p-4 rounded-md hover:bg-neutral-700/50 transition-all duration-300 group cursor-pointer"
       onClick={() => {
         if (onPlay) onPlay(song);
-        playTrack(song);
+        playContext(song, context || [song]);
       }}
     >
       <div className="relative mb-4">
         <img 
-          src={song.coverUrl || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&h=500&fit=crop'} 
+          src={getValidImage(song)} 
           alt={song.title} 
           className="w-full aspect-square object-cover rounded-md shadow-lg"
           loading="lazy"
+          onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
         />
         <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
            <button 
@@ -104,7 +107,7 @@ const SongCard: React.FC<SongCardProps> = ({ song, isInitiallyLiked = false, onP
            <button 
              className="p-3 bg-green-500 rounded-full text-black shadow-xl hover:scale-105"
              onClick={(e) => {
-               e.stopPropagation(); if (onPlay) onPlay(song); playTrack(song);
+               e.stopPropagation(); if (onPlay) onPlay(song); playContext(song, context || [song]);
              }}
            >
              <Play fill="currentColor" size={20} />

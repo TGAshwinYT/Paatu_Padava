@@ -5,7 +5,7 @@ import PopularAlbums from '../components/PopularAlbums';
 
 const Album = () => {
     const { id } = useParams();
-    const { playTrack } = useAudio();
+    const { playContext } = useAudio();
 
     // Dummy Data for immediate rendering
     const albumData = {
@@ -109,7 +109,7 @@ const Album = () => {
                         {albumData.tracks.map((track, index) => (
                             <div 
                                 key={track.id}
-                                onClick={() => playTrack(track as any)}
+                                onClick={() => playContext(track as any, albumData.tracks as any)}
                                 className="grid grid-cols-[16px_1fr_120px] gap-4 px-4 py-2 hover:bg-white/10 rounded-md group transition-colors cursor-pointer items-center"
                             >
                                 <div className="flex items-center justify-center w-4 h-4 text-sm font-medium text-neutral-400">

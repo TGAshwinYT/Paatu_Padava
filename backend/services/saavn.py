@@ -82,34 +82,46 @@ def extract_artist_name(artist_data: Any) -> str:
 def extract_high_res_image(image_data: Any) -> str:
     """
     Robust extraction of highest resolution image from various formats.
-    Checks 'image', 'images', and 'image_url'. 
-    Forces 500x500 for JioSaavn CDN links.
+    Handles strings (including comma-separated lists), lists of URLs, or lists of dictionaries.
+    Forces 500x500 for JioSaavn CDN links to ensure premium quality.
     """
     default_image = "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&h=500&fit=crop"
     
     if not image_data:
         return default_image
 
-    url = ""
-    # 1. Handle if image_data itself is a dict (e.g. {'image': ..., 'image_url': ...})
-    if isinstance(image_data, dict):
-        url = image_data.get("image") or image_data.get("image_url") or image_data.get("images") or ""
-    else:
-        url = image_data
+    url = default_image
 
-    # 2. If it's a list, grab the last (usually highest quality)
-    if isinstance(url, list) and len(url) > 0:
-        last_item = url[-1]
-        if isinstance(last_item, dict):
-            url = last_item.get("link") or last_item.get("url") or ""
-        else:
-            url = str(last_item)
+    # 1. Handle String directly
+    if isinstance(image_data, str):
+        # Handle comma-separated strings (JioSaavn edge case)
+        if ',' in image_data:
+            urls = [url.strip() for url in image_data.split(',')]
+            # Return the highest quality (last item)
+            url = urls[-1] if urls and urls[-1].startswith('http') else default_image
+        elif image_data.startswith('http'):
+            url = image_data
+    
+    # 2. Handle List of URLs or Dictionaries (JioSaavn standard)
+    elif isinstance(image_data, list) and len(image_data) > 0:
+        best_img = image_data[-1]
+        if isinstance(best_img, dict):
+            url = best_img.get('link') or best_img.get('url') or default_image
+        elif isinstance(best_img, str) and best_img.startswith('http'):
+            url = best_img
+            
+    # 3. Handle Dictionary directly (Fallback for some modules)
+    elif isinstance(image_data, dict):
+        url = image_data.get("image") or image_data.get("image_url") or image_data.get("images") or default_image
+        # If the extracted value inside the dict is still a list, recurse once
+        if isinstance(url, list):
+            return extract_high_res_image(url)
 
-    # 3. Clean and transform
+    # Final Step: Clean up and Force High Resolution
     if not isinstance(url, str) or not url.startswith("http"):
         return default_image
 
-    # Force high resolution for JioSaavn/SaavnCDN URLs
+    # Transform 50x50 or 150x150 to 500x500
     if "jiosaavn.com" in url or "saavncdn.com" in url:
         url = url.replace("50x50", "500x500").replace("150x150", "500x500")
         
@@ -165,7 +177,9 @@ async def map_saavn_song(item: Dict[str, Any], lenient: bool = False) -> Dict[st
 
     try:
         # 1. Images are normalized using robust helper
-        cover_url = extract_high_res_image(item.get("image"))
+        # Handle if the item was already partially mapped or has cover_url/coverUrl
+        raw_image = item.get("image") or item.get("images") or item.get("cover_url") or item.get("coverUrl")
+        cover_url = extract_high_res_image(raw_image)
 
         # 2. Audio URL extraction via robust helper
         audio_url = extract_audio_url(item)
@@ -244,7 +258,8 @@ async def search_saavn(query: str, language: str = None) -> List[Dict[str, Any]]
         params["language"] = language
         
     response = await fetch_from_saavn("search/songs", params)
-    results = response.get("data", {}).get("results", [])
+    data = response.get("data") or {}
+    results = data.get("results", [])
     
     print(f"[SEARCH DEBUG] Found {len(results)} items in API results for '{query}'")
     
@@ -426,117 +441,124 @@ async def get_song_details(song_id: str) -> Dict[str, Any]:
     """
     Fetches comprehensive details for a single song.
     """
-    response = await fetch_from_saavn("songs", {"id": song_id})
+    response = await fetch_from_saavn("songs", {"ids": song_id})
     data = response.get("data", [])
     if data and isinstance(data, list):
         return await map_saavn_song(data[0], lenient=True)
     return {}
 
-async def get_related_songs(song_id: str, artist: str = None) -> List[Dict[str, Any]]:
+async def get_related_songs(song_id: str, target_language: str = None, artist: str = None, historical_artists: List[str] = None) -> List[Dict[str, Any]]:
     """
-    Two-step Smart Fallback strategy for Related Songs:
-    Step 1: Try the wrapper API suggestions.
-    Step 2: If Step 1 fails, fallback to searching for the primary artist's top tracks.
+    Robust related-songs builder that replaces the broken /suggestions endpoint.
+    Retrieves tracks from the primary artist AND historical user favorite artists, 
+    enforcing a strict language gate and applying a DJ shuffle for a personalized Radio Mix.
     """
-    # Step 1: Try Wrapper API Suggestions
+    import random
+    import asyncio
     try:
-        # Task 1: Fetch suggestions from wrapper
-        response_json = await fetch_from_saavn(f"songs/{song_id}/suggestions", {"limit": 15})
+        print(f"[FETCHING RADIO MIX] Bypassing broken suggestions for {song_id}...")
         
-        if response_json.get("success") is False:
-            raise Exception("Suggestions API returned success=False")
-        
-        # Handle various response formats (list or dict)
-        results = []
-        if isinstance(response_json, list):
-            results = response_json
-        elif isinstance(response_json, dict):
-            # Try 'data' or nested 'results'
-            data = response_json.get("data", [])
-            if isinstance(data, list):
-                results = data
-            elif isinstance(data, dict):
-                results = data.get("results", [])
-                if not results:
-                    results = response_json.get("results", [])
-
-        mapped_songs = []
-        for item in results:
-            # Use existing mapper with lenient mode (Task 1)
-            mapped = await map_saavn_song(item, lenient=True)
-            if mapped:
-                mapped_songs.append(mapped)
-        
-        if mapped_songs:
-            # Task 3: Filter current song and slice
-            final_list = [s for s in mapped_songs if s.get("id") != song_id]
-            return final_list[:12]
-
-    except Exception as e:
-        print(f"[WARNING] Suggestions API failed: {str(e)}")
-        
-        # New Fallback: If artist provided, use it directly to avoid extra API call
-        if artist:
-            try:
-                print(f"[ARTIST FALLBACK] Using direct artist fallback: {artist}")
-                primary_artist = artist.split(",")[0].strip()
-                artist_tracks = await search_saavn(primary_artist)
-                
-                final_list = [s for s in artist_tracks if s.get("id") != song_id]
-                return final_list[:12]
-            except Exception as fallback_err:
-                print(f"[ERROR] Direct artist fallback failed: {str(fallback_err)}")
-
-    # Step 2: Artist Search Fallback (If Step 1 failed or returned empty)
-    try:
-        print(f"[DEBUG] Triggering Artist Search Fallback for {song_id}...")
-        
-        # 2a: Fetch current song details to get artist
-        song_response = await fetch_from_saavn(f"songs/{song_id}")
-        song_data = {}
-        if isinstance(song_response, dict):
-            data_list = song_response.get("data", [])
-            if data_list and isinstance(data_list, list):
-                song_data = data_list[0]
-            else:
-                song_data = song_response
-
-        # 2b: Extract and split primary artist
-        artist_string = str(song_data.get("singers") or song_data.get("primary_artists") or "Unknown Artist")
-        # Grab the very first artist (Task 2)
-        primary_artist = artist_string.split(",")[0].split("&")[0].strip()
-        
-        if primary_artist and primary_artist != "Unknown Artist":
-            print(f"[FALLBACK] Searching for top tracks by '{primary_artist}'")
-            # 2c: Search for the artist's tracks
-            artist_tracks = await search_saavn(primary_artist)
+        # Step 0: Fetch current song metadata to extract identifiers
+        current_resp = await fetch_from_saavn("songs", {"ids": song_id})
+        current_data_list = current_resp.get("data", [])
+        if not current_data_list:
+            return []
             
-            # Task 3: Filter current song and slice
-            final_list = [s for s in artist_tracks if s.get("id") != song_id]
-            return final_list[:12]
+        current_song = current_data_list[0]
+        
+        # Task 2: Robust Fallback extraction prioritize provided artist
+        extracted_artist = current_song.get("primaryArtists") or current_song.get("primary_artists") or current_song.get("artist") or current_song.get("singers") or "Unknown"
+        primary_artist = artist or extracted_artist.split(",")[0].split("&")[0].strip()
+        
+        # Normalization gate preparation
+        target_lang = str(target_language).lower().strip() if target_language else str(current_song.get("language")).lower().strip()
+
+        print(f"[RECORDS FOUND] Artist: {primary_artist}, Historical Favorites: {historical_artists}, Lang: {target_lang}")
+
+        # Step 1: Broad Search Batch (Current Artist + Historical Favorites)
+        search_targets = [primary_artist] if primary_artist and primary_artist != "Unknown" else []
+        if historical_artists:
+            # Only blend in unique historical artists that aren't the primary artist
+            for ha in historical_artists:
+                if ha and ha.lower().strip() != primary_artist.lower().strip():
+                    search_targets.append(ha)
+        
+        # Parallel search for all target artists to ensure zero-latency impact
+        print(f"[RECORDS BATCH] Triggering {len(search_targets)} searches for blended Radio Mix...")
+        search_tasks = [search_saavn(target) for target in search_targets]
+        search_results_batch = await asyncio.gather(*search_tasks, return_exceptions=True)
+        
+        # Flatten candidates and filter out errors
+        candidates = []
+        for res in search_results_batch:
+            if isinstance(res, list):
+                candidates.extend(res)
+        
+        # Step 2: Strict Language Filtering Gate
+        filtered_songs = []
+        seen_ids = {song_id} # Exclude the current song
+
+        for song in candidates:
+            s_id = song.get("id")
+            if s_id in seen_ids:
+                continue
+                
+            # Perform strict language check
+            song_lang = str(song.get("language") or "").lower().strip()
+            
+            # If language is missing, map it and drop if it's the wrong language
+            if not song_lang:
+                song_lang = target_lang
+
+            if song_lang == target_lang:
+                # Check if song is already mapped
+                if "cover_url" in song or "audio_url" in song:
+                    mapped = song
+                else:
+                    mapped = await map_saavn_song(song, lenient=True)
+
+                if mapped and mapped.get("id") not in seen_ids:
+                    # Final sanity check: Ensure at least one image key is present for React
+                    if not mapped.get("cover_url") and not mapped.get("coverUrl") and not mapped.get("image"):
+                         mapped["cover_url"] = extract_high_res_image(None) # Use central default
+                    
+                    filtered_songs.append(mapped)
+                    seen_ids.add(mapped.get("id"))
+        
+        # Step 3: The DJ Shuffle
+        random.shuffle(filtered_songs)
+        
+        print(f"[RADIO MIX COMPLETE] Generated {len(filtered_songs)} blended & shuffled results for {song_id}")
+        # Return top 10/12 songs from this shuffled pool
+        return filtered_songs[:12]
 
     except Exception as e:
-        print(f"[ERROR] Smart Fallback completely failed: {str(e)}")
-    
-    return []
+        print(f"[CRITICAL ERROR] Radio Mix fetch failed: {str(e)}")
+        return []
 
 # Alias for backward compatibility
-async def get_recommendations(song_id: str, artist: str = None) -> List[Dict[str, Any]]:
-    return await get_related_songs(song_id, artist)
+async def get_recommendations(song_id: str, target_language: str = None, artist: str = None, historical_artists: List[str] = None) -> List[Dict[str, Any]]:
+    return await get_related_songs(song_id, target_language, artist, historical_artists)
 
 async def search_all(query: str) -> Dict[str, Any]:
     """
     Global search for songs, artists, and albums. Used for suggestions.
-    Endpoint: search/all?query={query}
+    🚨 REPLACED search/all WITH search/songs to fix 404 errors. 🚨
+    Parsing follows the search/songs response format: data.get('results', [])
     """
-    response = await fetch_from_saavn("search/all", {"query": query})
-    data = response.get("data", {})
+    response = await fetch_from_saavn("search/songs", {"query": query})
+    data = response.get("data") or {}
     
-    # We want to return a simplified structure for the dropdown
+    # Extract results as required: response.json().get('data', {}).get('results', [])
+    # In our fetch utility, response.json() is already returned.
+    results = data.get("results", [])
+    
+    # Map raw results for the frontend suggestions dropdown
+    # The frontend expects { "songs": [...], "artists": [], "albums": [] }
     return {
-        "songs": data.get("songs", {}).get("results", [])[:5],
-        "artists": data.get("artists", {}).get("results", [])[:3],
-        "albums": data.get("albums", {}).get("results", [])[:3]
+        "songs": results[:10], # suggestions songs
+        "artists": [],          # search/songs doesn't provide artists
+        "albums": []            # search/songs doesn't provide albums
     }
 
 async def search_artists(query: str, language: str = None) -> List[Dict[str, Any]]:
@@ -549,7 +571,8 @@ async def search_artists(query: str, language: str = None) -> List[Dict[str, Any
         params["language"] = language
         
     response = await fetch_from_saavn("search/artists", params)
-    results = response.get("data", {}).get("results", [])
+    data = response.get("data") or {}
+    results = data.get("results", [])
     mapped_artists = []
     for item in results:
         mapped_artists.append({
@@ -570,7 +593,8 @@ async def search_albums(query: str, language: str = None) -> List[Dict[str, Any]
         params["language"] = language
         
     response = await fetch_from_saavn("search/albums", params)
-    results = response.get("data", {}).get("results", [])
+    data = response.get("data") or {}
+    results = data.get("results", [])
     mapped_albums = []
     for item in results:
         mapped_albums.append({

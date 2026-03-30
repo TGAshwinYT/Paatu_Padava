@@ -32,10 +32,11 @@ class MusicGraph:
             self.adjacency_list[song_id_1].add(song_id_2)
             self.adjacency_list[song_id_2].add(song_id_1)
 
-    def get_recommendations(self, target_song_id: str, limit: int = 5) -> List[Dict[str, Any]]:
+    def get_recommendations(self, target_song_id: str, limit: int = 5, current_language: str = None) -> List[Dict[str, Any]]:
         """
         Uses Breadth-First Search (BFS) to find the nearest related songs.
         Traversal starts from the target song and explores neighbors layer by layer.
+        Includes optional context-aware language filtering with fallback.
         """
         # Ensure the target song exists in our graph
         if target_song_id not in self.adjacency_list:
@@ -46,6 +47,7 @@ class MusicGraph:
         # Initialize queue for BFS with the target song
         queue = deque([target_song_id])
 
+        # Phase 1: Context-aware BFS (Filtered by language)
         while queue and len(recommendations) < limit:
             current_id = queue.popleft()
 
@@ -54,13 +56,39 @@ class MusicGraph:
                 if neighbor_id not in visited:
                     visited.add(neighbor_id)
                     
-                    # Add neighbor's metadata to our results (limit check again)
-                    if neighbor_id in self.nodes:
-                        recommendations.append(self.nodes[neighbor_id])
+                    song_data = self.nodes.get(neighbor_id)
+                    if song_data:
+                        # Harden Language Check
+                        song_lang = str(song_data.get('language', '')).lower().strip()
+                        target_lang = str(current_language).lower().strip() if current_language else None
+                        
+                        # X-Ray Debugging Log
+                        if target_lang:
+                            print(f"[GRAPH DEBUG] Checking '{song_data.get('name', 'Unknown')}': Expected '{target_lang}', Found '{song_lang}'")
+
+                        # Language-aware filtering
+                        if target_lang and song_lang != target_lang:
+                            # Still add to queue for traversal, but don't add to recommendations yet
+                            queue.append(neighbor_id)
+                            continue
+
+                        recommendations.append(song_data)
                         queue.append(neighbor_id)
                         
                         if len(recommendations) >= limit:
                             break
+        
+        # Phase 2: Fallback (DISABLED - Strict filtering enabled)
+        # if len(recommendations) < 5:
+        #     # Re-traverse visited nodes (excluding the target and already recommended ones)
+        #     for node_id in visited:
+        #         if len(recommendations) >= limit:
+        #             break
+        #         
+        #         if node_id != target_song_id:
+        #             song_data = self.nodes.get(node_id)
+        #             if song_data and song_data not in recommendations:
+        #                 recommendations.append(song_data)
                             
         return recommendations
 

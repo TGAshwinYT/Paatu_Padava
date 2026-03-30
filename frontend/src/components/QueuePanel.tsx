@@ -3,6 +3,7 @@ import { useAudio } from '../context/AudioContext';
 import { X, GripVertical, Trash2 } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import type { DropResult } from '@hello-pangea/dnd';
+import { getValidImage } from '../utils/imageUtils';
 
 interface QueuePanelProps {
   isOpen: boolean;
@@ -10,7 +11,8 @@ interface QueuePanelProps {
 }
 
 const QueuePanel: React.FC<QueuePanelProps> = ({ isOpen, onClose }) => {
-  const { userQueue, removeFromQueue, reorderQueue, currentTrack } = useAudio();
+  const { userQueue, queue, removeFromQueue, reorderQueue, currentTrack } = useAudio();
+  const combinedQueue = [...userQueue, ...queue];
 
   const onDragEnd = (result: DropResult) => {
     if (!result.destination) return;
@@ -32,67 +34,89 @@ const QueuePanel: React.FC<QueuePanelProps> = ({ isOpen, onClose }) => {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-        {userQueue.length === 0 ? (
+        {combinedQueue.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 px-4 text-center">
             <p className="text-neutral-400 font-medium">Your queue is empty</p>
             <p className="text-xs text-neutral-500 mt-2">Add songs to play them next!</p>
           </div>
         ) : (
-          <DragDropContext onDragEnd={onDragEnd}>
-            <Droppable droppableId="queue-list">
-              {(provided) => (
-                <div 
-                  {...provided.droppableProps} 
-                  ref={provided.innerRef}
-                  className="space-y-2"
-                >
-                  {userQueue.map((song, index) => (
-                    <Draggable key={song.id} draggableId={song.id} index={index}>
-                      {(provided, snapshot) => (
-                        <div
-                          ref={provided.innerRef}
-                          {...provided.draggableProps}
-                          className={`group flex items-center gap-3 p-2 rounded-md transition-all ${
-                            snapshot.isDragging ? 'bg-neutral-800 shadow-xl' : 'hover:bg-neutral-800/60'
-                          }`}
-                        >
-                          <div 
-                            {...provided.dragHandleProps}
-                            className="text-neutral-600 hover:text-neutral-400 cursor-grab active:cursor-grabbing"
+          <div className="space-y-6">
+            <div>
+              <p className="text-[10px] uppercase font-bold text-neutral-500 mb-3 tracking-widest px-2">
+                Next Up
+              </p>
+              <DragDropContext onDragEnd={onDragEnd}>
+                <Droppable droppableId="queue-list">
+                  {(provided) => (
+                    <div 
+                      {...provided.droppableProps} 
+                      ref={provided.innerRef}
+                      className="space-y-2"
+                    >
+                      {combinedQueue.map((song, index) => {
+                        const isUserQueue = index < userQueue.length;
+                        return (
+                          <Draggable 
+                            key={`${song.id}-${index}`} 
+                            draggableId={`${song.id}-${index}`} 
+                            index={index}
+                            isDragDisabled={!isUserQueue}
                           >
-                            <GripVertical size={16} />
-                          </div>
-                          
-                          <img 
-                            src={song.coverUrl || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=50&h=50&fit=crop'} 
-                            alt="" 
-                            className="w-10 h-10 rounded shadow-md object-cover" 
-                          />
-                          
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-bold text-white truncate group-hover:text-green-500 transition-colors">
-                              {song.title}
-                            </p>
-                            <p className="text-[10px] text-neutral-400 truncate uppercase tracking-tighter font-bold">
-                              {song.artist}
-                            </p>
-                          </div>
-                          
-                          <button 
-                            onClick={() => removeFromQueue(song.id)}
-                            className="opacity-0 group-hover:opacity-100 p-2 hover:bg-red-500/10 hover:text-red-500 rounded-full transition-all text-neutral-600"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      )}
-                    </Draggable>
-                  ))}
-                  {provided.placeholder}
-                </div>
-              )}
-            </Droppable>
-          </DragDropContext>
+                            {(provided, snapshot) => (
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                className={`group flex items-center gap-3 p-2 rounded-md transition-all ${
+                                  snapshot.isDragging ? 'bg-neutral-800 shadow-xl' : 'hover:bg-neutral-800/60'
+                                } ${!isUserQueue ? 'opacity-90' : ''}`}
+                              >
+                                {isUserQueue ? (
+                                  <div 
+                                    {...provided.dragHandleProps}
+                                    className="text-neutral-600 hover:text-neutral-400 cursor-grab active:cursor-grabbing"
+                                  >
+                                    <GripVertical size={16} />
+                                  </div>
+                                ) : (
+                                  <div className="w-4 flex-shrink-0" />
+                                )}
+                                
+                                <img 
+                                  src={getValidImage(song)} 
+                                  alt="" 
+                                  className="w-10 h-10 rounded shadow-md object-cover" 
+                                  onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
+                                />
+                                
+                                <div className="flex-1 min-w-0">
+                                  <p className={`text-sm font-bold truncate transition-colors ${!isUserQueue ? 'text-neutral-200' : 'text-white'} group-hover:text-green-500`}>
+                                    {song.title}
+                                  </p>
+                                  <p className="text-[10px] text-neutral-400 truncate uppercase tracking-tighter font-bold">
+                                    {song.artist}
+                                  </p>
+                                </div>
+                                
+                                {isUserQueue && (
+                                  <button 
+                                    onClick={() => removeFromQueue(song.id)}
+                                    className="opacity-0 group-hover:opacity-100 p-2 hover:bg-red-500/10 hover:text-red-500 rounded-full transition-all text-neutral-600"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </Draggable>
+                        );
+                      })}
+                      {provided.placeholder}
+                    </div>
+                  )}
+                </Droppable>
+              </DragDropContext>
+            </div>
+          </div>
         )}
       </div>
 
@@ -101,7 +125,12 @@ const QueuePanel: React.FC<QueuePanelProps> = ({ isOpen, onClose }) => {
           <p className="text-[10px] uppercase font-bold text-green-500 mb-4 tracking-widest">Now Playing</p>
           <div className="flex items-center gap-4 group">
              <div className="relative w-12 h-12 flex-shrink-0">
-                <img src={currentTrack.coverUrl} alt="" className="w-full h-full rounded shadow-2xl object-cover" />
+                <img 
+                  src={getValidImage(currentTrack)} 
+                  alt="" 
+                  className="w-full h-full rounded shadow-2xl object-cover" 
+                  onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
+                />
                 <div className="absolute inset-0 bg-green-500/20 animate-pulse rounded"></div>
              </div>
              <div className="min-w-0">

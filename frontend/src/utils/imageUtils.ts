@@ -4,7 +4,7 @@ export const getValidImage = (song: any) => {
     let img = song.image || song.images || song.thumbnail || song.cover_url || song.coverUrl;
 
     if (img && typeof img === 'string') {
-        if (img.includes(',')) return img.split(',').pop().trim();
+        if (img.includes(',')) return img.split(',').pop()?.trim() || img;
         return img.replace('150x150', '500x500'); // Force high-res
     }
     if (Array.isArray(img) && img.length > 0) {

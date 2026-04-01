@@ -17,16 +17,13 @@ const MobilePlayerOverlay: React.FC = () => {
     currentTime, 
     setCurrentTime,
     duration, 
-    isSeeking,
     setIsSeeking,
-    seekTo, 
     isShuffle, 
     repeatMode, 
     toggleShuffle, 
     toggleRepeat, 
     remainingSleepTime,
-    audioRef,
-    onEnded
+    audioRef
   } = useAudio();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showSleepTimer, setShowSleepTimer] = useState(false);

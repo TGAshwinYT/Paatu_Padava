@@ -3,11 +3,10 @@ import LikedSongs from '../LikedSongs';
 import api, { getFollowedArtists } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { Music, Plus, Heart, User as UserIcon, PlusCircle } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 
 const MobileLibrary: React.FC = () => {
   const { user, openLibraryAuthModal } = useAuth();
-  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'all' | 'liked'>('all');
   const [playlists, setPlaylists] = useState<any[]>([]);
   const [followedArtists, setFollowedArtists] = useState<any[]>([]);
@@ -135,7 +134,7 @@ const MobileLibrary: React.FC = () => {
         {(filter === 'all' || filter === 'playlists') && playlists.length > 0 && (
             <div className="flex flex-col gap-3">
               <h2 className="text-lg font-bold">Your Playlists</h2>
-              {playlists.map((playlist) => (
+              {playlists.map((playlist: any) => (
                 <Link 
                   key={playlist.id}
                   to={`/playlist/${playlist.id}`}

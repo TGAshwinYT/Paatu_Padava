@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, Search, Library, User } from 'lucide-react';
+import { Home, Search, Library } from 'lucide-react';
 
 const MobileBottomNavbar: React.FC = () => {
   return (

@@ -26,9 +26,10 @@ const PlayerBar = () => {
     currentTrack, 
     isPlaying, 
     togglePlay, 
-    progress, 
+    currentTime, 
+    setCurrentTime,
     duration, 
-    seekTo,
+    setIsSeeking,
     volume,
     setVolume,
     repeatMode,
@@ -42,7 +43,6 @@ const PlayerBar = () => {
     remainingSleepTime,
     history,
     audioRef,
-    onEnded
   } = useAudio();
 
   const [showLyrics, setShowLyrics] = useState(false);
@@ -50,6 +50,19 @@ const PlayerBar = () => {
   const [showQualityMenu, setShowQualityMenu] = useState(false);
   const [showDevicePicker, setShowDevicePicker] = useState(false);
   const [showQueue, setShowQueue] = useState(false);
+  
+  const handleSeekChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setIsSeeking(true);
+    setCurrentTime(Number(e.target.value));
+  };
+
+  const handleSeekRelease = (e: React.ChangeEvent<HTMLInputElement> | React.MouseEvent | React.TouchEvent | React.KeyboardEvent) => {
+    setIsSeeking(false);
+    const target = e.target as HTMLInputElement;
+    if (audioRef.current) {
+      audioRef.current.currentTime = Number(target.value);
+    }
+  };
 
   const formatTime = (seconds: number) => {
     if (isNaN(seconds)) return '0:00';
@@ -104,12 +117,12 @@ const PlayerBar = () => {
             <SkipBack 
               size={24} 
               className={`transition ${
-                history.length === 0 && progress < 3 
-                  ? 'text-neutral-600 cursor-not-allowed opacity-50' 
-                  : 'text-neutral-400 hover:text-white cursor-pointer hover:scale-105 active:scale-95'
-              }`} 
-              onClick={() => {
-                if (history.length === 0 && progress < 3) return;
+                history.length === 0 && currentTime < 3 
+                ? 'text-neutral-600 cursor-not-allowed opacity-50' 
+                : 'text-neutral-400 hover:text-white cursor-pointer hover:scale-105 active:scale-95'
+            }`} 
+            onClick={() => {
+              if (history.length === 0 && currentTime < 3) return;
                 playPrevious();
               }}
             />
@@ -150,18 +163,21 @@ const PlayerBar = () => {
 
           <div className="flex items-center gap-3 w-full">
             <span className="text-[10px] text-neutral-400 min-w-[30px] text-right">
-              {formatTime(progress)}
+              {formatTime(currentTime)}
             </span>
             <div className="relative group w-full flex items-center">
               <input 
                 type="range"
                 min={0}
                 max={duration || 100}
-                value={progress}
-                onChange={(e) => seekTo(Number(e.target.value))}
+                value={currentTime}
+                onChange={handleSeekChange}
+                onMouseUp={handleSeekRelease}
+                onTouchEnd={handleSeekRelease}
+                onKeyUp={handleSeekRelease}
                 className="w-full h-1 bg-neutral-600 rounded-full appearance-none cursor-pointer accent-white group-hover:accent-green-500"
                 style={{
-                  background: `linear-gradient(to right, #1db954 ${(progress / (duration || 100)) * 100}%, #4d4d4d 0%)`
+                  background: `linear-gradient(to right, #1db954 ${(currentTime / (duration || 100)) * 100}%, #4d4d4d 0%)`
                 }}
               />
             </div>
@@ -287,10 +303,6 @@ const PlayerBar = () => {
         onClose={() => setShowQueue(false)} 
       />
 
-      <audio 
-        ref={audioRef}
-        onEnded={onEnded}
-      />
     </>
   );
 };

@@ -6,7 +6,7 @@ import logging
 import time
 from graph import recommendation_graph
 from typing import List, Dict, Any, Optional
-from functools import wraps
+from fastapi_cache.decorator import cache
 
 logger = logging.getLogger(__name__)
 
@@ -22,32 +22,6 @@ REGIONAL_VIP_ARTISTS = {
     "default": ["A.R. Rahman", "Arijit Singh", "Anirudh Ravichander", "Shreya Ghoshal"]
 }
 
-def async_ttl_cache(ttl_seconds=900):
-    """
-    Custom Async TTL Cache decorator for I/O bound FastAPI tasks.
-    """
-    def decorator(func):
-        cache = {}
-
-        @wraps(func)
-        async def wrapper(*args, **kwargs):
-            # Create a unique key from args and kwargs
-            key = f"{args}_{kwargs}"
-            now = time.time()
-
-            if key in cache:
-                result, timestamp = cache[key]
-                if now - timestamp < ttl_seconds:
-                    print(f"[CACHE HIT] Serving fast data for {func.__name__}!")
-                    return result
-
-            # Cache miss or expired
-            print(f"[CACHE MISS] Fetching fresh data for {func.__name__}...")
-            result = await func(*args, **kwargs)
-            cache[key] = (result, now)
-            return result
-        return wrapper
-    return decorator
 
 def extract_artist_name(artist_data: Any) -> str:
     """
@@ -241,6 +215,7 @@ async def map_saavn_song(item: Dict[str, Any], lenient: bool = False) -> Dict[st
         print(f"⚠️ Mapping failed for item: {str(e)}")
         return {}
 
+@cache(expire=1800)
 async def search_saavn(query: str, language: str = None) -> List[Dict[str, Any]]:
     """
     Official Search implementation. Strictly returns playable tracks.
@@ -271,7 +246,7 @@ async def search_saavn(query: str, language: str = None) -> List[Dict[str, Any]]
             
     return mapped_songs
 
-@async_ttl_cache(ttl_seconds=1800)
+@cache(expire=1800)
 async def get_trending(languages: str = None) -> Dict[str, List[Dict[str, Any]]]:
     """
     Fetches trending music, albums, and artists for the home screen.
@@ -429,6 +404,7 @@ async def get_trending(languages: str = None) -> Dict[str, List[Dict[str, Any]]]
         "topArtists": top_artists
     }
 
+@cache(expire=3600)
 async def get_lyrics(song_id: str) -> Dict[str, Any]:
     """
     Fetches lyrics for a specific song ID.
@@ -447,6 +423,7 @@ async def get_song_details(song_id: str) -> Dict[str, Any]:
         return await map_saavn_song(data[0], lenient=True)
     return {}
 
+@cache(expire=600)
 async def get_related_songs(song_id: str, target_language: str = None, artist: str = None, historical_artists: List[str] = None) -> List[Dict[str, Any]]:
     """
     Robust related-songs builder that replaces the broken /suggestions endpoint.
@@ -607,6 +584,7 @@ async def search_albums(query: str, language: str = None) -> List[Dict[str, Any]
         })
     return mapped_albums
 
+@cache(expire=3600)
 async def get_artist_details(artist_id: str) -> Dict[str, Any]:
     """
     Fetches artist details and top songs.
@@ -664,7 +642,7 @@ async def get_personalized_feed(artist_names: List[str]) -> List[Dict[str, Any]]
     # Limit total results
     return unique_tracks[:30]
 
-@async_ttl_cache(ttl_seconds=86400)
+@cache(expire=86400)
 async def get_album_details(album_id: str) -> Dict[str, Any]:
     """
     Fetches the full details and tracklist of a specific album from JioSaavn.

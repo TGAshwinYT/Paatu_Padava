@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useAudio } from '../../context/AudioContext';
 import { getListenHistory } from '../../services/api';
 import { Settings, Clock } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import type { Song } from '../../types';
 
 const MobileHome: React.FC = () => {
@@ -48,13 +49,17 @@ const MobileHome: React.FC = () => {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold tracking-tight">{greeting()}, {user?.username || 'Guest'}</h1>
         <div className="flex items-center gap-4">
-           {user && <Clock size={24} />}
-           <Settings size={24} />
-           <div className="w-8 h-8 rounded-full border-2 border-pink-500 overflow-hidden shadow-lg">
-              <div className="w-full h-full bg-neutral-700 flex items-center justify-center font-bold text-xs">
-                 {user?.username?.[0] || 'G'}
-              </div>
-           </div>
+           {user && (
+             <Link to="/history">
+               <Clock size={24} />
+             </Link>
+           )}
+           <Link to="/settings">
+             <Settings size={24} />
+           </Link>
+           <Link to="/">
+             <img src="/logo.png" alt="Home" className="w-8 h-8 rounded-full shadow-lg object-cover" />
+           </Link>
         </div>
       </div>
 

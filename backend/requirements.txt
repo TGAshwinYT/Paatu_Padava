@@ -15,3 +15,4 @@ python-jose[cryptography]>=3.3.0
 certifi>=2024.2.2
 python-multipart>=0.0.6
 syncedlyrics>=0.6.0
+fastapi-cache2>=0.2.1

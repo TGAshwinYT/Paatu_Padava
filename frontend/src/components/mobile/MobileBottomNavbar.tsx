@@ -28,14 +28,6 @@ const MobileBottomNavbar: React.FC = () => {
         <Library size={24} />
         <span className="text-[10px] font-medium">Library</span>
       </NavLink>
-
-      <NavLink 
-        to="/settings" 
-        className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-white' : 'text-neutral-500'}`}
-      >
-        <User size={24} />
-        <span className="text-[10px] font-medium">Profile</span>
-      </NavLink>
     </div>
   );
 };

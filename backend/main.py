@@ -1,12 +1,18 @@
 import uvicorn
 import asyncio
+import os
+import socket
+from contextlib import asynccontextmanager
+from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
-import os
-from dotenv import load_dotenv
+from redis import asyncio as aioredis
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.redis import RedisBackend
+
 from connection import check_redis_connection, check_db_connection, engine
 from base import Base
 from routers import music, auth, playlists, history, users, utils
@@ -19,10 +25,6 @@ load_dotenv()
 
 # Global Autocomplete Engine
 artist_trie = Trie()
-
-
-
-from contextlib import asynccontextmanager
 
 # CORS Configuration
 allowed_origins = [
@@ -131,7 +133,6 @@ async def lifespan(app: FastAPI):
     print("[INIT] Starting PaaatuPadava Backend Lifespan...")
     
     # 0. Diagnostic DNS Check (Helpful for 'gaierror 11001' on Windows)
-    import socket
     mandatory_hosts = ["aws-1-ap-south-1.pooler.supabase.com", "saavn.sumit.co"]
     for host in mandatory_hosts:
         try:
@@ -150,7 +151,19 @@ async def lifespan(app: FastAPI):
 
     await check_redis_connection()
     
-    # Populate Autocomplete Trie
+    # 2. Redis Cache Initialization (fastapi-cache2)
+    # Use REDIS_URL from .env with fallback to localhost
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+    print(f"[INIT] Initializing Redis Cache with URL: {redis_url.split('@')[-1]}") # Hide credentials in logs
+    
+    try:
+        redis = aioredis.from_url(redis_url)
+        FastAPICache.init(RedisBackend(redis), prefix="paatu-cache")
+        print("[SUCCESS] FastAPICache initialized!")
+    except Exception as e:
+        print(f"[ERROR] Redis Cache initialization failed: {e}")
+    
+    # 3. Populate Autocomplete Trie
     print("[INIT] Populating Artist Autocomplete Trie...")
     count = 0
     for region, artists in REGIONAL_VIP_ARTISTS.items():
@@ -164,11 +177,12 @@ async def lifespan(app: FastAPI):
             count += 1
     print(f"[INIT] Trie populated with {count} VIP artists.")
     
-    # 2. Populate Recommendation Graph (Backgrounded)
+    # 4. Populate Recommendation Graph (Backgrounded)
     asyncio.create_task(load_initial_graph_data())
     
     yield
-    # Shutdown logic (can be added here)
+    # Shutdown logic
+    print("[INIT] Shutting down PaaatuPadava Backend...")
 
 app = FastAPI(title="Paaatu_Padava Backend", lifespan=lifespan)
 

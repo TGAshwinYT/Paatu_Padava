@@ -15,8 +15,12 @@ const shuffleArray = (array: any[]) => {
 interface AudioContextType {
   currentTrack: Song | null;
   isPlaying: boolean;
-  progress: number;
+  currentTime: number;
+  setCurrentTime: React.Dispatch<React.SetStateAction<number>>;
   duration: number;
+  isSeeking: boolean;
+  setIsSeeking: React.Dispatch<React.SetStateAction<boolean>>;
+  progress: number; 
   volume: number;
   isShuffle: boolean;
   repeatMode: 'none' | 'all' | 'one';
@@ -33,16 +37,16 @@ interface AudioContextType {
   setSleepTimer: (minutes: number | 'end' | null) => void;
   remainingSleepTime: number | null;
   queue: Song[]; 
-  userQueue: Song[];
   history: Song[];
   userPlaylists: any[];
   addToQueue: (track: Song) => void;
   removeFromQueue: (trackId: string) => void;
   reorderQueue: (startIndex: number, endIndex: number) => void;
+  handleOnDragEnd: (result: any) => void;
   refreshPlaylists: () => Promise<void>;
   setQueue: React.Dispatch<React.SetStateAction<Song[]>>;
   clearHistory: () => void;
-  audioRef: React.RefObject<HTMLAudioElement>;
+  audioRef: React.RefObject<HTMLAudioElement | null>;
   onEnded: () => void;
 }
 
@@ -52,8 +56,9 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const { user } = useAuth();
   const [currentTrack, setCurrentTrack] = useState<Song | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [isSeeking, setIsSeeking] = useState(false);
   const [volume, setVolumeState] = useState(0.7);
   const [isShuffle, setIsShuffle] = useState(false);
   const [repeatMode, setRepeatMode] = useState<'none' | 'all' | 'one'>('none');
@@ -63,10 +68,9 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [history, setHistory] = useState<Song[]>([]);
   const [remainingSleepTime, setRemainingSleepTime] = useState<number | null>(null);
   const [isEndOfTrackTimer, setIsEndOfTrackTimer] = useState(false);
-  const [userQueue, setUserQueue] = useState<Song[]>([]);
   const [userPlaylists, setUserPlaylists] = useState<any[]>([]);
   
-  const audioRef = useRef<HTMLAudioElement>(new Audio());
+  const audioRef = useRef<HTMLAudioElement>(null);
   const lastTrackId = useRef<string | null>(null);
   const isFetchingRadio = useRef(false);
   const isActionLocked = useRef(false);
@@ -82,7 +86,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // --- 2. STABLE ACTION HANDLERS ---
   const playNext = useCallback(() => {
     if (isActionLocked.current) return;
-    if (queue.length === 0 && userQueue.length === 0) {
+    if (queue.length === 0) {
       setIsPlaying(false);
       return;
     }
@@ -90,7 +94,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     isActionLocked.current = true;
     setTimeout(() => isActionLocked.current = false, 800);
 
-    const nextTrack = userQueue.length > 0 ? userQueue[0] : queue[0];
+    const nextTrack = queue[0];
 
     setCurrentTrack(currentlyPlaying => {
       if (currentlyPlaying) {
@@ -102,14 +106,9 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return nextTrack;
     });
 
-    if (userQueue.length > 0) {
-      setUserQueue(prev => prev.slice(1));
-    } else {
-      setQueue(prev => prev.slice(1));
-    }
-    
+    setQueue(prev => prev.slice(1));
     setIsPlaying(true);
-  }, [queue, userQueue]);
+  }, [queue]);
 
   const playPrevious = useCallback(() => {
     if (isActionLocked.current) return;
@@ -146,10 +145,10 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;
-    if (isPlaying) {
+    if (isPlaying && audio) {
       audio.pause();
       setIsPlaying(false);
-    } else {
+    } else if (audio) {
       if (!audio.src || audio.src.includes('undefined')) {
          if (currentTrack) {
             const url = getUrlByQuality(currentTrack, audioQuality);
@@ -205,16 +204,25 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  const addToQueue = (track: Song) => {
-    setUserQueue(prev => prev.some(s => s.id === track.id) ? prev : [...prev, track]);
-  };
+  const addToQueue = useCallback((song: Song) => {
+    setQueue(prevQueue => {
+      // Prevent duplicates (including currently playing)
+      if (prevQueue.some(s => s.id === song.id) || currentTrack?.id === song.id) return prevQueue;
+
+      const manualSongs = prevQueue.filter(s => s.isManual);
+      const autoSongs = prevQueue.filter(s => !s.isManual);
+
+      // Add to the end of manual songs, before auto songs
+      return [...manualSongs, { ...song, isManual: true }, ...autoSongs];
+    });
+  }, [currentTrack]);
 
   const removeFromQueue = (trackId: string) => {
-    setUserQueue(prev => prev.filter(s => s.id !== trackId));
+    setQueue(prev => prev.filter(s => s.id !== trackId));
   };
 
   const reorderQueue = (startIndex: number, endIndex: number) => {
-    setUserQueue(prev => {
+    setQueue(prev => {
       const result = Array.from(prev);
       const [removed] = result.splice(startIndex, 1);
       result.splice(endIndex, 0, removed);
@@ -222,15 +230,30 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
   };
 
+  const handleOnDragEnd = useCallback((result: any) => {
+    // 1. Guard clause for invalid drops
+    if (!result.destination || result.destination.index === result.source.index) return;
+
+    // 2. Throttling lock
+    if (isActionLocked.current) return;
+    isActionLocked.current = true;
+    setTimeout(() => isActionLocked.current = false, 500); // 500ms lock for drag-drop
+
+    // 3. Perform atomic update
+    reorderQueue(result.source.index, result.destination.index);
+  }, [reorderQueue]);
+
   const seekTo = (value: number) => {
-    audioRef.current.currentTime = value;
-    setProgress(value);
+    if (audioRef.current) {
+        audioRef.current.currentTime = value;
+        setCurrentTime(value);
+    }
   };
 
   const setVolume = (value: number) => {
     const vol = Math.max(0, Math.min(1, value));
     setVolumeState(vol);
-    audioRef.current.volume = vol;
+    if (audioRef.current) audioRef.current.volume = vol;
   };
 
   const toggleRepeat = () => {
@@ -278,6 +301,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Audio Lifecycle & Event Listeners
   const onEnded = useCallback(() => {
     const audio = audioRef.current;
+    if (!audio) return;
     if (isEndOfTrackTimer) {
       setIsEndOfTrackTimer(false);
       setIsPlaying(false);
@@ -289,7 +313,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       audio.play().then(() => setIsPlaying(true)).catch(e => console.error("Repeat failed:", e));
       return;
     }
-    if (repeatMode === 'all' && (queue.length === 0 && userQueue.length === 0) && contextMemory && contextMemory.length > 0) {
+    if (repeatMode === 'all' && queue.length === 0 && contextMemory && contextMemory.length > 0) {
       setCurrentTrack(prev => {
         if (prev) setHistory(h => [...h, prev]);
         return contextMemory[0];
@@ -299,28 +323,17 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return;
     }
     playNext();
-  }, [isEndOfTrackTimer, repeatMode, queue.length, userQueue.length, contextMemory, playNext]);
+  }, [isEndOfTrackTimer, repeatMode, queue.length, contextMemory, playNext]);
 
   useEffect(() => {
-    const audio = audioRef.current;
-    audio.volume = volume;
-
-    const onTimeUpdate = () => setProgress(audio.currentTime);
-    const onLoadedMetadata = () => setDuration(audio.duration);
-
-    audio.addEventListener('timeupdate', onTimeUpdate);
-    audio.addEventListener('loadedmetadata', onLoadedMetadata);
-    // audio.addEventListener('ended', onEnded); // Moving to synthetic event to prevent desync
-    return () => {
-      audio.removeEventListener('timeupdate', onTimeUpdate);
-      audio.removeEventListener('loadedmetadata', onLoadedMetadata);
-      // audio.removeEventListener('ended', onEnded);
-    };
-  }, [volume, isEndOfTrackTimer, repeatMode, queue.length, userQueue.length, contextMemory, playNext]);
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
+    }
+  }, [volume]);
 
   // Track/Quality Changes
   useEffect(() => {
-    if (!currentTrack) return;
+    if (!currentTrack || !audioRef.current) return;
     const audio = audioRef.current;
     const targetUrl = getUrlByQuality(currentTrack, audioQuality);
     if (!targetUrl) {
@@ -328,13 +341,19 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return;
     }
     const isQualitySwitch = lastTrackId.current === currentTrack.id;
-    const currentTime = isQualitySwitch ? audio.currentTime : 0;
     const wasPlaying = !audio.paused || isPlaying;
-    audio.pause();
-    audio.src = targetUrl;
-    audio.load();
-    audio.currentTime = currentTime;
-    lastTrackId.current = currentTrack.id;
+    
+    if (isQualitySwitch) {
+        const currentTimeBefore = audio.currentTime;
+        audio.src = targetUrl;
+        audio.load();
+        audio.currentTime = currentTimeBefore;
+    } else {
+        // New track, src prop on <audio> tag will handle src update, 
+        // but we still need to manage the transition if needed.
+        lastTrackId.current = currentTrack.id;
+    }
+
     if (wasPlaying) {
       audio.play().then(() => {
         setIsPlaying(true);
@@ -344,24 +363,29 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setIsPlaying(false);
       });
     }
-    if ('mediaSession' in navigator) {
-      const art = currentTrack.coverUrl || (currentTrack as any).cover_url || (currentTrack as any).image || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=512&h=512&fit=crop';
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: currentTrack.title,
-        artist: currentTrack.artist,
-        artwork: [{ src: art, sizes: '512x512', type: 'image/jpeg' }]
-      });
-      navigator.mediaSession.setActionHandler('play', () => togglePlay());
-      navigator.mediaSession.setActionHandler('pause', () => togglePlay());
-      navigator.mediaSession.setActionHandler('previoustrack', () => playPrevious());
-      navigator.mediaSession.setActionHandler('nexttrack', () => playNext());
-    }
-  }, [currentTrack, audioQuality, getUrlByQuality, playNext, playPrevious, togglePlay, isPlaying]);
+  }, [currentTrack, audioQuality]);
+
+  // Media Session Updates
+  useEffect(() => {
+    if (!currentTrack || !('mediaSession' in navigator)) return;
+    
+    const art = currentTrack.coverUrl || (currentTrack as any).cover_url || (currentTrack as any).image || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=512&h=512&fit=crop';
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: currentTrack.title,
+      artist: currentTrack.artist,
+      artwork: [{ src: art, sizes: '512x512', type: 'image/jpeg' }]
+    });
+
+    navigator.mediaSession.setActionHandler('play', () => togglePlay());
+    navigator.mediaSession.setActionHandler('pause', () => togglePlay());
+    navigator.mediaSession.setActionHandler('previoustrack', () => playPrevious());
+    navigator.mediaSession.setActionHandler('nexttrack', () => playNext());
+  }, [currentTrack, togglePlay, playPrevious, playNext]);
 
   // Pre-fetch
   useEffect(() => {
     if (!currentTrack || repeatMode !== 'none' || isFetchingRadio.current) return;
-    if (queue.length > 2 || userQueue.length > 0) return;
+    if (queue.length > 2 || isFetchingRadio.current) return;
     const preFetch = async () => {
       isFetchingRadio.current = true;
       try {
@@ -373,23 +397,27 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         
         if (res.data && res.data.length > 0) {
           const mappedSongs = res.data.map(mapHistoryToSong);
+          
           setQueue(prevQueue => {
-            // Create a Set of all IDs currently in the queue, history, and the currently playing song
+            // 1. Strict Deduplication (vital for DND)
             const existingIds = new Set(prevQueue.map(song => song.id));
             if (currentTrack) existingIds.add(currentTrack.id);
+            // Also exclude recently played history for better variety
             history.forEach(h => existingIds.add(h.id));
 
-            // Only keep mapped songs that are NOT already in the existingIds Set
-            const completelyNewSongs = mappedSongs.filter((newSong: Song) => !existingIds.has(newSong.id));
+            // Only add brand new songs
+            const newGraphSongs = mappedSongs.filter((newSong: Song) => !existingIds.has(newSong.id));
 
-            return [...prevQueue, ...completelyNewSongs];
+            // 2. Blend: Add recommended songs to the bottom of the draggable queue (Auto-generated)
+            const autoSongs = newGraphSongs.map((s: Song) => ({ ...s, isManual: false }));
+            return [...prevQueue, ...autoSongs];
           });
         }
       } catch (e) { console.error("Pre-fetch failed:", e); }
       finally { isFetchingRadio.current = false; }
     };
     preFetch();
-  }, [currentTrack?.id, queue.length, userQueue.length, repeatMode, history]);
+  }, [currentTrack?.id, queue.length, repeatMode, history]);
 
   // Playlist Refresh
   useEffect(() => {
@@ -417,13 +445,29 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   return (
     <AudioContext.Provider value={{ 
-      currentTrack, isPlaying, progress, duration, volume, isShuffle, repeatMode, audioQuality,
-      remainingSleepTime, queue, userQueue, history, userPlaylists,
+      currentTrack, isPlaying, currentTime, setCurrentTime, duration, isSeeking, setIsSeeking, volume, isShuffle, repeatMode, audioQuality,
+      remainingSleepTime, queue, history, userPlaylists,
       togglePlay, seekTo, setVolume, toggleRepeat, toggleShuffle, setAudioQuality, playNext, playPrevious,
-      setSleepTimer, addToQueue, removeFromQueue, reorderQueue, refreshPlaylists, setQueue, clearHistory, playContext,
-      audioRef, onEnded
+      setSleepTimer, addToQueue, removeFromQueue, reorderQueue, handleOnDragEnd, refreshPlaylists, setQueue, clearHistory, playContext,
+      audioRef, onEnded, progress: currentTime
     }}>
       {children}
+      <audio
+        ref={audioRef}
+        src={currentTrack ? getUrlByQuality(currentTrack, audioQuality) : undefined}
+        onTimeUpdate={() => {
+          if (!isSeeking && audioRef.current) {
+            setCurrentTime(audioRef.current.currentTime || 0);
+          }
+        }}
+        onLoadedMetadata={() => {
+          if (audioRef.current) {
+            const d = audioRef.current.duration;
+            setDuration(isFinite(d) ? d : 0);
+          }
+        }}
+        onEnded={onEnded}
+      />
     </AudioContext.Provider>
   );
 };

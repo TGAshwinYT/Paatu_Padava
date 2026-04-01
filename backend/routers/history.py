@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import func # Added for func.now()
-from connection import get_db
+from connection import get_db, AsyncSessionLocal
+from sqlalchemy import func, text # Modified for consolidated imports
 from models import ListeningHistory, SearchHistory, SearchClickHistory, User
 from auth_utils import get_current_user
 from typing import List, Optional, Dict, Any # Modified from typing import List
@@ -19,8 +19,26 @@ class HistoryCreate(BaseModel):
 
 router = APIRouter(prefix="/api/history", tags=["history"])
 
+async def run_history_cleanup(user_id: str):
+    """
+    Background Task: Cleans up listening history older than 90 days.
+    Uses its own AsyncSession to avoid issues with the request-scoped session closing.
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            cleanup_query = text("DELETE FROM listening_history WHERE user_id = :uid AND played_at < NOW() - INTERVAL '90 days'")
+            await db.execute(cleanup_query, {"uid": user_id})
+            await db.commit()
+    except Exception as e:
+        print(f"Background cleanup failed for user {user_id}: {e}")
+
 @router.post("/listen")
-async def add_listen_history(song: HistoryCreate, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def add_listen_history(
+    song: HistoryCreate, 
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user), 
+    db: AsyncSession = Depends(get_db)
+):
     """
     Tracks when a user starts listening to a song.
     """
@@ -48,16 +66,13 @@ async def add_listen_history(song: HistoryCreate, user: User = Depends(get_curre
             await db.commit()
             msg = "Listening history tracked"
             
-        # Self-Cleaning Step (90-day retention policy) executes after commit
-        from sqlalchemy import text
-        cleanup_query = text("DELETE FROM listening_history WHERE user_id = :uid AND played_at < NOW() - INTERVAL '90 days'")
-        await db.execute(cleanup_query, {"uid": user.id})
-        await db.commit()
+        # Schedule Background Cleanup (90-day retention policy)
+        background_tasks.add_task(run_history_cleanup, str(user.id))
 
-        return {"message": f"{msg} and cleaned"}
+        return {"message": f"{msg} (Cleanup scheduled)"}
     except Exception as e:
         await db.rollback()
-        print(f"History Error: {e}") # Added print statement
+        print(f"History Error: {e}") 
         raise HTTPException(status_code=500, detail="Failed to track history")
 
 @router.post("/search")

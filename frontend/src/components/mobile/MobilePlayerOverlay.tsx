@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, ChevronDown, Share2, MoreHorizontal, Clock, Speaker, ListMusic } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, ChevronDown, Share2, MoreHorizontal, Clock, Speaker, ListMusic, Heart, PlusCircle, Mic2 } from 'lucide-react';
 import { useAudio } from '../../context/AudioContext';
 import SleepTimerModal from '../SleepTimerModal';
 import QueueDrawer from './QueueDrawer';
+import LyricsOverlay from '../LyricsOverlay';
+import { usePlaylistModal } from '../../context/PlaylistModalContext';
 import { getValidImage } from '../../utils/imageUtils';
 
 const MobilePlayerOverlay: React.FC = () => {
@@ -12,8 +14,11 @@ const MobilePlayerOverlay: React.FC = () => {
     togglePlay, 
     playNext, 
     playPrevious, 
-    progress, 
+    currentTime, 
+    setCurrentTime,
     duration, 
+    isSeeking,
+    setIsSeeking,
     seekTo, 
     isShuffle, 
     repeatMode, 
@@ -26,14 +31,30 @@ const MobilePlayerOverlay: React.FC = () => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showSleepTimer, setShowSleepTimer] = useState(false);
   const [isQueueOpen, setIsQueueOpen] = useState(false);
+  const [isLyricsOpen, setIsLyricsOpen] = useState(false);
+  const [isLiked, setIsLiked] = useState(false);
+  const { openModal } = usePlaylistModal();
+  
+  const handleSeekChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setIsSeeking(true);
+    setCurrentTime(Number(e.target.value));
+  };
 
-  if (!currentTrack) return null;
+  const handleSeekRelease = (e: React.ChangeEvent<HTMLInputElement> | React.MouseEvent | React.TouchEvent | React.KeyboardEvent) => {
+    setIsSeeking(false);
+    const target = e.target as HTMLInputElement;
+    if (audioRef.current) {
+      audioRef.current.currentTime = Number(target.value);
+    }
+  };
 
   const formatTime = (time: number) => {
     const mins = Math.floor(time / 60);
     const secs = Math.floor(time % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
+
+  if (!currentTrack) return null;
 
   if (!isExpanded) {
     return (
@@ -59,7 +80,7 @@ const MobilePlayerOverlay: React.FC = () => {
           </button>
         </div>
         {/* Progress Bar Mini */}
-        <div className="absolute bottom-0 left-0 h-[2px] bg-white transition-all" style={{ width: `${(progress/duration)*100}%` }} />
+        <div className="absolute bottom-0 left-0 h-[2px] bg-white transition-all" style={{ width: `${(currentTime/duration)*100}%` }} />
       </div>
     );
   }
@@ -98,14 +119,34 @@ const MobilePlayerOverlay: React.FC = () => {
 
       {/* Title & Controls */}
       <div className="z-10 mt-6">
-        <div className="flex items-center justify-between mb-6">
-          <div className="truncate max-w-[80%]">
+        <div className="flex items-center justify-between mb-4">
+          <div className="truncate w-full pr-4">
             <h1 className="text-2xl font-black text-white truncate">{currentTrack.title}</h1>
             <p className="text-lg text-neutral-400 font-medium truncate">{currentTrack.artist}</p>
           </div>
-          <button className="text-green-500">
-             {/* Dynamic Heart Icon could go here */}
-          </button>
+        </div>
+
+        {/* Secondary Actions Row */}
+        <div className="flex justify-between items-center w-full px-2 mb-6 text-gray-400">
+            {/* Like Button */}
+            <button onClick={() => setIsLiked(!isLiked)} className="hover:text-white transition-colors p-2">
+                {isLiked ? <Heart className="w-6 h-6 text-green-500" fill="currentColor" /> : <Heart className="w-6 h-6 text-white" />}
+            </button>
+
+            {/* Add to Playlist */}
+            <button onClick={() => openModal(currentTrack)} className="hover:text-white transition-colors p-2">
+                <PlusCircle className="w-6 h-6" />
+            </button>
+
+            {/* Lyrics Button */}
+            <button onClick={() => setIsLyricsOpen(!isLyricsOpen)} className="hover:text-white transition-colors p-2">
+                <Mic2 className={`w-6 h-6 ${isLyricsOpen ? 'text-green-500' : ''}`} />
+            </button>
+
+            {/* Queue & Timer Button */}
+            <button onClick={() => setIsQueueOpen(!isQueueOpen)} className="hover:text-white transition-colors p-2">
+                <ListMusic className={`w-6 h-6 ${isQueueOpen ? 'text-green-500' : ''}`} />
+            </button>
         </div>
 
         {/* Seek Bar */}
@@ -114,12 +155,15 @@ const MobilePlayerOverlay: React.FC = () => {
             type="range"
             min={0}
             max={duration || 100}
-            value={progress}
-            onChange={(e) => seekTo(Number(e.target.value))}
+            value={currentTime}
+            onChange={handleSeekChange}
+            onMouseUp={handleSeekRelease}
+            onTouchEnd={handleSeekRelease}
+            onKeyUp={handleSeekRelease}
             className="w-full h-1 bg-neutral-600 rounded-lg appearance-none accent-white mb-2"
           />
           <div className="flex justify-between text-[10px] font-bold text-neutral-400 uppercase">
-            <span>{formatTime(progress)}</span>
+            <span>{formatTime(currentTime)}</span>
             <span>{formatTime(duration)}</span>
           </div>
         </div>
@@ -176,10 +220,12 @@ const MobilePlayerOverlay: React.FC = () => {
         onClose={() => setIsQueueOpen(false)} 
       />
 
-      <audio 
-        ref={audioRef}
-        onEnded={onEnded}
+      <LyricsOverlay 
+        song={currentTrack} 
+        isOpen={isLyricsOpen} 
+        onClose={() => setIsLyricsOpen(false)} 
       />
+
     </div>
   );
 };

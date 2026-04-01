@@ -6,6 +6,25 @@ import { useAudio } from '../context/AudioContext';
 import { parseLRC } from '../utils/LyricsParser';
 import type { LyricsLine } from '../utils/LyricsParser';
 
+interface LyricItemProps {
+  text: string;
+  isActive: boolean;
+  lineRef: (el: HTMLParagraphElement | null) => void;
+}
+
+const LyricItem = React.memo<LyricItemProps>(({ text, isActive, lineRef }) => (
+  <p 
+    ref={lineRef}
+    className={`transition-all duration-500 transform ${
+      isActive 
+        ? 'text-4xl md:text-5xl font-bold text-white scale-105 origin-left drop-shadow-2xl opacity-100 py-4' 
+        : 'text-2xl md:text-3xl font-semibold text-neutral-500 hover:text-neutral-300 cursor-pointer opacity-40 py-2'
+    }`}
+  >
+    {text}
+  </p>
+));
+
 interface LyricsOverlayProps {
   song: Song;
   isOpen: boolean;
@@ -20,8 +39,8 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
   const [loading, setLoading] = useState<boolean>(false);
   const [activeIndex, setActiveIndex] = useState<number>(-1);
   
-  const { playContext, progress } = useAudio();
-  const activeLineRef = useRef<HTMLDivElement>(null);
+  const { playContext, currentTime } = useAudio();
+  const lineRefs = useRef<(HTMLParagraphElement | null)[]>([]);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -31,28 +50,31 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
     }
   }, [isOpen, song.id, activeTab]);
 
-  // Handle active index based on progress
+  // Handle active index based on currentTime
   useEffect(() => {
-    if (lyricsLines.length > 0) {
-      const index = lyricsLines.findIndex((line, i) => {
-        const nextLine = lyricsLines[i + 1];
-        return progress >= line.time && (!nextLine || progress < nextLine.time);
-      });
-      if (index !== activeIndex) {
-        setActiveIndex(index);
-      }
-    }
-  }, [progress, lyricsLines, activeIndex]);
+    if (!lyricsLines.length) return;
+    
+    // 1. Efficiently find the current index
+    const index = lyricsLines.findIndex((line, i) => {
+      const nextLine = lyricsLines[i + 1];
+      return currentTime >= line.time && (!nextLine || currentTime < nextLine.time);
+    });
 
-  // Handle auto-scroll
+    // 2. Only update if the index actually changed to reduce re-renders
+    if (index !== -1 && index !== activeIndex) {
+      setActiveIndex(index);
+    }
+  }, [currentTime, lyricsLines.length, activeIndex]);
+
+  // Handle auto-scroll based on activeIndex
   useEffect(() => {
-    if (activeLineRef.current && activeIndex !== -1) {
-      activeLineRef.current.scrollIntoView({
+    if (activeIndex !== -1 && activeTab === 'lyrics' && lineRefs.current[activeIndex]) {
+      lineRefs.current[activeIndex]?.scrollIntoView({
         behavior: 'smooth',
         block: 'center'
       });
     }
-  }, [activeIndex]);
+  }, [activeIndex, activeTab]);
 
   const fetchLyrics = async () => {
     setLoading(true);
@@ -145,20 +167,14 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
               <div className="flex flex-col gap-6 md:gap-8 max-w-3xl">
                 {lyricsLines.length > 0 ? (
                   lyricsLines.map((line, i) => (
-                    <div 
-                      key={i} 
-                      ref={i === activeIndex ? activeLineRef : null}
-                      className={`transition-all duration-300 transform ${
-                        i === activeIndex 
-                          ? 'text-4xl md:text-5xl font-bold text-white scale-105 origin-left drop-shadow-2xl' 
-                          : 'text-2xl md:text-3xl font-semibold text-neutral-500 hover:text-neutral-300 cursor-pointer'
-                      }`}
-                      onClick={() => {
-                          // Optional: seek to time if clicked
+                    <LyricItem
+                      key={`${line.time}-${i}`}
+                      text={line.text}
+                      isActive={i === activeIndex}
+                      lineRef={(el) => {
+                        lineRefs.current[i] = el;
                       }}
-                    >
-                      {line.text}
-                    </div>
+                    />
                   ))
                 ) : (
                   <div className="text-2xl md:text-4xl font-bold text-neutral-400 leading-relaxed">

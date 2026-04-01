@@ -9,6 +9,7 @@ export interface Song {
   downloadUrls?: string[];
   image?: any;
   language?: string;
+  isManual?: boolean;
 }
 
 export interface Album {

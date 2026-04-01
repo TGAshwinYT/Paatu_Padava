@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, ForeignKey, Table, Integer, UniqueConstraint, Boolean
+from sqlalchemy import Column, String, DateTime, ForeignKey, Table, Integer, UniqueConstraint, Boolean, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -68,13 +68,17 @@ class ListeningHistory(Base):
     __tablename__ = "listening_history"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), index=True)
     jiosaavn_song_id = Column(String(100), nullable=False)
     title = Column(String(255))
     artist = Column(String(255))
     cover_url = Column(String)
     audio_url = Column(String)
-    played_at = Column(DateTime(timezone=True), server_default=func.now())
+    played_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    __table_args__ = (
+        Index('ix_user_played_at', 'user_id', 'played_at'),
+    )
 
     user = relationship("User", back_populates="history")
 

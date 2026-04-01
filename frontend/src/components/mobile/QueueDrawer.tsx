@@ -9,8 +9,7 @@ interface QueueDrawerProps {
 }
 
 const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => {
-  const { userQueue, queue, removeFromQueue, currentTrack } = useAudio();
-  const combinedQueue = [...userQueue, ...queue];
+  const { queue, removeFromQueue, currentTrack } = useAudio();
 
   if (!isOpen) return null;
 
@@ -42,18 +41,18 @@ const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => {
         </div>
 
         <div className="flex-1 overflow-y-auto space-y-4 pr-2">
-          {combinedQueue.length === 0 ? (
+          {queue.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-neutral-500 italic">Queue is empty</p>
               <p className="text-xs text-neutral-600 mt-2">Add some songs to see them here!</p>
             </div>
           ) : (
-            combinedQueue.map((track, index) => (
+            queue.map((track, index) => (
               <div 
-                key={`${track.id}-${index}`} 
+                key={`queue-mobile-${track.id}-${index}`} 
                 className={`flex items-center gap-4 rounded-xl p-2 transition-colors ${
                   currentTrack?.id === track.id ? 'bg-neutral-800/50' : 'hover:bg-neutral-800/30'
-                } ${index >= userQueue.length ? 'opacity-80' : ''}`}
+                }`}
               >
                 <img 
                   src={getValidImage(track)} 
@@ -69,14 +68,12 @@ const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => {
                   </p>
                   <p className="text-xs text-neutral-400 truncate">{track.artist}</p>
                 </div>
-                {index < userQueue.length && (
-                  <button 
-                    onClick={() => removeFromQueue(track.id)}
-                    className="p-2 text-neutral-500 hover:text-red-400 active:scale-90 transition-all"
-                  >
-                    <X size={18} />
-                  </button>
-                )}
+                <button 
+                  onClick={() => removeFromQueue(track.id)}
+                  className="p-2 text-neutral-500 hover:text-red-400 active:scale-90 transition-all"
+                >
+                  <X size={18} />
+                </button>
               </div>
             ))
           )}

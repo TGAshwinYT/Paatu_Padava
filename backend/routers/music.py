@@ -84,7 +84,10 @@ async def get_home_feed(
         return {"recommendedForYou": [], "topAlbums": [], "topArtists": []}
 
 @router.get("/search")
-async def search_tracks(query: str = Query(..., min_length=1), region: str = Query(None)):
+async def search_tracks(
+    query: str = Query(..., min_length=1), 
+    region: str = Query(None)
+):
     try:
         # Step 1: Get weighted language string based on region
         lang_str = get_search_languages(region)
@@ -100,10 +103,102 @@ async def search_tracks(query: str = Query(..., min_length=1), region: str = Que
         
         songs, albums, artists = await asyncio.gather(song_task, album_task, artist_task)
         
+        # 1. Smart Artist Injector
+        top_song_artist = None
+        if songs:
+            top_song = songs[0]
+            artist_name = top_song.get("artist", "Unknown Artist")
+            top_song_artist = {
+                "id": top_song.get("artist_id", "unknown"),
+                "name": artist_name,
+                "title": artist_name,
+                "image": top_song.get("cover_url", ""), # Use song image as artist fallback
+                "type": "artist"
+            }
+        
+        # 2. Filter out junk artists (placeholder/default icon entries)
+        valid_artists = [
+            a for a in artists 
+            if a.get("image") and "default" not in str(a.get("image")).lower() and "placeholder" not in str(a.get("image")).lower()
+        ]
+        
+        # 3. Deduplicate and prepend Top Song Artist
+        final_artists = []
+        if top_song_artist:
+            final_artists.append(top_song_artist)
+            
+        for artist in valid_artists:
+            # Check for duplicate by ID or Name
+            is_duplicate = (top_song_artist and (artist["id"] == top_song_artist["id"] or artist["name"] == top_song_artist["name"]))
+            if not is_duplicate:
+                final_artists.append(artist)
+        
+        # 4. Final results limiting (Top 6 artists)
+        final_artists = final_artists[:6]
+        
+        # 5. Smart Album Injector
+        top_song_album = None
+        if songs:
+            top_song = songs[0]
+            album_name = top_song.get("album")
+            album_id = top_song.get("album_id")
+            
+            # 🚨 CRITICAL QUALITY CHECK 🚨
+            # Only create the injected album if we have BOTH a valid name and ID
+            if album_name and album_name.lower() != "unknown album" and album_name.lower() != "unknown" and album_id != "unknown":
+                top_song_album = {
+                    "id": album_id,
+                    "title": album_name,
+                    "artist": top_song.get("artist", "Various Artists"),
+                    "image": top_song.get("cover_url", ""), # Fallback to song image
+                    "type": "album"
+                }
+        
+        # 6. Filter out junk albums
+        valid_albums = [
+            a for a in albums 
+            if a.get("image") and "default" not in str(a.get("image")).lower() and "placeholder" not in str(a.get("image")).lower()
+        ]
+        
+        # 7. Deduplicate and prepend Top Song Album
+        final_albums = []
+        if top_song_album:
+            final_albums.append(top_song_album)
+            
+        for album in valid_albums:
+            is_duplicate = (top_song_album and (album["id"] == top_song_album["id"] or album["title"] == top_song_album["title"]))
+            if not is_duplicate:
+                final_albums.append(album)
+                
+        # 8. Limit results (Top 6 albums)
+        final_albums = final_albums[:6]
+
+        # Determine top_result (closest match)
+        top_result = None
+        if final_artists and query.lower() in final_artists[0].get("name", "").lower():
+            top_result = final_artists[0]
+            top_result["type"] = "artist"
+        elif songs:
+            top_result = songs[0]
+            top_result["type"] = "song"
+        elif final_artists:
+            top_result = final_artists[0]
+            top_result["type"] = "artist"
+        elif albums:
+            top_result = albums[0]
+            top_result["type"] = "album"
+            
         return {
-            "songs": songs,
-            "albums": albums,
-            "artists": artists
+            "global_matches": {
+                # The absolute best match (usually the first song or artist)
+                "top_result": top_result, 
+                # List of top 4 songs
+                "songs": songs[:4] if songs else [], 
+                # List of artists
+                "artists": final_artists, 
+                # List of albums
+                "albums": final_albums 
+            }
         }
     except Exception as e:
         print(f"Router Error (search): {str(e)}")

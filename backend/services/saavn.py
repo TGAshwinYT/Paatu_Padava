@@ -202,10 +202,52 @@ async def map_saavn_song(item: Dict[str, Any], lenient: bool = False) -> Dict[st
         if not audio_url and not lenient:
             return {}
 
+        # 4. IDs for Context Menu Navigation
+        primary_artists = item.get("primaryArtists", [])
+        if not isinstance(primary_artists, list):
+            primary_artists = []
+            
+        artist_id = "unknown"
+        if len(primary_artists) > 0:
+            artist_id = primary_artists[0].get("id", "unknown")
+        else:
+            # Fallback for artist ID from artistMap or generic id field if applicable
+            more_info = item.get("more_info", {})
+            if isinstance(more_info, dict):
+                artist_map = more_info.get("artistMap", {})
+                if isinstance(artist_map, dict):
+                    pa = artist_map.get("primary_artists", [])
+                    if pa and len(pa) > 0:
+                        artist_id = pa[0].get("id", "unknown")
+
+        # 4. Bulletproof Album Extraction (Name and ID)
+        more_info = item.get("more_info", {})
+        
+        # Hunt for the album ID
+        album_id = item.get("album_id") or item.get("albumid") or more_info.get("album_id") or "unknown"
+        
+        # Hunt for the album Name (Strings or Dictionaries)
+        raw_album = item.get("album") or more_info.get("album")
+        
+        album_name = None
+        if isinstance(raw_album, str):
+            album_name = raw_album
+        elif isinstance(raw_album, dict):
+            album_name = raw_album.get("name") or raw_album.get("title")
+            
+        # Fallback to Title unescaping logic for safety
+        if album_name:
+            album_name = html.unescape(str(album_name)).strip()
+        else:
+            album_name = "Unknown Album"
+
         return {
             "id": song_id,
             "title": title,
             "artist": artist,
+            "artist_id": artist_id,
+            "album": album_name,
+            "album_id": album_id,
             "cover_url": cover_url,
             "audio_url": audio_url,
             "duration": int(item.get("duration", 0)) if item.get("duration") else 0,

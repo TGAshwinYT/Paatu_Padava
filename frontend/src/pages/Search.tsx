@@ -1,27 +1,64 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Search as SearchIcon, Music, Album, Clock, X, Play, ChevronRight } from 'lucide-react';
-import SongCard from '../components/SongCard';
+import { Search as SearchIcon, Music, Album, Clock, X, Play, ChevronRight, PlusCircle, MoreHorizontal, Heart, ListMusic, User } from 'lucide-react';
 import type { Song } from '../types';
-import { searchTracks, getSuggestions, getRecentSearches, deleteSearchHistoryItem, saveSearchClick } from '../services/api';
+import { searchTracks, getSuggestions, getRecentSearches, deleteSearchHistoryItem, saveSearchClick, likeSong } from '../services/api';
 import { useAudio } from '../context/AudioContext';
 import { useAuth } from '../context/AuthContext';
+import { usePlaylistModal } from '../context/PlaylistModalContext';
 import useDebounce from '../hooks/useDebounce';
+import { getValidImage } from '../utils/imageUtils';
 
 const Search = () => {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<Song[]>([]);
+  const [results, setResults] = useState<any>(null);
   const [suggestions, setSuggestions] = useState<any>({ songs: [], artists: [], albums: [] });
   const [isSearching, setIsSearching] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [recentlyPlayed, setRecentlyPlayed] = useState<(Song & { historyId: string })[]>([]);
   const searchContainerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   
-  const { playContext } = useAudio();
+  const { playContext, addToQueue } = useAudio();
   const { user } = useAuth();
+  const { openModal } = usePlaylistModal();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  
+  const formatTime = (seconds: number) => {
+    if (!seconds) return '0:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleToggleLike = async (e: React.MouseEvent, song: Song) => {
+    e.stopPropagation();
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+    // Simple API trigger for now as per plan
+    await likeSong(song);
+  };
+
+  const handleOpenMenu = (e: React.MouseEvent, songId: string) => {
+    e.stopPropagation();
+    setActiveMenuId(activeMenuId === songId ? null : songId);
+  };
   const initialQuery = searchParams.get('q');
+  
+  // Click outside listener for context menu
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+        if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+            setActiveMenuId(null);
+        }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
   
   // Debounce the search query with 500ms delay
   const debouncedQuery = useDebounce(query, 500);
@@ -62,7 +99,7 @@ const Search = () => {
         setIsSearching(true);
         try {
           const data = await searchTracks(initialQuery);
-          setResults(data.songs);
+          setResults(data);
         } catch (error) {
           console.error("Initial search failed:", error);
         } finally {
@@ -140,7 +177,7 @@ const Search = () => {
       setIsSearching(true);
       try {
         const data = await searchTracks(query);
-        setResults(data.songs);
+        setResults(data);
       } catch (error) {
         console.error("Full search failed:", error);
       } finally {
@@ -229,20 +266,215 @@ const Search = () => {
              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
              <span>Searching database...</span>
           </div>
-        ) : results.length > 0 ? (
+        ) : results?.global_matches && (results.global_matches?.songs?.length > 0 || results.global_matches?.artists?.length > 0 || results.global_matches?.albums?.length > 0) ? (
           <div className="flex flex-col gap-10">
-            {/* Songs Section */}
-            <section>
-              <div className="flex items-center justify-between mb-6">
-                 <h2 className="text-2xl font-black">Songs</h2>
-                 <button onClick={() => setResults([])} className="text-sm text-neutral-500 hover:text-white transition-colors">Clear Results</button>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-                {results.map(song => (
-                  <SongCard key={song.id} song={song} context={results} onPlay={(s) => saveSearchClick(s)} />
-                ))}
-              </div>
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-black">Search Results</h2>
+              <button onClick={() => setResults(null)} className="text-sm text-neutral-500 hover:text-white transition-colors">Clear Results</button>
+            </div>
+
+            {/* Global Search Results */}
+            
+            {/* Task 1: Top Section */}
+            <section className="grid grid-cols-1 md:grid-cols-[1fr_2fr] gap-6">
+              {/* Left Column: Top Result */}
+              {results?.global_matches?.top_result && (
+                <div className="flex flex-col gap-4">
+                  <h3 className="text-xl font-bold">Top result</h3>
+                  <div 
+                    className="bg-[#181818] hover:bg-neutral-800/80 p-6 rounded-2xl transition-all duration-500 cursor-pointer flex flex-col gap-5 shadow-lg hover:shadow-2xl hover:shadow-black/60 group relative overflow-hidden"
+                    onClick={() => {
+                        if (results.global_matches.top_result.type === 'artist') {
+                            navigate(`/artist/${results.global_matches.top_result.id}`);
+                        } else {
+                            playContext(results.global_matches.top_result, results.global_matches.songs);
+                            saveSearchClick(results.global_matches.top_result);
+                        }
+                    }}
+                  >
+                    <div className="relative w-fit">
+                      <img 
+                        src={getValidImage(results.global_matches.top_result)} 
+                        alt={results.global_matches.top_result?.name || results.global_matches.top_result?.title}
+                        className={`w-36 h-36 object-cover shadow-2xl group-hover:scale-105 transition-transform duration-500 ${results.global_matches.top_result.type === 'artist' ? 'rounded-full' : 'rounded-xl border border-white/5'}`}
+                        onError={(e) => { e.currentTarget.src = '/logo.png'; }}
+                      />
+                    </div>
+                    <div>
+                      <h4 className="text-4xl font-black text-white truncate max-w-[280px] tracking-tight">{results.global_matches.top_result?.name || results.global_matches.top_result?.title}</h4>
+                      <div className="flex items-center gap-3 mt-3">
+                        {results.global_matches.top_result.type === 'song' && (
+                          <span className="text-neutral-400 text-sm font-semibold hover:text-white transition-colors">{results.global_matches.top_result?.artist}</span>
+                        )}
+                        <span className="text-[11px] font-black uppercase tracking-[0.15em] bg-black/40 px-3.5 py-1.5 rounded-full text-neutral-300 w-fit backdrop-blur-md">
+                          {results.global_matches.top_result.type}
+                        </span>
+                      </div>
+                    </div>
+                    {results.global_matches.top_result.type === 'song' && (
+                        <div className="absolute bottom-6 right-6 w-14 h-14 bg-green-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 translate-y-4 group-hover:translate-y-0 transition-all duration-300 shadow-2xl shadow-green-500/40 hover:scale-110 hover:bg-green-400">
+                            <Play size={24} fill="black" className="text-black ml-1" />
+                        </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Right Column: Songs */}
+              {results?.global_matches?.songs && results?.global_matches?.songs?.length > 0 && (
+                <div className="flex flex-col gap-4">
+                  <h3 className="text-xl font-bold">Songs</h3>
+                  <div className="flex flex-col gap-1">
+                    {results.global_matches.songs.map((song: any) => (
+                      <div 
+                        key={song.id}
+                        className="group flex items-center justify-between hover:bg-[#2a2a2a] rounded-md p-2 cursor-pointer transition relative"
+                        onClick={() => {
+                            playContext(song, results.global_matches.songs);
+                            saveSearchClick(song);
+                        }}
+                      >
+                        <div className="flex items-center flex-1 min-w-0">
+                          <div className="relative w-10 h-10 mr-4 shrink-0 overflow-hidden rounded shadow-md group-hover:shadow-lg transition-all">
+                            <img 
+                              src={getValidImage(song)} 
+                              className="w-full h-full object-cover" 
+                              alt={song.title} 
+                              onError={(e) => { e.currentTarget.src = '/logo.png'; }}
+                            />
+                            <div className="absolute inset-0 bg-black/50 hidden group-hover:flex items-center justify-center rounded transition-opacity duration-300">
+                              <Play size={16} fill="white" className="text-white ml-0.5" />
+                            </div>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-white truncate">{song.title}</p>
+                            <p className="text-[13px] font-medium text-neutral-400 truncate">{song.artist}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-4 text-neutral-400 pr-2">
+                           <button 
+                             onClick={(e) => handleToggleLike(e, song)} 
+                             className="hidden group-hover:block hover:text-white transition transform hover:scale-110"
+                           >
+                             <PlusCircle size={18} />
+                           </button>
+                           
+                           <span className="text-xs font-medium w-10 text-right group-hover:hidden">{formatTime(song.duration)}</span>
+                           
+                           <button 
+                             onClick={(e) => handleOpenMenu(e, song.id)} 
+                             className="hidden group-hover:block hover:text-white transition transform hover:scale-110"
+                           >
+                             <MoreHorizontal size={18} />
+                           </button>
+
+                           {/* Context Menu Dropdown */}
+                           {activeMenuId === song.id && (
+                             <div 
+                               ref={menuRef} 
+                               className="absolute right-8 top-10 w-56 bg-[#282828] text-[#eaeaea] text-sm rounded shadow-2xl z-[100] py-1 border border-[#3e3e3e] animate-in fade-in zoom-in-95 duration-100"
+                               onClick={(e) => e.stopPropagation()}
+                             >
+                               <button 
+                                 onClick={(e) => { e.stopPropagation(); openModal(song); setActiveMenuId(null); }} 
+                                 className="w-full text-left px-4 py-3 hover:bg-[#3e3e3e] flex items-center gap-3 transition-colors"
+                               >
+                                 <PlusCircle size={16} className="text-neutral-400" /> Add to playlist
+                               </button>
+                               <button 
+                                 onClick={(e) => { handleToggleLike(e, song); setActiveMenuId(null); }} 
+                                 className="w-full text-left px-4 py-3 hover:bg-[#3e3e3e] flex items-center gap-3 transition-colors"
+                               >
+                                 <Heart size={16} className="text-neutral-400" /> Save to Liked Songs
+                               </button>
+                               <button 
+                                 onClick={(e) => { e.stopPropagation(); addToQueue(song); setActiveMenuId(null); }} 
+                                 className="w-full text-left px-4 py-3 hover:bg-[#3e3e3e] flex items-center gap-3 transition-colors"
+                               >
+                                 <ListMusic size={16} className="text-neutral-400" /> Add to queue
+                               </button>
+                               <hr className="border-[#3e3e3e] my-1" />
+                               <button 
+                                 onClick={(e) => { e.stopPropagation(); navigate(`/artist/${song.artist_id || song.id}`); setActiveMenuId(null); }} 
+                                 className="w-full text-left px-4 py-3 hover:bg-[#3e3e3e] flex items-center gap-3 transition-colors"
+                               >
+                                 <User size={16} className="text-neutral-400" /> Go to artist
+                               </button>
+                               <button 
+                                 onClick={(e) => { e.stopPropagation(); navigate(`/album/${song.album_id || song.id}`); setActiveMenuId(null); }} 
+                                 className="w-full text-left px-4 py-3 hover:bg-[#3e3e3e] flex items-center gap-3 transition-colors"
+                               >
+                                 <Music size={16} className="text-neutral-400" /> Go to album
+                               </button>
+                             </div>
+                           )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </section>
+
+            {/* Task 2: Artists Grid */}
+            {results?.global_matches?.artists && results?.global_matches?.artists?.length > 0 && (
+              <section>
+                <h2 className="text-2xl font-black mb-6">Artists</h2>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
+                  {results.global_matches.artists
+                    .filter((artist: any) => {
+                      const imgUrl = getValidImage(artist);
+                      return imgUrl && !imgUrl.includes('logo.png') && !imgUrl.includes('default-artist-avatar'); 
+                    })
+                    .slice(0, 6)
+                    .map((artist: any, index: number) => (
+                      <div 
+                        key={`artist-${index}`}
+                        className="bg-[#181818]/60 hover:bg-[#282828] p-5 rounded-2xl flex flex-col gap-4 items-center cursor-pointer transition-all duration-300 group hover:-translate-y-2 hover:shadow-2xl hover:shadow-black/50"
+                        onClick={() => navigate(`/artist/${artist.id}`)}
+                      >
+                        <div className="relative w-full aspect-square overflow-hidden rounded-full shadow-lg group-hover:shadow-2xl transition-all duration-500 bg-neutral-800">
+                          <img 
+                            src={getValidImage(artist)} 
+                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
+                            alt={artist.name || artist.title}
+                          />
+                        </div>
+                        <div className="w-full">
+                          <p className="text-base font-bold text-white truncate px-1 text-center">{artist.name || artist.title}</p>
+                          <p className="text-[13px] font-semibold text-neutral-400 mt-0.5 capitalize text-center">Artist</p>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </section>
+            )}
+
+            {/* Task 3: Albums Grid */}
+            {results?.global_matches?.albums && results?.global_matches?.albums?.length > 0 && (
+              <div className="mt-8">
+                <h2 className="text-2xl font-bold mb-6 text-white">Albums</h2>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
+                  {results.global_matches.albums.map((album: any, index: number) => (
+                    <div 
+                      key={`album-${index}`} 
+                      className="bg-[#181818] hover:bg-[#282828] p-4 rounded-xl cursor-pointer transition group shadow-lg hover:shadow-2xl hover:-translate-y-1 duration-300"
+                      onClick={() => navigate(`/album/${album.id}`)}
+                    >
+                      <img 
+                        src={getValidImage(album)} 
+                        alt={album.title} 
+                        className="w-full aspect-square rounded-md object-cover shadow-lg mb-4 bg-gray-800 group-hover:scale-[1.02] transition-transform duration-500"
+                        onError={(e) => { e.currentTarget.src = '/logo.png'; }}
+                      />
+                      <h3 className="text-white font-semibold truncate px-1">{album.title}</h3>
+                      <p className="text-gray-400 text-sm truncate px-1 mt-1">{album.music || album.artist || 'Album'}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ) : query.length > 0 && !isSearching ? (
           <div className="flex flex-col items-center justify-center py-20 text-neutral-500">

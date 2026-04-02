@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Song, Album, Artist } from '../types';
+import type { Song } from '../types';
 import { getValidImage } from '../utils/imageUtils';
 
 export const mapHistoryToSong = (item: any): Song => {
@@ -74,20 +74,28 @@ export const getHomeFeed = async (): Promise<{ recentlyPlayed: Song[], topAlbums
   }
 };
 
-export const searchTracks = async (query: string): Promise<{ songs: Song[], albums: Album[], artists: Artist[] }> => {
-  if (!query) return { songs: [], albums: [], artists: [] };
+export const searchTracks = async (query: string): Promise<any> => {
+  if (!query) return { local_matches: [], global_matches: { top_result: null, songs: [], albums: [], artists: [] } };
   try {
     const response = await api.get('/api/music/search', { params: { query } });
     const data = response.data;
     
     return {
-      songs: (data.songs || []).map(mapHistoryToSong),
-      albums: data.albums || [],
-      artists: data.artists || []
+      local_matches: data.local_matches || [],
+      global_matches: {
+        top_result: data.global_matches?.top_result ? (
+          data.global_matches.top_result.type === 'song' 
+            ? { ...mapHistoryToSong(data.global_matches.top_result), type: 'song' }
+            : data.global_matches.top_result
+        ) : null,
+        songs: (data.global_matches?.songs || []).map(mapHistoryToSong),
+        albums: data.global_matches?.albums || [],
+        artists: data.global_matches?.artists || []
+      }
     };
   } catch (error) {
     console.error("Error searching globally:", error);
-    return { songs: [], albums: [], artists: [] };
+    return { local_matches: [], global_matches: { top_result: null, songs: [], albums: [], artists: [] } };
   }
 };
 

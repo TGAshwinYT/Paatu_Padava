@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useRef, useEffect, useCallb
 import type { Song } from '../types';
 import api, { addListenHistory, mapHistoryToSong } from '../services/api';
 import { useAuth } from './AuthContext';
+import { getValidImage } from '../utils/imageUtils';
 
 const shuffleArray = (array: any[]) => {
   const shuffled = [...array];
@@ -85,31 +86,52 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   // --- 2. STABLE ACTION HANDLERS ---
-  const playNext = useCallback(() => {
-    if (isActionLocked.current) return;
-    if (queue.length === 0) {
-      setIsPlaying(false);
+  const playNext = useCallback((e?: any) => {
+    // Detect if this was called from the onEnded event
+    const isNaturalEnd = e && typeof e === 'object' && e.target;
+
+    if (isNaturalEnd && repeatMode === 'one' && audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play().then(() => setIsPlaying(true)).catch(err => console.error("Repeat failed:", err));
       return;
     }
 
-    isActionLocked.current = true;
-    setTimeout(() => isActionLocked.current = false, 800);
-
-    const nextTrack = queue[0];
-
-    setCurrentTrack(currentlyPlaying => {
-      if (currentlyPlaying) {
-        setHistory(h => {
-          if (h.length > 0 && h[h.length - 1].id === currentlyPlaying.id) return h;
-          return [...h, currentlyPlaying];
-        });
+    if (isActionLocked.current) return;
+    
+    setQueue(prevQueue => {
+      if (prevQueue.length === 0) {
+        if (isNaturalEnd && repeatMode === 'all' && contextMemory && contextMemory.length > 0) {
+          const nextTrack = contextMemory[0];
+          setCurrentTrack(prev => {
+            if (prev) setHistory(h => [...h, prev]);
+            return nextTrack;
+          });
+          setIsPlaying(true);
+          return contextMemory.slice(1);
+        }
+        setIsPlaying(false);
+        return prevQueue;
       }
-      return nextTrack;
-    });
 
-    setQueue(prev => prev.slice(1));
-    setIsPlaying(true);
-  }, [queue]);
+      isActionLocked.current = true;
+      setTimeout(() => isActionLocked.current = false, 800);
+
+      const nextTrack = prevQueue[0];
+
+      setCurrentTrack(currentlyPlaying => {
+        if (currentlyPlaying) {
+          setHistory(h => {
+            if (h.length > 0 && h[h.length - 1].id === currentlyPlaying.id) return h;
+            return [...h, currentlyPlaying];
+          });
+        }
+        return nextTrack;
+      });
+
+      setIsPlaying(true);
+      return prevQueue.slice(1);
+    });
+  }, [repeatMode, contextMemory]);
 
   const playPrevious = useCallback(() => {
     if (isActionLocked.current) return;
@@ -324,28 +346,39 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const onEnded = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
+    
     if (isEndOfTrackTimer) {
       setIsEndOfTrackTimer(false);
       setIsPlaying(false);
       audio.pause();
       return;
     }
+    
     if (repeatMode === 'one') {
       audio.currentTime = 0;
       audio.play().then(() => setIsPlaying(true)).catch(e => console.error("Repeat failed:", e));
       return;
     }
-    if (repeatMode === 'all' && queue.length === 0 && contextMemory && contextMemory.length > 0) {
-      setCurrentTrack(prev => {
-        if (prev) setHistory(h => [...h, prev]);
-        return contextMemory[0];
-      });
-      setQueue(contextMemory.slice(1));
-      setIsPlaying(true);
-      return;
-    }
+
+    // Access the latest queue length and context memory via functional check
+    setQueue(prevQueue => {
+      if (repeatMode === 'all' && prevQueue.length === 0 && contextMemory && contextMemory.length > 0) {
+        setCurrentTrack(prevTrack => {
+          if (prevTrack) setHistory(h => [...h, prevTrack]);
+          return contextMemory[0];
+        });
+        setIsPlaying(true);
+        return contextMemory.slice(1);
+      }
+      
+      // If we are not repeating all or still have items, let playNext handle it
+      // We call playNext outside or handle it here. 
+      // To keep it simple and bulletproof, we trigger playNext directly here.
+      return prevQueue; 
+    });
+
     playNext();
-  }, [isEndOfTrackTimer, repeatMode, queue.length, contextMemory, playNext]);
+  }, [isEndOfTrackTimer, repeatMode, contextMemory, playNext]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -353,17 +386,18 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [volume]);
 
-  // Track/Quality Changes
+  // Force Auto-play on Track/Quality Changes
   useEffect(() => {
     if (!currentTrack || !audioRef.current) return;
     const audio = audioRef.current;
     const targetUrl = getUrlByQuality(currentTrack, audioQuality);
+    
     if (!targetUrl) {
       setIsPlaying(false);
       return;
     }
+
     const isQualitySwitch = lastTrackId.current === currentTrack.id;
-    const wasPlaying = !audio.paused || isPlaying;
     
     if (isQualitySwitch) {
         const currentTimeBefore = audio.currentTime;
@@ -371,38 +405,99 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         audio.load();
         audio.currentTime = currentTimeBefore;
     } else {
-        // New track, src prop on <audio> tag will handle src update, 
-        // but we still need to manage the transition if needed.
         lastTrackId.current = currentTrack.id;
+        // For new tracks, the src attribute update on the component re-render 
+        // will handle it, but we force play here to ensure continuity.
     }
 
-    if (wasPlaying) {
-      audio.play().then(() => {
+    // Force play immediately on track change
+    audio.play()
+      .then(() => {
         setIsPlaying(true);
         if (!isQualitySwitch) addListenHistory(currentTrack);
-      }).catch(err => {
-        console.error("Playback failed:", err);
-        setIsPlaying(false);
+      })
+      .catch(err => {
+        console.error("Auto-play prevented:", err);
+        // Don't set isPlaying(false) here, as it might just be the browser 
+        // waiting for user interaction on the first-ever play.
       });
-    }
   }, [currentTrack, audioQuality]);
 
-  // Media Session Updates
+  // Media Session Metadata (OS Lock Screen & Media Hubs)
   useEffect(() => {
     if (!currentTrack || !('mediaSession' in navigator)) return;
     
-    const art = currentTrack.coverUrl || (currentTrack as any).cover_url || (currentTrack as any).image || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=512&h=512&fit=crop';
+    const artworkUrl = getValidImage(currentTrack);
+
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: currentTrack.title,
-      artist: currentTrack.artist,
-      artwork: [{ src: art, sizes: '512x512', type: 'image/jpeg' }]
+      title: currentTrack.title || 'Unknown Title',
+      artist: currentTrack.artist || (currentTrack as any).subtitle || (currentTrack as any).primary_artists || 'Unknown Artist',
+      album: (currentTrack as any).album || 'Paatu Padava',
+      artwork: [
+        { src: artworkUrl, sizes: '96x96', type: 'image/png' },
+        { src: artworkUrl, sizes: '128x128', type: 'image/png' },
+        { src: artworkUrl, sizes: '192x192', type: 'image/png' },
+        { src: artworkUrl, sizes: '256x256', type: 'image/png' },
+        { src: artworkUrl, sizes: '384x384', type: 'image/png' },
+        { src: artworkUrl, sizes: '512x512', type: 'image/png' },
+      ]
+    });
+  }, [currentTrack]);
+
+  // Hardware Media Controls (Bluetooth, Lock Screen Buttons)
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+
+    navigator.mediaSession.setActionHandler('play', async () => {
+      if (audioRef.current) {
+        try {
+          await audioRef.current.play();
+          setIsPlaying(true);
+          navigator.mediaSession.playbackState = "playing";
+        } catch (err) {
+          console.error("Hardware play failed:", err);
+        }
+      }
     });
 
-    navigator.mediaSession.setActionHandler('play', () => togglePlay());
-    navigator.mediaSession.setActionHandler('pause', () => togglePlay());
-    navigator.mediaSession.setActionHandler('previoustrack', () => playPrevious());
-    navigator.mediaSession.setActionHandler('nexttrack', () => playNext());
-  }, [currentTrack, togglePlay, playPrevious, playNext]);
+    navigator.mediaSession.setActionHandler('pause', () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        setIsPlaying(false);
+        navigator.mediaSession.playbackState = "paused";
+      }
+    });
+
+    navigator.mediaSession.setActionHandler('nexttrack', () => {
+      playNext();
+    });
+
+    navigator.mediaSession.setActionHandler('previoustrack', () => {
+      playPrevious();
+    });
+
+    navigator.mediaSession.setActionHandler('seekto', (details) => {
+      if (details.seekTime !== undefined && audioRef.current) {
+        audioRef.current.currentTime = details.seekTime;
+        setCurrentTime(details.seekTime);
+      }
+    });
+
+    return () => {
+      navigator.mediaSession.setActionHandler('play', null);
+      navigator.mediaSession.setActionHandler('pause', null);
+      navigator.mediaSession.setActionHandler('nexttrack', null);
+      navigator.mediaSession.setActionHandler('previoustrack', null);
+      navigator.mediaSession.setActionHandler('seekto', null);
+    };
+  }, [playNext, playPrevious]);
+
+  // Keep MediaSession Playback State in sync with UI
+  useEffect(() => {
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+    }
+  }, [isPlaying]);
 
   // Pre-fetch
   useEffect(() => {
@@ -488,7 +583,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             setDuration(isFinite(d) ? d : 0);
           }
         }}
-        onEnded={onEnded}
+        onEnded={playNext} 
       />
     </AudioContext.Provider>
   );

@@ -14,7 +14,7 @@ const MobileSearch: React.FC = () => {
   const [isOverlayOpen, setIsOverlayOpen] = useState(false);
   const [recentlyPlayed, setRecentlyPlayed] = useState<(Song & { historyId: string })[]>([]);
   
-  const { playContext, currentTrack } = useAudio();
+  const { playFromSearch, currentTrack } = useAudio();
   const inputRef = useRef<HTMLInputElement>(null);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -117,7 +117,7 @@ const MobileSearch: React.FC = () => {
 
   const handleSongSelect = (song: Song) => {
     saveSearchClick(song);
-    playContext(song, results.length > 0 ? results : suggestions.songs);
+    playFromSearch(song);
     setIsOverlayOpen(false);
     setQuery('');
     setSuggestions({ songs: [], artists: [], albums: [] });
@@ -161,7 +161,7 @@ const MobileSearch: React.FC = () => {
               {recentlyPlayed.map((song: any) => (
                 <div 
                   key={song.historyId} 
-                  onClick={() => playContext(song, recentlyPlayed)}
+                  onClick={() => playFromSearch(song)}
                   className={`flex items-center gap-4 group rounded-xl p-2 transition-colors ${
                     currentTrack?.id === song.id ? 'bg-neutral-800/80' : 'active:bg-neutral-900'
                   }`}

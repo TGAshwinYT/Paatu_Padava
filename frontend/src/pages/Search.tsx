@@ -20,7 +20,7 @@ const Search = () => {
   const menuRef = useRef<HTMLDivElement>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   
-  const { playContext, addToQueue } = useAudio();
+  const { playFromSearch, addToQueue } = useAudio();
   const { user } = useAuth();
   const { openModal } = usePlaylistModal();
   const navigate = useNavigate();
@@ -164,7 +164,7 @@ const Search = () => {
       navigate(`/artist/${artistId}`);
     } else {
       setQuery(suggestion.name || suggestion.title);
-      playContext(suggestion, suggestions.songs);
+      playFromSearch(suggestion);
     }
   };
 
@@ -287,7 +287,7 @@ const Search = () => {
                         if (results.global_matches.top_result.type === 'artist') {
                             navigate(`/artist/${results.global_matches.top_result.id}`);
                         } else {
-                            playContext(results.global_matches.top_result, results.global_matches.songs);
+                            playFromSearch(results.global_matches.top_result);
                             saveSearchClick(results.global_matches.top_result);
                         }
                     }}
@@ -330,7 +330,7 @@ const Search = () => {
                         key={song.id}
                         className="group flex items-center justify-between hover:bg-[#2a2a2a] rounded-md p-2 cursor-pointer transition relative"
                         onClick={() => {
-                            playContext(song, results.global_matches.songs);
+                            playFromSearch(song);
                             saveSearchClick(song);
                         }}
                       >
@@ -492,7 +492,7 @@ const Search = () => {
               {recentlyPlayed.map((song: Song & { historyId: string }) => (
                 <div 
                   key={song.historyId}
-                  onClick={() => playContext(song, recentlyPlayed)}
+                  onClick={() => playFromSearch(song)}
                   className="flex items-center justify-between p-2 rounded-xl hover:bg-neutral-800/80 cursor-pointer group transition-all duration-300 border border-transparent hover:border-white/5 active:scale-95 translate-y-0 hover:-translate-y-0.5"
                 >
                   <div className="flex items-center gap-4 text-neutral-300 truncate">

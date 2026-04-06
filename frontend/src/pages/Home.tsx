@@ -21,7 +21,7 @@ const Home = ({ isLoggedIn }: HomeProps) => {
   const [recommended, setRecommended] = useState<Song[]>([]);
   const [topAlbums, setTopAlbums] = useState<Song[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const { playContext } = useAudio();
+  const { playFromSearch } = useAudio();
   const navigate = useNavigate();
 
   // Search States
@@ -116,7 +116,7 @@ const Home = ({ isLoggedIn }: HomeProps) => {
       const artistId = suggestion.id.startsWith('vip_') ? suggestion.name : suggestion.id;
       navigate(`/artist/${artistId}`);
     } else {
-      playContext(suggestion, suggestions.songs);
+      playFromSearch(suggestion);
     }
   };
 

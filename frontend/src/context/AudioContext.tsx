@@ -46,6 +46,7 @@ interface AudioContextType {
   refreshPlaylists: () => Promise<void>;
   setQueue: React.Dispatch<React.SetStateAction<Song[]>>;
   clearHistory: () => void;
+  playFromSearch: (track: Song) => void;
   audioRef: React.RefObject<HTMLAudioElement | null>;
   onEnded: () => void;
 }
@@ -188,6 +189,27 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setQueue([]);
       setContextMemory(null);
     }
+    setIsPlaying(true);
+  }, []);
+
+  const playFromSearch = useCallback((song: Song) => {
+    // 1. Set the clicked song as the current track and update history
+    setCurrentTrack(prev => {
+      if (prev && prev.id !== song.id) {
+        setHistory(h => {
+          if (h.length > 0 && h[h.length - 1].id === prev.id) return h;
+          return [...h, prev];
+        });
+      }
+      return song;
+    });
+
+    // 2. Clear the old queue and set ONLY this song as a manual entry.
+    // Because the queue length is now 1, our existing Pre-Fetch useEffect 
+    // will automatically trigger and fetch the Radio Mix for this new song!
+    setQueue([{ ...song, isManual: true }]);
+
+    // 3. Ensure playback starts
     setIsPlaying(true);
   }, []);
 
@@ -448,7 +470,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       currentTrack, isPlaying, currentTime, setCurrentTime, duration, isSeeking, setIsSeeking, volume, isShuffle, repeatMode, audioQuality,
       remainingSleepTime, queue, history, userPlaylists,
       togglePlay, seekTo, setVolume, toggleRepeat, toggleShuffle, setAudioQuality, playNext, playPrevious,
-      setSleepTimer, addToQueue, removeFromQueue, reorderQueue, handleOnDragEnd, refreshPlaylists, setQueue, clearHistory, playContext,
+      setSleepTimer, addToQueue, removeFromQueue, reorderQueue, handleOnDragEnd, refreshPlaylists, setQueue, clearHistory, playContext, playFromSearch,
       audioRef, onEnded, progress: currentTime
     }}>
       {children}

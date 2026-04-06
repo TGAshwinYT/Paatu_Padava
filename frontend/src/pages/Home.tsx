@@ -21,7 +21,7 @@ const Home = ({ isLoggedIn }: HomeProps) => {
   const [recommended, setRecommended] = useState<Song[]>([]);
   const [topAlbums, setTopAlbums] = useState<Song[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const { playFromSearch } = useAudio();
+  const { playFromSearch, playContext } = useAudio();
   const navigate = useNavigate();
 
   // Search States

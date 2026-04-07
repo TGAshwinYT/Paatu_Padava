@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Clock, Play, Trash2, X } from 'lucide-react';
+import { Clock, Play, Trash2, X, ChevronLeft, ChevronDown } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import api, { getListenHistory, mapHistoryToSong } from '../services/api';
 import { useAudio } from '../context/AudioContext';
 import { getValidImage } from '../utils/imageUtils';
+import { useMobile } from '../hooks/useMobile';
 
 const groupHistoryByDate = (historyArray: any[]) => {
   const groups: { [key: string]: { label: string, rawDate?: string, items: any[] } } = {};
@@ -30,7 +32,8 @@ const groupHistoryByDate = (historyArray: any[]) => {
         key = 'Yesterday';
       } else {
         key = playedDate.toLocaleDateString('en-US', {
-          month: 'long',
+          weekday: 'short',
+          month: 'short',
           day: 'numeric',
           year: 'numeric'
         });
@@ -51,6 +54,8 @@ const History = () => {
   const [history, setHistory] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { playContext } = useAudio();
+  const isMobile = useMobile();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchHistory = async () => {
@@ -97,6 +102,96 @@ const History = () => {
 
   const groupedHistory = groupHistoryByDate(history);
 
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-20 min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-500"></div>
+      </div>
+    );
+  }
+
+  if (isMobile) {
+    return (
+      <div className="flex flex-col gap-6 pb-32 min-h-screen bg-black animate-in fade-in duration-500">
+        {/* Mobile Header */}
+        <div className="flex items-center justify-between px-4 py-4 sticky top-0 bg-black z-[100]">
+          <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-white hover:bg-neutral-800 rounded-full transition">
+            <ChevronLeft size={28} />
+          </button>
+          <h1 className="text-lg font-bold text-white">Recents</h1>
+          <div className="w-10" /> {/* Spacer for centering */}
+        </div>
+
+        {/* Filter Chip */}
+        <div className="px-4 -mt-2">
+          <div className="inline-flex items-center px-4 py-1.5 bg-[#282828] text-white rounded-full text-xs font-medium border border-transparent">
+            Music
+          </div>
+        </div>
+
+        {groupedHistory.length > 0 ? (
+          <div className="flex flex-col gap-8 px-4">
+            {groupedHistory.map(({ label: dateCategory, rawDate, items }) => (
+              <div key={dateCategory} className="flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-bold text-white">{dateCategory}</h2>
+                  <button 
+                    onClick={() => rawDate && handleClearDay(rawDate)}
+                    className="text-neutral-500 hover:text-red-400 p-2"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
+                
+                <div className="flex flex-col gap-5">
+                  {items.map((h, idx) => {
+                    const song = mapHistoryToSong(h);
+                    return (
+                      <div 
+                        key={idx} 
+                        className="flex items-center gap-4 group active:bg-neutral-900 transition-colors rounded-lg"
+                        onClick={() => playContext(song, items.map(h => mapHistoryToSong(h)))}
+                      >
+                        <div className="w-16 h-16 rounded-md overflow-hidden flex-shrink-0 shadow-lg">
+                          <img 
+                            src={getValidImage(song)} 
+                            className="w-full h-full object-cover" 
+                            alt={song.title} 
+                            onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-bold text-white text-md truncate mb-0.5">{song.title}</h3>
+                          <div className="flex items-center gap-1.5 text-neutral-400 text-xs font-semibold">
+                             <span className="truncate">1 song played</span>
+                             <span className="w-1 h-1 rounded-full bg-neutral-600 flex-shrink-0" />
+                             <span className="truncate">Album</span>
+                             <span className="w-1 h-1 rounded-full bg-neutral-600 flex-shrink-0" />
+                             <p className="truncate">{song.artist}</p>
+                          </div>
+                        </div>
+                        <button className="p-2 text-neutral-500">
+                          <ChevronDown size={22} className="rotate-270" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center pt-32 px-10 text-center">
+            <Clock size={64} className="mb-6 opacity-20 text-white" />
+            <p className="text-xl font-bold text-white">No listening history</p>
+            <p className="text-neutral-500 mt-2 text-sm">Play some music to see your recents appear here.</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Desktop View
   return (
     <div className="flex flex-col gap-8 pb-24 animate-in fade-in duration-700">
       <div className="flex items-end justify-between gap-6">
@@ -120,11 +215,7 @@ const History = () => {
         )}
       </div>
 
-      {isLoading ? (
-        <div className="flex justify-center py-20">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-500"></div>
-        </div>
-      ) : groupedHistory.length > 0 ? (
+      {groupedHistory.length > 0 ? (
         <div className="flex flex-col gap-8">
           {groupedHistory.map(({ label: dateCategory, rawDate, items }) => (
             <div key={dateCategory} className="flex flex-col">

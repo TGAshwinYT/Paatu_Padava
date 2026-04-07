@@ -83,7 +83,7 @@ const MobilePlayerOverlay: React.FC = () => {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] bg-neutral-900 flex flex-col p-6 animate-in slide-in-from-bottom duration-500 overflow-hidden">
+    <div className="fixed inset-0 z-[1000] bg-neutral-900 flex flex-col p-6 animate-in slide-in-from-bottom duration-500 overflow-hidden">
       {/* Background Blur */}
       <div 
         className="absolute inset-0 opacity-40 blur-[100px] pointer-events-none scale-150 transition-all duration-1000"

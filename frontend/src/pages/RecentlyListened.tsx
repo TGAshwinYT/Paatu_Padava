@@ -114,7 +114,7 @@ const History = () => {
     return (
       <div className="flex flex-col gap-6 pb-32 min-h-screen bg-black animate-in fade-in duration-500">
         {/* Mobile Header */}
-        <div className="flex items-center justify-between px-4 py-4 sticky top-0 bg-black z-[100]">
+        <div className="flex items-center justify-between px-4 py-4 sticky top-0 bg-black z-10">
           <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-white hover:bg-neutral-800 rounded-full transition">
             <ChevronLeft size={28} />
           </button>

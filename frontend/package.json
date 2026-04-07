@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "curl -sL https://github.com/TGAshwinYT/Paatu_Padava/raw/main/frontend/public/icon-192x192.png -o public/icon-192x192.png && curl -sL https://github.com/TGAshwinYT/Paatu_Padava/raw/main/frontend/public/icon-512x512.png -o public/icon-512x512.png && curl -sL https://github.com/TGAshwinYT/Paatu_Padava/raw/main/frontend/public/logo.png -o public/logo.png",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"

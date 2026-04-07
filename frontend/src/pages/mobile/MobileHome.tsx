@@ -5,6 +5,7 @@ import { getListenHistory } from '../../services/api';
 import { Settings, Clock } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { Song } from '../../types';
+import InstallPWA from '../../components/InstallPWA';
 
 const MobileHome: React.FC = () => {
   const { user } = useAuth();
@@ -61,6 +62,10 @@ const MobileHome: React.FC = () => {
              <img src="/logo.png" alt="Home" className="w-8 h-8 rounded-full shadow-lg object-cover" />
            </Link>
         </div>
+      </div>
+
+      <div className="mb-8">
+        <InstallPWA />
       </div>
 
       {user && recentlyPlayed.length > 0 && (

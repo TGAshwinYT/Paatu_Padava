@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { LogOut, Trash2, ShieldAlert, User as UserIcon, Download, Upload, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
 import api from '../services/api';
+import InstallPWA from '../components/InstallPWA';
 
 const Settings = () => {
   const { user, logout } = useAuth();
@@ -184,6 +185,16 @@ const Settings = () => {
               Import Data from File
             </button>
           </div>
+        </section>
+
+        {/* PWA Install Section */}
+        <section className="bg-[#181818] p-6 rounded-xl border border-neutral-800">
+          <h2 className="text-xl font-semibold mb-2 flex items-center gap-2 text-white">
+            <Download size={20} className="text-green-500" />
+            Get the App
+          </h2>
+          <p className="text-sm text-neutral-400 mb-4">Install Paatu Padava on your device for the best experience, offline support, and quick access.</p>
+          <InstallPWA />
         </section>
 
         {/* Security Section */}

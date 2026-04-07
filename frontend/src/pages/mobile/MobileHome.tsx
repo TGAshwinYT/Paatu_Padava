@@ -29,8 +29,8 @@ const MobileHome: React.FC = () => {
         name: `${name} Mix`,
         imageUrl: `https://ui-avatars.com/api/?name=${name}&background=random&size=200`
       })) : [
-        { id: 1, name: 'Anirudh Mix', imageUrl: 'https://i.scdn.co/image/ab6761610000e5eb98166682705e83ee94d3a01d' },
-        { id: 2, name: 'Hiphop Tamizha Mix', imageUrl: 'https://i.scdn.co/image/ab6761610000e5eb00c8f5f62df304675662b9f3' }
+        { id: 1, name: 'Tamil Hits Mix', imageUrl: 'https://images.unsplash.com/photo-1493225255756-d9584f8606e9?w=300&h=300&fit=crop' },
+        { id: 2, name: 'Anirudh Mix', imageUrl: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=300&h=300&fit=crop' }
       ];
       setArtistMixes(mockMixes);
     };

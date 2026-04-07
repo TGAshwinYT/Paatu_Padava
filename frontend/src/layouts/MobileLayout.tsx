@@ -7,6 +7,7 @@ import Onboarding from '../pages/Onboarding';
 import Settings from '../pages/Settings';
 import Login from '../pages/Login';
 import Signup from '../pages/Signup';
+import RecentlyListened from '../pages/RecentlyListened';
 import ProtectedRoute from '../components/ProtectedRoute';
 import MobileBottomNavbar from '../components/mobile/MobileBottomNavbar';
 import MobilePlayerOverlay from '../components/mobile/MobilePlayerOverlay';
@@ -22,6 +23,11 @@ const MobileLayout: React.FC = () => {
           <Route path="/library" element={
             <ProtectedRoute>
               <MobileLibrary />
+            </ProtectedRoute>
+          } />
+          <Route path="/history" element={
+            <ProtectedRoute>
+              <RecentlyListened />
             </ProtectedRoute>
           } />
           <Route path="/onboarding" element={

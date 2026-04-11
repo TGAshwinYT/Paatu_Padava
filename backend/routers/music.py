@@ -18,12 +18,12 @@ from .history import get_user_top_artists
 router = APIRouter(prefix="/api/music", tags=["music"])
 
 @router.get("/stream/{yt_video_id}")
-async def stream_song(yt_video_id: str):
+async def stream_song(yt_video_id: str, quality: str = "normal"):
     """
-    Extracts the direct playable audio stream URL for a YouTube video using a background thread.
+    Extracts the direct playable audio stream URL for a YouTube video using a background thread and dynamic quality formatting.
     """
     # Force heavy yt-dlp process into a background thread
-    url = await asyncio.to_thread(youtube.get_audio_stream_url, yt_video_id)
+    url = await asyncio.to_thread(youtube.get_audio_stream_url, yt_video_id, quality)
     if not url:
         raise HTTPException(status_code=404, detail="Stream URL not found")
     return {"url": url}

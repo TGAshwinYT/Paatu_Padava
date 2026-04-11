@@ -194,19 +194,19 @@ const PlayerBar = () => {
                onClick={() => setShowQualityMenu(!showQualityMenu)}
                className="text-[10px] font-bold text-neutral-400 hover:text-white border border-neutral-700 px-1.5 py-0.5 rounded uppercase flex items-center gap-1"
              >
-               {audioQuality === 'high' ? '320' : audioQuality === 'medium' ? '160' : '96'}kbps
+               {audioQuality === 'high' ? 'High' : audioQuality === 'normal' ? 'Normal' : audioQuality === 'low' ? 'Low' : 'Auto'}
                <ChevronUp size={10} className={showQualityMenu ? 'rotate-180 transition' : 'transition'} />
              </button>
              
              {showQualityMenu && (
                <div className="absolute bottom-10 right-0 bg-[#282828] rounded shadow-xl py-1 min-w-[80px] border border-white/5">
-                 {(['low', 'medium', 'high'] as const).map((q) => (
+                 {(['auto', 'high', 'normal', 'low'] as const).map((q) => (
                    <button
                      key={q}
                      onClick={() => { setAudioQuality(q); setShowQualityMenu(false); }}
                      className={`w-full text-left px-3 py-1.5 text-[10px] font-bold uppercase hover:bg-white/10 ${audioQuality === q ? 'text-green-500' : 'text-white'}`}
                    >
-                     {q === 'high' ? 'High (320)' : q === 'medium' ? 'Med (160)' : 'Low (96)'}
+                     {q === 'high' ? 'High' : q === 'normal' ? 'Normal' : q === 'low' ? 'Low' : 'Auto'}
                    </button>
                  ))}
                </div>

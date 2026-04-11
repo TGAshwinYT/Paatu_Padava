@@ -25,14 +25,14 @@ interface AudioContextType {
   volume: number;
   isShuffle: boolean;
   repeatMode: 'none' | 'all' | 'one';
-  audioQuality: 'low' | 'medium' | 'high';
+  audioQuality: 'low' | 'normal' | 'high' | 'auto';
   playContext: (track: Song, tracks?: Song[]) => void;
   togglePlay: () => void;
   seekTo: (value: number) => void;
   setVolume: (value: number) => void;
   toggleRepeat: () => void;
   toggleShuffle: () => void;
-  setAudioQuality: (quality: 'low' | 'medium' | 'high') => void;
+  setAudioQuality: (quality: 'low' | 'normal' | 'high' | 'auto') => void;
   playNext: () => void;
   playPrevious: () => void;
   setSleepTimer: (minutes: number | 'end' | null) => void;
@@ -66,7 +66,17 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isShuffle, setIsShuffle] = useState(false);
   const [repeatMode, setRepeatMode] = useState<'none' | 'all' | 'one'>('none');
   const [contextMemory, setContextMemory] = useState<Song[] | null>(null);
-  const [audioQuality, setAudioQualityState] = useState<'low' | 'medium' | 'high'>('high');
+  const [audioQuality, setAudioQualityState] = useState<'low' | 'normal' | 'high' | 'auto'>('normal');
+
+  useEffect(() => {
+    const savedQuality = localStorage.getItem('paatu_quality') as 'low' | 'normal' | 'high' | 'auto';
+    if (savedQuality) setAudioQualityState(savedQuality);
+  }, []);
+
+  const handleSetQuality = useCallback((quality: 'low' | 'normal' | 'high' | 'auto') => {
+    setAudioQualityState(quality);
+    localStorage.setItem('paatu_quality', quality);
+  }, []);
   const [queue, setQueue] = useState<Song[]>([]);
   const [history, setHistory] = useState<Song[]>([]);
   const [remainingSleepTime, setRemainingSleepTime] = useState<number | null>(null);
@@ -403,7 +413,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             if (isTrackChange || !currentTrack.audioUrl) {
                 setIsResolving(true);
                 try {
-                    const response = await api.get(`/api/music/stream/${currentTrack.id}`);
+                    const response = await api.get(`/api/music/stream/${currentTrack.id}?quality=${audioQuality}`);
                     playUrl = response.data.url;
                     // Update current track in memory with the resolved URL (optional but helpful)
                     currentTrack.audioUrl = playUrl;
@@ -589,11 +599,71 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => clearInterval(interval);
   }, [remainingSleepTime, togglePlay]);
 
+  // --- MEDIA SESSION API INTEGRATION ---
+  
+  // Task 1: Lock Screen Metadata Sync
+  useEffect(() => {
+    if ('mediaSession' in navigator && currentTrack) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: currentTrack.title || 'Unknown Title',
+        artist: currentTrack.artist || 'Unknown Artist',
+        album: currentTrack.album || 'Paatu Padava',
+        artwork: [
+          { 
+            src: currentTrack.coverUrl || currentTrack.cover_url || currentTrack.image || '/logo.png', 
+            sizes: '512x512', 
+            type: 'image/jpeg' 
+          }
+        ]
+      });
+    }
+  }, [currentTrack]);
+
+  // Task 2 & 3: Playback State & OS Action Handlers
+  useEffect(() => {
+    if ('mediaSession' in navigator) {
+      // Tell OS if we are playing or paused
+      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+
+      // Bind OS buttons to React handlers
+      navigator.mediaSession.setActionHandler('play', () => {
+        if (audioRef.current) {
+          audioRef.current.play()
+            .then(() => setIsPlaying(true))
+            .catch(e => console.error("OS Play Hook Failed:", e));
+        }
+      });
+
+      navigator.mediaSession.setActionHandler('pause', () => {
+        if (audioRef.current) {
+          audioRef.current.pause();
+          setIsPlaying(false);
+        }
+      });
+
+      navigator.mediaSession.setActionHandler('previoustrack', playPrevious);
+      navigator.mediaSession.setActionHandler('nexttrack', playNext);
+    }
+
+    return () => {
+      // Cleanup to prevent memory leaks when context destroys/remounts
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.setActionHandler('play', null);
+        navigator.mediaSession.setActionHandler('pause', null);
+        navigator.mediaSession.setActionHandler('previoustrack', null);
+        navigator.mediaSession.setActionHandler('nexttrack', null);
+      }
+    };
+  }, [isPlaying, playPrevious, playNext]);
+
   return (
     <AudioContext.Provider value={{ 
       currentTrack, isPlaying, currentTime, setCurrentTime, duration, isSeeking, setIsSeeking, volume, isShuffle, repeatMode, audioQuality,
       remainingSleepTime, queue, history, userPlaylists,
-      togglePlay, seekTo, setVolume, toggleRepeat, toggleShuffle, setAudioQuality, playNext, playPrevious,
+      togglePlay, seekTo, setVolume, toggleRepeat,
+        toggleShuffle,
+        setAudioQuality: handleSetQuality,
+        playNext, playPrevious,
       setSleepTimer, addToQueue, removeFromQueue, reorderQueue, handleOnDragEnd, refreshPlaylists, setQueue, clearHistory, playContext, playFromSearch,
       audioRef, onEnded, isResolving, progress: currentTime 
     }}>

@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Link } from 'react-router-dom';
 import HomeSection from './HomeSection';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Song } from '../types';
 
 interface PopularAlbumsProps {
@@ -9,16 +10,27 @@ interface PopularAlbumsProps {
 }
 
 const PopularAlbums: React.FC<PopularAlbumsProps> = ({ albums, title = "Popular albums" }) => {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const scrollAction = (direction: 'left' | 'right') => {
+    if (scrollRef.current) {
+        const scrollAmount = direction === 'left' ? -400 : 400;
+        scrollRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+  };
+
   if (!albums || albums.length === 0) return null;
 
   return (
     <HomeSection title={title} showAllLink="/albums">
-      <style>{`
-        .hide-scrollbar::-webkit-scrollbar { display: none; }
-        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-      `}</style>
-
-      <div className="flex gap-6 overflow-x-auto pb-4 pt-2 hide-scrollbar">
+      <div className="relative group/slider">
+        <button 
+            onClick={() => scrollAction('left')} 
+            className="absolute left-[-16px] top-1/2 -translate-y-1/2 z-10 hidden md:flex items-center justify-center w-10 h-10 bg-black/50 hover:bg-black/80 text-white rounded-full opacity-0 group-hover/slider:opacity-100 transition-opacity"
+        >
+            <ChevronLeft size={24} />
+        </button>
+        <div ref={scrollRef} className="flex overflow-x-auto snap-x snap-mandatory gap-4 pb-4 hide-scrollbar pt-2 scroll-smooth">
         {albums.map((album: any) => {
           // 🚨 ULTIMATE IMAGE EXTRACTION (Same as PopularArtists)
           let albumImage = 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop';
@@ -39,12 +51,12 @@ const PopularAlbums: React.FC<PopularAlbumsProps> = ({ albums, title = "Popular 
             <Link 
               key={album.id}
               to={`/album/${album.id}`}
-              className="flex-shrink-0 w-36 group cursor-pointer block"
+              className="flex-shrink-0 w-36 md:w-44 lg:w-48 snap-start group cursor-pointer block"
             >
               <div className="relative mb-3">
                 <img 
                   src={albumImage} 
-                  className="w-36 h-36 rounded-md object-cover shadow-lg group-hover:shadow-2xl group-hover:scale-[1.02] transition-all duration-300" 
+                  className="w-full aspect-square rounded-md object-cover shadow-lg group-hover:shadow-2xl group-hover:scale-[1.02] transition-all duration-300" 
                   alt={album.title} 
                   loading="lazy"
                   onError={(e) => {
@@ -63,6 +75,13 @@ const PopularAlbums: React.FC<PopularAlbumsProps> = ({ albums, title = "Popular 
             </Link>
           );
         })}
+        </div>
+        <button 
+            onClick={() => scrollAction('right')} 
+            className="absolute right-[-16px] top-1/2 -translate-y-1/2 z-10 hidden md:flex items-center justify-center w-10 h-10 bg-black/50 hover:bg-black/80 text-white rounded-full opacity-0 group-hover/slider:opacity-100 transition-opacity"
+        >
+            <ChevronRight size={24} />
+        </button>
       </div>
     </HomeSection>
   );

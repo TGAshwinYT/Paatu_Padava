@@ -79,13 +79,26 @@ async def search_youtube(query, filter="songs", limit=20):
         logger.error(f"YTMusic search error: {e}")
         return []
 
-def get_audio_stream_url(video_id):
+def get_audio_stream_url(video_id, quality="normal"):
     """
     Extracts the direct audio stream URL using yt-dlp.
     Synchronous function intended to be run in an executor.
     """
+    # Default to Normal (approx 128kbps)
+    format_string = 'bestaudio[abr<=128][ext=m4a]/bestaudio[ext=m4a]/bestaudio/best'
+
+    if quality == "high":
+        # Highest possible bitrate (usually 256kbps aac/opus)
+        format_string = 'bestaudio[ext=m4a]/bestaudio/best'
+    elif quality == "low":
+        # Lowest possible bitrate to save user data (approx 48-64kbps)
+        format_string = 'worstaudio[ext=m4a]/worstaudio/worst'
+    elif quality == "auto":
+        # Let YouTube/yt-dlp decide the most efficient standard stream
+        format_string = 'bestaudio/best'
+        
     ydl_opts = {
-        'format': 'bestaudio[ext=m4a]/bestaudio/best', # Prioritize m4a, it streams faster to React
+        'format': format_string,
         'quiet': True,
         'no_warnings': True,
         'skip_download': True, # We only want the URL, not the file

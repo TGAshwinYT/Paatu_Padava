@@ -62,22 +62,32 @@ async def ai_dj_endpoint(request: Request, dj_req: DJRequest):
         raise HTTPException(status_code=502, detail=f"Failed to generate recommendations: {str(e)}")
 
     # Step 2: Audio Resolution
+    from services.youtube import ytmusic
+    
     playable_queue = []
+    
+    # We must explicitly bypass the async search wrapper to keep this loop tightly packed
     for song in recommended_songs:
         try:
-            title = song.get("title")
-            artist = song.get("artist")
+            title = song.get('title')
+            artist = song.get('artist')
             if not title: continue
             
-            query = f"{title} {artist}" if artist else title
+            query = f"{title} {artist}"
             
-            # Use YouTube Music search utility
-            search_results = await search_youtube(query, limit=1)
+            # 🚨 SYNCHRONOUS RESOLUTION LOOP - EXTREME SPEED FOCUS
+            result = ytmusic.search(query, filter="songs", limit=1)
             
-            if search_results:
-                # Grab the top single song result
-                top_song = search_results[0]
-                playable_queue.append(top_song)
+            if result and len(result) > 0:
+                standardized_song = {
+                    "id": result[0].get('videoId', ''),
+                    "title": result[0].get('title', 'Unknown'),
+                    "artist": result[0].get('artists', [{'name': 'Unknown'}])[0].get('name', 'Unknown') if result[0].get('artists') else 'Unknown',
+                    "cover_url": result[0].get('thumbnails', [{'url': ''}])[-1].get('url', ''),
+                    "image": result[0].get('thumbnails', [{'url': ''}])[-1].get('url', ''), # Legacy fallback
+                    "audio_url": None # This will be fetched lazily by the React player later
+                }
+                playable_queue.append(standardized_song)
             
         except Exception as e:
             logger.error(f"Search resolution failed for {song}: {str(e)}")

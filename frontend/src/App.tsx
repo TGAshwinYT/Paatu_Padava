@@ -28,6 +28,7 @@ import { useAuth } from './context/AuthContext';
 import { useMobile } from './hooks/useMobile';
 import MobileLayout from './layouts/MobileLayout';
 import UserDropdown from './components/UserDropdown';
+import TopSearchBar from './components/TopSearchBar';
 
 const AppContent = () => {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -57,11 +58,16 @@ const AppContent = () => {
       
       <main className="flex-1 overflow-y-auto bg-neutral-900 rounded-xl relative pb-24 md:pb-32">
         <LibraryAuthModal isOpen={isLibraryAuthModalOpen} onClose={closeLibraryAuthModal} />
-        {/* Top-Right Area: Profile Menu or Login/Signup */}
-        <div className="absolute top-6 right-6 z-50 flex items-center gap-4">
-          {user ? (
-            <UserDropdown user={user} onLogout={logout} />
-          ) : (
+        
+        {/* Top Header Area */}
+        <div className="sticky top-0 z-50 flex items-center justify-between w-full p-4 px-6 bg-neutral-900/80 backdrop-blur-md border-b border-white/5">
+          <TopSearchBar />
+
+          {/* Top-Right Area: Profile Menu or Login/Signup */}
+          <div className="flex items-center gap-4">
+            {user ? (
+              <UserDropdown user={user} onLogout={logout} />
+            ) : (
             <div className="flex items-center gap-6">
               <div className="w-8 h-8 rounded-lg flex-shrink-0 overflow-hidden shadow-lg border border-white/10 group-hover:scale-110 transition-transform duration-300">
                 <img src="/logo.png" className="w-full h-full object-cover" alt="Logo" />
@@ -81,8 +87,9 @@ const AppContent = () => {
             </div>
           )}
         </div>
+        </div>
 
-        <div className="absolute inset-0 bg-gradient-to-b from-neutral-800/50 to-transparent pointer-events-none h-64" />
+        <div className="absolute top-0 inset-x-0 bg-gradient-to-b from-neutral-800/50 to-transparent pointer-events-none h-64" />
         <div className="relative z-10 p-6">
           <Routes>
             <Route path="/" element={<Home isLoggedIn={!!user} />} />

@@ -8,7 +8,6 @@ from models import User, LikedSong, Playlist, PlaylistTrack
 from auth_utils import get_current_user
 import json
 from typing import List
-from services import saavn
 import asyncio
 import requests
 
@@ -36,7 +35,7 @@ async def export_data(user: User = Depends(get_current_user), db: AsyncSession =
         "email": db_user.email,
         "liked_songs": [
             {
-                "song_id": s.song_id,
+                "id": s.yt_video_id,
                 "title": s.title,
                 "artist": s.artist,
                 "cover_url": s.cover_url,
@@ -47,7 +46,7 @@ async def export_data(user: User = Depends(get_current_user), db: AsyncSession =
             {
                 "title": p.title,
                 "is_public": p.is_public,
-                "tracks": [t.jiosaavn_song_id for t in p.tracks]
+                "tracks": [t.yt_video_id for t in p.tracks]
             } for p in db_user.playlists
         ]
     }
@@ -68,21 +67,22 @@ async def import_data(file: UploadFile = File(...), user: User = Depends(get_cur
     imported_count = 0
     if "liked_songs" in data:
         # Get existing song IDs to avoid duplicates
-        result = await db.execute(select(LikedSong.song_id).where(LikedSong.user_id == user.id))
+        result = await db.execute(select(LikedSong.yt_video_id).where(LikedSong.user_id == user.id))
         existing_ids = set(result.scalars().all())
 
         for song in data["liked_songs"]:
-            if song["song_id"] not in existing_ids:
+            song_id = song.get("yt_video_id") or song.get("song_id") or song.get("id")
+            if song_id and song_id not in existing_ids:
                 new_liked = LikedSong(
                     user_id=user.id,
-                    song_id=song["song_id"],
+                    yt_video_id=song_id,
                     title=song["title"],
                     artist=song["artist"],
                     cover_url=song.get("cover_url"),
                     audio_url=song.get("audio_url")
                 )
                 db.add(new_liked)
-                existing_ids.add(song["song_id"])
+                existing_ids.add(song_id)
                 imported_count += 1
 
     # 2. Import Playlists
@@ -105,7 +105,7 @@ async def import_data(file: UploadFile = File(...), user: User = Depends(get_cur
                     for song_id in p_data["tracks"]:
                         new_track = PlaylistTrack(
                             playlist_id=new_playlist.id,
-                            jiosaavn_song_id=song_id
+                            yt_video_id=song_id
                         )
                         db.add(new_track)
 

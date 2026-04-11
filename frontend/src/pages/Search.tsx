@@ -220,6 +220,8 @@ const Search = () => {
                         src={artist.image?.[0]?.url || artist.image || 'https://via.placeholder.com/40'} 
                         alt="" 
                         className="w-12 h-12 rounded-full object-cover border border-white/10 shadow-lg group-hover:scale-105 transition-transform" 
+                        loading="lazy"
+                        onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
                       />
                     </div>
                     <div className="flex-1">
@@ -243,7 +245,7 @@ const Search = () => {
                     onClick={() => handleSuggestionClick({...song, type: 'song'})}
                   >
                     <div className="relative w-10 h-10 flex-shrink-0">
-                      <img src={song.image?.[song.image.length-1]?.url || song.coverUrl || 'https://via.placeholder.com/40'} className="w-full h-full rounded shadow-md object-cover" alt="" />
+                      <img src={song.image?.[song.image.length-1]?.url || song.coverUrl || 'https://via.placeholder.com/40'} className="w-full h-full rounded shadow-md object-cover" alt="" loading="lazy" onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }} />
                       <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover/song:opacity-100 transition-opacity rounded">
                         <Play size={14} fill="white" className="text-white ml-0.5" />
                       </div>
@@ -297,7 +299,8 @@ const Search = () => {
                         src={getValidImage(results.global_matches.top_result)} 
                         alt={results.global_matches.top_result?.name || results.global_matches.top_result?.title}
                         className={`w-36 h-36 object-cover shadow-2xl group-hover:scale-105 transition-transform duration-500 ${results.global_matches.top_result.type === 'artist' ? 'rounded-full' : 'rounded-xl border border-white/5'}`}
-                        onError={(e) => { e.currentTarget.src = '/logo.png'; }}
+                        loading="lazy"
+                        onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
                       />
                     </div>
                     <div>
@@ -340,7 +343,8 @@ const Search = () => {
                               src={getValidImage(song)} 
                               className="w-full h-full object-cover" 
                               alt={song.title} 
-                              onError={(e) => { e.currentTarget.src = '/logo.png'; }}
+                              loading="lazy"
+                              onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
                             />
                             <div className="absolute inset-0 bg-black/50 hidden group-hover:flex items-center justify-center rounded transition-opacity duration-300">
                               <Play size={16} fill="white" className="text-white ml-0.5" />
@@ -439,6 +443,8 @@ const Search = () => {
                             src={getValidImage(artist)} 
                             className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
                             alt={artist.name || artist.title}
+                            loading="lazy"
+                            onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
                           />
                         </div>
                         <div className="w-full">
@@ -466,7 +472,8 @@ const Search = () => {
                         src={getValidImage(album)} 
                         alt={album.title} 
                         className="w-full aspect-square rounded-md object-cover shadow-lg mb-4 bg-gray-800 group-hover:scale-[1.02] transition-transform duration-500"
-                        onError={(e) => { e.currentTarget.src = '/logo.png'; }}
+                        loading="lazy"
+                        onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
                       />
                       <h3 className="text-white font-semibold truncate px-1">{album.title}</h3>
                       <p className="text-gray-400 text-sm truncate px-1 mt-1">{album.music || album.artist || 'Album'}</p>
@@ -502,6 +509,7 @@ const Search = () => {
                             className="w-full h-full rounded-lg object-cover shadow-2xl" 
                             alt="" 
                             loading="lazy"
+                            onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
                         />
                         <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-lg">
                            <Play size={16} fill="white" className="text-white ml-0.5" />

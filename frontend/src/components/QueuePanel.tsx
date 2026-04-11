@@ -32,9 +32,10 @@ const QueuePanel: React.FC<QueuePanelProps> = ({ isOpen, onClose }) => {
           }`}
         >
           <img 
-            src={getValidImage(song)} 
-            alt="" 
+            src={song?.cover_url || song?.coverUrl || song?.image || song?.thumbnail || '/logo.png'} 
+            alt={song?.title || "Song Cover"} 
             className="w-12 h-12 rounded shadow-lg object-cover flex-shrink-0" 
+            loading="lazy"
             onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
           />
           
@@ -132,8 +133,8 @@ const QueuePanel: React.FC<QueuePanelProps> = ({ isOpen, onClose }) => {
           <div className="flex items-center gap-4 group">
              <div className="relative w-12 h-12 flex-shrink-0">
                 <img 
-                  src={getValidImage(currentTrack)} 
-                  alt="" 
+                  src={currentTrack?.cover_url || currentTrack?.coverUrl || currentTrack?.image || currentTrack?.thumbnail || '/logo.png'} 
+                  alt={currentTrack?.title || "Song Cover"} 
                   className="w-full h-full rounded shadow-2xl object-cover" 
                   onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
                 />

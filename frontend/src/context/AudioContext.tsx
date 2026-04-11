@@ -50,6 +50,7 @@ interface AudioContextType {
   playFromSearch: (track: Song) => void;
   audioRef: React.RefObject<HTMLAudioElement | null>;
   onEnded: () => void;
+  isResolving: boolean;
 }
 
 const AudioContext = createContext<AudioContextType | undefined>(undefined);
@@ -71,6 +72,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [remainingSleepTime, setRemainingSleepTime] = useState<number | null>(null);
   const [isEndOfTrackTimer, setIsEndOfTrackTimer] = useState(false);
   const [userPlaylists, setUserPlaylists] = useState<any[]>([]);
+  const [isResolving, setIsResolving] = useState(false);
   
   const audioRef = useRef<HTMLAudioElement>(null);
   const lastTrackId = useRef<string | null>(null);
@@ -390,38 +392,65 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     if (!currentTrack || !audioRef.current) return;
     const audio = audioRef.current;
-    const targetUrl = getUrlByQuality(currentTrack, audioQuality);
-    
-    if (!targetUrl) {
-      setIsPlaying(false);
-      return;
-    }
 
-    const isQualitySwitch = lastTrackId.current === currentTrack.id;
-    
-    if (isQualitySwitch) {
-        const currentTimeBefore = audio.currentTime;
-        audio.src = targetUrl;
-        audio.load();
-        audio.currentTime = currentTimeBefore;
-    } else {
-        lastTrackId.current = currentTrack.id;
-        // For new tracks, the src attribute update on the component re-render 
-        // will handle it, but we force play here to ensure continuity.
-    }
+    const startPlayback = async () => {
+        try {
+            const isTrackChange = lastTrackId.current !== currentTrack.id;
+            
+            // 1. Resolve Stream URL if needed
+            // YouTube Music URLs are temporary, so we MUST fetch a fresh one on track change
+            let playUrl = "";
+            if (isTrackChange || !currentTrack.audioUrl) {
+                setIsResolving(true);
+                try {
+                    const response = await api.get(`/api/music/stream/${currentTrack.id}`);
+                    playUrl = response.data.url;
+                    // Update current track in memory with the resolved URL (optional but helpful)
+                    currentTrack.audioUrl = playUrl;
+                } catch (err) {
+                    console.error("Failed to resolve stream URL:", err);
+                    setIsResolving(false);
+                    setIsPlaying(false);
+                    return;
+                }
+                setIsResolving(false);
+            } else {
+                playUrl = currentTrack.audioUrl;
+            }
 
-    // Force play immediately on track change
-    audio.play()
-      .then(() => {
-        setIsPlaying(true);
-        if (!isQualitySwitch) addListenHistory(currentTrack);
-      })
-      .catch(err => {
-        console.error("Auto-play prevented:", err);
-        // Don't set isPlaying(false) here, as it might just be the browser 
-        // waiting for user interaction on the first-ever play.
-      });
-  }, [currentTrack, audioQuality]);
+            if (!playUrl) {
+                setIsPlaying(false);
+                return;
+            }
+
+            if (isTrackChange) {
+                lastTrackId.current = currentTrack.id;
+                audio.src = playUrl;
+                audio.load();
+            } else {
+                // Quality switch or existing track - just update src if it changed significantly
+                if (audio.src !== playUrl) {
+                    const time = audio.currentTime;
+                    audio.src = playUrl;
+                    audio.load();
+                    audio.currentTime = time;
+                }
+            }
+
+            // Force play
+            await audio.play();
+            setIsPlaying(true);
+            
+            if (isTrackChange) {
+                addListenHistory(currentTrack);
+            }
+        } catch (err) {
+            console.error("Playback failed:", err);
+        }
+    };
+
+    startPlayback();
+  }, [currentTrack]); // We can simplify dependencies here as URL resolution is now mandatory
 
   // Media Session Metadata (OS Lock Screen & Media Hubs)
   useEffect(() => {
@@ -566,12 +595,11 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       remainingSleepTime, queue, history, userPlaylists,
       togglePlay, seekTo, setVolume, toggleRepeat, toggleShuffle, setAudioQuality, playNext, playPrevious,
       setSleepTimer, addToQueue, removeFromQueue, reorderQueue, handleOnDragEnd, refreshPlaylists, setQueue, clearHistory, playContext, playFromSearch,
-      audioRef, onEnded, progress: currentTime
+      audioRef, onEnded, isResolving, progress: currentTime 
     }}>
       {children}
       <audio
         ref={audioRef}
-        src={currentTrack ? getUrlByQuality(currentTrack, audioQuality) : undefined}
         onTimeUpdate={() => {
           if (!isSeeking && audioRef.current) {
             setCurrentTime(audioRef.current.currentTime || 0);
@@ -583,7 +611,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             setDuration(isFinite(d) ? d : 0);
           }
         }}
-        onEnded={playNext} 
+        onEnded={onEnded} 
       />
     </AudioContext.Provider>
   );

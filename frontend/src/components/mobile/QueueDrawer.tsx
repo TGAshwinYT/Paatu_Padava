@@ -55,9 +55,10 @@ const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => {
                 }`}
               >
                 <img 
-                  src={getValidImage(track)} 
-                  alt="" 
+                  src={track?.cover_url || track?.coverUrl || track?.image || track?.thumbnail || '/logo.png'} 
+                  alt={track?.title || "Song Cover"} 
                   className="w-12 h-12 rounded-lg object-cover shadow-md"
+                  loading="lazy"
                   onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
                 />
                 <div className="flex-1 min-w-0">

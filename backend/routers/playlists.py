@@ -19,7 +19,7 @@ class PlaylistUpdate(BaseModel):
     title: str
 
 class TrackAdd(BaseModel):
-    jiosaavn_song_id: str
+    yt_video_id: str
 
 @router.get("/")
 async def get_playlists(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
@@ -63,7 +63,7 @@ async def add_song_to_playlist(playlist_id: str, data: TrackAdd, user: User = De
     check_exists = await db.execute(
         select(PlaylistTrack).where(
             PlaylistTrack.playlist_id == playlist_uuid, 
-            PlaylistTrack.jiosaavn_song_id == data.jiosaavn_song_id
+            PlaylistTrack.yt_video_id == data.yt_video_id
         )
     )
     if check_exists.scalars().first():
@@ -71,7 +71,7 @@ async def add_song_to_playlist(playlist_id: str, data: TrackAdd, user: User = De
 
     new_track = PlaylistTrack(
         playlist_id=playlist_uuid,
-        jiosaavn_song_id=data.jiosaavn_song_id
+        yt_video_id=data.yt_video_id
     )
     db.add(new_track)
     await db.commit()
@@ -103,7 +103,7 @@ async def remove_song_from_playlist(playlist_id: str, song_id: str, user: User =
     # Delete the track record
     delete_query = delete(PlaylistTrack).where(
         PlaylistTrack.playlist_id == playlist_uuid,
-        PlaylistTrack.jiosaavn_song_id == song_id
+        PlaylistTrack.yt_video_id == song_id
     )
     await db.execute(delete_query)
     await db.commit()
@@ -197,4 +197,4 @@ async def get_playlist_tracks(
     tracks = result.scalars().all()
     
     # Map to expected frontend format (fetching IDs for now)
-    return [{"id": t.jiosaavn_song_id, "added_at": t.added_at} for t in tracks]
+    return [{"id": t.yt_video_id, "added_at": t.added_at} for t in tracks]

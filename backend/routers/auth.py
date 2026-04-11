@@ -200,7 +200,7 @@ async def get_user_artists_details(user: User = Depends(get_current_user), db: A
     aggregates their details (id, name, image) from JioSaavn.
     Bulletproofed to handle null/empty preferences and API failures.
     """
-    from services import saavn
+    from services import youtube
     import asyncio
     import json
     
@@ -227,14 +227,14 @@ async def get_user_artists_details(user: User = Depends(get_current_user), db: A
         async def get_artist_info(name):
             if not name: return None
             try:
-                # Search for the artist to get their ID and Image
-                results = await saavn.search_artists(name)
+                # Search for the artist to get their ID and Image from YouTube
+                results = await youtube.search_artists_youtube(name, limit=1)
                 if results:
                     best_match = results[0]
                     return {
                         "id": best_match.get("id"),
                         "name": best_match.get("name") or name,
-                        "image": best_match.get("image") or best_match.get("imageUrl") or ""
+                        "image": best_match.get("image") or ""
                     }
             except Exception as inner_e:
                 print(f"Warning: Failed to fetch info for artist {name}: {inner_e}")

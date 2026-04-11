@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query, Depends
 import asyncio
 from typing import List, Dict, Any
-from services import saavn
+from services import youtube
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from connection import get_db, get_redis
@@ -17,6 +17,17 @@ from .history import get_user_top_artists
 
 router = APIRouter(prefix="/api/music", tags=["music"])
 
+@router.get("/stream/{yt_video_id}")
+async def stream_song(yt_video_id: str):
+    """
+    Extracts the direct playable audio stream URL for a YouTube video using a background thread.
+    """
+    # Force heavy yt-dlp process into a background thread
+    url = await asyncio.to_thread(youtube.get_audio_stream_url, yt_video_id)
+    if not url:
+        raise HTTPException(status_code=404, detail="Stream URL not found")
+    return {"url": url}
+
 @router.get("/home")
 async def get_home_feed(
     region: str = Query(None),
@@ -25,62 +36,28 @@ async def get_home_feed(
     redis_client: UpstashRedis = Depends(get_redis)
 ):
     """
-    Fetches trending music and mixes in personalized recommendations.
-    Localized by region if provided.
+    Fetches the structured YouTube Music home feed.
     """
     try:
-        # Cache Key should include region for localization
-        cache_key = f"trending_songs_{region or 'global'}"
+        # We'll use a unique cache key for the new home feed structure
+        cache_key = f"home_feed_yt_v2_{user.id if user else 'guest'}"
         cached_data = await redis_client.get(cache_key)
         if cached_data:
             return json.loads(cached_data)
 
-        # 1. Determine Language Priority based on Region
-        languages = get_search_languages(region)
+        # 1. Fetch Categorized Home Feed from YouTube
+        home_feed = await youtube.get_home_youtube(limit=5)
         
-        favorites = []
-        if user:
-            # 1. Fetch preferences from DB
-            result = await db.execute(select(models.User).where(models.User.id == user.id))
-            db_user = result.scalar_one()
-            
-            if db_user.favorite_artists:
-                try:
-                    favorites = json.loads(db_user.favorite_artists)
-                except:
-                    pass
-
-        # 2. Fetch standard trending feed as base (Songs, Albums, Artists)
-        # Now passing regional languages to localize results
-        feed_data = await saavn.get_trending(languages)
+        # 2. Mix in personalized recommendations from our graph in the background
+        # if the user has a listening history, but for now we'll stick to YouTube's 
+        # structured feed as requested.
         
-        # 3. If favorites exist, build and merge personalized recommendations
-        if favorites:
-            personalized = await saavn.get_personalized_feed(favorites)
-            if personalized:
-                # Map personalized songs to the required format
-                mapped_personalized = []
-                for p in personalized:
-                    mapped_personalized.append({
-                        "id": p.get("id"),
-                        "title": p.get("title") or p.get("name"),
-                        "artist": p.get("artist") or p.get("primaryArtists"),
-                        "coverUrl": p.get("coverUrl") or p.get("cover_url") or saavn.extract_high_res_image(p.get("image")),
-                        "audioUrl": p.get("audioUrl") or p.get("audio_url") or saavn.extract_audio_url(p)
-                    })
-                
-                # Merge: Prepended personalized items to standard trending songs
-                # Standard trending songs are already in feed_data["recommendedForYou"]
-                standard_trending = feed_data.get("recommendedForYou", [])
-                feed_data["recommendedForYou"] = (mapped_personalized + standard_trending)[:30]
+        # Cache the results for 30 minutes (home feed changes more often than charts)
+        await redis_client.setex(cache_key, 1800, json.dumps(home_feed))
         
-        # 4. Cache the results for 1 hour
-        await redis_client.setex(cache_key, 3600, json.dumps(feed_data))
-        
-        return feed_data
+        return home_feed
     except Exception as e:
         print(f"Router Error (home): {str(e)}")
-        # Fallback to absolute minimum if something crashes but maintain structure
         return {"recommendedForYou": [], "topAlbums": [], "topArtists": []}
 
 @router.get("/search")
@@ -89,100 +66,23 @@ async def search_tracks(
     region: str = Query(None)
 ):
     try:
-        # Step 1: Get weighted language string based on region
-        lang_str = get_search_languages(region)
-        
-        # Step 2: Strict URI encoding for the query
-        encoded_query = quote(query)
-        
-        # Step 3: Parallel search for Songs, Albums, and Artists
-        # This provides a Spotify-like comprehensive result set
-        song_task = saavn.search_saavn(encoded_query, language=lang_str)
-        album_task = saavn.search_albums(encoded_query, language=lang_str)
-        artist_task = saavn.search_artists(encoded_query, language=lang_str)
+        # Parallel search for Songs, Albums, and Artists using YouTube Music
+        song_task = youtube.search_youtube(query, limit=10)
+        album_task = youtube.search_albums_youtube(query, limit=6)
+        artist_task = youtube.search_artists_youtube(query, limit=6)
         
         songs, albums, artists = await asyncio.gather(song_task, album_task, artist_task)
         
-        # 1. Smart Artist Injector
-        top_song_artist = None
-        if songs:
-            top_song = songs[0]
-            artist_name = top_song.get("artist", "Unknown Artist")
-            top_song_artist = {
-                "id": top_song.get("artist_id", "unknown"),
-                "name": artist_name,
-                "title": artist_name,
-                "image": top_song.get("cover_url", ""), # Use song image as artist fallback
-                "type": "artist"
-            }
-        
-        # 2. Filter out junk artists (placeholder/default icon entries)
-        valid_artists = [
-            a for a in artists 
-            if a.get("image") and "default" not in str(a.get("image")).lower() and "placeholder" not in str(a.get("image")).lower()
-        ]
-        
-        # 3. Deduplicate and prepend Top Song Artist
-        final_artists = []
-        if top_song_artist:
-            final_artists.append(top_song_artist)
-            
-        for artist in valid_artists:
-            # Check for duplicate by ID or Name
-            is_duplicate = (top_song_artist and (artist["id"] == top_song_artist["id"] or artist["name"] == top_song_artist["name"]))
-            if not is_duplicate:
-                final_artists.append(artist)
-        
-        # 4. Final results limiting (Top 6 artists)
-        final_artists = final_artists[:6]
-        
-        # 5. Smart Album Injector
-        top_song_album = None
-        if songs:
-            top_song = songs[0]
-            album_name = top_song.get("album")
-            album_id = top_song.get("album_id")
-            
-            # 🚨 CRITICAL QUALITY CHECK 🚨
-            # Only create the injected album if we have BOTH a valid name and ID
-            if album_name and album_name.lower() != "unknown album" and album_name.lower() != "unknown" and album_id != "unknown":
-                top_song_album = {
-                    "id": album_id,
-                    "title": album_name,
-                    "artist": top_song.get("artist", "Various Artists"),
-                    "image": top_song.get("cover_url", ""), # Fallback to song image
-                    "type": "album"
-                }
-        
-        # 6. Filter out junk albums
-        valid_albums = [
-            a for a in albums 
-            if a.get("image") and "default" not in str(a.get("image")).lower() and "placeholder" not in str(a.get("image")).lower()
-        ]
-        
-        # 7. Deduplicate and prepend Top Song Album
-        final_albums = []
-        if top_song_album:
-            final_albums.append(top_song_album)
-            
-        for album in valid_albums:
-            is_duplicate = (top_song_album and (album["id"] == top_song_album["id"] or album["title"] == top_song_album["title"]))
-            if not is_duplicate:
-                final_albums.append(album)
-                
-        # 8. Limit results (Top 6 albums)
-        final_albums = final_albums[:6]
-
         # Determine top_result (closest match)
         top_result = None
-        if final_artists and query.lower() in final_artists[0].get("name", "").lower():
-            top_result = final_artists[0]
+        if artists and query.lower() in artists[0].get("name", "").lower():
+            top_result = artists[0]
             top_result["type"] = "artist"
         elif songs:
             top_result = songs[0]
             top_result["type"] = "song"
-        elif final_artists:
-            top_result = final_artists[0]
+        elif artists:
+            top_result = artists[0]
             top_result["type"] = "artist"
         elif albums:
             top_result = albums[0]
@@ -190,14 +90,10 @@ async def search_tracks(
             
         return {
             "global_matches": {
-                # The absolute best match (usually the first song or artist)
                 "top_result": top_result, 
-                # List of top 4 songs
                 "songs": songs[:4] if songs else [], 
-                # List of artists
-                "artists": final_artists, 
-                # List of albums
-                "albums": final_albums 
+                "artists": artists, 
+                "albums": albums 
             }
         }
     except Exception as e:
@@ -210,8 +106,12 @@ async def search_suggestions(query: str = Query(..., min_length=1)):
     Global search suggestions for dropdown.
     """
     try:
-        results = await saavn.search_all(query)
-        return results
+        results = await youtube.search_youtube(query, limit=10)
+        return {
+            "songs": results,
+            "artists": [],
+            "albums": []
+        }
     except Exception as e:
         print(f"Suggestions Error: {str(e)}")
         return {"songs": [], "artists": [], "albums": []}
@@ -222,7 +122,7 @@ async def search_artists(query: str = Query(..., min_length=1)):
     Search specifically for artists for onboarding/preferences.
     """
     try:
-        results = await saavn.search_artists(query)
+        results = await youtube.search_artists_youtube(query, limit=10)
         return results
     except Exception as e:
         print(f"Artist Search Error: {str(e)}")
@@ -233,7 +133,7 @@ async def like_song(song: Dict[str, Any], user: models.User = Depends(get_curren
     try:
         query = select(models.LikedSong).where(
             models.LikedSong.user_id == user.id,
-            models.LikedSong.song_id == song["id"]
+            models.LikedSong.yt_video_id == song["id"]
         )
         result = await db.execute(query)
         if result.scalar_one_or_none():
@@ -241,7 +141,7 @@ async def like_song(song: Dict[str, Any], user: models.User = Depends(get_curren
 
         new_like = models.LikedSong(
             user_id=user.id,
-            song_id=song["id"],
+            yt_video_id=song["id"],
             title=song["title"],
             artist=song["artist"],
             cover_url=song.get("coverUrl") or song.get("cover_url"),
@@ -260,7 +160,7 @@ async def unlike_song(song_id: str, user: models.User = Depends(get_current_user
     try:
         query = delete(models.LikedSong).where(
             models.LikedSong.user_id == user.id,
-            models.LikedSong.song_id == song_id
+            models.LikedSong.yt_video_id == song_id
         )
         await db.execute(query)
         await db.commit()
@@ -281,7 +181,7 @@ async def get_liked_songs(
         result = await db.execute(query)
         likes = result.scalars().all()
         return [{
-            "id": l.song_id,
+            "id": l.yt_video_id,
             "title": l.title,
             "artist": l.artist,
             "coverUrl": l.cover_url,
@@ -302,22 +202,15 @@ async def get_recommendations(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Get recommended songs based on a song ID using the path-based BFS graph.
-    Includes personal favorites blended into the fallback.
+    Get recommended songs based on a YouTube video ID.
     """
     try:
-        # Task 2: Use the global recommendation graph with language context
+        # First try the graph (which now uses YT IDs)
         results = recommendation_graph.get_recommendations(song_id, limit=6, current_language=lang)
         
-        # Fetch user's top historical artists for personalization (if logged in)
-        historical_artists = []
-        if user:
-            historical_artists = await get_user_top_artists(db, user.id, limit=2)
-            print(f"[PERSONALIZATION] Blending top artists {historical_artists} into recommendations for {user.id}")
-
-        # Fallback to standard suggestions if the graph is cold for this track
+        # Fallback to YouTube's related songs
         if not results:
-            results = await saavn.get_recommendations(song_id, target_language=lang, artist=artist, historical_artists=historical_artists)
+            results = await youtube.get_related_songs(song_id, limit=12)
             
         return results
     except Exception as e:
@@ -327,23 +220,17 @@ async def get_recommendations(
 @router.get("/related/{song_id}")
 async def get_related_songs(song_id: str, artist: str = Query(None)):
     """
-    Alias for recommendations, used for infinite autoplay.
+    Alias for recommendations.
     """
-    try:
-        results = await saavn.get_recommendations(song_id, target_language=None, artist=artist)
-        return results
-    except Exception as e:
-        print(f"Related Songs Error (Router): {str(e)}")
-        return []
+    return await get_recommendations(song_id)
 
 @router.get("/lyrics/{song_id}")
 async def get_song_lyrics(song_id: str):
-    try:
-        lyrics_data = await saavn.get_lyrics(song_id)
-        return lyrics_data
-    except Exception as e:
-        print(f"Lyrics Error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error fetching lyrics")
+    """
+    Generic lyrics endpoint. YTMusic doesn't have direct lyrics in this wrapper easily,
+    so we rely on synced lyrics services.
+    """
+    return {"lyrics": "Synced lyrics are available via /lyrics/synced", "isSynced": False}
 
 @router.get("/lyrics/synced")
 async def get_synced_lyrics(title: str = Query(...), artist: str = Query(...)):
@@ -389,10 +276,10 @@ async def get_lrclib_lyrics_endpoint(
 @router.get("/artist/{artist_id}")
 async def get_artist_details(artist_id: str):
     """
-    Get artist profile and top songs.
+    Get artist profile and top songs from YouTube.
     """
     try:
-        results = await saavn.get_artist_details(artist_id)
+        results = await youtube.get_artist_details_youtube(artist_id)
         return results
     except Exception as e:
         print(f"Artist Error (Router): {str(e)}")
@@ -400,15 +287,13 @@ async def get_artist_details(artist_id: str):
 @router.get("/albums/{album_id}")
 async def get_album_details(album_id: str):
     """
-    Fetch full details and tracklist for a specific album.
+    Fetch full details and tracklist for a specific album from YouTube.
     """
     try:
-        results = await saavn.get_album_details(album_id)
-        if not results or not results.get("id"):
+        results = await youtube.get_album_details_youtube(album_id)
+        if not results:
             raise HTTPException(status_code=404, detail="Album not found or unavailable")
         return results
-    except HTTPException:
-        raise
     except Exception as e:
         print(f"Album Error (Router): {str(e)}")
         raise HTTPException(status_code=500, detail="Error fetching album details")

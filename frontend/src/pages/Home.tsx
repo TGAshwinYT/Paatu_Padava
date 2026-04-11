@@ -4,6 +4,7 @@ import SongCard from '../components/SongCard';
 import HomeSection from '../components/HomeSection';
 import PopularArtists from '../components/PopularArtists';
 import PopularAlbums from '../components/PopularAlbums';
+import AIDJInput from '../components/AIDJInput';
 import type { Song } from '../types';
 import { useNavigate } from 'react-router-dom';
 import { getHomeFeed, getListenHistory, getFollowedArtists, getSuggestions } from '../services/api';
@@ -211,6 +212,8 @@ const Home = ({ isLoggedIn }: HomeProps) => {
           </div>
         )}
       </div>
+
+      <AIDJInput />
 
       {recommended.length > 0 && (
         <HomeSection title="Recommended For You" showAllLink="/recommendations" className="bg-gradient-to-r from-green-500/10 to-transparent p-6 rounded-2xl border border-white/5">

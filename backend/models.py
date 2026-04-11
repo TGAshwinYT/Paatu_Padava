@@ -59,7 +59,7 @@ class PlaylistTrack(Base):
     __tablename__ = "playlist_tracks"
 
     playlist_id = Column(UUID(as_uuid=True), ForeignKey("playlists.id"), primary_key=True)
-    jiosaavn_song_id = Column(String(100), primary_key=True)
+    yt_video_id = Column(String(100), primary_key=True)
     added_at = Column(DateTime(timezone=True), server_default=func.now())
 
     playlist = relationship("Playlist", back_populates="tracks")
@@ -69,7 +69,7 @@ class ListeningHistory(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), index=True)
-    jiosaavn_song_id = Column(String(100), nullable=False)
+    yt_video_id = Column(String(100), nullable=False)
     title = Column(String(255))
     artist = Column(String(255))
     cover_url = Column(String)
@@ -97,7 +97,7 @@ class SearchClickHistory(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    jiosaavn_song_id = Column(String(100), nullable=False)
+    yt_video_id = Column(String(100), nullable=False)
     title = Column(String(255))
     artist = Column(String(255))
     cover_url = Column(String)
@@ -111,7 +111,7 @@ class LikedSong(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    song_id = Column(String(100), nullable=False) # JioSaavn ID
+    yt_video_id = Column(String(100), nullable=False) # YouTube Video ID
     title = Column(String(255), nullable=False)
     artist = Column(String(255), nullable=False)
     cover_url = Column(String)
@@ -119,6 +119,6 @@ class LikedSong(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Ensure a user can only like a song once
-    __table_args__ = (UniqueConstraint("user_id", "song_id", name="uq_user_song"),)
+    __table_args__ = (UniqueConstraint("user_id", "yt_video_id", name="uq_user_song"),)
 
     user = relationship("User", back_populates="liked_songs")

@@ -6,7 +6,7 @@ export const mapHistoryToSong = (item: any): Song => {
   if (!item) return { id: '', title: 'Unknown', artist: 'Unknown', coverUrl: '', audioUrl: '' };
   
   return {
-    id: item.jiosaavn_song_id || item.song_id || item.id || '',
+    id: item.yt_video_id || item.id || '',
     title: item.title || item.song_name || item.name || 'Unknown Title',
     artist: item.artist || item.artist_name || item.artists || 'Unknown Artist',
     album: item.album || item.album_name || '',

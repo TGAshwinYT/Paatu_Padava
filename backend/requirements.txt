@@ -17,3 +17,7 @@ python-multipart>=0.0.6
 syncedlyrics>=0.6.0
 fastapi-cache2>=0.2.1
 jinja2>=3.1.2
+google-genai>=0.3.0
+slowapi>=0.1.9
+ytmusicapi>=1.5.0
+yt-dlp>=2024.3.10

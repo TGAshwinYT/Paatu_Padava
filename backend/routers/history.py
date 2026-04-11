@@ -6,7 +6,6 @@ from sqlalchemy import func, text # Modified for consolidated imports
 from models import ListeningHistory, SearchHistory, SearchClickHistory, User
 from auth_utils import get_current_user
 from typing import List, Optional, Dict, Any # Modified from typing import List
-from services import saavn
 
 from pydantic import BaseModel # Added
 
@@ -48,7 +47,7 @@ async def add_listen_history(
         last_result = await db.execute(last_query)
         last_entry = last_result.scalar_one_or_none()
         
-        if last_entry and last_entry.jiosaavn_song_id == song.id:
+        if last_entry and last_entry.yt_video_id == song.id:
             # Update the played_at timestamp instead of creating a new entry
             last_entry.played_at = func.now()
             await db.commit()
@@ -56,7 +55,7 @@ async def add_listen_history(
         else:
             new_entry = ListeningHistory(
                 user_id=user.id,
-                jiosaavn_song_id=song.id,
+                yt_video_id=song.id,
                 title=song.title,
                 artist=song.artist,
                 cover_url=song.cover_url,
@@ -126,8 +125,8 @@ async def delete_history_item(history_id: str, user: User = Depends(get_current_
         if is_uuid:
             query = delete(ListeningHistory).where(ListeningHistory.id == history_id, ListeningHistory.user_id == user.id)
         else:
-            # Fallback to JioSaavn ID if the provided string is not a UUID
-            query = delete(ListeningHistory).where(ListeningHistory.jiosaavn_song_id == history_id, ListeningHistory.user_id == user.id)
+            # Fallback to YouTube ID if the provided string is not a UUID
+            query = delete(ListeningHistory).where(ListeningHistory.yt_video_id == history_id, ListeningHistory.user_id == user.id)
             
         await db.execute(query)
         await db.commit()
@@ -191,14 +190,14 @@ async def add_search_click_history(song: HistoryCreate, user: User = Depends(get
         last_result = await db.execute(last_query)
         last_entry = last_result.scalar_one_or_none()
         
-        if last_entry and last_entry.jiosaavn_song_id == song.id:
+        if last_entry and last_entry.yt_video_id == song.id:
             last_entry.clicked_at = func.now()
             await db.commit()
             return {"message": "Search history updated"}
 
         new_entry = SearchClickHistory(
             user_id=user.id,
-            jiosaavn_song_id=song.id,
+            yt_video_id=song.id,
             title=song.title,
             artist=song.artist,
             cover_url=song.cover_url,

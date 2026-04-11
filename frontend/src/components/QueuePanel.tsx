@@ -2,7 +2,6 @@ import React from 'react';
 import { useAudio } from '../context/AudioContext';
 import { X, Menu, Trash2, Shuffle } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { getValidImage } from '../utils/imageUtils';
 
 interface QueuePanelProps {
   isOpen: boolean;

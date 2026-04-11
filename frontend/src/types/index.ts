@@ -3,11 +3,13 @@ export interface Song {
   title: string;
   artist: string;
   coverUrl: string;
+  cover_url?: string;
   audioUrl: string;
   duration?: number;
   album?: string;
   downloadUrls?: string[];
   image?: any;
+  thumbnail?: string;
   language?: string;
   isManual?: boolean;
 }

@@ -1,7 +1,6 @@
 import React from 'react';
 import { X, Music } from 'lucide-react';
 import { useAudio } from '../../context/AudioContext';
-import { getValidImage } from '../../utils/imageUtils';
 
 interface QueueDrawerProps {
   isOpen: boolean;

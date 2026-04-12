@@ -161,60 +161,85 @@ async def search_youtube(query, filter="songs", limit=20):
 
 def get_audio_stream_url(video_id, quality="normal"):
     """
-    Extracts the direct audio stream URL using yt-dlp.
-    Synchronous function intended to be run in an executor.
+    Extracts the direct audio stream URL using yt-dlp with progressive identity fallback.
     """
-    # Default to Normal (approx 128kbps)
-    format_string = 'bestaudio[abr<=128][ext=m4a]/bestaudio[ext=m4a]/bestaudio/best'
+    # 1. Define fallbacks (ordered by stability/reliability)
+    identities = [
+        # Attempt 1: Android (Most stable for cloud bypass)
+        {
+            "ua": "com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US; Pixel 8 Pro; Build/AP1A.240305.019)",
+            "client": ["android"]
+        },
+        # Attempt 2: iOS (Good for authenticated sessions)
+        {
+            "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+            "client": ["ios"]
+        },
+        # Attempt 3: Web Creator/Desktop (Last resort)
+        {
+            "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "client": ["web", "web_creator"]
+        }
+    ]
 
+    # Default format logic
     if quality == "high":
-        # Try highest m4a, then highest overall audio
         format_string = 'bestaudio[ext=m4a]/bestaudio/best'
     elif quality == "low":
-        # Try lowest m4a, then lowest overall audio
         format_string = 'worstaudio[ext=m4a]/worstaudio/worst'
-    else: # Normal / Auto
-        # Try to stay around 128k m4a, but fallback to any bestaudio
+    else: # Normal
         format_string = 'bestaudio[abr<=128][ext=m4a]/bestaudio[ext=m4a]/bestaudio/best'
-        
-    ydl_opts = {
-        'format': format_string,
-        'cookiefile': COOKIE_PATH if os.path.exists(COOKIE_PATH) else None,
-        'user_agent': GLOBAL_USER_AGENT,
-        'quiet': True,
-        'no_warnings': True,
-        'skip_download': True,
-        'noplaylist': True,
-        'force_ipv4': True,
-        'source_address': '0.0.0.0', # Forces local IPv4 binding
-        'geo_bypass': True,
-        'nocheckcertificate': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['ios', 'android', 'web_creator'], # Mobile identity
-                'skip': ['hls', 'dash'] # Faster extraction by skipping segments
-            }
-        }
-    }
-    
+
     url = f"https://www.youtube.com/watch?v={video_id}"
+    
+    for i, identity in enumerate(identities):
+        try:
+            ydl_opts = {
+                'format': format_string,
+                'cookiefile': COOKIE_PATH if os.path.exists(COOKIE_PATH) else None,
+                'user_agent': identity["ua"],
+                'quiet': True,
+                'no_warnings': True,
+                'skip_download': True,
+                'noplaylist': True,
+                'geo_bypass': True,
+                'nocheckcertificate': True,
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': identity["client"],
+                        'skip': ['hls', 'dash']
+                    }
+                }
+            }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                if info and 'url' in info:
+                    if i > 0: logger.info(f"Fallback successful for {video_id} using identity {identity['client']}")
+                    return info['url']
+        except Exception as e:
+            logger.warning(f"Extraction attempt {i+1} failed for {video_id} ({identity['client']}): {e}")
+            continue
+
+    # Final "Nuclear Option": No constraints, best possible stream from any format
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        logger.warning(f"All identity fallbacks failed for {video_id}, trying nuclear option.")
+        nuclear_opts = {
+            'format': 'bestaudio/best',
+            'cookiefile': COOKIE_PATH if os.path.exists(COOKIE_PATH) else None,
+            'quiet': True,
+            'skip_download': True,
+            'noplaylist': True,
+            'geo_bypass': True,
+            'nocheckcertificate': True
+        }
+        with yt_dlp.YoutubeDL(nuclear_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             if info and 'url' in info:
                 return info['url']
     except Exception as e:
-        # Nuclear Option Fallback: Ignore all constraints and just get the best available stream
-        logger.warning(f"Primary extraction failed for {video_id}, trying nuclear fallback: {e}")
-        try:
-            ydl_opts['format'] = 'bestaudio/best' 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                if info and 'url' in info:
-                    return info['url']
-        except Exception as e2:
-            logger.error(f"Final extraction fallback failed for {video_id}: {e2}")
-    
+        logger.error(f"Final nuclear fallback failed for {video_id}: {e}")
+
     return None
 
 async def resolve_stream_url(video_id):

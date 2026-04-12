@@ -161,24 +161,29 @@ async def search_youtube(query, filter="songs", limit=20):
 
 def get_audio_stream_url(video_id, quality="normal"):
     """
-    Extracts the direct audio stream URL using yt-dlp with progressive identity fallback.
+    Extracts the direct audio stream URL with signature-resistant identity fallback.
     """
-    # 1. Define fallbacks (ordered by stability/reliability)
+    # 1. Define fallbacks (ordered by ability to work without full JS runtime)
     identities = [
-        # Attempt 1: Android (Most stable for cloud bypass)
+        # Attempt 1: Web Embedded (Least restrictive signature requirements)
+        {
+            "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "client": ["web_embedded", "web_creator"]
+        },
+        # Attempt 2: TV Client (Often uses pre-signed or simpler challenges)
+        {
+            "ua": "Mozilla/5.0 (Chromecast; Google TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "client": ["tv", "tv_embedded"]
+        },
+        # Attempt 3: Android Embedded
         {
             "ua": "com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US; Pixel 8 Pro; Build/AP1A.240305.019)",
-            "client": ["android"]
+            "client": ["android_embedded", "android"]
         },
-        # Attempt 2: iOS (Good for authenticated sessions)
+        # Attempt 4: iOS
         {
             "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
             "client": ["ios"]
-        },
-        # Attempt 3: Web Creator/Desktop (Last resort)
-        {
-            "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "client": ["web", "web_creator"]
         }
     ]
 
@@ -199,7 +204,7 @@ def get_audio_stream_url(video_id, quality="normal"):
                 'cookiefile': COOKIE_PATH if os.path.exists(COOKIE_PATH) else None,
                 'user_agent': identity["ua"],
                 'quiet': True,
-                'no_warnings': True,
+                'no_warnings': False, # Allow warnings for better signature debugging
                 'skip_download': True,
                 'noplaylist': True,
                 'geo_bypass': True,
@@ -215,13 +220,13 @@ def get_audio_stream_url(video_id, quality="normal"):
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
                 if info and 'url' in info:
-                    if i > 0: logger.info(f"Fallback successful for {video_id} using identity {identity['client']}")
+                    if i > 0: logger.info(f"Fallback successful for {video_id} using client {identity['client']}")
                     return info['url']
         except Exception as e:
             logger.warning(f"Extraction attempt {i+1} failed for {video_id} ({identity['client']}): {e}")
             continue
 
-    # Final "Nuclear Option": No constraints, best possible stream from any format
+    # Final "Nuclear Option": No constraints
     try:
         logger.warning(f"All identity fallbacks failed for {video_id}, trying nuclear option.")
         nuclear_opts = {
@@ -229,8 +234,6 @@ def get_audio_stream_url(video_id, quality="normal"):
             'cookiefile': COOKIE_PATH if os.path.exists(COOKIE_PATH) else None,
             'quiet': True,
             'skip_download': True,
-            'noplaylist': True,
-            'geo_bypass': True,
             'nocheckcertificate': True
         }
         with yt_dlp.YoutubeDL(nuclear_opts) as ydl:

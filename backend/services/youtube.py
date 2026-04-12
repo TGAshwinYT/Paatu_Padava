@@ -113,8 +113,11 @@ def map_youtube_song(result):
         else:
             album_name = str(album_data)
 
+        # 5. Bulletproof ID Resolution
+        video_id = result.get('videoId') or result.get('yt_video_id') or result.get('id')
+        
         return {
-            "id": result.get('videoId'),
+            "id": video_id,
             "title": result.get('title'),
             "artist": artist_name,
             "coverUrl": cover_url,

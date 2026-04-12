@@ -5,12 +5,21 @@ import { getValidImage } from '../utils/imageUtils';
 export const mapHistoryToSong = (item: any): Song => {
   if (!item) return { id: '', title: 'Unknown', artist: 'Unknown', coverUrl: '', audioUrl: '' };
   
+  // Bulletproof ID Resolution: Check all possible naming conventions
+  const resolvedId = 
+    item.yt_video_id || 
+    item.videoId || 
+    item.id || 
+    (item.track?.videoId) || 
+    (item.track?.id) || 
+    '';
+
   return {
-    id: item.yt_video_id || item.id || '',
-    title: item.title || item.song_name || item.name || 'Unknown Title',
-    artist: item.artist || item.artist_name || item.artists || 'Unknown Artist',
-    album: item.album || item.album_name || '',
-    duration: Number(item.duration || item.song_duration || 0),
+    id: String(resolvedId),
+    title: item.title || item.song_name || item.name || item.track?.title || 'Unknown Title',
+    artist: item.artist || item.artist_name || item.artists || item.track?.artist || 'Unknown Artist',
+    album: item.album || item.album_name || item.track?.album || '',
+    duration: Number(item.duration || item.song_duration || item.track?.duration || 0),
     coverUrl: getValidImage(item),
     audioUrl: item.audio_url || item.audioUrl || item.url || item.streamUrl || '',
     downloadUrls: item.download_urls || item.downloadUrls || [],

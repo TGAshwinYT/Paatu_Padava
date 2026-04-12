@@ -10,7 +10,7 @@ import json
 logger = logging.getLogger(__name__)
 
 # Deployment Cookie Path
-COOKIE_PATH = os.path.join(os.path.dirname(__file__), "..", "youtube_cookies.txt")
+COOKIE_PATH = "/tmp/youtube_cookies.txt"
 
 # Initialize YTMusic with Browser Headers (Hardened for cloud deployment)
 headers_raw = os.getenv("YT_HEADERS")

@@ -25,7 +25,8 @@ async def stream_song(yt_video_id: str, quality: str = "normal"):
     # Force heavy yt-dlp process into a background thread
     url = await asyncio.to_thread(youtube.get_audio_stream_url, yt_video_id, quality)
     if not url:
-        raise HTTPException(status_code=404, detail="Stream URL not found")
+        logger.error(f"Streaming failure: Could not resolve stream URL for video {yt_video_id}")
+        raise HTTPException(status_code=404, detail="Stream URL not found or extraction blocked")
     return {"url": url}
 @router.get("/home")
 async def get_home_feed(

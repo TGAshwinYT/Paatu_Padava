@@ -49,58 +49,40 @@ def is_yt_authenticated():
     """
     return os.path.exists(auth_file)
 
-# --- Round-Robin Piped API Configuration ---
-# A list of independent public Piped API servers around the world
+# --- Piped API Configuration ---
 PIPED_INSTANCES = [
-    "https://pipedapi.tokhmi.xyz",
-    "https://pipedapi.syncpundit.io",
-    "https://pipedapi.us.projectsegfau.lt",
     "https://pipedapi.kavin.rocks",
-    "https://piped-api.lunar.icu"
+    "https://pipedapi.adminforge.de",
+    "https://piped-api.garudalinux.org",
+    "https://api-piped.mha.fi",
 ]
 
 async def get_audio_url(video_id: str):
     """
-    Attempts to fetch the audio stream from multiple Piped instances (Round-Robin).
-    If one server is down or slow, it instantly tries the next one.
-    Optimized for M4A/MP4 compatibility.
+    Fetches direct audio URL using Piped API instances with a fallback strategy.
     """
-    async with httpx.AsyncClient(timeout=7, follow_redirects=True) as client:
-        for base_url in PIPED_INSTANCES:
-            piped_url = f"{base_url}/streams/{video_id}"
-            
+    async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+        for instance in PIPED_INSTANCES:
             try:
-                logger.info(f"Trying Piped instance: {base_url} for {video_id}...")
-                response = await client.get(piped_url)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    audio_streams = data.get("audioStreams", [])
+                logger.info(f"Trying Piped instance: {instance} for {video_id}")
+                res = await client.get(f"{instance}/streams/{video_id}")
+                if res.status_code != 200:
+                    continue
                     
-                    if audio_streams:
-                        best_audio_url = None
-                        
-                        # 1. Hunt for standard M4A/MP4 audio (max compatibility)
-                        for stream in audio_streams:
-                            mime_type = stream.get("mimeType", "").lower()
-                            if "audio/mp4" in mime_type or "m4a" in mime_type:
-                                best_audio_url = stream.get("url")
-                                break
-                        
-                        # 2. Fallback to whatever audio is available
-                        if not best_audio_url:
-                            best_audio_url = audio_streams[0].get("url")
-                            
-                        logger.info(f"Success! Stream found via {base_url}")
-                        return best_audio_url
-                else:
-                    logger.warning(f"Instance {base_url} failed (Status {response.status_code}). Trying next...")
-                    
+                data = res.json()
+                streams = data.get("audioStreams", [])
+                if streams:
+                    # Pick highest quality based on bitrate
+                    best = sorted(streams, key=lambda s: s.get("bitrate", 0), reverse=True)
+                    url = best[0].get("url")
+                    if url:
+                        logger.info(f"Success with Piped instance: {instance}")
+                        return url
             except Exception as e:
-                logger.warning(f"Instance {base_url} timed out or crashed: {e}. Trying next...")
-                continue # Move to the next URL in the list
+                logger.warning(f"Piped instance {instance} failed for {video_id}: {e}")
+                continue
                 
-    logger.error(f"CRITICAL: All {len(PIPED_INSTANCES)} Piped instances are currently down.")
+    logger.error(f"All Piped instances failed for {video_id}")
     return None
 
 async def resolve_stream_url(video_id):
@@ -468,13 +450,13 @@ def debug_formats(video_id: str):
     Diagnostic: probes Piped instances directly.
     """
     results = {}
-    for base_url in PIPED_INSTANCES:
+    for instance in PIPED_INSTANCES:
         try:
-            res = httpx.get(f"{base_url}/streams/{video_id}", timeout=5)
-            results[base_url] = {
+            res = httpx.get(f"{instance}/streams/{video_id}", timeout=10)
+            results[instance] = {
                 "status_code": res.status_code,
                 "data": res.json() if res.status_code == 200 else "error"
             }
         except Exception as e:
-            results[base_url] = f"Error: {str(e)}"
+            results[instance] = f"Error: {str(e)}"
     return results

@@ -1,11 +1,12 @@
-from ytmusicapi import YTMusic
-import yt_dlp
+import os
+import json
 import asyncio
 import logging
 import functools
-import os
 import tempfile
-import json
+
+# FORCE yt-dlp to use Node.js for signature solving
+os.environ["YTDLP_JS_RUNTIME"] = "node"
 
 logger = logging.getLogger(__name__)
 
@@ -161,12 +162,12 @@ async def search_youtube(query, filter="songs", limit=20):
 
 def get_audio_stream_url(video_id, quality="normal"):
     """
-    Extracts the direct audio stream URL with the comprehensive 'Everything' bypass strategy.
-    Includes forced Node.js runtime, manual PO Token support, and detailed error logging.
+    Extracts the direct audio stream URL with the final 'Proof of Origin' bypass strategy.
+    Includes forced Node.js runtime, PO Token + Visitor Data synchronization, and IPv4 forcing.
     """
-    raw_po_token = os.getenv("YT_PO_TOKEN")
+    po_token = os.getenv("YT_PO_TOKEN")
+    visitor_data = os.getenv("YT_VISITOR_DATA")
     
-    # Task 1: Basic Options Setup
     if quality == "high":
         format_string = 'bestaudio[ext=m4a]/bestaudio/best'
     elif quality == "low":
@@ -176,31 +177,32 @@ def get_audio_stream_url(video_id, quality="normal"):
 
     url = f"https://www.youtube.com/watch?v={video_id}"
     
-    # Task 2: Implement 3-Attempt Fallback with Detailed Error Handling
+    # Implementation of the Final 3-Attempt Hardened Fallback
     for attempt in range(1, 4):
         try:
             yt_extractor_args = {
-                # Attempt 1/2 starts with the preferred chain
-                'player_client': ['web', 'mweb', 'android', 'ios'],
-                'player_skip': ['webpage', 'configs', 'js'] if attempt == 1 else []
+                # Task 1: Use web/mweb for maximum PO Token stability
+                'player_client': ['web', 'mweb'],
             }
             
-            # Format PO Token per Task 1
-            if raw_po_token:
-                yt_extractor_args['po_token'] = f"web+{raw_po_token}"
+            # Formatted per Task 1: web+ {token}
+            if po_token:
+                yt_extractor_args['po_token'] = f"web+ {po_token}"
+            
+            # Task 1: Visitor Data synchronization
+            if visitor_data:
+                yt_extractor_args['visitor_data'] = visitor_data
                 
             ydl_opts = {
                 'format': format_string,
-                'cookiefile': COOKIE_PATH if os.path.exists(COOKIE_PATH) else None,
                 'quiet': True,
                 'no_warnings': False,
-                'skip_download': True,
+                'source_address': '0.0.0.0', # Task 1: Force IPv4
+                'cookiefile': COOKIE_PATH if os.path.exists(COOKIE_PATH) else None,
                 'nocheckcertificate': True,
                 'extractor_args': {
                     'youtube': yt_extractor_args
-                },
-                # Force using the external JavaScript solver (node)
-                'external_downloader_args': ['--javascript-runtime', 'node']
+                }
             }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -210,7 +212,6 @@ def get_audio_stream_url(video_id, quality="normal"):
                     return info['url']
         except Exception as e:
             err_msg = str(e)
-            # Detailed Error Classification per Task 2
             if "403" in err_msg:
                 classification = "403 Forbidden (Blocked/IP Issue)"
             elif "Signature" in err_msg or "n-challenge" in err_msg:

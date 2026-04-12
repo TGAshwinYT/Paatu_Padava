@@ -7,6 +7,25 @@ import os
 
 logger = logging.getLogger(__name__)
 
+# --- YouTube Cookie Authentication Support ---
+COOKIE_PATH = "/tmp/yt_cookies.txt"
+
+def _setup_cookies():
+    cookie_data = os.environ.get("YOUTUBE_COOKIES", "")
+    if cookie_data.strip():
+        try:
+            with open(COOKIE_PATH, "w", encoding="utf-8") as f:
+                f.write(cookie_data)
+            logger.info(f"YouTube cookies initialized successfully at {COOKIE_PATH}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to initialize YouTube cookies: {e}")
+            return False
+    return False
+
+HAS_COOKIES = _setup_cookies()
+# ----------------------------------------------
+
 # Initialize YTMusic
 auth_file = os.path.join(os.path.dirname(__file__), "..", "headers.json")
 try:
@@ -47,6 +66,9 @@ def _extract_with_client(video_id: str, player_client: str):
             }
         }
     }
+
+    if HAS_COOKIES:
+        ydl_opts['cookiefile'] = COOKIE_PATH
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(

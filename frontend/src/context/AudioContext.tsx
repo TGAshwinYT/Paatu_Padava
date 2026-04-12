@@ -50,7 +50,6 @@ interface AudioContextType {
   playFromSearch: (track: Song) => void;
   audioRef: React.RefObject<HTMLAudioElement | null>;
   onEnded: () => void;
-  isResolving: boolean;
 }
 
 const AudioContext = createContext<AudioContextType | undefined>(undefined);
@@ -82,7 +81,6 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [remainingSleepTime, setRemainingSleepTime] = useState<number | null>(null);
   const [isEndOfTrackTimer, setIsEndOfTrackTimer] = useState(false);
   const [userPlaylists, setUserPlaylists] = useState<any[]>([]);
-  const [isResolving, setIsResolving] = useState(false);
   
   const audioRef = useRef<HTMLAudioElement>(null);
   const lastTrackId = useRef<string | null>(null);
@@ -658,7 +656,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setAudioQuality: handleSetQuality,
         playNext, playPrevious,
       setSleepTimer, addToQueue, removeFromQueue, reorderQueue, handleOnDragEnd, refreshPlaylists, setQueue, clearHistory, playContext, playFromSearch,
-      audioRef, onEnded, isResolving, progress: currentTime 
+      audioRef, onEnded, progress: currentTime 
     }}>
       {children}
       <audio

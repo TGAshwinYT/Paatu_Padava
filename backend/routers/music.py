@@ -26,7 +26,10 @@ async def stream_song(yt_video_id: str, quality: str = "normal"):
     # Use the new pytubefix resolver
     url = await asyncio.to_thread(youtube.get_audio_url, yt_video_id)
     if not url:
-        raise HTTPException(status_code=404, detail="Stream URL not found")
+        raise HTTPException(
+            status_code=404, 
+            detail="Audio stream currently unavailable or blocked by bot detection. Please try again later."
+        )
     
     return RedirectResponse(url=url)
 @router.get("/home")

@@ -161,35 +161,12 @@ async def search_youtube(query, filter="songs", limit=20):
 
 def get_audio_stream_url(video_id, quality="normal"):
     """
-    Extracts the direct audio stream URL with hardened identity fallbacks and PO Token support.
+    Extracts the direct audio stream URL with the comprehensive 'Everything' bypass strategy.
+    Includes forced Node.js runtime, manual PO Token support, and detailed error logging.
     """
-    po_token = os.getenv("YT_PO_TOKEN")
+    raw_po_token = os.getenv("YT_PO_TOKEN")
     
-    # 1. Define fallbacks (ordered by ability to bypass challenges)
-    # Priority 1: iOS/Android/MWeb (User-preferred for signature bypass)
-    # Priority 2: Embedded/TV (Resilient against bot detection)
-    identities = [
-        # Attempt 1: iOS (Most stable for bypassing signatures with player_skip)
-        {
-            "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
-            "client": ["ios", "mweb"],
-            "skip": ['webpage', 'configs', 'js']
-        },
-        # Attempt 2: Android (Stable fallback)
-        {
-            "ua": "com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US; Pixel 8 Pro; Build/AP1A.240305.019)",
-            "client": ["android"],
-            "skip": []
-        },
-        # Attempt 3: Embedded/TV (Safe fallback for restricted videos)
-        {
-            "ua": "Mozilla/5.0 (Chromecast; Google TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "client": ["web_embedded", "tv"],
-            "skip": []
-        }
-    ]
-
-    # Default format logic
+    # Task 1: Basic Options Setup
     if quality == "high":
         format_string = 'bestaudio[ext=m4a]/bestaudio/best'
     elif quality == "low":
@@ -199,57 +176,53 @@ def get_audio_stream_url(video_id, quality="normal"):
 
     url = f"https://www.youtube.com/watch?v={video_id}"
     
-    for i, identity in enumerate(identities):
+    # Task 2: Implement 3-Attempt Fallback with Detailed Error Handling
+    for attempt in range(1, 4):
         try:
             yt_extractor_args = {
-                'player_client': identity["client"],
-                'skip': ['hls', 'dash'] + identity.get('skip', [])
+                # Attempt 1/2 starts with the preferred chain
+                'player_client': ['web', 'mweb', 'android', 'ios'],
+                'player_skip': ['webpage', 'configs', 'js'] if attempt == 1 else []
             }
             
-            # Inject PO Token if available (Critical for bypassing bot detection)
-            if po_token:
-                yt_extractor_args['po_token'] = f"web.gvs+{po_token}"
+            # Format PO Token per Task 1
+            if raw_po_token:
+                yt_extractor_args['po_token'] = f"web+{raw_po_token}"
                 
             ydl_opts = {
                 'format': format_string,
                 'cookiefile': COOKIE_PATH if os.path.exists(COOKIE_PATH) else None,
-                'user_agent': identity["ua"],
                 'quiet': True,
                 'no_warnings': False,
                 'skip_download': True,
-                'noplaylist': True,
-                'geo_bypass': True,
                 'nocheckcertificate': True,
                 'extractor_args': {
                     'youtube': yt_extractor_args
-                }
+                },
+                # Force using the external JavaScript solver (node)
+                'external_downloader_args': ['--javascript-runtime', 'node']
             }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
                 if info and 'url' in info:
-                    if i > 0: logger.info(f"Fallback successful for {video_id} using client {identity['client']}")
+                    if attempt > 1: logger.info(f"Extraction successful for {video_id} on attempt {attempt}")
                     return info['url']
         except Exception as e:
-            logger.warning(f"Extraction attempt {i+1} failed for {video_id} ({identity['client']}): {e}")
+            err_msg = str(e)
+            # Detailed Error Classification per Task 2
+            if "403" in err_msg:
+                classification = "403 Forbidden (Blocked/IP Issue)"
+            elif "Signature" in err_msg or "n-challenge" in err_msg:
+                classification = "Signature/n-challenge Solving Failed (JS Runtime Issue)"
+            else:
+                classification = "Standard Extraction Error"
+            
+            logger.error(f"Attempt {attempt}/3 failed for {video_id}: [{classification}] - {err_msg[:200]}...")
+            if attempt == 3:
+                logger.critical(f"Final extraction failure for {video_id}. Giving up.")
+                break
             continue
-
-    # Final "Nuclear Option"
-    try:
-        logger.warning(f"All identity fallbacks failed for {video_id}, trying nuclear option.")
-        nuclear_opts = {
-            'format': 'bestaudio/best',
-            'cookiefile': COOKIE_PATH if os.path.exists(COOKIE_PATH) else None,
-            'quiet': True,
-            'skip_download': True,
-            'nocheckcertificate': True
-        }
-        with yt_dlp.YoutubeDL(nuclear_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            if info and 'url' in info:
-                return info['url']
-    except Exception as e:
-        logger.error(f"Final nuclear fallback failed for {video_id}: {e}")
 
     return None
 

@@ -47,16 +47,15 @@ def is_yt_authenticated():
 PLAYER_CLIENTS = ["tv", "web", "web_creator", "mediaconnect"]
 
 def _extract_with_client(video_id: str, player_client: str):
-    """Try extracting audio URL with a specific player client + cookies."""
+    """
+    Extract audio URL using process=False to bypass yt-dlp format selector,
+    then manually pick the best audio format from raw data.
+    """
     ydl_opts = {
-        'format': 'bestaudio/best',
         'quiet': True,
         'no_warnings': True,
         'skip_download': True,
         'noplaylist': True,
-        'force_ipv4': True,
-        # Allow yt-dlp to pick ANY available format if preferred not available
-        'ignore_no_formats_error': True,
         'extractor_args': {
             'youtube': {
                 'player_client': [player_client],
@@ -64,35 +63,28 @@ def _extract_with_client(video_id: str, player_client: str):
         }
     }
 
-    # Attach cookies if available
     if HAS_COOKIES and os.path.exists(COOKIE_PATH):
         ydl_opts['cookiefile'] = COOKIE_PATH
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        try:
-            info = ydl.extract_info(
-                f"https://www.youtube.com/watch?v={video_id}",
-                download=False
-            )
-        except yt_dlp.utils.DownloadError as e:
-            if 'Requested format is not available' in str(e):
-                # Retry with no format filter at all — just get raw info
-                ydl_opts2 = dict(ydl_opts)
-                ydl_opts2.pop('format', None)
-                with yt_dlp.YoutubeDL(ydl_opts2) as ydl2:
-                    info = ydl2.extract_info(
-                        f"https://www.youtube.com/watch?v={video_id}",
-                        download=False
-                    )
-            else:
-                raise
+        # process=False returns raw format list WITHOUT yt-dlp format selection
+        # This bypasses "Requested format is not available" entirely
+        info = ydl.extract_info(
+            f"https://www.youtube.com/watch?v={video_id}",
+            download=False,
+            process=False
+        )
 
         if not info:
             return None
 
         formats = info.get('formats', [])
+        if not formats:
+            return None
 
-        # 1. Prefer audio-only (no video stream)
+        logger.info(f"client='{player_client}' returned {len(formats)} raw formats for {video_id}")
+
+        # 1. Best audio-only (no video)
         audio_only = [
             f for f in formats
             if f.get('vcodec') == 'none'
@@ -101,9 +93,10 @@ def _extract_with_client(video_id: str, player_client: str):
         ]
         if audio_only:
             best = sorted(audio_only, key=lambda f: f.get('abr') or 0, reverse=True)
+            logger.info(f"Returning audio-only format: {best[0].get('format_id')}")
             return best[0]['url']
 
-        # 2. Fallback: any format with audio
+        # 2. Any format with audio
         with_audio = [
             f for f in formats
             if f.get('acodec') not in (None, 'none')
@@ -111,10 +104,15 @@ def _extract_with_client(video_id: str, player_client: str):
         ]
         if with_audio:
             best = sorted(with_audio, key=lambda f: f.get('abr') or 0, reverse=True)
+            logger.info(f"Returning mixed format: {best[0].get('format_id')}")
             return best[0]['url']
 
-        # 3. Last resort: top-level URL
-        return info.get('url')
+        # 3. Any format with a URL at all
+        any_url = [f for f in formats if f.get('url')]
+        if any_url:
+            return any_url[0]['url']
+
+        return None
 
 
 def get_audio_url(video_id: str):
@@ -531,42 +529,51 @@ async def get_album_details_youtube(browse_id):
 
 def debug_formats(video_id: str):
     """
-    Diagnostic: returns all available formats for a video — NO format filter.
+    Diagnostic: uses yt-dlp sanitize_info to get raw format list.
     """
+    import yt_dlp.utils as ytutils
     results = {}
-    for client in PLAYER_CLIENTS:
+    all_clients = ["tv", "web", "web_creator", "mediaconnect", "mweb", "ios", "android"]
+    
+    for client in all_clients:
         ydl_opts = {
-            'quiet': False,
-            'no_warnings': False,
+            'quiet': True,
+            'no_warnings': True,
             'skip_download': True,
             'noplaylist': True,
-            # NO 'format' key — let yt-dlp return everything raw
+            'format': 'bestaudio/best',
             'extractor_args': {'youtube': {'player_client': [client]}}
         }
         if HAS_COOKIES and os.path.exists(COOKIE_PATH):
             ydl_opts['cookiefile'] = COOKIE_PATH
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # Use extract_info with process=False to get raw data
                 info = ydl.extract_info(
                     f"https://www.youtube.com/watch?v={video_id}",
-                    download=False
+                    download=False,
+                    process=False
                 )
-                formats = info.get('formats', [])
-                results[client] = {
-                    'format_count': len(formats),
-                    'formats': [
-                        {
-                            'id': f.get('format_id'),
-                            'ext': f.get('ext'),
-                            'acodec': f.get('acodec'),
-                            'vcodec': f.get('vcodec'),
-                            'abr': f.get('abr'),
-                            'protocol': f.get('protocol'),
-                            'url_present': bool(f.get('url'))
-                        }
-                        for f in formats
-                    ]
-                }
+                if info:
+                    formats = info.get('formats', [])
+                    results[client] = {
+                        'status': 'ok',
+                        'format_count': len(formats),
+                        'formats': [
+                            {
+                                'id': f.get('format_id'),
+                                'ext': f.get('ext'),
+                                'acodec': f.get('acodec'),
+                                'vcodec': f.get('vcodec'),
+                                'abr': f.get('abr'),
+                                'protocol': f.get('protocol'),
+                                'url_present': bool(f.get('url'))
+                            }
+                            for f in formats[:10]  # first 10 only
+                        ]
+                    }
+                else:
+                    results[client] = 'no info returned'
         except Exception as e:
             results[client] = f"ERROR: {str(e)}"
     return results

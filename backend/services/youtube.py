@@ -1,3 +1,5 @@
+from ytmusicapi import YTMusic
+import yt_dlp
 import os
 import json
 import asyncio

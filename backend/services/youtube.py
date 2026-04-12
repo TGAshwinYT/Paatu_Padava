@@ -54,7 +54,7 @@ def _extract_with_client(video_id: str, player_client: str):
     Returns URL string or None.
     """
     ydl_opts = {
-        'format': 'bestaudio[ext=m4a]/bestaudio/best',
+        'format': 'bestaudio/best',
         'quiet': True,
         'no_warnings': True,
         'skip_download': True,
@@ -80,10 +80,16 @@ def _extract_with_client(video_id: str, player_client: str):
 
         formats = info.get('formats', [])
 
-        # Prefer audio-only formats
-        for f in formats:
-            if f.get('vcodec') == 'none' and f.get('acodec') != 'none' and f.get('url'):
-                return f['url']
+        # Filter and sort audio-only formats by quality/bitrate
+        audio_only = [
+            f for f in formats 
+            if f.get('vcodec') == 'none' and f.get('acodec') != 'none' and f.get('url')
+        ]
+        
+        if audio_only:
+            # Sort by average bitrate (abr) or total bitrate (tbr) descending
+            audio_only.sort(key=lambda x: (x.get('abr') or x.get('tbr') or 0), reverse=True)
+            return audio_only[0]['url']
 
         # Fallback to top-level URL
         return info.get('url')

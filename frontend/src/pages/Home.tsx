@@ -83,7 +83,7 @@ const Home = ({ isLoggedIn }: HomeProps) => {
     <div className="flex flex-col gap-12 pb-24 pt-6">
 
       {/* 🚀 Personalization Banner 🚀 */}
-      {!isPersonalized && (
+      {!isLoggedIn && !isPersonalized && (
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-900/60 via-purple-900/40 to-[#121212] border border-white/5 p-8 group">
           <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 blur-[100px] rounded-full -translate-y-1/2 translate-x-1/2 group-hover:bg-indigo-500/20 transition-all duration-700"></div>
           <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">

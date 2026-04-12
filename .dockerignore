@@ -1,0 +1,14 @@
+.git
+node_modules
+frontend/node_modules
+**/__pycache__
+.env
+.vscode
+.idea
+.antigravity
+*.png
+*.jpg
+*.jpeg
+*.bat
+scripts/
+mobile/

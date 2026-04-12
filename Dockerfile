@@ -6,6 +6,16 @@ WORKDIR /code
 
 # The Caching Magic
 COPY ./backend/requirements.txt /code/requirements.txt
+
+# Install system dependencies required for curl-cffi and other builds
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    libcurl4-openssl-dev \
+    libssl-dev \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 
 # Copy the rest of your app code

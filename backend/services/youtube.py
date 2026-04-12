@@ -49,41 +49,43 @@ def is_yt_authenticated():
     """
     return os.path.exists(auth_file)
 
-# --- Piped API Configuration ---
-PIPED_INSTANCES = [
-    "https://pipedapi.kavin.rocks",
-    "https://pipedapi.adminforge.de",
-    "https://piped-api.garudalinux.org",
-    "https://api-piped.mha.fi",
-]
+# --- Cobalt API Configuration ---
+COBALT_API_URL = "https://api.cobalt.tools/api/json"
 
 async def get_audio_url(video_id: str):
     """
-    Fetches direct audio URL using Piped API instances with a fallback strategy.
+    Fetches direct audio URL using the Cobalt API (Residential Proxies).
     """
-    async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-        for instance in PIPED_INSTANCES:
-            try:
-                logger.info(f"Trying Piped instance: {instance} for {video_id}")
-                res = await client.get(f"{instance}/streams/{video_id}")
-                if res.status_code != 200:
-                    continue
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    payload = {
+        "url": f"https://www.youtube.com/watch?v={video_id}",
+        "isAudioOnly": True,
+        "aFormat": "mp3" # Safe format for web players
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            logger.info(f"Resolving {video_id} via Cobalt API...")
+            response = await client.post(COBALT_API_URL, headers=headers, json=payload)
+            
+            if response.status_code == 200:
+                data = response.json()
+                audio_url = data.get('url')
+                if audio_url:
+                    logger.info(f"Cobalt successfully resolved stream for {video_id}")
+                    return audio_url
                     
-                data = res.json()
-                streams = data.get("audioStreams", [])
-                if streams:
-                    # Pick highest quality based on bitrate
-                    best = sorted(streams, key=lambda s: s.get("bitrate", 0), reverse=True)
-                    url = best[0].get("url")
-                    if url:
-                        logger.info(f"Success with Piped instance: {instance}")
-                        return url
-            except Exception as e:
-                logger.warning(f"Piped instance {instance} failed for {video_id}: {e}")
-                continue
-                
-    logger.error(f"All Piped instances failed for {video_id}")
-    return None
+            logger.error(f"Cobalt API failed (Status {response.status_code}): {response.text}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Backend transition to Cobalt failed: {e}")
+        return None
 
 async def resolve_stream_url(video_id):
     """
@@ -447,16 +449,20 @@ async def get_album_details_youtube(browse_id):
 
 def debug_formats(video_id: str):
     """
-    Diagnostic: probes Piped instances directly.
+    Diagnostic: probes Cobalt API directly.
     """
-    results = {}
-    for instance in PIPED_INSTANCES:
-        try:
-            res = httpx.get(f"{instance}/streams/{video_id}", timeout=10)
-            results[instance] = {
+    try:
+        res = httpx.post(
+            COBALT_API_URL, 
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+            json={"url": f"https://www.youtube.com/watch?v={video_id}", "isAudioOnly": True},
+            timeout=10
+        )
+        return {
+            "cobalt": {
                 "status_code": res.status_code,
                 "data": res.json() if res.status_code == 200 else "error"
             }
-        except Exception as e:
-            results[instance] = f"Error: {str(e)}"
-    return results
+        }
+    except Exception as e:
+        return {"error": str(e)}

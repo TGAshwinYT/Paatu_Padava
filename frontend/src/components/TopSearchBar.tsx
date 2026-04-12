@@ -64,16 +64,10 @@ const TopSearchBar: React.FC = () => {
         setIsDropdownOpen(false);
         setSuggestions({ songs: [], artists: [], albums: [] });
         
-        const type = suggestion.type;
-        const id = suggestion.id;
-
-        if (type === 'artist') {
-            const artistId = id?.startsWith('vip_') ? suggestion.name : id;
+        if (suggestion.type === 'artist') {
+            const artistId = suggestion.id?.startsWith('vip_') ? suggestion.name : suggestion.id;
             navigate(`/artist/${artistId}`);
-        } else if (type === 'album') {
-            navigate(`/album/${id}`);
         } else {
-            // Default to song playback
             setQuery(suggestion.name || suggestion.title);
             playFromSearch(suggestion);
         }

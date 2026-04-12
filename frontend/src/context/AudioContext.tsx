@@ -404,15 +404,6 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const audio = audioRef.current;
 
     const startPlayback = async () => {
-        if (!currentTrack?.id) {
-            console.warn("Attempted to play a track without a valid ID. Full object details:", JSON.stringify(currentTrack, null, 2));
-            // If we're in the middle of a queue, try moving to the next track automatically
-            if (queue.length > 0) {
-                console.log("Malformed track detected, attempting to skip to next valid track...");
-                playNext();
-            }
-            return;
-        }
         try {
             const isTrackChange = lastTrackId.current !== currentTrack.id;
             

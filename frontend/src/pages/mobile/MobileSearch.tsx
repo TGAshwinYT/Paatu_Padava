@@ -149,13 +149,6 @@ const MobileSearch: React.FC = () => {
     navigate(`/artist/${artistId}`);
   };
 
-  const handleAlbumSelect = (album: any) => {
-    setIsOverlayOpen(false);
-    setQuery('');
-    setSuggestions({ songs: [], artists: [], albums: [] });
-    navigate(`/album/${album.id}`);
-  };
-
   // Merge results and suggestions for a complete list
   const getMergedList = (primary: any[], secondary: any[]) => {
      const seen = new Set();
@@ -317,11 +310,7 @@ const MobileSearch: React.FC = () => {
                   <section>
                     <h3 className="text-xl font-black mb-4 px-2">Top result</h3>
                     <div 
-                      onClick={() => {
-                        if (topResult.type === 'artist') handleArtistSelect(topResult);
-                        else if (topResult.type === 'album') handleAlbumSelect(topResult);
-                        else handleSongSelect(topResult);
-                      }}
+                      onClick={() => topResult.type === 'artist' ? handleArtistSelect(topResult) : handleSongSelect(topResult)}
                       className="bg-[#181818] p-5 rounded-2xl flex flex-col gap-5 border border-white/5 active:scale-[0.98] transition-all relative group"
                     >
                       <div className="relative w-32 h-32">

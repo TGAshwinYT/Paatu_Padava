@@ -5,20 +5,6 @@ import socket
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 load_dotenv() # Load env vars before importing routers
-
-# Setup YouTube Cookie File for Deployment (Bypasses bot detection)
-COOKIE_PATH = "/tmp/youtube_cookies.txt"
-cookies_content = os.getenv("YT_COOKIES")
-
-if cookies_content:
-    try:
-        # Ensure directory exists (mostly for local testing on various OS)
-        os.makedirs(os.path.dirname(COOKIE_PATH), exist_ok=True)
-        with open(COOKIE_PATH, "w") as f:
-            f.write(cookies_content)
-        print("[INIT] Successfully loaded YouTube cookies from environment.")
-    except Exception as e:
-        print(f"[ERROR] Failed to write YouTube cookies: {e}")
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware

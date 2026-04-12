@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query, Depends, Request
 import asyncio
-import logging
 from typing import List, Dict, Any
 from services import youtube
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +14,6 @@ from urllib.parse import quote
 from graph import recommendation_graph
 from .history import get_user_top_artists
 
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/music", tags=["music"])
 
@@ -27,8 +25,7 @@ async def stream_song(yt_video_id: str, quality: str = "normal"):
     # Force heavy yt-dlp process into a background thread
     url = await asyncio.to_thread(youtube.get_audio_stream_url, yt_video_id, quality)
     if not url:
-        logger.error(f"Streaming failure: Could not resolve stream URL for video {yt_video_id}")
-        raise HTTPException(status_code=404, detail="Stream URL not found or extraction blocked")
+        raise HTTPException(status_code=404, detail="Stream URL not found")
     return {"url": url}
 @router.get("/home")
 async def get_home_feed(

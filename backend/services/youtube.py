@@ -1,67 +1,23 @@
 from ytmusicapi import YTMusic
 import yt_dlp
-import os
-import json
 import asyncio
 import logging
 import functools
-import tempfile
-
-# FORCE yt-dlp to use Node.js for signature solving
-os.environ["YTDLP_JS_RUNTIME"] = "node"
+import os
 
 logger = logging.getLogger(__name__)
 
-# Deployment Cookie Path
-COOKIE_PATH = "/tmp/youtube_cookies.txt"
-
-# Initialize YTMusic with Browser Headers (Hardened for cloud deployment)
-headers_raw = os.getenv("YT_HEADERS")
-
-# IDENTITY SPLIT:
-# DESKTOP_UA is for parsing metadata (YTMusic). It MUST be Desktop to get Video IDs.
-# MOBILE_UA is for streaming (yt-dlp). Mobile identities are more stable against bot detection.
-DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-GLOBAL_USER_AGENT = DESKTOP_UA # Fallback
-
+# Initialize YTMusic
+auth_file = os.path.join(os.path.dirname(__file__), "..", "headers.json")
 try:
-    if headers_raw:
-        headers_json = json.loads(headers_raw)
-        
-        # Capture the original User-Agent for yt-dlp first
-        for ua_key in ['User-Agent', 'user-agent']:
-            if ua_key in headers_json:
-                GLOBAL_USER_AGENT = headers_json[ua_key]
-                break
-        
-        # STRICT WHITELIST for YTMusic API
-        safe_keys = {
-            'Cookie', 'cookie', 'Accept', 'accept',
-            'Accept-Language', 'accept-language', 'Content-Type', 'content-type',
-            'X-Goog-AuthUser', 'x-goog-auth-user', 'x-goog-authuser',
-            'x-origin', 'Origin', 'Referer', 'x-youtube-client-name', 'x-youtube-client-version'
-        }
-        
-        sanitized_headers = {k: v for k, v in headers_json.items() if k in safe_keys}
-        
-        # THE FIX: Force Desktop identity for correct JSON parsing
-        sanitized_headers["User-Agent"] = DESKTOP_UA
-        
-        # THE FIX: Force ytmusicapi 1.11+ into BROWSER mode
-        sanitized_headers["Authorization"] = "SAPISIDHASH dummy"
-        
-        # Write to a proper cross-platform temporary file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tf:
-            json.dump(sanitized_headers, tf)
-            HEADERS_PATH = tf.name
-            
-        logger.info(f"Initializing YTMusic with safe Desktop-identity headers from {HEADERS_PATH}")
-        ytmusic = YTMusic(HEADERS_PATH)
+    if os.path.exists(auth_file):
+        logger.info(f"Initializing YTMusic with authentication from {auth_file}")
+        ytmusic = YTMusic(auth_file)
     else:
-        logger.info("Initializing YTMusic as Guest (no YT_HEADERS env provided)")
+        logger.info("Initializing YTMusic as Guest (no headers.json found)")
         ytmusic = YTMusic()
 except Exception as e:
-    logger.error(f"Header auth failed, falling back to guest mode: {e}")
+    logger.error(f"Failed to initialize YTMusic: {e}")
     ytmusic = YTMusic()
 
 def is_yt_authenticated():
@@ -116,11 +72,8 @@ def map_youtube_song(result):
         else:
             album_name = str(album_data)
 
-        # 5. Bulletproof ID Resolution
-        video_id = result.get('videoId') or result.get('yt_video_id') or result.get('id')
-        
         return {
-            "id": video_id,
+            "id": result.get('videoId'),
             "title": result.get('title'),
             "artist": artist_name,
             "coverUrl": cover_url,
@@ -164,64 +117,44 @@ async def search_youtube(query, filter="songs", limit=20):
 
 def get_audio_stream_url(video_id, quality="normal"):
     """
-    Extracts the direct audio stream URL with the '2026 Bypass' guest strategy.
-    Combines anonymous web/mweb clients with aggressive tracking-payload skipping.
+    Extracts the direct audio stream URL using yt-dlp.
+    Synchronous function intended to be run in an executor.
     """
-    url = f"https://www.youtube.com/watch?v={video_id}"
-    
-    # Task 4: 2026 Bypass Identity Fallback Loop
-    for attempt in range(1, 4):
-        try:
-            ydl_opts = {
-                # Format sorting to gracefully request preferences without crashing
-                'format': 'bestaudio/best',
-                'format_sort': ['hasaud', 'ext:m4a', 'abr'],
-                
-                'quiet': True,
-                'no_warnings': False,
-                'source_address': '0.0.0.0', # Force IPv4
-                'nocheckcertificate': True,
-                
-                # Anonymous requests bypass account-based authentication walls
-                'cookiefile': None,
-                
-                # This downloads the latest JavaScript puzzle solvers directly from GitHub
-                'remote_components': ['ejs:github'],
-                
-                'extractor_args': {
-                    'youtube': {
-                        # THE 2026 BYPASS: Use 'web' but skip the heavy tracking payloads
-                        'player_client': ['web', 'mweb'],
-                        'player_skip': ['initial_data', 'configs', 'webpage']
-                    }
-                },
-                'http_headers': {
-                    # Heavy User-Agent spoofing to look like a real Windows PC
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept-Language': 'en-US,en;q=0.9'
-                }
-            }
-            
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                if info and 'url' in info:
-                    if attempt > 1: logger.info(f"Extraction successful for {video_id} on attempt {attempt} (TV client)")
-                    return info['url']
-        except Exception as e:
-            err_msg = str(e)
-            if "403" in err_msg:
-                classification = "403 Forbidden (Blocked/IP Issue)"
-            elif "Signature" in err_msg or "n-challenge" in err_msg:
-                classification = "Signature/n-challenge Solving Failed (JS Runtime Issue)"
-            else:
-                classification = "Standard Extraction Error"
-            
-            logger.error(f"Attempt {attempt}/3 failed for {video_id}: [{classification}] - {err_msg[:200]}...")
-            if attempt == 3:
-                logger.critical(f"Final extraction failure for {video_id}. Giving up.")
-                break
-            continue
+    # Default to Normal (approx 128kbps)
+    format_string = 'bestaudio[abr<=128][ext=m4a]/bestaudio[ext=m4a]/bestaudio/best'
 
+    if quality == "high":
+        # Highest possible bitrate (usually 256kbps aac/opus)
+        format_string = 'bestaudio[ext=m4a]/bestaudio/best'
+    elif quality == "low":
+        # Lowest possible bitrate to save user data (approx 48-64kbps)
+        format_string = 'worstaudio[ext=m4a]/worstaudio/worst'
+    elif quality == "auto":
+        # Let YouTube/yt-dlp decide the most efficient standard stream
+        format_string = 'bestaudio/best'
+        
+    ydl_opts = {
+        'format': format_string,
+        'quiet': True,
+        'no_warnings': True,
+        'skip_download': True, # We only want the URL, not the file
+        'noplaylist': True, # Prevents accidental massive playlist scraping
+        'force_ipv4': True, # Bypasses common IPv6 routing timeouts on cloud servers
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android'] # THE BIGGEST SPEED HACK
+            }
+        }
+    }
+    
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+            if info and 'url' in info:
+                return info['url']
+    except Exception as e:
+        logger.error(f"yt-dlp extraction error for {video_id}: {e}")
+    
     return None
 
 async def resolve_stream_url(video_id):

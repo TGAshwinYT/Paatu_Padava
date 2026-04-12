@@ -24,7 +24,7 @@ async def stream_song(yt_video_id: str, quality: str = "normal"):
     Extracts the direct playable audio stream URL and redirects the client.
     """
     # Use the new pytubefix resolver
-    url = await asyncio.to_thread(youtube.get_audio_url, yt_video_id)
+    url = await youtube.get_audio_url(yt_video_id)
     if not url:
         raise HTTPException(
             status_code=404, 

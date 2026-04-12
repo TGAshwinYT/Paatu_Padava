@@ -4,6 +4,8 @@ import asyncio
 import logging
 import functools
 import os
+import httpx
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -14,10 +16,14 @@ COOKIE_PATH = "/tmp/yt_cookies.txt"
 def _setup_cookies():
     cookie_data = os.environ.get("YOUTUBE_COOKIES", "")
     if cookie_data.strip():
-        with open(COOKIE_PATH, "w", encoding="utf-8") as f:
-            f.write(cookie_data)
-        logger.info("[COOKIES] cookies.txt written from YOUTUBE_COOKIES secret.")
-        return True
+        try:
+            with open(COOKIE_PATH, "w", encoding="utf-8") as f:
+                f.write(cookie_data)
+            logger.info("[COOKIES] cookies.txt written from YOUTUBE_COOKIES secret.")
+            return True
+        except Exception as e:
+            logger.error(f"[COOKIES] Failed to write cookie file: {e}")
+            return False
     logger.warning("[COOKIES] YOUTUBE_COOKIES secret not found. Requests may be blocked.")
     return False
 
@@ -43,102 +49,47 @@ def is_yt_authenticated():
     """
     return os.path.exists(auth_file)
 
-# Client fallback chain — tried in order until one works
-PLAYER_CLIENTS = ["tv", "web", "web_creator", "mediaconnect"]
+# --- Piped API Configuration ---
+PIPED_INSTANCES = [
+    "https://pipedapi.kavin.rocks",
+    "https://pipedapi.adminforge.de",
+    "https://piped-api.garudalinux.org",
+    "https://api-piped.mha.fi",
+]
 
-def _extract_with_client(video_id: str, player_client: str):
+async def get_audio_url(video_id: str):
     """
-    Extract audio URL using process=False to bypass yt-dlp format selector,
-    then manually pick the best audio format from raw data.
+    Fetches direct audio URL using Piped API instances with a fallback strategy.
     """
-    ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'skip_download': True,
-        'noplaylist': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': [player_client],
-            }
-        }
-    }
-
-    if HAS_COOKIES and os.path.exists(COOKIE_PATH):
-        ydl_opts['cookiefile'] = COOKIE_PATH
-
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        # process=False returns raw format list WITHOUT yt-dlp format selection
-        # This bypasses "Requested format is not available" entirely
-        info = ydl.extract_info(
-            f"https://www.youtube.com/watch?v={video_id}",
-            download=False,
-            process=False
-        )
-
-        if not info:
-            return None
-
-        formats = info.get('formats', [])
-        if not formats:
-            return None
-
-        logger.info(f"client='{player_client}' returned {len(formats)} raw formats for {video_id}")
-
-        # 1. Best audio-only (no video)
-        audio_only = [
-            f for f in formats
-            if f.get('vcodec') == 'none'
-            and f.get('acodec') not in (None, 'none')
-            and f.get('url')
-        ]
-        if audio_only:
-            best = sorted(audio_only, key=lambda f: f.get('abr') or 0, reverse=True)
-            logger.info(f"Returning audio-only format: {best[0].get('format_id')}")
-            return best[0]['url']
-
-        # 2. Any format with audio
-        with_audio = [
-            f for f in formats
-            if f.get('acodec') not in (None, 'none')
-            and f.get('url')
-        ]
-        if with_audio:
-            best = sorted(with_audio, key=lambda f: f.get('abr') or 0, reverse=True)
-            logger.info(f"Returning mixed format: {best[0].get('format_id')}")
-            return best[0]['url']
-
-        # 3. Any format with a URL at all
-        any_url = [f for f in formats if f.get('url')]
-        if any_url:
-            return any_url[0]['url']
-
-        return None
-
-
-def get_audio_url(video_id: str):
-    """
-    Tries multiple yt-dlp player clients with cookies until one works.
-    """
-    for client in PLAYER_CLIENTS:
-        try:
-            logger.info(f"Trying player_client='{client}' for {video_id}...")
-            url = _extract_with_client(video_id, client)
-            if url:
-                logger.info(f"Success with client='{client}' for {video_id}")
-                return url
-        except Exception as e:
-            logger.warning(f"Client '{client}' failed for {video_id}: {e}")
-            continue
-
-    logger.error(f"All clients failed for {video_id}")
+    async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+        for instance in PIPED_INSTANCES:
+            try:
+                logger.info(f"Trying Piped instance: {instance} for {video_id}")
+                res = await client.get(f"{instance}/streams/{video_id}")
+                if res.status_code != 200:
+                    continue
+                    
+                data = res.json()
+                streams = data.get("audioStreams", [])
+                if streams:
+                    # Pick highest quality based on bitrate
+                    best = sorted(streams, key=lambda s: s.get("bitrate", 0), reverse=True)
+                    url = best[0].get("url")
+                    if url:
+                        logger.info(f"Success with Piped instance: {instance}")
+                        return url
+            except Exception as e:
+                logger.warning(f"Piped instance {instance} failed for {video_id}: {e}")
+                continue
+                
+    logger.error(f"All Piped instances failed for {video_id}")
     return None
 
 async def resolve_stream_url(video_id):
     """
-    Async wrapper for get_audio_url.
+    Alias for get_audio_url.
     """
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, get_audio_url, video_id)
+    return await get_audio_url(video_id)
 
 def map_youtube_song(result):
     """
@@ -206,7 +157,6 @@ async def search_youtube(query, filter="songs", limit=20):
     if not ytmusic:
         return []
     
-    # Run synchronous YTMusic search in a thread pool to avoid blocking
     loop = asyncio.get_event_loop()
     try:
         results = await loop.run_in_executor(
@@ -226,12 +176,7 @@ async def search_youtube(query, filter="songs", limit=20):
         logger.error(f"YTMusic search error: {e}")
         return []
 
-
-
 async def search_albums_youtube(query, limit=10):
-    """
-    Async wrapper for YTMusic album search.
-    """
     if not ytmusic:
         return []
     
@@ -260,9 +205,6 @@ async def search_albums_youtube(query, limit=10):
         return []
 
 async def search_artists_youtube(query, limit=10):
-    """
-    Async wrapper for YTMusic artist search.
-    """
     if not ytmusic:
         return []
     
@@ -288,39 +230,7 @@ async def search_artists_youtube(query, limit=10):
         logger.error(f"YTMusic artist search error: {e}")
         return []
 
-async def get_trending_youtube(region="global"):
-    """
-    Fetches trending songs from YouTube Music Charts.
-    """
-    if not ytmusic:
-        return []
-    
-    loop = asyncio.get_event_loop()
-    try:
-        # region should be a 2-letter country code for charts, or 'ZZ' for global
-        # map 'global' or None to 'ZZ'
-        chart_region = region if region and len(region) == 2 else 'ZZ'
-        
-        results = await loop.run_in_executor(
-            None, 
-            functools.partial(ytmusic.get_charts, country=chart_region)
-        )
-        
-        songs = results.get('songs', {}).get('items', [])
-        mapped_songs = []
-        for s in songs:
-            mapped = map_youtube_song(s)
-            if mapped:
-                mapped_songs.append(mapped)
-        
-        return mapped_songs
-    except Exception as e:
-        logger.error(f"YTMusic charts error: {e}")
-        return []
 async def get_home_youtube(limit=20, region=""):
-    """
-    Main entry point for the home feed. Switches between Personalized and Regional.
-    """
     if not ytmusic:
         return {"recommendedForYou": [], "topAlbums": [], "topArtists": [], "personalized": False}
 
@@ -342,7 +252,6 @@ async def get_home_youtube(limit=20, region=""):
                 title = shelf.get('title', '').lower()
                 contents = shelf.get('contents', [])
                 
-                # Use 'Listen Again' or 'Recommended' for the top shelf
                 if 'listen again' in title or 'recommended' in title:
                     for item in contents:
                         if item.get('videoId') and len(response["recommendedForYou"]) < 12:
@@ -350,7 +259,6 @@ async def get_home_youtube(limit=20, region=""):
                             if mapped:
                                 response["recommendedForYou"].append(mapped)
                 
-                # Extract Albums and Artists from other shelves
                 for item in contents:
                     browse_id = item.get('browseId', '')
                     if browse_id.startswith('MPREb'):
@@ -371,37 +279,30 @@ async def get_home_youtube(limit=20, region=""):
             
             response["personalized"] = len(response["recommendedForYou"]) > 0
 
-        # PATH B: Guest Regional Fallback (used if not auth OR auth returned nothing)
+        # PATH B: Guest Regional Fallback
         if not response["recommendedForYou"] or not response["personalized"]:
             logger.info(f"Using regional fallback logic for region: {region}")
             fallback = await fetch_regional_fallback(region)
-            # Merge or Overwrite
             response["recommendedForYou"] = fallback["recommendedForYou"]
             if not response["topAlbums"]: response["topAlbums"] = fallback["topAlbums"]
             if not response["topArtists"]: response["topArtists"] = fallback["topArtists"]
             response["personalized"] = False
 
         return response
-
     except Exception as e:
         logger.error(f"Home Feed Logic Error: {e}")
         return await fetch_regional_fallback(region)
 
 async def fetch_regional_fallback(region=""):
-    """
-    Fetches high-quality localized content based on region when personalization is unavailable.
-    """
     loop = asyncio.get_event_loop()
     response = {"recommendedForYou": [], "topAlbums": [], "topArtists": []}
     
-    # 1. Localized Search for Songs
     song_query = f"{region} Hit Songs" if region else "Tamil Hit Songs"
     search_songs = await loop.run_in_executor(None, functools.partial(ytmusic.search, song_query, filter="songs", limit=12))
     for item in search_songs:
         mapped = map_youtube_song(item)
         if mapped: response["recommendedForYou"].append(mapped)
 
-    # 2. Localized Search for Albums
     album_query = f"{region} Hit Albums" if region else "Tamil Hit Albums"
     search_albums = await loop.run_in_executor(None, functools.partial(ytmusic.search, album_query, filter="albums", limit=20))
     for item in search_albums:
@@ -412,7 +313,6 @@ async def fetch_regional_fallback(region=""):
             "cover_url": item.get('thumbnails', [{'url': ''}])[-1].get('url', '')
         })
 
-    # 3. Localized Search for Artists
     artist_query = f"Trending {region} Artists" if region else "Trending Tamil Artists"
     search_artists = await loop.run_in_executor(None, functools.partial(ytmusic.search, artist_query, filter="artists", limit=20))
     for item in search_artists:
@@ -425,9 +325,6 @@ async def fetch_regional_fallback(region=""):
     return response
 
 async def get_related_songs(video_id, limit=10):
-    """
-    Fetches related songs (Watch Next) for a given video ID.
-    """
     if not ytmusic:
         return []
     
@@ -441,7 +338,6 @@ async def get_related_songs(video_id, limit=10):
         tracks = results.get('tracks', [])
         mapped_tracks = []
         for t in tracks:
-            # map_youtube_song expects some keys that get_watch_playlist might provide differently
             mapped = map_youtube_song(t)
             if mapped:
                 mapped_tracks.append(mapped)
@@ -452,9 +348,6 @@ async def get_related_songs(video_id, limit=10):
         return []
 
 async def get_artist_details_youtube(channel_id):
-    """
-    Fetches artist details and their top tracks.
-    """
     if not ytmusic:
         return {"name": "Unknown Artist", "image": "", "topSongs": []}
     
@@ -486,9 +379,6 @@ async def get_artist_details_youtube(channel_id):
         return {"name": "Unknown Artist", "image": "", "topSongs": []}
 
 async def get_album_details_youtube(browse_id):
-    """
-    Fetches album details and its tracks.
-    """
     if not ytmusic:
         return {}
     
@@ -505,11 +395,9 @@ async def get_album_details_youtube(browse_id):
         tracks_raw = results.get('tracks', [])
         mapped_songs = []
         for t in tracks_raw:
-            # get_album tracks often lack thumbnails; we must inject the album cover manually
             if not t.get('thumbnails') and not t.get('thumbnail'):
                 t['thumbnails'] = thumbnails
 
-            # get_album tracks might lack videoId if they are unavailable or placeholders
             if t.get('videoId'):
                 mapped = map_youtube_song(t)
                 if mapped:
@@ -529,51 +417,16 @@ async def get_album_details_youtube(browse_id):
 
 def debug_formats(video_id: str):
     """
-    Diagnostic: uses yt-dlp sanitize_info to get raw format list.
+    Diagnostic: probes Piped instances directly.
     """
-    import yt_dlp.utils as ytutils
     results = {}
-    all_clients = ["tv", "web", "web_creator", "mediaconnect", "mweb", "ios", "android"]
-    
-    for client in all_clients:
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'skip_download': True,
-            'noplaylist': True,
-            'format': 'bestaudio/best',
-            'extractor_args': {'youtube': {'player_client': [client]}}
-        }
-        if HAS_COOKIES and os.path.exists(COOKIE_PATH):
-            ydl_opts['cookiefile'] = COOKIE_PATH
+    for instance in PIPED_INSTANCES:
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # Use extract_info with process=False to get raw data
-                info = ydl.extract_info(
-                    f"https://www.youtube.com/watch?v={video_id}",
-                    download=False,
-                    process=False
-                )
-                if info:
-                    formats = info.get('formats', [])
-                    results[client] = {
-                        'status': 'ok',
-                        'format_count': len(formats),
-                        'formats': [
-                            {
-                                'id': f.get('format_id'),
-                                'ext': f.get('ext'),
-                                'acodec': f.get('acodec'),
-                                'vcodec': f.get('vcodec'),
-                                'abr': f.get('abr'),
-                                'protocol': f.get('protocol'),
-                                'url_present': bool(f.get('url'))
-                            }
-                            for f in formats[:10]  # first 10 only
-                        ]
-                    }
-                else:
-                    results[client] = 'no info returned'
+            res = httpx.get(f"{instance}/streams/{video_id}", timeout=10)
+            results[instance] = {
+                "status_code": res.status_code,
+                "data": res.json() if res.status_code == 200 else "error"
+            }
         except Exception as e:
-            results[client] = f"ERROR: {str(e)}"
+            results[instance] = f"Error: {str(e)}"
     return results

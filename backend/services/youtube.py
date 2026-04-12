@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 COOKIE_PATH = "/tmp/youtube_cookies.txt"
 
 # Initialize YTMusic with Browser Headers (Hardened for cloud deployment)
+HEADERS_PATH = "/tmp/browser_headers.json"
 headers_raw = os.getenv("YT_HEADERS")
 
 try:
@@ -19,14 +20,18 @@ try:
         headers_json = json.loads(headers_raw)
         
         # Sanitization: Ensure no OAuth-conflicting headers exist
-        # ytmusicapi might assume OAuth if 'authorization' is present
         keys_to_remove = ['authorization', 'content-encoding', 'content-length', 'accept-encoding', 'host']
         for key in keys_to_remove:
             headers_json.pop(key, None)
-            headers_json.pop(key.lower(), None) # Handle case variations
+            headers_json.pop(key.lower(), None)
             
-        logger.info("Initializing YTMusic with sanitized Browser Header dictionary.")
-        ytmusic = YTMusic(auth=headers_json)
+        # Write to temporary file (The most stable way to initialize ytmusicapi)
+        os.makedirs(os.path.dirname(HEADERS_PATH), exist_ok=True)
+        with open(HEADERS_PATH, "w") as f:
+            json.dump(headers_json, f)
+            
+        logger.info(f"Initializing YTMusic with authenticated headers from {HEADERS_PATH}")
+        ytmusic = YTMusic(HEADERS_PATH)
     else:
         logger.info("Initializing YTMusic as Guest (no YT_HEADERS env provided)")
         ytmusic = YTMusic()

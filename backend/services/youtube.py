@@ -10,28 +10,20 @@ logger = logging.getLogger(__name__)
 # Deployment Cookie Path
 COOKIE_PATH = "/tmp/youtube_cookies.txt"
 
-# Initialize YTMusic with Browser Headers (Stable auth for deployment)
-HEADERS_PATH = "/tmp/browser_headers.json"
+# Initialize YTMusic with Browser Headers (Hardened for cloud deployment)
 headers_raw = os.getenv("YT_HEADERS")
 
-if headers_raw:
-    try:
-        os.makedirs(os.path.dirname(HEADERS_PATH), exist_ok=True)
-        with open(HEADERS_PATH, "w") as f:
-            f.write(headers_raw)
-        logger.info(f"Successfully prepared browser headers at {HEADERS_PATH}")
-    except Exception as e:
-        logger.error(f"Failed to prepare browser headers: {e}")
-
 try:
-    if os.path.exists(HEADERS_PATH):
-        logger.info("Initializing YTMusic with authenticated browser headers.")
-        ytmusic = YTMusic(HEADERS_PATH)
+    if headers_raw:
+        import json
+        headers_json = json.loads(headers_raw)
+        logger.info("Initializing YTMusic with direct Browser Header dictionary.")
+        ytmusic = YTMusic(auth=headers_json)
     else:
         logger.info("Initializing YTMusic as Guest (no YT_HEADERS env provided)")
         ytmusic = YTMusic()
 except Exception as e:
-    logger.error(f"Failed to initialize YTMusic: {e}")
+    logger.error(f"Header auth failed, falling back to guest mode: {e}")
     ytmusic = YTMusic()
 
 def is_yt_authenticated():
@@ -152,12 +144,16 @@ def get_audio_stream_url(video_id, quality="normal"):
         'cookiefile': COOKIE_PATH if os.path.exists(COOKIE_PATH) else None,
         'quiet': True,
         'no_warnings': True,
-        'skip_download': True, # We only want the URL, not the file
-        'noplaylist': True, # Prevents accidental massive playlist scraping
-        'force_ipv4': True, # Bypasses common IPv6 routing timeouts on cloud servers
+        'skip_download': True,
+        'noplaylist': True,
+        'force_ipv4': True,
+        'source_address': '0.0.0.0', # Forces local IPv4 binding
+        'geo_bypass': True,
+        'nocheckcertificate': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'web'] # Better fallback for restricted content
+                'player_client': ['android', 'ios'], # Mobile clients face fewer bot checks
+                'skip': ['hls', 'dash'] # Faster extraction by skipping segments
             }
         }
     }

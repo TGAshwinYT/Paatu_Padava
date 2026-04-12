@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query, Depends, Request
 import asyncio
+import logging
 from typing import List, Dict, Any
 from services import youtube
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +15,7 @@ from urllib.parse import quote
 from graph import recommendation_graph
 from .history import get_user_top_artists
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/music", tags=["music"])
 

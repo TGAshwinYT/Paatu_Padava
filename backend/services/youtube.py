@@ -1,5 +1,5 @@
 from ytmusicapi import YTMusic
-from pytubefix import YouTube
+import httpx
 import asyncio
 import logging
 import functools
@@ -106,18 +106,47 @@ async def search_youtube(query, filter="songs", limit=20):
         logger.error(f"YTMusic search error: {e}")
         return []
 
+INVIDIOUS_INSTANCES = [
+    "https://inv.nadeko.net",
+    "https://invidious.nerdvpn.de",
+    "https://invidious.privacydev.net"
+]
+
 def get_audio_url(video_id: str):
     """
-    Extracts the direct audio stream URL using pytubefix.
+    Extracts the direct audio stream URL using the Invidious API with multi-instance fallback.
+    Targeting audio/mp4 for standard compatibility.
     """
-    try:
-        yt = YouTube(f"https://www.youtube.com/watch?v={video_id}")
-        audio = yt.streams.filter(only_audio=True).first()
-        if audio:
-            return audio.url
-    except Exception as e:
-        logger.error(f"pytubefix extraction error for {video_id}: {e}")
+    for instance in INVIDIOUS_INSTANCES:
+        try:
+            url = f"{instance}/api/v1/videos/{video_id}"
+            logger.info(f"Attempting audio extraction via Invidious instance: {instance}")
+            
+            with httpx.Client(timeout=10.0, follow_redirects=True) as client:
+                response = client.get(url)
+                if response.status_code != 200:
+                    logger.warning(f"Invidious instance {instance} returned status {response.status_code}")
+                    continue
+                
+                data = response.json()
+                formats = data.get("adaptiveFormats", [])
+                
+                # Look for the first audio-only format with mp4 container (most compatible)
+                audio_format = next(
+                    (f for f in formats if "audio/mp4" in f.get("type", "")),
+                    next((f for f in formats if f.get("container") == "m4a"), None)
+                )
+                
+                if audio_format and audio_format.get("url"):
+                    logger.info(f"Successfully extracted audio URL from {instance}")
+                    return audio_format["url"]
+                
+                logger.warning(f"No suitable audio format found on instance: {instance}")
+        except Exception as e:
+            logger.error(f"Error calling Invidious instance {instance}: {e}")
+            continue
     
+    logger.error(f"All Invidious instances failed for video {video_id}")
     return None
 
 async def resolve_stream_url(video_id):

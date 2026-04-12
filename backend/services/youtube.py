@@ -164,12 +164,12 @@ async def search_youtube(query, filter="songs", limit=20):
 
 def get_audio_stream_url(video_id, quality="normal"):
     """
-    Extracts the direct audio stream URL using an anonymous 'Guest TV' identity.
-    Disabling cookies for the extraction phase bypasses the Data Sync ID and PO Token walls.
+    Extracts the direct audio stream URL with the '2026 Bypass' guest strategy.
+    Combines anonymous web/mweb clients with aggressive tracking-payload skipping.
     """
     url = f"https://www.youtube.com/watch?v={video_id}"
     
-    # Task 3: Guest TV Identity Fallback Loop
+    # Task 4: 2026 Bypass Identity Fallback Loop
     for attempt in range(1, 4):
         try:
             ydl_opts = {
@@ -182,19 +182,23 @@ def get_audio_stream_url(video_id, quality="normal"):
                 'source_address': '0.0.0.0', # Force IPv4
                 'nocheckcertificate': True,
                 
-                # THE FIX: Completely drop cookies for extraction.
-                # Anonymous TV requests bypass authentication walls (PO Token/Data Sync ID).
+                # Anonymous requests bypass account-based authentication walls
                 'cookiefile': None,
                 
-                # Dynamic JS solver (still useful for general n-parameter decryption)
+                # This downloads the latest JavaScript puzzle solvers directly from GitHub
                 'remote_components': ['ejs:github'],
                 
                 'extractor_args': {
                     'youtube': {
-                        # Using pure TV client for Guest mode stability
-                        'player_client': ['tv'],
-                        'player_skip': ['webpage', 'configs']
+                        # THE 2026 BYPASS: Use 'web' but skip the heavy tracking payloads
+                        'player_client': ['web', 'mweb'],
+                        'player_skip': ['initial_data', 'configs', 'webpage']
                     }
+                },
+                'http_headers': {
+                    # Heavy User-Agent spoofing to look like a real Windows PC
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept-Language': 'en-US,en;q=0.9'
                 }
             }
             

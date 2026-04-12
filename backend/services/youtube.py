@@ -17,7 +17,15 @@ try:
     if headers_raw:
         import json
         headers_json = json.loads(headers_raw)
-        logger.info("Initializing YTMusic with direct Browser Header dictionary.")
+        
+        # Sanitization: Ensure no OAuth-conflicting headers exist
+        # ytmusicapi might assume OAuth if 'authorization' is present
+        keys_to_remove = ['authorization', 'content-encoding', 'content-length', 'accept-encoding', 'host']
+        for key in keys_to_remove:
+            headers_json.pop(key, None)
+            headers_json.pop(key.lower(), None) # Handle case variations
+            
+        logger.info("Initializing YTMusic with sanitized Browser Header dictionary.")
         ytmusic = YTMusic(auth=headers_json)
     else:
         logger.info("Initializing YTMusic as Guest (no YT_HEADERS env provided)")

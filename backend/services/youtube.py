@@ -49,42 +49,54 @@ def is_yt_authenticated():
     """
     return os.path.exists(auth_file)
 
-# --- Cobalt API Configuration ---
-COBALT_API_URL = "https://api.cobalt.tools/api/json"
+# --- Piped API Configuration ---
+# Main public instance used for streaming
+PIPED_BASE_URL = "https://pipedapi.kavin.rocks"
 
 async def get_audio_url(video_id: str):
     """
-    Fetches direct audio URL using the Cobalt API (Residential Proxies).
+    Uses the public Piped API proxy network to fetch the audio stream,
+    completely bypassing YouTube's data-center IP blocks.
+    Optimized for M4A/MP4 compatibility.
     """
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+    piped_url = f"{PIPED_BASE_URL}/streams/{video_id}"
     
-    payload = {
-        "url": f"https://www.youtube.com/watch?v={video_id}",
-        "isAudioOnly": True,
-        "aFormat": "mp3" # Safe format for web players
-    }
-
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-            logger.info(f"Resolving {video_id} via Cobalt API...")
-            response = await client.post(COBALT_API_URL, headers=headers, json=payload)
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+            logger.info(f"Resolving {video_id} via Piped API ({PIPED_BASE_URL})...")
+            response = await client.get(piped_url)
             
             if response.status_code == 200:
                 data = response.json()
-                audio_url = data.get('url')
-                if audio_url:
-                    logger.info(f"Cobalt successfully resolved stream for {video_id}")
-                    return audio_url
+                audio_streams = data.get("audioStreams", [])
+                
+                if audio_streams:
+                    best_audio_url = None
                     
-            logger.error(f"Cobalt API failed (Status {response.status_code}): {response.text}")
-            return None
-            
+                    # 1. Look specifically for M4A/MP4 audio (MIME type: audio/mp4). 
+                    # Most universally supported format for web players.
+                    for stream in audio_streams:
+                        mime_type = stream.get("mimeType", "").lower()
+                        if "audio/mp4" in mime_type or "m4a" in mime_type:
+                            best_audio_url = stream.get("url")
+                            logger.info(f"Found optimized M4A/MP4 stream for {video_id}")
+                            break
+                    
+                    # 2. Fallback to the first available audio if M4A isn't found
+                    if not best_audio_url:
+                        best_audio_url = audio_streams[0].get("url")
+                        logger.info(f"Falling back to first available audio stream for {video_id}")
+                        
+                    return best_audio_url
+                else:
+                    logger.warning(f"No audio streams found for {video_id} in Piped response.")
+                    return None
+            else:
+                logger.error(f"Piped API Error: {response.status_code} - {response.text}")
+                return None
+                
     except Exception as e:
-        logger.error(f"Backend transition to Cobalt failed: {e}")
+        logger.error(f"Backend transition to Piped failed: {e}")
         return None
 
 async def resolve_stream_url(video_id):
@@ -449,17 +461,12 @@ async def get_album_details_youtube(browse_id):
 
 def debug_formats(video_id: str):
     """
-    Diagnostic: probes Cobalt API directly.
+    Diagnostic: probes Piped API directly.
     """
     try:
-        res = httpx.post(
-            COBALT_API_URL, 
-            headers={"Accept": "application/json", "Content-Type": "application/json"},
-            json={"url": f"https://www.youtube.com/watch?v={video_id}", "isAudioOnly": True},
-            timeout=10
-        )
+        res = httpx.get(f"{PIPED_BASE_URL}/streams/{video_id}", timeout=10)
         return {
-            "cobalt": {
+            "piped": {
                 "status_code": res.status_code,
                 "data": res.json() if res.status_code == 200 else "error"
             }

@@ -252,7 +252,7 @@ async def get_song_lyrics(song_id: str):
 @router.get("/lyrics/synced")
 async def get_synced_lyrics(title: str = Query(...), artist: str = Query(...)):
     """
-    Fetch synced lyrics (LRC) using the syncedlyrics service.
+    Fetch synced lyrics (LRC) using the synced lyrics service.
     """
     try:
         from services import lyrics
@@ -314,3 +314,13 @@ async def get_album_details(album_id: str):
     except Exception as e:
         print(f"Album Error (Router): {str(e)}")
         raise HTTPException(status_code=500, detail="Error fetching album details")
+
+
+@router.get("/debug/{yt_video_id}")
+async def debug_stream(yt_video_id: str):
+    """
+    Diagnostic endpoint — shows all available formats per client.
+    Use this to troubleshoot streaming issues.
+    """
+    result = await asyncio.to_thread(youtube.debug_formats, yt_video_id)
+    return result

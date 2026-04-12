@@ -51,7 +51,7 @@ const PopularAlbums: React.FC<PopularAlbumsProps> = ({ albums, title = "Popular 
             <Link 
               key={album.id}
               to={`/album/${album.id}`}
-              className="flex-shrink-0 w-36 md:w-44 lg:w-48 snap-start group cursor-pointer block"
+              className="flex-shrink-0 w-32 md:w-40 lg:w-44 snap-start group cursor-pointer block"
             >
               <div className="relative mb-3">
                 <img 

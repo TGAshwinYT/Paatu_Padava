@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
-import { Play, Heart, MoreHorizontal } from 'lucide-react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Play, Heart, MoreHorizontal, ArrowLeft } from 'lucide-react';
 import { useAudio } from '../context/AudioContext';
 import { getAlbumDetails, getRecommendations } from '../services/api';
 import type { Song } from '../types';
 
 const AlbumView = () => {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { playContext } = useAudio();
   const [albumData, setAlbumData] = useState<any>(null);
   const [recommendations, setRecommendations] = useState<Song[]>([]);
@@ -58,9 +59,17 @@ const AlbumView = () => {
 
   return (
     <div className="flex flex-col min-h-full bg-black">
+      {/* Back Button */}
+      <button 
+        onClick={() => navigate(-1)}
+        className="fixed top-6 left-6 z-50 p-2.5 bg-black/40 backdrop-blur-md rounded-full text-white hover:bg-black/60 transition-all border border-white/10 active:scale-90"
+      >
+        <ArrowLeft size={24} strokeWidth={2.5} />
+      </button>
+
       {/* Hero Header */}
       <div 
-        className="relative pt-12 pb-10 px-8 flex flex-col md:flex-row items-center md:items-end gap-10 transition-colors duration-500"
+        className="relative pt-20 pb-10 px-8 flex flex-col md:flex-row items-center md:items-end gap-10 transition-colors duration-500"
         style={{ background: `linear-gradient(to bottom, #2a2a2a, #121212)` }} 
       >
         {/* Album Cover */}

@@ -10,6 +10,7 @@ export const getValidImage = (song: any) => {
     if (Array.isArray(img) && img.length > 0) {
         const lastImg = img[img.length - 1];
         if (!lastImg) return '/logo.png';
+        if (typeof lastImg === 'string') return lastImg;
         return lastImg.link || lastImg.url || '/logo.png';
     }
     return '/logo.png';

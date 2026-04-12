@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Search as SearchIcon, Music, Album, Clock, X, Play, ChevronRight, PlusCircle, MoreHorizontal, Heart, ListMusic, User } from 'lucide-react';
+import { Search as SearchIcon, Music, Album, Clock, X, Play, PlusCircle, MoreHorizontal, Heart, ListMusic, User } from 'lucide-react';
 import type { Song } from '../types';
-import { searchTracks, getSuggestions, getRecentSearches, deleteSearchHistoryItem, saveSearchClick, likeSong } from '../services/api';
+import { searchTracks, getRecentSearches, deleteSearchHistoryItem, saveSearchClick, likeSong } from '../services/api';
 import { useAudio } from '../context/AudioContext';
 import { useAuth } from '../context/AuthContext';
 import { usePlaylistModal } from '../context/PlaylistModalContext';
-import useDebounce from '../hooks/useDebounce';
 import { getValidImage } from '../utils/imageUtils';
 
 const Search = () => {
@@ -102,14 +101,6 @@ const Search = () => {
     }
   };
 
-  const handleSuggestionClick = async (suggestion: any) => {
-    if (suggestion.type === 'artist') {
-      const artistId = suggestion.id.startsWith('vip_') ? suggestion.name : suggestion.id;
-      navigate(`/artist/${artistId}`);
-    } else {
-      playFromSearch(suggestion);
-    }
-  };
 
   return (
     <div className="flex flex-col gap-6 pb-24 max-w-7xl mx-auto px-4 sm:px-6 pt-4">

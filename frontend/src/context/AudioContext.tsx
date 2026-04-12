@@ -90,10 +90,12 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const isActionLocked = useRef(false);
 
   // --- 1. HELPERS ---
-  const getUrlByQuality = useCallback((song: Song | any, quality: 'low' | 'medium' | 'high') => {
+  const getUrlByQuality = useCallback((song: Song | any, quality: 'low' | 'normal' | 'high' | 'auto') => {
     const backupUrl = song.audioUrl || song.audio_url || song.url;
     if (!song.downloadUrls || song.downloadUrls.length === 0) return backupUrl;
-    const index = quality === 'low' ? 0 : quality === 'medium' ? 2 : 4;
+    // Map auto to normal for mapping purposes
+    const effectiveQuality = quality === 'auto' ? 'normal' : quality;
+    const index = effectiveQuality === 'low' ? 0 : effectiveQuality === 'normal' ? 2 : 4;
     return song.downloadUrls[Math.min(index, song.downloadUrls.length - 1)] || backupUrl;
   }, []);
 
@@ -336,9 +338,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
   };
 
-  const setAudioQuality = (quality: 'low' | 'medium' | 'high') => {
-    setAudioQualityState(quality);
-  };
+
 
   const refreshPlaylists = async () => {
     if (!user) return;

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, Request
 import asyncio
 from typing import List, Dict, Any
 from services import youtube
@@ -27,9 +27,9 @@ async def stream_song(yt_video_id: str, quality: str = "normal"):
     if not url:
         raise HTTPException(status_code=404, detail="Stream URL not found")
     return {"url": url}
-
 @router.get("/home")
 async def get_home_feed(
+    request: Request,
     region: str = Query(None),
     user: models.User = Depends(get_current_user_optional), 
     db: AsyncSession = Depends(get_db),
@@ -38,27 +38,39 @@ async def get_home_feed(
     """
     Fetches the structured YouTube Music home feed.
     """
-    try:
-        # We'll use a unique cache key for the new home feed structure
-        cache_key = f"home_feed_yt_v2_{user.id if user else 'guest'}"
-        cached_data = await redis_client.get(cache_key)
-        if cached_data:
-            return json.loads(cached_data)
+    # 1. Detect region/language from query or headers
+    region_to_use = region
+    if not region_to_use:
+        accept_lang = request.headers.get("accept-language", "").lower()
+        if "ta" in accept_lang: region_to_use = "Tamil Nadu"
+        elif "ml" in accept_lang: region_to_use = "Kerala"
+        elif "hi" in accept_lang: region_to_use = "India"
+        else: region_to_use = "Tamil Nadu" # Default for this app
 
-        # 1. Fetch Categorized Home Feed from YouTube
-        home_feed = await youtube.get_home_youtube(limit=5)
+    try:
+        cache_key = f"home_feed_yt_v4_{region_to_use}_{user.id if user else 'guest'}"
         
-        # 2. Mix in personalized recommendations from our graph in the background
-        # if the user has a listening history, but for now we'll stick to YouTube's 
-        # structured feed as requested.
+        # Safe Cache Retrieval
+        try:
+            cached_data = await redis_client.get(cache_key)
+            if cached_data:
+                return json.loads(cached_data)
+        except Exception as cache_err:
+            print(f"Redis Cache Warning (home get): {str(cache_err)}")
+
+        # 2. Fetch Home Feed (Smart Logic: Personalized if auth exists, else Regional)
+        home_feed = await youtube.get_home_youtube(limit=20, region=region_to_use)
         
-        # Cache the results for 30 minutes (home feed changes more often than charts)
-        await redis_client.setex(cache_key, 1800, json.dumps(home_feed))
-        
+        # Safe Cache Storage (30 mins)
+        try:
+            await redis_client.setex(cache_key, 1800, json.dumps(home_feed))
+        except Exception as cache_err:
+            print(f"Redis Cache Warning (home set): {str(cache_err)}")
+            
         return home_feed
     except Exception as e:
-        print(f"Router Error (home): {str(e)}")
-        return {"recommendedForYou": [], "topAlbums": [], "topArtists": []}
+        print(f"Home Feed Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error fetching home feed")
 
 @router.get("/search")
 async def search_tracks(

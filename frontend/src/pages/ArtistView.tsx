@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
-import { Play } from 'lucide-react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Play, ArrowLeft } from 'lucide-react';
 import { getArtistDetails } from '../services/api';
 import { useAudio } from '../context/AudioContext';
 import type { Song } from '../types';
 
 const ArtistView = () => {
   const { artistId } = useParams<{ artistId: string }>();
+  const navigate = useNavigate();
   const [artist, setArtist] = useState<{ id: string, name: string, image: string, topSongs: Song[] } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { playContext } = useAudio();
@@ -39,7 +40,15 @@ const ArtistView = () => {
   }
 
   return (
-    <div className="flex flex-col gap-10 pb-24 animate-in fade-in duration-700">
+    <div className="flex flex-col gap-10 pb-24 animate-in fade-in duration-700 relative pt-12">
+      {/* Back Button */}
+      <button 
+        onClick={() => navigate(-1)}
+        className="fixed top-6 left-6 z-50 p-2.5 bg-black/40 backdrop-blur-md rounded-full text-white hover:bg-black/60 transition-all border border-white/10 active:scale-90"
+      >
+        <ArrowLeft size={24} strokeWidth={2.5} />
+      </button>
+
       {/* Hero Section */}
       <div className="flex flex-col md:flex-row items-center md:items-end gap-8">
         <div className="w-48 h-48 md:w-64 md:h-64 flex-shrink-0">

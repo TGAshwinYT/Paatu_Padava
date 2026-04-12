@@ -54,23 +54,24 @@ const getUserRegion = async (): Promise<string> => {
   }
 };
 
-export const getHomeFeed = async (): Promise<{ recentlyPlayed: Song[], topAlbums: Song[], topArtists: Song[], recommendedForYou: Song[] }> => {
+export const getHomeFeed = async (): Promise<{ recentlyPlayed: Song[], topAlbums: Song[], topArtists: Song[], recommendedForYou: Song[], personalized: boolean }> => {
   try {
     // 1. Fetch user region for localization
     const region = await getUserRegion();
     
     // 2. Pass region as query param
     const response = await api.get('/api/music/home', { params: { region } });
-    const { recentlyPlayed, topAlbums, topArtists, recommendedForYou } = response.data;
+    const { recentlyPlayed, topAlbums, topArtists, recommendedForYou, personalized } = response.data;
     return { 
       recentlyPlayed: (recentlyPlayed || []).map(mapHistoryToSong), 
       topAlbums: (topAlbums || []).map(mapHistoryToSong),
       topArtists: (topArtists || []).map(mapHistoryToSong),
-      recommendedForYou: (recommendedForYou || []).map(mapHistoryToSong)
+      recommendedForYou: (recommendedForYou || []).map(mapHistoryToSong),
+      personalized: !!personalized
     };
   } catch (error) {
     console.error("Error fetching home feed:", error);
-    return { recentlyPlayed: [], topAlbums: [], topArtists: [], recommendedForYou: [] };
+    return { recentlyPlayed: [], topAlbums: [], topArtists: [], recommendedForYou: [], personalized: false };
   }
 };
 
@@ -149,8 +150,14 @@ export const getSuggestions = async (query: string): Promise<any> => {
   if (!query) return { songs: [], artists: [], albums: [] };
   try {
     const response = await api.get('/api/music/search/suggestions', { params: { query } });
-    return response.data;
+    const data = response.data;
+    return {
+      songs: (data.songs || []).map(mapHistoryToSong),
+      artists: (data.artists || []).map(mapHistoryToSong),
+      albums: (data.albums || []).map(mapHistoryToSong)
+    };
   } catch (error) {
+    console.error("Error fetching suggestions:", error);
     return { songs: [], artists: [], albums: [] };
   }
 };

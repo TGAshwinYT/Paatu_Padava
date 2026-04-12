@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search as SearchIcon, Play, ChevronRight, ChevronLeft } from 'lucide-react';
+import { Play, ChevronRight, ChevronLeft, Sparkles } from 'lucide-react';
 import SongCard from '../components/SongCard';
 import HomeSection from '../components/HomeSection';
 import PopularArtists from '../components/PopularArtists';
@@ -19,14 +19,15 @@ const Home = ({ isLoggedIn }: HomeProps) => {
   const [topArtists, setTopArtists] = useState<any[]>([]);
   const [recommended, setRecommended] = useState<Song[]>([]);
   const [topAlbums, setTopAlbums] = useState<Song[]>([]);
+  const [isPersonalized, setIsPersonalized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const { playFromSearch, playContext } = useAudio();
+  const { playContext } = useAudio();
   const navigate = useNavigate();
 
   const recommendedRef = useRef<HTMLDivElement>(null);
   const recentlyPlayedRef = useRef<HTMLDivElement>(null);
 
-  const scrollAction = (ref: React.RefObject<HTMLDivElement>, direction: 'left' | 'right') => {
+  const scrollAction = (ref: React.RefObject<HTMLDivElement | null>, direction: 'left' | 'right') => {
     if (ref.current) {
         const scrollAmount = direction === 'left' ? -400 : 400;
         ref.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
@@ -43,7 +44,8 @@ const Home = ({ isLoggedIn }: HomeProps) => {
           isLoggedIn ? getFollowedArtists() : Promise.resolve([])
         ]);
         
-        const data = feedData as any;
+        const data = feedData;
+        setIsPersonalized(data.personalized);
         setRecentlyPlayed((historyData || []).slice(0, 12));
         
         let normalizedArtists = (artistsData || []).map((a: any) => ({
@@ -52,10 +54,10 @@ const Home = ({ isLoggedIn }: HomeProps) => {
           image: [{ url: a.image_url || a.image || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop' }]
         }));
 
-        const backendArtists = data.topArtists || data.popularArtists || [];
+        const backendArtists = data.topArtists || [];
         const finalArtists = normalizedArtists.length > 0 ? normalizedArtists : backendArtists;
 
-        setTopArtists(finalArtists.slice(0, 12));
+        setTopArtists(finalArtists.slice(0, 24));
         setRecommended(data.recommendedForYou || []);
         setTopAlbums(data.topAlbums || []);
       } catch (error) {
@@ -79,6 +81,32 @@ const Home = ({ isLoggedIn }: HomeProps) => {
 
   return (
     <div className="flex flex-col gap-12 pb-24 pt-6">
+
+      {/* 🚀 Personalization Banner 🚀 */}
+      {!isPersonalized && (
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-900/60 via-purple-900/40 to-[#121212] border border-white/5 p-8 group">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 blur-[100px] rounded-full -translate-y-1/2 translate-x-1/2 group-hover:bg-indigo-500/20 transition-all duration-700"></div>
+          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex items-start gap-4">
+              <div className="bg-indigo-500/20 p-3 rounded-xl border border-indigo-500/20 text-indigo-400 group-hover:scale-110 transition-transform duration-500">
+                <Sparkles size={24} />
+              </div>
+              <div className="flex flex-col gap-1">
+                <h3 className="text-xl md:text-2xl font-bold text-white tracking-tight">Unlock Your Personalized Mix</h3>
+                <p className="text-neutral-400 text-sm md:text-base max-w-xl leading-relaxed">
+                  Sign in to sync your YouTube Music history and let our algorithm build unique playlists just for you.
+                </p>
+              </div>
+            </div>
+            <button 
+              onClick={() => navigate('/login')}
+              className="bg-white text-black hover:bg-neutral-200 px-8 py-3 rounded-full font-bold text-sm transition-all hover:scale-105 active:scale-95 shadow-lg whitespace-nowrap"
+            >
+              Sign In Now
+            </button>
+          </div>
+        </div>
+      )}
 
       {recommended.length > 0 && (
         <HomeSection title="Recommended For You" showAllLink="/recommendations" className="bg-gradient-to-r from-green-500/10 to-transparent p-6 rounded-2xl border border-white/5">

@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import { useRef } from 'react';
 import HomeSection from './HomeSection';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 interface Artist {

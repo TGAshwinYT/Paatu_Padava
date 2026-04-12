@@ -3,49 +3,85 @@ import yt_dlp
 import asyncio
 import logging
 import functools
+import os
 
 logger = logging.getLogger(__name__)
 
 # Initialize YTMusic
+auth_file = os.path.join(os.path.dirname(__file__), "..", "headers.json")
 try:
-    ytmusic = YTMusic()
+    if os.path.exists(auth_file):
+        logger.info(f"Initializing YTMusic with authentication from {auth_file}")
+        ytmusic = YTMusic(auth_file)
+    else:
+        logger.info("Initializing YTMusic as Guest (no headers.json found)")
+        ytmusic = YTMusic()
 except Exception as e:
     logger.error(f"Failed to initialize YTMusic: {e}")
-    ytmusic = None
+    ytmusic = YTMusic()
+
+def is_yt_authenticated():
+    """
+    Checks if the backend is currently authenticated with a YouTube account.
+    """
+    if not ytmusic:
+        return False
+    # Authenticated sessions usually have a Cookie or Authorization header
+    return 'Cookie' in ytmusic.headers or 'Authorization' in ytmusic.headers
 
 def map_youtube_song(result):
     """
     Maps YTMusic search results to our internal Song format.
     """
     try:
-        # Extract artist name safely
+        # 1. Extract artist name safely
         artists = result.get('artists', [])
-        artist_name = artists[0].get('name') if artists else "Unknown Artist"
+        if artists:
+            if isinstance(artists[0], dict):
+                artist_name = ", ".join([a.get('name', 'Unknown') for a in artists])
+            else:
+                artist_name = str(artists[0])
+        else:
+            artist_name = result.get('author', 'Unknown Artist')
         
-        # Extract thumbnail safely (ytmusicapi uses 'thumbnails' for search but 'thumbnail' for watch playlists)
+        # 2. Extract thumbnail safely
         thumbnails = result.get('thumbnails') or result.get('thumbnail') or []
         cover_url = thumbnails[-1].get('url') if thumbnails else ""
         
-        # Duration string to seconds (e.g., "3:45" -> 225)
-        duration = 0
-        duration_str = result.get('duration')
-        if duration_str and ":" in duration_str:
-            parts = duration_str.split(':')
-            if len(parts) == 2:
-                duration = int(parts[0]) * 60 + int(parts[1])
-            elif len(parts) == 3:
-                duration = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+        # 3. Handle Duration (prefer seconds if available)
+        duration = result.get('duration_seconds')
+        if duration is None:
+            duration_str = result.get('duration')
+            if duration_str and ":" in duration_str:
+                parts = duration_str.split(':')
+                try:
+                    if len(parts) == 2:
+                        duration = int(parts[0]) * 60 + int(parts[1])
+                    elif len(parts) == 3:
+                        duration = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+                except:
+                    duration = 0
+            else:
+                duration = 0
+
+        # 4. Handle Album (can be string or dict)
+        album_data = result.get('album', "")
+        album_name = ""
+        if isinstance(album_data, dict):
+            album_name = album_data.get('name', "")
+        else:
+            album_name = str(album_data)
 
         return {
             "id": result.get('videoId'),
             "title": result.get('title'),
             "artist": artist_name,
             "coverUrl": cover_url,
-            "cover_url": cover_url,  # Modern key
-            "image": cover_url,      # Legacy JioSaavn fallback key
-            "audioUrl": "", # To be resolved just-in-time via stream endpoint
+            "cover_url": cover_url,
+            "image": cover_url,
+            "audioUrl": "", 
             "duration": duration,
-            "album": result.get('album', {}).get('name') if result.get('album') else "",
+            "album": album_name,
             "isManual": False
         }
     except Exception as e:
@@ -217,93 +253,112 @@ async def get_trending_youtube(region="global"):
     except Exception as e:
         logger.error(f"YTMusic charts error: {e}")
         return []
-
-async def get_home_youtube(limit=5):
+async def get_home_youtube(limit=20, region=""):
     """
-    Fetches the YouTube Music home feed and parses shelves into categories.
+    Main entry point for the home feed. Switches between Personalized and Regional.
     """
     if not ytmusic:
-        return {"recommendedForYou": [], "topAlbums": [], "topArtists": []}
+        return {"recommendedForYou": [], "topAlbums": [], "topArtists": [], "personalized": False}
 
-    loop = asyncio.get_event_loop()
     response = {
         "recommendedForYou": [],
         "topAlbums": [],
-        "topArtists": []
+        "topArtists": [],
+        "personalized": False
     }
 
     try:
-        # 1. Fetch Home Data from Shelves
-        home_data = await loop.run_in_executor(
-            None,
-            functools.partial(ytmusic.get_home, limit=limit)
-        )
+        # PATH A: Authenticated Personalized Feed
+        if is_yt_authenticated():
+            logger.info("Fetching personalized home shelves for authenticated session.")
+            loop = asyncio.get_event_loop()
+            home_data = await loop.run_in_executor(None, functools.partial(ytmusic.get_home, limit=limit))
+            
+            for shelf in home_data:
+                title = shelf.get('title', '').lower()
+                contents = shelf.get('contents', [])
+                
+                # Use 'Listen Again' or 'Recommended' for the top shelf
+                if 'listen again' in title or 'recommended' in title:
+                    for item in contents:
+                        if item.get('videoId') and len(response["recommendedForYou"]) < 12:
+                            mapped = map_youtube_song(item)
+                            if mapped:
+                                response["recommendedForYou"].append(mapped)
+                
+                # Extract Albums and Artists from other shelves
+                for item in contents:
+                    browse_id = item.get('browseId', '')
+                    if browse_id.startswith('MPREb'):
+                        if len(response["topAlbums"]) < 20:
+                            response["topAlbums"].append({
+                                "id": browse_id,
+                                "title": item.get('title', 'Unknown Album'),
+                                "artist": item.get('artists', [{'name': 'Various Artists'}])[0].get('name') if item.get('artists') else 'Various Artists',
+                                "cover_url": item.get('thumbnails', [{'url': ''}])[-1].get('url')
+                            })
+                    elif browse_id.startswith('UC'):
+                        if len(response["topArtists"]) < 20:
+                            response["topArtists"].append({
+                                "id": browse_id,
+                                "name": item.get('title', 'Unknown Artist'),
+                                "cover_url": item.get('thumbnails', [{'url': ''}])[-1].get('url')
+                            })
+            
+            response["personalized"] = len(response["recommendedForYou"]) > 0
 
-        for shelf in home_data:
-            contents = shelf.get('contents', [])
-            if not contents:
-                continue
-
-            for item in contents:
-                try:
-                    # 1. Map Songs / Videos to "recommendedForYou"
-                    if item.get('videoType') or item.get('videoId'):
-                        song_obj = {
-                            "id": item.get('videoId', ''),
-                            "title": item.get('title', 'Unknown'),
-                            "artist": item.get('artists', [{'name': 'Unknown'}])[0].get('name', 'Unknown') if item.get('artists') else 'Unknown',
-                            "cover_url": item.get('thumbnails', [{'url': ''}])[-1].get('url', ''),
-                            "type": "song"
-                        }
-                        if song_obj["id"] and len(response["recommendedForYou"]) < 10:
-                            response["recommendedForYou"].append(song_obj)
-
-                    # 2. Map Albums to "topAlbums"
-                    elif item.get('browseId') and item['browseId'].startswith('MPREb'):
-                        album_obj = {
-                            "id": item.get('browseId', ''),
-                            "title": item.get('title', 'Unknown'),
-                            "artist": item.get('subscribers', item.get('artists', [{'name': 'Unknown'}])[0].get('name', 'Unknown')),
-                            "cover_url": item.get('thumbnails', [{'url': ''}])[-1].get('url', ''),
-                            "type": "album"
-                        }
-                        if album_obj["id"] and len(response["topAlbums"]) < 10:
-                            response["topAlbums"].append(album_obj)
-
-                    # 3. Map Artists to "topArtists"
-                    elif item.get('browseId') and item['browseId'].startswith('UC'):
-                        artist_obj = {
-                            "id": item.get('browseId', ''),
-                            "name": item.get('title', 'Unknown'),
-                            "cover_url": item.get('thumbnails', [{'url': ''}])[-1].get('url', ''),
-                            "type": "artist"
-                        }
-                        if artist_obj["id"] and len(response["topArtists"]) < 10:
-                            response["topArtists"].append(artist_obj)
-
-                except Exception as e:
-                    logger.warning(f"Skipped item mapping: {e}")
-
-        # 2. Fallback: Search for popular Tamil/Indian hits if feed is empty
-        if not response["recommendedForYou"]:
-            logger.info("Home feed empty, fetching fallback 'Tamil Hit Songs' search results.")
-            fallback_search = await loop.run_in_executor(
-                None,
-                functools.partial(ytmusic.search, "Tamil Hit Songs", filter="songs", limit=10)
-            )
-            for item in fallback_search:
-                response["recommendedForYou"].append({
-                    "id": item.get('videoId', ''),
-                    "title": item.get('title', 'Unknown'),
-                    "artist": item.get('artists', [{'name': 'Unknown'}])[0].get('name', 'Unknown') if item.get('artists') else 'Unknown',
-                    "cover_url": item.get('thumbnails', [{'url': ''}])[-1].get('url', ''),
-                    "type": "song"
-                })
+        # PATH B: Guest Regional Fallback (used if not auth OR auth returned nothing)
+        if not response["recommendedForYou"] or not response["personalized"]:
+            logger.info(f"Using regional fallback logic for region: {region}")
+            fallback = await fetch_regional_fallback(region)
+            # Merge or Overwrite
+            response["recommendedForYou"] = fallback["recommendedForYou"]
+            if not response["topAlbums"]: response["topAlbums"] = fallback["topAlbums"]
+            if not response["topArtists"]: response["topArtists"] = fallback["topArtists"]
+            response["personalized"] = False
 
         return response
+
     except Exception as e:
-        logger.error(f"YTMusic get_home error: {e}")
-        return response
+        logger.error(f"Home Feed Logic Error: {e}")
+        return await fetch_regional_fallback(region)
+
+async def fetch_regional_fallback(region=""):
+    """
+    Fetches high-quality localized content based on region when personalization is unavailable.
+    """
+    loop = asyncio.get_event_loop()
+    response = {"recommendedForYou": [], "topAlbums": [], "topArtists": []}
+    
+    # 1. Localized Search for Songs
+    song_query = f"{region} Hit Songs" if region else "Tamil Hit Songs"
+    search_songs = await loop.run_in_executor(None, functools.partial(ytmusic.search, song_query, filter="songs", limit=12))
+    for item in search_songs:
+        mapped = map_youtube_song(item)
+        if mapped: response["recommendedForYou"].append(mapped)
+
+    # 2. Localized Search for Albums
+    album_query = f"{region} Hit Albums" if region else "Tamil Hit Albums"
+    search_albums = await loop.run_in_executor(None, functools.partial(ytmusic.search, album_query, filter="albums", limit=20))
+    for item in search_albums:
+        response["topAlbums"].append({
+            "id": item.get('browseId', ''),
+            "title": item.get('title', 'Unknown Album'),
+            "artist": item.get('artists', [{'name': 'Various Artists'}])[0].get('name') if item.get('artists') else 'Various Artists',
+            "cover_url": item.get('thumbnails', [{'url': ''}])[-1].get('url', '')
+        })
+
+    # 3. Localized Search for Artists
+    artist_query = f"Trending {region} Artists" if region else "Trending Tamil Artists"
+    search_artists = await loop.run_in_executor(None, functools.partial(ytmusic.search, artist_query, filter="artists", limit=20))
+    for item in search_artists:
+        response["topArtists"].append({
+            "id": item.get('browseId', ''),
+            "name": item.get('artist', item.get('title', 'Unknown Artist')),
+            "cover_url": item.get('thumbnails', [{'url': ''}])[-1].get('url', '')
+        })
+
+    return response
 
 async def get_related_songs(video_id, limit=10):
     """
@@ -386,6 +441,10 @@ async def get_album_details_youtube(browse_id):
         tracks_raw = results.get('tracks', [])
         mapped_songs = []
         for t in tracks_raw:
+            # get_album tracks often lack thumbnails; we must inject the album cover manually
+            if not t.get('thumbnails') and not t.get('thumbnail'):
+                t['thumbnails'] = thumbnails
+
             # get_album tracks might lack videoId if they are unavailable or placeholders
             if t.get('videoId'):
                 mapped = map_youtube_song(t)

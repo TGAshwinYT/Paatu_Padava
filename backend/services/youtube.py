@@ -138,14 +138,14 @@ def get_audio_stream_url(video_id, quality="normal"):
     format_string = 'bestaudio[abr<=128][ext=m4a]/bestaudio[ext=m4a]/bestaudio/best'
 
     if quality == "high":
-        # Highest possible bitrate (usually 256kbps aac/opus)
+        # Try highest m4a, then highest overall audio
         format_string = 'bestaudio[ext=m4a]/bestaudio/best'
     elif quality == "low":
-        # Lowest possible bitrate to save user data (approx 48-64kbps)
+        # Try lowest m4a, then lowest overall audio
         format_string = 'worstaudio[ext=m4a]/worstaudio/worst'
-    elif quality == "auto":
-        # Let YouTube/yt-dlp decide the most efficient standard stream
-        format_string = 'bestaudio/best'
+    else: # Normal / Auto
+        # Try to stay around 128k m4a, but fallback to any bestaudio
+        format_string = 'bestaudio[abr<=128][ext=m4a]/bestaudio[ext=m4a]/bestaudio/best'
         
     ydl_opts = {
         'format': format_string,
@@ -162,13 +162,23 @@ def get_audio_stream_url(video_id, quality="normal"):
         }
     }
     
+    url = f"https://www.youtube.com/watch?v={video_id}"
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+            info = ydl.extract_info(url, download=False)
             if info and 'url' in info:
                 return info['url']
     except Exception as e:
-        logger.error(f"yt-dlp extraction error for {video_id}: {e}")
+        # Nuclear Option Fallback: Ignore all constraints and just get the best available stream
+        logger.warning(f"Primary extraction failed for {video_id}, trying nuclear fallback: {e}")
+        try:
+            ydl_opts['format'] = 'bestaudio/best' 
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                if info and 'url' in info:
+                    return info['url']
+        except Exception as e2:
+            logger.error(f"Final extraction fallback failed for {video_id}: {e2}")
     
     return None
 

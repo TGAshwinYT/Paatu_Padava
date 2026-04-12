@@ -169,7 +169,7 @@ def get_audio_stream_url(video_id, quality="normal"):
     """
     po_token = os.getenv("YT_PO_TOKEN")
     visitor_data = os.getenv("YT_VISITOR_DATA")
-    
+        # Task 1: Basic Options Setup
     if quality == "high":
         format_string = 'bestaudio[ext=m4a]/bestaudio/best'
     elif quality == "low":
@@ -182,14 +182,16 @@ def get_audio_stream_url(video_id, quality="normal"):
     # Implementation of the Final 3-Attempt Hardened Fallback
     for attempt in range(1, 4):
         try:
+            # Task 1/3: Strict Token Cleaning & Client Selection
+            # Use 'web' specifically when providing a PO Token
             yt_extractor_args = {
-                # Task 1: Use web/mweb for maximum PO Token stability
-                'player_client': ['web', 'mweb'],
+                'player_client': ['web'],
             }
             
-            # Formatted per Task 1: web+ {token}
+            # Clean and Format PO Token strictly as web+TOKEN (no space) in a list []
             if po_token:
-                yt_extractor_args['po_token'] = f"web+ {po_token}"
+                clean_po_token = po_token.strip().replace('"', '').replace("'", "")
+                yt_extractor_args['po_token'] = [f"web+{clean_po_token}"]
             
             # Task 1: Visitor Data synchronization
             if visitor_data:
@@ -199,7 +201,7 @@ def get_audio_stream_url(video_id, quality="normal"):
                 'format': format_string,
                 'quiet': True,
                 'no_warnings': False,
-                'source_address': '0.0.0.0', # Task 1: Force IPv4
+                'source_address': '0.0.0.0', # Force IPv4
                 'cookiefile': COOKIE_PATH if os.path.exists(COOKIE_PATH) else None,
                 'nocheckcertificate': True,
                 'extractor_args': {

@@ -10,14 +10,25 @@ logger = logging.getLogger(__name__)
 # Deployment Cookie Path
 COOKIE_PATH = "/tmp/youtube_cookies.txt"
 
-# Initialize YTMusic
-auth_file = os.path.join(os.path.dirname(__file__), "..", "headers.json")
+# Initialize YTMusic with Browser Headers (Stable auth for deployment)
+HEADERS_PATH = "/tmp/browser_headers.json"
+headers_raw = os.getenv("YT_HEADERS")
+
+if headers_raw:
+    try:
+        os.makedirs(os.path.dirname(HEADERS_PATH), exist_ok=True)
+        with open(HEADERS_PATH, "w") as f:
+            f.write(headers_raw)
+        logger.info(f"Successfully prepared browser headers at {HEADERS_PATH}")
+    except Exception as e:
+        logger.error(f"Failed to prepare browser headers: {e}")
+
 try:
-    if os.path.exists(auth_file):
-        logger.info(f"Initializing YTMusic with authentication from {auth_file}")
-        ytmusic = YTMusic(auth_file)
+    if os.path.exists(HEADERS_PATH):
+        logger.info("Initializing YTMusic with authenticated browser headers.")
+        ytmusic = YTMusic(HEADERS_PATH)
     else:
-        logger.info("Initializing YTMusic as Guest (no headers.json found)")
+        logger.info("Initializing YTMusic as Guest (no YT_HEADERS env provided)")
         ytmusic = YTMusic()
 except Exception as e:
     logger.error(f"Failed to initialize YTMusic: {e}")

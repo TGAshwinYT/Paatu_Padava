@@ -164,8 +164,8 @@ async def search_youtube(query, filter="songs", limit=20):
 
 def get_audio_stream_url(video_id, quality="normal"):
     """
-    Extracts the direct audio stream URL with the automated PO Token provider plugin.
-    This eliminates the need for manual YT_PO_TOKEN management.
+    Extracts the direct audio stream URL using a 'Smart TV' identity.
+    This bypasses the PO Token wall by using clients that don't enforce it when cookies are present.
     """
     if quality == "high":
         format_string = 'bestaudio[ext=m4a]/bestaudio/best'
@@ -176,7 +176,7 @@ def get_audio_stream_url(video_id, quality="normal"):
 
     url = f"https://www.youtube.com/watch?v={video_id}"
     
-    # Automated Plugin Strategy: Rely on bgutil-ytdlp-pot-provider + Node.js
+    # Task 2: Smart TV Identity Fallback Loop
     for attempt in range(1, 4):
         try:
             ydl_opts = {
@@ -188,8 +188,9 @@ def get_audio_stream_url(video_id, quality="normal"):
                 'nocheckcertificate': True,
                 'extractor_args': {
                     'youtube': {
-                        # mweb is currently the most stable client for the automated plugin
-                        'player_client': ['mweb', 'web']
+                        # The Smart TV clients do NOT require a PO token when cookies are present
+                        'player_client': ['tv', 'tv_embedded'],
+                        'player_skip': ['webpage', 'configs']
                     }
                 }
             }
@@ -197,14 +198,14 @@ def get_audio_stream_url(video_id, quality="normal"):
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
                 if info and 'url' in info:
-                    if attempt > 1: logger.info(f"Extraction successful for {video_id} on attempt {attempt}")
+                    if attempt > 1: logger.info(f"Extraction successful for {video_id} on attempt {attempt} (TV client)")
                     return info['url']
         except Exception as e:
             err_msg = str(e)
             if "403" in err_msg:
                 classification = "403 Forbidden (Blocked/IP Issue)"
             elif "Signature" in err_msg or "n-challenge" in err_msg:
-                classification = "Signature/n-challenge Solving Failed (JS Runtime Issue - Check Node.js)"
+                classification = "Signature/n-challenge Solving Failed (JS Runtime Issue)"
             else:
                 classification = "Standard Extraction Error"
             

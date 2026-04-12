@@ -21,4 +21,3 @@ google-genai>=0.3.0
 slowapi>=0.1.9
 ytmusicapi>=1.5.0
 yt-dlp>=2024.3.10
-bgutil-ytdlp-pot-provider

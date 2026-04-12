@@ -408,22 +408,15 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             const isTrackChange = lastTrackId.current !== currentTrack.id;
             
             // 1. Resolve Stream URL if needed
-            // YouTube Music URLs are temporary, so we MUST fetch a fresh one on track change
+            // Withpytorch migration, the backend now returns a RedirectResponse.
+            // We can point the audio.src directly to the API endpoint for better performance.
             let playUrl = "";
+            const streamEndpoint = `${api.defaults.baseURL}/api/music/stream/${currentTrack.id}?quality=${audioQuality}`;
+            
             if (isTrackChange || !currentTrack.audioUrl) {
-                setIsResolving(true);
-                try {
-                    const response = await api.get(`/api/music/stream/${currentTrack.id}?quality=${audioQuality}`);
-                    playUrl = response.data.url;
-                    // Update current track in memory with the resolved URL (optional but helpful)
-                    currentTrack.audioUrl = playUrl;
-                } catch (err) {
-                    console.error("Failed to resolve stream URL:", err);
-                    setIsResolving(false);
-                    setIsPlaying(false);
-                    return;
-                }
-                setIsResolving(false);
+                playUrl = streamEndpoint;
+                // Update current track in memory with the base endpoint URL
+                currentTrack.audioUrl = playUrl;
             } else {
                 playUrl = currentTrack.audioUrl;
             }

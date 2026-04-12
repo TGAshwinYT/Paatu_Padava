@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query, Depends, Request
+from fastapi.responses import RedirectResponse
 import asyncio
 from typing import List, Dict, Any
 from services import youtube
@@ -20,13 +21,14 @@ router = APIRouter(prefix="/api/music", tags=["music"])
 @router.get("/stream/{yt_video_id}")
 async def stream_song(yt_video_id: str, quality: str = "normal"):
     """
-    Extracts the direct playable audio stream URL for a YouTube video using a background thread and dynamic quality formatting.
+    Extracts the direct playable audio stream URL and redirects the client.
     """
-    # Force heavy yt-dlp process into a background thread
-    url = await asyncio.to_thread(youtube.get_audio_stream_url, yt_video_id, quality)
+    # Use the new pytubefix resolver
+    url = await asyncio.to_thread(youtube.get_audio_url, yt_video_id)
     if not url:
         raise HTTPException(status_code=404, detail="Stream URL not found")
-    return {"url": url}
+    
+    return RedirectResponse(url=url)
 @router.get("/home")
 async def get_home_feed(
     request: Request,

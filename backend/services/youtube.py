@@ -1,5 +1,5 @@
 from ytmusicapi import YTMusic
-import yt_dlp
+from pytubefix import YouTube
 import asyncio
 import logging
 import functools
@@ -10,24 +10,15 @@ logger = logging.getLogger(__name__)
 # Initialize YTMusic
 auth_file = os.path.join(os.path.dirname(__file__), "..", "headers.json")
 try:
-    if os.path.exists(auth_file):
+    if os.path.exists(auth_file) and os.path.getsize(auth_file) > 0:
         logger.info(f"Initializing YTMusic with authentication from {auth_file}")
         ytmusic = YTMusic(auth_file)
     else:
-        logger.info("Initializing YTMusic as Guest (no headers.json found)")
+        logger.info("Initializing YTMusic as Guest")
         ytmusic = YTMusic()
 except Exception as e:
     logger.error(f"Failed to initialize YTMusic: {e}")
     ytmusic = YTMusic()
-
-def is_yt_authenticated():
-    """
-    Checks if the backend is currently authenticated with a YouTube account.
-    """
-    if not ytmusic:
-        return False
-    # Authenticated sessions usually have a Cookie or Authorization header
-    return 'Cookie' in ytmusic.headers or 'Authorization' in ytmusic.headers
 
 def map_youtube_song(result):
     """
@@ -115,54 +106,26 @@ async def search_youtube(query, filter="songs", limit=20):
         logger.error(f"YTMusic search error: {e}")
         return []
 
-def get_audio_stream_url(video_id, quality="normal"):
+def get_audio_url(video_id: str):
     """
-    Extracts the direct audio stream URL using yt-dlp.
-    Synchronous function intended to be run in an executor.
+    Extracts the direct audio stream URL using pytubefix.
     """
-    # Default to Normal (approx 128kbps)
-    format_string = 'bestaudio[abr<=128][ext=m4a]/bestaudio[ext=m4a]/bestaudio/best'
-
-    if quality == "high":
-        # Highest possible bitrate (usually 256kbps aac/opus)
-        format_string = 'bestaudio[ext=m4a]/bestaudio/best'
-    elif quality == "low":
-        # Lowest possible bitrate to save user data (approx 48-64kbps)
-        format_string = 'worstaudio[ext=m4a]/worstaudio/worst'
-    elif quality == "auto":
-        # Let YouTube/yt-dlp decide the most efficient standard stream
-        format_string = 'bestaudio/best'
-        
-    ydl_opts = {
-        'format': format_string,
-        'quiet': True,
-        'no_warnings': True,
-        'skip_download': True, # We only want the URL, not the file
-        'noplaylist': True, # Prevents accidental massive playlist scraping
-        'force_ipv4': True, # Bypasses common IPv6 routing timeouts on cloud servers
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android'] # THE BIGGEST SPEED HACK
-            }
-        }
-    }
-    
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
-            if info and 'url' in info:
-                return info['url']
+        yt = YouTube(f"https://www.youtube.com/watch?v={video_id}")
+        audio = yt.streams.filter(only_audio=True).first()
+        if audio:
+            return audio.url
     except Exception as e:
-        logger.error(f"yt-dlp extraction error for {video_id}: {e}")
+        logger.error(f"pytubefix extraction error for {video_id}: {e}")
     
     return None
 
 async def resolve_stream_url(video_id):
     """
-    Async wrapper for get_audio_stream_url.
+    Async wrapper for get_audio_url.
     """
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, get_audio_stream_url, video_id)
+    return await loop.run_in_executor(None, get_audio_url, video_id)
 
 async def search_albums_youtube(query, limit=10):
     """

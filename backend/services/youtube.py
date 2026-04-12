@@ -164,12 +164,9 @@ async def search_youtube(query, filter="songs", limit=20):
 
 def get_audio_stream_url(video_id, quality="normal"):
     """
-    Extracts the direct audio stream URL with the final 'Proof of Origin' bypass strategy.
-    Includes forced Node.js runtime, PO Token + Visitor Data synchronization, and IPv4 forcing.
+    Extracts the direct audio stream URL with the automated PO Token provider plugin.
+    This eliminates the need for manual YT_PO_TOKEN management.
     """
-    po_token = os.getenv("YT_PO_TOKEN")
-    visitor_data = os.getenv("YT_VISITOR_DATA")
-        # Task 1: Basic Options Setup
     if quality == "high":
         format_string = 'bestaudio[ext=m4a]/bestaudio/best'
     elif quality == "low":
@@ -179,24 +176,9 @@ def get_audio_stream_url(video_id, quality="normal"):
 
     url = f"https://www.youtube.com/watch?v={video_id}"
     
-    # Implementation of the Final 3-Attempt Hardened Fallback
+    # Automated Plugin Strategy: Rely on bgutil-ytdlp-pot-provider + Node.js
     for attempt in range(1, 4):
         try:
-            # Task 1/3: Strict Token Cleaning & Client Selection
-            # Use 'web' specifically when providing a PO Token
-            yt_extractor_args = {
-                'player_client': ['web'],
-            }
-            
-            # Clean and Format PO Token strictly as web+TOKEN (no space) in a list []
-            if po_token:
-                clean_po_token = po_token.strip().replace('"', '').replace("'", "")
-                yt_extractor_args['po_token'] = [f"web+{clean_po_token}"]
-            
-            # Task 1: Visitor Data synchronization
-            if visitor_data:
-                yt_extractor_args['visitor_data'] = visitor_data
-                
             ydl_opts = {
                 'format': format_string,
                 'quiet': True,
@@ -205,7 +187,10 @@ def get_audio_stream_url(video_id, quality="normal"):
                 'cookiefile': COOKIE_PATH if os.path.exists(COOKIE_PATH) else None,
                 'nocheckcertificate': True,
                 'extractor_args': {
-                    'youtube': yt_extractor_args
+                    'youtube': {
+                        # mweb is currently the most stable client for the automated plugin
+                        'player_client': ['mweb', 'web']
+                    }
                 }
             }
             
@@ -219,7 +204,7 @@ def get_audio_stream_url(video_id, quality="normal"):
             if "403" in err_msg:
                 classification = "403 Forbidden (Blocked/IP Issue)"
             elif "Signature" in err_msg or "n-challenge" in err_msg:
-                classification = "Signature/n-challenge Solving Failed (JS Runtime Issue)"
+                classification = "Signature/n-challenge Solving Failed (JS Runtime Issue - Check Node.js)"
             else:
                 classification = "Standard Extraction Error"
             

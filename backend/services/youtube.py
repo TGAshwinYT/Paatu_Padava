@@ -7,6 +7,9 @@ import os
 
 logger = logging.getLogger(__name__)
 
+# Deployment Cookie Path
+COOKIE_PATH = "/tmp/youtube_cookies.txt"
+
 # Initialize YTMusic
 auth_file = os.path.join(os.path.dirname(__file__), "..", "headers.json")
 try:
@@ -135,6 +138,7 @@ def get_audio_stream_url(video_id, quality="normal"):
         
     ydl_opts = {
         'format': format_string,
+        'cookiefile': COOKIE_PATH if os.path.exists(COOKIE_PATH) else None,
         'quiet': True,
         'no_warnings': True,
         'skip_download': True, # We only want the URL, not the file
@@ -142,7 +146,7 @@ def get_audio_stream_url(video_id, quality="normal"):
         'force_ipv4': True, # Bypasses common IPv6 routing timeouts on cloud servers
         'extractor_args': {
             'youtube': {
-                'player_client': ['android'] # THE BIGGEST SPEED HACK
+                'player_client': ['android', 'web'] # Better fallback for restricted content
             }
         }
     }

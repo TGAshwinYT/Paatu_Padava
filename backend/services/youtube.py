@@ -20,47 +20,70 @@ except Exception as e:
     logger.error(f"Failed to initialize YTMusic: {e}")
     ytmusic = YTMusic()
 
-# Android VR App User-Agent (Anti-Bot)
-ANDROID_VR_UA = "com.google.android.apps.youtube.vr.oculus/1.57.29 (Linux; U; Android 12; eureka-user Build/SQ3A.220605.009.A1) gzip"
+def is_yt_authenticated():
+    """
+    Checks if the backend is currently authenticated with YouTube Music.
+    """
+    return os.path.exists(auth_file)
+
+# Client fallback chain — tried in order until one works
+PLAYER_CLIENTS = ["tv", "web_creator", "mediaconnect", "web"]
+
+def _extract_with_client(video_id: str, player_client: str):
+    """
+    Try extracting audio URL with a specific player client.
+    Returns URL string or None.
+    """
+    ydl_opts = {
+        'format': 'bestaudio[ext=m4a]/bestaudio/best',
+        'quiet': True,
+        'no_warnings': True,
+        'skip_download': True,
+        'noplaylist': True,
+        'force_ipv4': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': [player_client],
+            }
+        }
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(
+            f"https://www.youtube.com/watch?v={video_id}",
+            download=False
+        )
+        if not info:
+            return None
+
+        formats = info.get('formats', [])
+
+        # Prefer audio-only formats
+        for f in formats:
+            if f.get('vcodec') == 'none' and f.get('acodec') != 'none' and f.get('url'):
+                return f['url']
+
+        # Fallback to top-level URL
+        return info.get('url')
+
 
 def get_audio_url(video_id: str):
     """
-    Extracts audio URL using the android_vr client and Oculus VR User-Agent.
-    Uses manual format iteration for maximum reliability.
+    Tries multiple yt-dlp player clients in sequence until one returns a valid audio URL.
+    Avoids android_vr which is broken in current yt-dlp versions.
     """
-    try:
-        logger.info(f"Attempting VR-client extraction for {video_id}...")
-        
-        ydl_opts = {
-            'format': 'bestaudio[ext=m4a]/bestaudio/best',
-            'user_agent': ANDROID_VR_UA,
-            'http_client': 'curl_cffi',
-            'quiet': True,
-            'no_warnings': True,
-            'skip_download': True,
-            'noplaylist': True,
-            'force_ipv4': True,
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['android_vr'],
-                    'po_token': [None] # Explicitly avoid PO token interference
-                }
-            }
-        }
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
-            formats = info.get('formats', [])
-            
-            # Manual filtering loop as requested
-            for f in formats:
-                if f.get('vcodec') == 'none' and f.get('acodec') != 'none':
-                    logger.info(f"Successfully located audio stream (vcodec=none) for {video_id}.")
-                    return f.get('url')
-                    
-    except Exception as e:
-        logger.error(f"VR extraction failed for {video_id}: {e}")
+    for client in PLAYER_CLIENTS:
+        try:
+            logger.info(f"Trying player_client='{client}' for {video_id}...")
+            url = _extract_with_client(video_id, client)
+            if url:
+                logger.info(f"Success with client='{client}' for {video_id}")
+                return url
+        except Exception as e:
+            logger.warning(f"Client '{client}' failed for {video_id}: {e}")
+            continue
 
+    logger.error(f"All clients failed for {video_id}")
     return None
 
 async def resolve_stream_url(video_id):

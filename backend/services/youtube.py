@@ -13,17 +13,27 @@ COOKIE_PATH = "/tmp/youtube_cookies.txt"
 # Initialize YTMusic with Browser Headers (Hardened for cloud deployment)
 HEADERS_PATH = "/tmp/browser_headers.json"
 headers_raw = os.getenv("YT_HEADERS")
+GLOBAL_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 try:
     if headers_raw:
         import json
         headers_json = json.loads(headers_raw)
         
-        # Sanitization: Ensure no OAuth-conflicting headers exist
-        keys_to_remove = ['authorization', 'content-encoding', 'content-length', 'accept-encoding', 'host']
+        # Aggressive Sanitization: Blacklist all OAuth and metadata headers
+        keys_to_remove = [
+            'authorization', 'content-encoding', 'content-length', 'accept-encoding', 'host',
+            'token_type', 'access_token', 'refresh_token', 'client_id', 'client_secret', 'expires_at', 'expires_in'
+        ]
         for key in keys_to_remove:
             headers_json.pop(key, None)
             headers_json.pop(key.lower(), None)
+            
+        # Capture User-Agent for yt-dlp consistency
+        if 'User-Agent' in headers_json:
+            GLOBAL_USER_AGENT = headers_json['User-Agent']
+        elif 'user-agent' in headers_json:
+            GLOBAL_USER_AGENT = headers_json['user-agent']
             
         # Write to temporary file (The most stable way to initialize ytmusicapi)
         os.makedirs(os.path.dirname(HEADERS_PATH), exist_ok=True)
@@ -155,6 +165,7 @@ def get_audio_stream_url(video_id, quality="normal"):
     ydl_opts = {
         'format': format_string,
         'cookiefile': COOKIE_PATH if os.path.exists(COOKIE_PATH) else None,
+        'user_agent': GLOBAL_USER_AGENT,
         'quiet': True,
         'no_warnings': True,
         'skip_download': True,
@@ -165,7 +176,7 @@ def get_audio_stream_url(video_id, quality="normal"):
         'nocheckcertificate': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios'], # Mobile clients face fewer bot checks
+                'player_client': ['ios', 'android', 'web_creator'], # Mobile identity
                 'skip': ['hls', 'dash'] # Faster extraction by skipping segments
             }
         }

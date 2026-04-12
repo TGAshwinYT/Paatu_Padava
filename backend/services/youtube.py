@@ -230,6 +230,36 @@ async def search_artists_youtube(query, limit=10):
         logger.error(f"YTMusic artist search error: {e}")
         return []
 
+async def get_trending_youtube(region="global"):
+    """
+    Fetches trending songs from YouTube Music Charts.
+    """
+    if not ytmusic:
+        return []
+    
+    loop = asyncio.get_event_loop()
+    try:
+        # region should be a 2-letter country code for charts, or 'ZZ' for global
+        # map 'global' or None to 'ZZ'
+        chart_region = region if region and len(region) == 2 else 'ZZ'
+        
+        results = await loop.run_in_executor(
+            None, 
+            functools.partial(ytmusic.get_charts, country=chart_region)
+        )
+        
+        songs = results.get('songs', {}).get('items', [])
+        mapped_songs = []
+        for s in songs:
+            mapped = map_youtube_song(s)
+            if mapped:
+                mapped_songs.append(mapped)
+        
+        return mapped_songs
+    except Exception as e:
+        logger.error(f"YTMusic charts error: {e}")
+        return []
+
 async def get_home_youtube(limit=20, region=""):
     if not ytmusic:
         return {"recommendedForYou": [], "topAlbums": [], "topArtists": [], "personalized": False}

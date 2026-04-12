@@ -164,32 +164,35 @@ async def search_youtube(query, filter="songs", limit=20):
 
 def get_audio_stream_url(video_id, quality="normal"):
     """
-    Extracts the direct audio stream URL using a 'Smart TV' identity and graceful format sorting.
-    This bypasses the PO Token wall and resolves format-not-available errors by using preferences.
+    Extracts the direct audio stream URL using an anonymous 'Guest TV' identity.
+    Disabling cookies for the extraction phase bypasses the Data Sync ID and PO Token walls.
     """
     url = f"https://www.youtube.com/watch?v={video_id}"
     
-    # Task 2: Smart TV Identity Fallback Loop
+    # Task 3: Guest TV Identity Fallback Loop
     for attempt in range(1, 4):
         try:
             ydl_opts = {
-                # Step 1: Loosen the strict format requirement
+                # Format sorting to gracefully request preferences without crashing
                 'format': 'bestaudio/best',
-                
-                # Step 2: Add format sorting to gracefully request preferences
                 'format_sort': ['hasaud', 'ext:m4a', 'abr'],
                 
                 'quiet': True,
                 'no_warnings': False,
                 'source_address': '0.0.0.0', # Force IPv4
-                'cookiefile': COOKIE_PATH if os.path.exists(COOKIE_PATH) else None,
                 'nocheckcertificate': True,
-                # This forces yt-dlp to download the latest JS solver script dynamically
+                
+                # THE FIX: Completely drop cookies for extraction.
+                # Anonymous TV requests bypass authentication walls (PO Token/Data Sync ID).
+                'cookiefile': None,
+                
+                # Dynamic JS solver (still useful for general n-parameter decryption)
                 'remote_components': ['ejs:github'],
+                
                 'extractor_args': {
                     'youtube': {
-                        # The Smart TV clients do NOT require a PO token when cookies are present
-                        'player_client': ['tv', 'tv_embedded'],
+                        # Using pure TV client for Guest mode stability
+                        'player_client': ['tv'],
                         'player_skip': ['webpage', 'configs']
                     }
                 }

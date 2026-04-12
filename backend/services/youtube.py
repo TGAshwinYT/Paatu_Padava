@@ -1,5 +1,5 @@
 from ytmusicapi import YTMusic
-import httpx
+import yt_dlp
 import asyncio
 import logging
 import functools
@@ -19,6 +19,52 @@ try:
 except Exception as e:
     logger.error(f"Failed to initialize YTMusic: {e}")
     ytmusic = YTMusic()
+
+# Advanced yt-dlp cascading fallback clients (Anti-Bot)
+FALLBACK_CLIENTS = ["mediaconnect", "tv", "web_creator"]
+
+def get_audio_url(video_id: str):
+    """
+    Extracts high-quality direct audio URL using yt-dlp with cascading player clients 
+    and curl-cffi for advanced bot detection bypass.
+    """
+    for client_name in FALLBACK_CLIENTS:
+        try:
+            logger.info(f"Attempting extraction for {video_id} using client: {client_name}")
+            
+            ydl_opts = {
+                'format': 'bestaudio[ext=m4a]/bestaudio/best',
+                'quiet': True,
+                'no_warnings': True,
+                'skip_download': True,
+                'noplaylist': True,
+                'force_ipv4': True,
+                'http_client': 'curl_cffi', # Use curl-cffi impersonation
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': [client_name]
+                    }
+                }
+            }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+                if info and 'url' in info:
+                    logger.info(f"Successfully extracted stream URL using {client_name} client.")
+                    return info['url']
+        except Exception as e:
+            logger.warning(f"Extraction failed with client {client_name} for video {video_id}: {e}")
+            continue
+
+    logger.error(f"All extraction clients failed for video {video_id}")
+    return None
+
+async def resolve_stream_url(video_id):
+    """
+    Async wrapper for get_audio_url.
+    """
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, get_audio_url, video_id)
 
 def map_youtube_song(result):
     """
@@ -106,55 +152,7 @@ async def search_youtube(query, filter="songs", limit=20):
         logger.error(f"YTMusic search error: {e}")
         return []
 
-INVIDIOUS_INSTANCES = [
-    "https://inv.nadeko.net",
-    "https://invidious.nerdvpn.de",
-    "https://invidious.privacydev.net"
-]
 
-def get_audio_url(video_id: str):
-    """
-    Extracts the direct audio stream URL using the Invidious API with multi-instance fallback.
-    Targeting audio/mp4 for standard compatibility.
-    """
-    for instance in INVIDIOUS_INSTANCES:
-        try:
-            url = f"{instance}/api/v1/videos/{video_id}"
-            logger.info(f"Attempting audio extraction via Invidious instance: {instance}")
-            
-            with httpx.Client(timeout=10.0, follow_redirects=True) as client:
-                response = client.get(url)
-                if response.status_code != 200:
-                    logger.warning(f"Invidious instance {instance} returned status {response.status_code}")
-                    continue
-                
-                data = response.json()
-                formats = data.get("adaptiveFormats", [])
-                
-                # Look for the first audio-only format with mp4 container (most compatible)
-                audio_format = next(
-                    (f for f in formats if "audio/mp4" in f.get("type", "")),
-                    next((f for f in formats if f.get("container") == "m4a"), None)
-                )
-                
-                if audio_format and audio_format.get("url"):
-                    logger.info(f"Successfully extracted audio URL from {instance}")
-                    return audio_format["url"]
-                
-                logger.warning(f"No suitable audio format found on instance: {instance}")
-        except Exception as e:
-            logger.error(f"Error calling Invidious instance {instance}: {e}")
-            continue
-    
-    logger.error(f"All Invidious instances failed for video {video_id}")
-    return None
-
-async def resolve_stream_url(video_id):
-    """
-    Async wrapper for get_audio_url.
-    """
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, get_audio_url, video_id)
 
 async def search_albums_youtube(query, limit=10):
     """

@@ -14,16 +14,26 @@ COOKIE_PATH = os.path.join(os.path.dirname(__file__), "..", "youtube_cookies.txt
 
 # Initialize YTMusic with Browser Headers (Hardened for cloud deployment)
 headers_raw = os.getenv("YT_HEADERS")
-GLOBAL_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+# IDENTITY SPLIT:
+# DESKTOP_UA is for parsing metadata (YTMusic). It MUST be Desktop to get Video IDs.
+# MOBILE_UA is for streaming (yt-dlp). Mobile identities are more stable against bot detection.
+DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+GLOBAL_USER_AGENT = DESKTOP_UA # Fallback
 
 try:
     if headers_raw:
         headers_json = json.loads(headers_raw)
         
-        # STRICT WHITELIST: Only allow confirmed browser headers
-        # This prevents ytmusicapi from seeing any keys that might trigger OAuth mode
+        # Capture the original User-Agent for yt-dlp first
+        for ua_key in ['User-Agent', 'user-agent']:
+            if ua_key in headers_json:
+                GLOBAL_USER_AGENT = headers_json[ua_key]
+                break
+        
+        # STRICT WHITELIST for YTMusic API
         safe_keys = {
-            'User-Agent', 'user-agent', 'Cookie', 'cookie', 'Accept', 'accept',
+            'Cookie', 'cookie', 'Accept', 'accept',
             'Accept-Language', 'accept-language', 'Content-Type', 'content-type',
             'X-Goog-AuthUser', 'x-goog-auth-user', 'x-goog-authuser',
             'x-origin', 'Origin', 'Referer', 'x-youtube-client-name', 'x-youtube-client-version'
@@ -31,29 +41,19 @@ try:
         
         sanitized_headers = {k: v for k, v in headers_json.items() if k in safe_keys}
         
+        # THE FIX: Force Desktop identity for correct JSON parsing
+        sanitized_headers["User-Agent"] = DESKTOP_UA
+        
         # THE FIX: Force ytmusicapi 1.11+ into BROWSER mode
-        # It defaults to OAuth if it doesn't see 'SAPISIDHASH' in the Authorization header.
-        # Once initialized, the library will generate the real hash from your cookies.
         sanitized_headers["Authorization"] = "SAPISIDHASH dummy"
         
-        # Capture User-Agent for yt-dlp
-        for ua_key in ['User-Agent', 'user-agent']:
-            if ua_key in sanitized_headers:
-                GLOBAL_USER_AGENT = sanitized_headers[ua_key]
-                break
-            
         # Write to a proper cross-platform temporary file
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tf:
             json.dump(sanitized_headers, tf)
             HEADERS_PATH = tf.name
             
-        logger.info(f"Initializing YTMusic with safe whitelist headers from {HEADERS_PATH}")
-        logger.info(f"Active header keys: {list(sanitized_headers.keys())}")
+        logger.info(f"Initializing YTMusic with safe Desktop-identity headers from {HEADERS_PATH}")
         ytmusic = YTMusic(HEADERS_PATH)
-        
-        # Try to clean up the temp file after init (optional, but good practice)
-        # Note: Some versions of ytmusicapi might need the file to persist for a bit, 
-        # but usually init loads it into memory.
     else:
         logger.info("Initializing YTMusic as Guest (no YT_HEADERS env provided)")
         ytmusic = YTMusic()

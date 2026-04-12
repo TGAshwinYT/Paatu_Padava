@@ -49,55 +49,59 @@ def is_yt_authenticated():
     """
     return os.path.exists(auth_file)
 
-# --- Piped API Configuration ---
-# Main public instance used for streaming
-PIPED_BASE_URL = "https://pipedapi.kavin.rocks"
+# --- Round-Robin Piped API Configuration ---
+# A list of independent public Piped API servers around the world
+PIPED_INSTANCES = [
+    "https://pipedapi.tokhmi.xyz",
+    "https://pipedapi.syncpundit.io",
+    "https://pipedapi.us.projectsegfau.lt",
+    "https://pipedapi.kavin.rocks",
+    "https://piped-api.lunar.icu"
+]
 
 async def get_audio_url(video_id: str):
     """
-    Uses the public Piped API proxy network to fetch the audio stream,
-    completely bypassing YouTube's data-center IP blocks.
+    Attempts to fetch the audio stream from multiple Piped instances (Round-Robin).
+    If one server is down or slow, it instantly tries the next one.
     Optimized for M4A/MP4 compatibility.
     """
-    piped_url = f"{PIPED_BASE_URL}/streams/{video_id}"
-    
-    try:
-        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-            logger.info(f"Resolving {video_id} via Piped API ({PIPED_BASE_URL})...")
-            response = await client.get(piped_url)
+    async with httpx.AsyncClient(timeout=7, follow_redirects=True) as client:
+        for base_url in PIPED_INSTANCES:
+            piped_url = f"{base_url}/streams/{video_id}"
             
-            if response.status_code == 200:
-                data = response.json()
-                audio_streams = data.get("audioStreams", [])
+            try:
+                logger.info(f"Trying Piped instance: {base_url} for {video_id}...")
+                response = await client.get(piped_url)
                 
-                if audio_streams:
-                    best_audio_url = None
+                if response.status_code == 200:
+                    data = response.json()
+                    audio_streams = data.get("audioStreams", [])
                     
-                    # 1. Look specifically for M4A/MP4 audio (MIME type: audio/mp4). 
-                    # Most universally supported format for web players.
-                    for stream in audio_streams:
-                        mime_type = stream.get("mimeType", "").lower()
-                        if "audio/mp4" in mime_type or "m4a" in mime_type:
-                            best_audio_url = stream.get("url")
-                            logger.info(f"Found optimized M4A/MP4 stream for {video_id}")
-                            break
-                    
-                    # 2. Fallback to the first available audio if M4A isn't found
-                    if not best_audio_url:
-                        best_audio_url = audio_streams[0].get("url")
-                        logger.info(f"Falling back to first available audio stream for {video_id}")
+                    if audio_streams:
+                        best_audio_url = None
                         
-                    return best_audio_url
+                        # 1. Hunt for standard M4A/MP4 audio (max compatibility)
+                        for stream in audio_streams:
+                            mime_type = stream.get("mimeType", "").lower()
+                            if "audio/mp4" in mime_type or "m4a" in mime_type:
+                                best_audio_url = stream.get("url")
+                                break
+                        
+                        # 2. Fallback to whatever audio is available
+                        if not best_audio_url:
+                            best_audio_url = audio_streams[0].get("url")
+                            
+                        logger.info(f"Success! Stream found via {base_url}")
+                        return best_audio_url
                 else:
-                    logger.warning(f"No audio streams found for {video_id} in Piped response.")
-                    return None
-            else:
-                logger.error(f"Piped API Error: {response.status_code} - {response.text}")
-                return None
+                    logger.warning(f"Instance {base_url} failed (Status {response.status_code}). Trying next...")
+                    
+            except Exception as e:
+                logger.warning(f"Instance {base_url} timed out or crashed: {e}. Trying next...")
+                continue # Move to the next URL in the list
                 
-    except Exception as e:
-        logger.error(f"Backend transition to Piped failed: {e}")
-        return None
+    logger.error(f"CRITICAL: All {len(PIPED_INSTANCES)} Piped instances are currently down.")
+    return None
 
 async def resolve_stream_url(video_id):
     """
@@ -461,15 +465,16 @@ async def get_album_details_youtube(browse_id):
 
 def debug_formats(video_id: str):
     """
-    Diagnostic: probes Piped API directly.
+    Diagnostic: probes Piped instances directly.
     """
-    try:
-        res = httpx.get(f"{PIPED_BASE_URL}/streams/{video_id}", timeout=10)
-        return {
-            "piped": {
+    results = {}
+    for base_url in PIPED_INSTANCES:
+        try:
+            res = httpx.get(f"{base_url}/streams/{video_id}", timeout=5)
+            results[base_url] = {
                 "status_code": res.status_code,
                 "data": res.json() if res.status_code == 200 else "error"
             }
-        }
-    except Exception as e:
-        return {"error": str(e)}
+        except Exception as e:
+            results[base_url] = f"Error: {str(e)}"
+    return results

@@ -31,6 +31,11 @@ try:
         
         sanitized_headers = {k: v for k, v in headers_json.items() if k in safe_keys}
         
+        # THE FIX: Force ytmusicapi 1.11+ into BROWSER mode
+        # It defaults to OAuth if it doesn't see 'SAPISIDHASH' in the Authorization header.
+        # Once initialized, the library will generate the real hash from your cookies.
+        sanitized_headers["Authorization"] = "SAPISIDHASH dummy"
+        
         # Capture User-Agent for yt-dlp
         for ua_key in ['User-Agent', 'user-agent']:
             if ua_key in sanitized_headers:

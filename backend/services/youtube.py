@@ -528,18 +528,19 @@ async def get_album_details_youtube(browse_id):
         logger.error(f"YTMusic album details error: {e}")
         return {}
 
+
 def debug_formats(video_id: str):
     """
-    Diagnostic: returns all available formats for a video.
-    Call via /api/music/debug/{video_id} to troubleshoot.
+    Diagnostic: returns all available formats for a video — NO format filter.
     """
     results = {}
     for client in PLAYER_CLIENTS:
         ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
+            'quiet': False,
+            'no_warnings': False,
             'skip_download': True,
             'noplaylist': True,
+            # NO 'format' key — let yt-dlp return everything raw
             'extractor_args': {'youtube': {'player_client': [client]}}
         }
         if HAS_COOKIES and os.path.exists(COOKIE_PATH):
@@ -551,17 +552,21 @@ def debug_formats(video_id: str):
                     download=False
                 )
                 formats = info.get('formats', [])
-                results[client] = [
-                    {
-                        'id': f.get('format_id'),
-                        'ext': f.get('ext'),
-                        'acodec': f.get('acodec'),
-                        'vcodec': f.get('vcodec'),
-                        'abr': f.get('abr'),
-                        'url_present': bool(f.get('url'))
-                    }
-                    for f in formats
-                ]
+                results[client] = {
+                    'format_count': len(formats),
+                    'formats': [
+                        {
+                            'id': f.get('format_id'),
+                            'ext': f.get('ext'),
+                            'acodec': f.get('acodec'),
+                            'vcodec': f.get('vcodec'),
+                            'abr': f.get('abr'),
+                            'protocol': f.get('protocol'),
+                            'url_present': bool(f.get('url'))
+                        }
+                        for f in formats
+                    ]
+                }
         except Exception as e:
-            results[client] = f"ERROR: {e}"
+            results[client] = f"ERROR: {str(e)}"
     return results

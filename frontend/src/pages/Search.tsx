@@ -127,9 +127,14 @@ const Search = () => {
                   <div 
                     className="bg-[#181818] hover:bg-neutral-800/80 p-6 rounded-2xl transition-all duration-500 cursor-pointer flex flex-col gap-5 shadow-lg hover:shadow-2xl hover:shadow-black/60 group relative overflow-hidden"
                     onClick={() => {
-                        if (results.global_matches.top_result.type === 'artist') {
-                            navigate(`/artist/${results.global_matches.top_result.id}`);
-                        } else {
+                        const type = results.global_matches.top_result.type;
+                        const id = results.global_matches.top_result.id;
+                        
+                        if (type === 'artist') {
+                            navigate(`/artist/${id}`);
+                        } else if (type === 'album') {
+                            navigate(`/album/${id}`);
+                        } else if (type === 'song') {
                             playFromSearch(results.global_matches.top_result);
                             saveSearchClick(results.global_matches.top_result);
                         }
@@ -147,12 +152,12 @@ const Search = () => {
                     <div>
                       <h4 className="text-4xl font-black text-white truncate max-w-[280px] tracking-tight">{results.global_matches.top_result?.name || results.global_matches.top_result?.title}</h4>
                       <div className="flex items-center gap-3 mt-3">
-                        {results.global_matches.top_result.type === 'song' && (
-                          <span className="text-neutral-400 text-sm font-semibold hover:text-white transition-colors">{results.global_matches.top_result?.artist}</span>
-                        )}
                         <span className="text-[11px] font-black uppercase tracking-[0.15em] bg-black/40 px-3.5 py-1.5 rounded-full text-neutral-300 w-fit backdrop-blur-md">
                           {results.global_matches.top_result.type}
                         </span>
+                        {results.global_matches.top_result.type === 'song' && (
+                          <span className="text-neutral-400 text-sm font-semibold hover:text-white transition-colors truncate max-w-[150px]">{results.global_matches.top_result?.artist}</span>
+                        )}
                       </div>
                     </div>
                     {results.global_matches.top_result.type === 'song' && (

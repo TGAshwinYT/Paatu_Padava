@@ -404,6 +404,10 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const audio = audioRef.current;
 
     const startPlayback = async () => {
+        if (!currentTrack?.id) {
+            console.warn("Attempted to play a track without a valid ID:", currentTrack);
+            return;
+        }
         try {
             const isTrackChange = lastTrackId.current !== currentTrack.id;
             

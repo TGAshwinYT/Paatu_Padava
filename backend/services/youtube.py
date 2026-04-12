@@ -4,44 +4,51 @@ import asyncio
 import logging
 import functools
 import os
+import tempfile
+import json
 
 logger = logging.getLogger(__name__)
 
 # Deployment Cookie Path
-COOKIE_PATH = "/tmp/youtube_cookies.txt"
+COOKIE_PATH = os.path.join(os.path.dirname(__file__), "..", "youtube_cookies.txt")
 
 # Initialize YTMusic with Browser Headers (Hardened for cloud deployment)
-HEADERS_PATH = "/tmp/browser_headers.json"
 headers_raw = os.getenv("YT_HEADERS")
 GLOBAL_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 try:
     if headers_raw:
-        import json
         headers_json = json.loads(headers_raw)
         
-        # Aggressive Sanitization: Blacklist all OAuth and metadata headers
-        keys_to_remove = [
-            'authorization', 'content-encoding', 'content-length', 'accept-encoding', 'host',
-            'token_type', 'access_token', 'refresh_token', 'client_id', 'client_secret', 'expires_at', 'expires_in'
-        ]
-        for key in keys_to_remove:
-            headers_json.pop(key, None)
-            headers_json.pop(key.lower(), None)
+        # STRICT WHITELIST: Only allow confirmed browser headers
+        # This prevents ytmusicapi from seeing any keys that might trigger OAuth mode
+        safe_keys = {
+            'User-Agent', 'user-agent', 'Cookie', 'cookie', 'Accept', 'accept',
+            'Accept-Language', 'accept-language', 'Content-Type', 'content-type',
+            'X-Goog-AuthUser', 'x-goog-auth-user', 'x-goog-authuser',
+            'x-origin', 'Origin', 'Referer', 'x-youtube-client-name', 'x-youtube-client-version'
+        }
+        
+        sanitized_headers = {k: v for k, v in headers_json.items() if k in safe_keys}
+        
+        # Capture User-Agent for yt-dlp
+        for ua_key in ['User-Agent', 'user-agent']:
+            if ua_key in sanitized_headers:
+                GLOBAL_USER_AGENT = sanitized_headers[ua_key]
+                break
             
-        # Capture User-Agent for yt-dlp consistency
-        if 'User-Agent' in headers_json:
-            GLOBAL_USER_AGENT = headers_json['User-Agent']
-        elif 'user-agent' in headers_json:
-            GLOBAL_USER_AGENT = headers_json['user-agent']
+        # Write to a proper cross-platform temporary file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tf:
+            json.dump(sanitized_headers, tf)
+            HEADERS_PATH = tf.name
             
-        # Write to temporary file (The most stable way to initialize ytmusicapi)
-        os.makedirs(os.path.dirname(HEADERS_PATH), exist_ok=True)
-        with open(HEADERS_PATH, "w") as f:
-            json.dump(headers_json, f)
-            
-        logger.info(f"Initializing YTMusic with authenticated headers from {HEADERS_PATH}")
+        logger.info(f"Initializing YTMusic with safe whitelist headers from {HEADERS_PATH}")
+        logger.info(f"Active header keys: {list(sanitized_headers.keys())}")
         ytmusic = YTMusic(HEADERS_PATH)
+        
+        # Try to clean up the temp file after init (optional, but good practice)
+        # Note: Some versions of ytmusicapi might need the file to persist for a bit, 
+        # but usually init loads it into memory.
     else:
         logger.info("Initializing YTMusic as Guest (no YT_HEADERS env provided)")
         ytmusic = YTMusic()

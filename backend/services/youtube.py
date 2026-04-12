@@ -164,28 +164,28 @@ async def search_youtube(query, filter="songs", limit=20):
 
 def get_audio_stream_url(video_id, quality="normal"):
     """
-    Extracts the direct audio stream URL using a 'Smart TV' identity.
-    This bypasses the PO Token wall by using clients that don't enforce it when cookies are present.
+    Extracts the direct audio stream URL using a 'Smart TV' identity and graceful format sorting.
+    This bypasses the PO Token wall and resolves format-not-available errors by using preferences.
     """
-    if quality == "high":
-        format_string = 'bestaudio[ext=m4a]/bestaudio/best'
-    elif quality == "low":
-        format_string = 'worstaudio[ext=m4a]/worstaudio/worst'
-    else: # Normal
-        format_string = 'bestaudio[abr<=128][ext=m4a]/bestaudio[ext=m4a]/bestaudio/best'
-
     url = f"https://www.youtube.com/watch?v={video_id}"
     
     # Task 2: Smart TV Identity Fallback Loop
     for attempt in range(1, 4):
         try:
             ydl_opts = {
-                'format': format_string,
+                # Step 1: Loosen the strict format requirement
+                'format': 'bestaudio/best',
+                
+                # Step 2: Add format sorting to gracefully request preferences
+                'format_sort': ['hasaud', 'ext:m4a', 'abr'],
+                
                 'quiet': True,
                 'no_warnings': False,
                 'source_address': '0.0.0.0', # Force IPv4
                 'cookiefile': COOKIE_PATH if os.path.exists(COOKIE_PATH) else None,
                 'nocheckcertificate': True,
+                # This forces yt-dlp to download the latest JS solver script dynamically
+                'remote_components': ['ejs:github'],
                 'extractor_args': {
                     'youtube': {
                         # The Smart TV clients do NOT require a PO token when cookies are present

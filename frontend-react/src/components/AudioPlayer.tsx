@@ -75,15 +75,13 @@ export default function AudioPlayer({
 
     return (
         <div className="hidden" aria-hidden="true">
-            {currentVideoId && (
-                <YouTube 
-                    videoId={currentVideoId} 
-                    opts={opts} 
-                    onReady={handleReady}
-                    onEnd={onEnd}
-                    onStateChange={handleStateChange}
-                />
-            )}
+            <YouTube 
+                videoId={currentVideoId || ''} 
+                opts={opts} 
+                onReady={handleReady}
+                onEnd={onEnd}
+                onStateChange={handleStateChange}
+            />
         </div>
     );
 }

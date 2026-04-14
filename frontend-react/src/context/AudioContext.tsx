@@ -285,11 +285,15 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     let interval: any;
     if (isPlaying && !isSeeking) {
       interval = setInterval(() => {
-        if (youtubePlayer.current) {
-          const time = youtubePlayer.current.getCurrentTime();
-          const dur = youtubePlayer.current.getDuration();
-          if (time !== undefined) setCurrentTime(time);
-          if (dur !== undefined && dur > 0) setDuration(dur);
+        try {
+          if (youtubePlayer.current && typeof youtubePlayer.current.getCurrentTime === 'function') {
+            const time = youtubePlayer.current.getCurrentTime();
+            const dur = youtubePlayer.current.getDuration();
+            if (time !== undefined) setCurrentTime(time);
+            if (dur !== undefined && dur > 0) setDuration(dur);
+          }
+        } catch (e) {
+          // Silently ignore temporary API glitches during unmounts/reloads
         }
       }, 1000);
     }

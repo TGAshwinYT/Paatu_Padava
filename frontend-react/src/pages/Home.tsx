@@ -8,10 +8,12 @@ import type { Song } from '../types';
 import { useNavigate } from 'react-router-dom';
 import { getHomeFeed, getListenHistory, getFollowedArtists } from '../services/api';
 import { useAudio } from '../context/AudioContext';
+import { getRecentCollections, saveCollectionPlay } from '../utils/historyUtils';
 import 'swiper/css';
 
 interface HomeProps {
   isLoggedIn: boolean;
+  user?: any;
 }
 
 const Home = ({ isLoggedIn }: HomeProps) => {
@@ -23,6 +25,23 @@ const Home = ({ isLoggedIn }: HomeProps) => {
   const [isLoading, setIsLoading] = useState(true);
   const { playContext } = useAudio();
   const navigate = useNavigate();
+
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good morning";
+    if (hour < 18) return "Good afternoon";
+    return "Good evening";
+  };
+
+  // Prepare shortcut items (Prioritize Recently Played Collections + Mixes + Fallback to Top Albums)
+  const shortcuts = [
+    ...(isLoggedIn ? [{ id: 'liked-songs', title: 'Liked Songs', coverUrl: 'https://misc.scdn.co/liked-songs/liked-songs-640.png', type: 'playlist' }] : []),
+    ...getRecentCollections().map(c => ({ id: c.id, title: c.title, coverUrl: c.coverUrl, type: c.type })),
+    ...topAlbums.map(a => ({ id: a.id, title: a.title, coverUrl: a.coverUrl, type: 'album' }))
+  ].reduce((acc: any[], curr) => {
+    if (!acc.find(item => item.id === curr.id)) acc.push(curr);
+    return acc;
+  }, []).slice(0, 8);
 
   const recommendedRef = useRef<HTMLDivElement>(null);
   const recentlyPlayedRef = useRef<HTMLDivElement>(null);
@@ -80,7 +99,52 @@ const Home = ({ isLoggedIn }: HomeProps) => {
   }
 
   return (
-    <div className="flex flex-col gap-12 pb-24 pt-6">
+    <div className="flex flex-col gap-10 pb-24 pt-2">
+      
+      {/* 🟢 Spotify-Style Greeting & Filters 🟢 */}
+      <section className="relative -mx-6 px-6 pt-6 pb-10 bg-gradient-to-b from-green-900/30 to-[#121212]">
+        <div className="flex flex-col gap-6 mb-8">
+          <div className="flex items-center justify-between">
+            <h1 className="text-3xl font-extrabold tracking-tight text-white">{getGreeting()}</h1>
+          </div>
+        </div>
+
+        {/* Shortcut Grid (4x2 on Desktop, 2x4 on Mobile) */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {shortcuts.map((item, i) => (
+            <div 
+              key={`${item.id}-${i}`}
+              onClick={() => {
+                if (item.id === 'liked-songs') {
+                  navigate('/library');
+                } else if (item.id && (item.id.startsWith('MPREb') || (item as any).type === 'album')) {
+                  navigate(`/album/${item.id}`);
+                } else {
+                  navigate(`/playlist/${item.id}`);
+                }
+              }}
+              className="group relative flex items-center bg-white/5 hover:bg-white/10 rounded-lg overflow-hidden h-[80px] transition-all cursor-pointer border border-transparent hover:border-white/5 shadow-lg"
+            >
+              <div className="h-full aspect-square w-20 flex-shrink-0 relative">
+                <img 
+                  src={item.coverUrl || '/logo.png'} 
+                  alt={item.title}
+                  className="w-full h-full object-cover shadow-[4px_0_10px_rgba(0,0,0,0.3)]"
+                  onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
+                />
+              </div>
+              <div className="flex-1 px-4 flex items-center justify-between overflow-hidden">
+                <span className="text-white font-bold text-sm line-clamp-2 truncate pr-2">
+                  {item.title}
+                </span>
+                <button className="w-12 h-12 bg-[#1ed760] rounded-full shadow-2xl flex items-center justify-center translate-y-2 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-300 transform scale-0 group-hover:scale-100 flex-shrink-0">
+                  <Play size={20} fill="black" className="ml-1" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* 🚀 Personalization Banner 🚀 */}
       {!isLoggedIn && !isPersonalized && (

@@ -31,21 +31,9 @@ const UserDropdown: React.FC<UserDropdownProps> = ({ user, onLogout }) => {
 
   const menuItems = [
     { 
-      label: 'Account', 
-      icon: <ExternalLink size={16} />, 
-      onClick: () => window.open('https://www.spotify.com/account', '_blank'),
-      separator: false 
-    },
-    { 
       label: 'Profile', 
       icon: null, 
       onClick: () => { navigate('/profile'); setIsOpen(false); },
-      separator: false 
-    },
-    { 
-      label: 'Upgrade to Premium', 
-      icon: <ExternalLink size={16} />, 
-      onClick: () => window.open('https://www.spotify.com/premium', '_blank'),
       separator: true 
     },
     { 

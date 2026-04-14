@@ -136,17 +136,6 @@ const Settings = () => {
                 {user.username}
               </div>
             </div>
-            <div className="flex flex-col">
-              <label className="text-xs text-neutral-500 uppercase font-bold mb-1">Email Address</label>
-              <div className="flex items-center justify-between text-neutral-200 bg-neutral-900 p-3 rounded-lg border border-neutral-800">
-                <span>{user.email}</span>
-                {user.is_verified ? (
-                  <span className="text-xs bg-green-500/10 text-green-500 px-2 py-1 rounded-full border border-green-500/20">Verified</span>
-                ) : (
-                  <span className="text-xs bg-yellow-500/10 text-yellow-500 px-2 py-1 rounded-full border border-yellow-500/20 text-center">Check terminal for link</span>
-                )}
-              </div>
-            </div>
             
             <button 
               onClick={() => navigate('/onboarding')}

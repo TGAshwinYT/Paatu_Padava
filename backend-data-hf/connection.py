@@ -75,6 +75,9 @@ engine = create_async_engine(
     echo=True,
     pool_size=5,
     max_overflow=10,
+    pool_pre_ping=True,      # Verify connection health before use (Task Fix)
+    pool_recycle=300,        # Retire connections every 5 mins to prevent remote timeouts
+    pool_use_lifo=True,      # Reuse the most recently used connection (keeps 'hot' connections alive)
     connect_args={
         "ssl": ctx  # This forces asyncpg to use our permissive context
     }

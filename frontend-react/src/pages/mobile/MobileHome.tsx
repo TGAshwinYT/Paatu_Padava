@@ -5,6 +5,7 @@ import { getHomeFeed, getListenHistory } from '../../services/api';
 import { Settings, Clock, Sparkles, Play } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { Song } from '../../types';
+import { getRecentCollections, saveCollectionPlay } from '../../utils/historyUtils';
 
 const MobileHome: React.FC = () => {
   const { user } = useAuth();
@@ -59,8 +60,16 @@ const MobileHome: React.FC = () => {
     return "Good evening";
   };
 
-  // Combine Recently Played and Top Albums for the 2x4 grid
-  const topEight = [...recentlyPlayed.slice(0, 4), ...topAlbums.slice(0, 4)];
+  // Prepare shortcut items (Prioritize Recently Played Collections + Mixes + Fallback to Top Albums)
+  const topEight = [
+    ...(user ? [{ id: 'liked-songs', title: 'Liked Songs', coverUrl: 'https://misc.scdn.co/liked-songs/liked-songs-640.png', type: 'playlist' }] : []),
+    ...getRecentCollections().map(c => ({ id: c.id, title: c.title, coverUrl: c.coverUrl, type: c.type })),
+    ...artistMixes.map(m => ({ id: m.id, title: m.name, coverUrl: m.imageUrl, type: 'playlist' })),
+    ...topAlbums.map(a => ({ id: a.id, title: a.title, coverUrl: a.coverUrl, type: 'album' }))
+  ].reduce((acc: any[], curr) => {
+    if (!acc.find(item => item.id === curr.id)) acc.push(curr);
+    return acc;
+  }, []).slice(0, 8);
 
   if (isLoading) {
     return (
@@ -73,40 +82,46 @@ const MobileHome: React.FC = () => {
   return (
     <div className="bg-[#121212] h-[100dvh] overflow-y-auto no-scrollbar pb-32">
       {/* Dynamic Header */}
-      <div className="sticky top-0 z-30 bg-gradient-to-b from-neutral-800/80 to-[#121212]/0 backdrop-blur-sm px-4 pt-12 pb-4">
-        <div className="flex items-center justify-between mb-4">
+      <div className="sticky top-0 z-30 bg-gradient-to-b from-neutral-800/90 to-[#121212]/80 backdrop-blur-xl px-4 pt-10 pb-6 shadow-2xl">
+        <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold tracking-tighter text-white">{greeting()}</h1>
           <div className="flex items-center gap-5 text-white/90">
-             <Sparkles size={22} className="text-indigo-400" />
-             <Link to="/history"><Clock size={22} /></Link>
-             <Link to="/settings"><Settings size={22} /></Link>
+             <Sparkles size={20} className="text-indigo-400" />
+             <Link to="/history"><Clock size={20} /></Link>
+             <Link to="/settings"><Settings size={20} /></Link>
           </div>
         </div>
       </div>
 
-      {/* 2x4 Quick Access Grid */}
-      <div className="grid grid-cols-2 gap-2 px-4 mb-8">
+      {/* 2x4 Quick Access Grid (Spotify Shortcuts Style) */}
+      <div className="grid grid-cols-2 gap-2 px-2 mb-8">
         {topEight.map((item, i) => (
           <div 
             key={`${item.id}-${i}`} 
             onClick={() => {
-              if (item.id && (item.id.startsWith('MPREb') || (item as any).type === 'album')) {
+              if (item.id === 'liked-songs') {
+                navigate('/library');
+              } else if (item.id && (item.id.startsWith('MPREb') || (item as any).type === 'album')) {
                 navigate(`/album/${item.id}`);
               } else {
-                playContext(item, topEight);
+                navigate(`/playlist/${item.id}`);
               }
             }}
-            className="flex items-center bg-white/10 rounded-md overflow-hidden h-14 border border-white/5 active:scale-95 transition-transform"
+            className="flex items-center bg-white/10 rounded-md overflow-hidden h-[54px] border border-white/5 active:bg-white/20 active:scale-95 transition-all shadow-md backdrop-blur-sm"
           >
-            <img 
-              src={item.coverUrl || '/logo.png'} 
-              className="h-full aspect-square object-cover" 
-              alt={item.title}
-              onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
-            />
-            <span className="text-white text-[11px] font-bold px-2 line-clamp-2 leading-tight">
-              {item.title}
-            </span>
+            <div className="h-full aspect-square w-14 flex-shrink-0">
+                <img 
+                src={item.coverUrl || '/logo.png'} 
+                className="h-full w-full object-cover shadow-sm" 
+                alt={item.title}
+                onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
+                />
+            </div>
+            <div className="flex-1 px-2 overflow-hidden">
+                <span className="text-white text-[10px] font-bold line-clamp-2 leading-tight">
+                {item.title || (item as any).name}
+                </span>
+            </div>
           </div>
         ))}
       </div>

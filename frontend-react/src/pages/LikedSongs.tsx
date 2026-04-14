@@ -53,7 +53,7 @@ const LikedSongs = () => {
         <div className="flex flex-col gap-2">
             <span className="text-xs uppercase font-bold tracking-widest">Playlist</span>
             <h1 className="text-7xl font-bold">Liked Songs</h1>
-            <span className="text-sm font-semibold opacity-80">{user.email} • {songs.length} songs</span>
+            <span className="text-sm font-semibold opacity-80">{user.username} • {songs.length} songs</span>
         </div>
       </div>
 

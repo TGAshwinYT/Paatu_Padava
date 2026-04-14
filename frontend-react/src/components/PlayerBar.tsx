@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Play, 
   Pause, 
@@ -12,9 +12,14 @@ import {
   Settings,
   Clock,
   ListMusic,
-  PlusCircle
+  PlusCircle,
+  Heart
 } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAudio } from '../context/AudioContext';
+import { usePlaylistModal } from '../context/PlaylistModalContext';
+import { useAuth } from '../context/AuthContext';
+import { likeSong, unlikeSong } from '../services/api';
 import LyricsOverlay from './LyricsOverlay';
 import SleepTimerModal from './SleepTimerModal';
 import QueuePanel from './QueuePanel';
@@ -43,6 +48,12 @@ const PlayerBar = () => {
     seekTo,
   } = useAudio();
 
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { user } = useAuth();
+  const { openModal } = usePlaylistModal();
+  const [isLiked, setIsLiked] = useState(false);
+
   const [showLyrics, setShowLyrics] = useState(false);
   const [showSleepTimer, setShowSleepTimer] = useState(false);
   const [showDevicePicker, setShowDevicePicker] = useState(false);
@@ -58,6 +69,28 @@ const PlayerBar = () => {
     const target = e.target as HTMLInputElement;
     seekTo(Number(target.value));
   };
+
+  const handleLikeToggle = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!currentTrack) return;
+    if (!user) {
+      navigate("/login", { state: { from: location } });
+      return;
+    }
+    
+    if (isLiked) {
+      await unlikeSong(currentTrack.id);
+      setIsLiked(false);
+    } else {
+      await likeSong(currentTrack);
+      setIsLiked(true);
+    }
+  };
+
+  // Reset like state when track changes
+  useEffect(() => {
+    setIsLiked(false); // We could check library here if we had a central library cache
+  }, [currentTrack?.id]);
 
   const formatTime = (seconds: number) => {
     if (isNaN(seconds)) return '0:00';
@@ -89,11 +122,18 @@ const PlayerBar = () => {
               {currentTrack.artist}
             </p>
           </div>
-          <PlusCircle 
-            size={20} 
-            className="text-neutral-400 hover:text-white hover:scale-105 transition-all cursor-pointer flex-shrink-0"
-            onClick={() => console.log("Open Playlist Modal")}
-          />
+          <div className="flex items-center gap-3 ml-2">
+            <Heart 
+                size={20} 
+                className={`transition-all cursor-pointer ${isLiked ? 'text-green-500 fill-green-500' : 'text-neutral-400 hover:text-white'}`}
+                onClick={handleLikeToggle}
+            />
+            <PlusCircle 
+                size={20} 
+                className="text-neutral-400 hover:text-white hover:scale-105 transition-all cursor-pointer flex-shrink-0"
+                onClick={() => openModal(currentTrack)}
+            />
+          </div>
         </div>
 
         {/* Center: Controls & Progress */}

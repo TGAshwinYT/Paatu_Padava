@@ -31,9 +31,11 @@ def get_youtube_cookies():
     # 1. Environment Variable
     env_cookie = os.getenv("YOUTUBE_COOKIE")
     if env_cookie:
-        logger.info("✅ Found YOUTUBE_COOKIE in environment variables")
-        # Ensure it's in Netscape format if it's the raw content
-        if env_cookie.strip().startswith("# Netscape"):
+        masked = env_cookie[:15] + "..." + env_cookie[-5:] if len(env_cookie) > 20 else "RAW_TEXT"
+        logger.info(f"✅ Found YOUTUBE_COOKIE (Len: {len(env_cookie)}): {masked}")
+        
+        # Handle Netscape format specifically
+        if env_cookie.strip().startswith("# Netscape") or "\t" in env_cookie:
             return {"type": "netscape", "content": env_cookie}
         return {"type": "string", "content": env_cookie}
 
@@ -51,7 +53,7 @@ def get_youtube_cookies():
         except Exception as e:
             logger.error(f"Error reading cookie file: {e}")
 
-    logger.warning("⚠️ No YouTube cookies found. Extraction may be limited.")
+    logger.warning("⚠️ No YouTube cookies found. Extraction will likely fail on Render.")
     return None
 
 @app.get("/")
@@ -73,59 +75,81 @@ async def play(id: str):
         logger.info(f"📡 Extraction Proxy Request: {id}")
         cookie_info = get_youtube_cookies()
         audio_url = None
+        last_error = "Unknown Error"
         
-        # --- Attempt 1: yt-dlp (Optimized for Cloud Proxies) ---
+        # --- Common Options ---
+        ydl_opts_base = {
+            'format': 'bestaudio/best',
+            'quiet': True,
+            'no_warnings': True,
+            'nocheckcertificate': True,
+            'ignoreerrors': False,
+        }
+
+        # Setup Cookies
+        temp_cookie_file = None
+        if cookie_info:
+            if cookie_info["type"] in ["netscape", "string"]:
+                temp_cookie_file = tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".txt", encoding="utf-8")
+                temp_cookie_file.write(cookie_info["content"])
+                temp_cookie_file.flush()
+                temp_cookie_file.close()
+                ydl_opts_base['cookiefile'] = temp_cookie_file.name
+            elif cookie_info["type"] == "file":
+                ydl_opts_base['cookiefile'] = cookie_info["path"]
+
         try:
-            logger.info(f"🔍 [Attempt 1] Extracting with yt-dlp (Android Client) for: {id}")
-            ydl_opts = {
-                'format': 'bestaudio/best',
-                'quiet': True,
-                'no_warnings': True,
-                'nocheckcertificate': True,
-                'ignoreerrors': False, # Set to False to see actual error
-                # 🔥 CRITICAL: Spoof Android client which is less likely to be blocked on Render/HF
-                'extractor_args': {'youtube': {'player_client': ['android', 'ios']}}
-            }
-
-            temp_cookie_file = None
-            if cookie_info:
-                if cookie_info["type"] == "netscape" or cookie_info["type"] == "string":
-                    temp_cookie_file = tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".txt", encoding="utf-8")
-                    temp_cookie_file.write(cookie_info["content"])
-                    temp_cookie_file.flush()
-                    temp_cookie_file.close()
-                    ydl_opts['cookiefile'] = temp_cookie_file.name
-                elif cookie_info["type"] == "file":
-                    ydl_opts['cookiefile'] = cookie_info["path"]
-
+            # --- Attempt 1: yt-dlp (Android Client) ---
             try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                logger.info(f"🔍 [Attempt 1] Extracting with yt-dlp (Android) for: {id}")
+                opts = ydl_opts_base.copy()
+                opts['extractor_args'] = {'youtube': {'player_client': ['android']}}
+                with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(f"https://www.youtube.com/watch?v={id}", download=False)
                     if info:
                         audio_url = info.get('url')
-                        logger.info("✅ [yt-dlp] Extraction successful via Android client")
-            finally:
-                if temp_cookie_file and os.path.exists(temp_cookie_file.name):
-                    try: os.unlink(temp_cookie_file.name)
-                    except: pass
-        except Exception as ye:
-            logger.warning(f"⚠️ [yt-dlp] Failed: {str(ye)}")
+                        logger.info("✅ [yt-dlp-android] Success")
+            except Exception as ye:
+                last_error = str(ye)
+                logger.warning(f"⚠️ [yt-dlp-android] Failed: {last_error}")
 
-        # --- Attempt 2: pytubefix (Fallback with Android Client) ---
-        if not audio_url:
-            try:
-                logger.info(f"🔍 [Attempt 2] Extracting with pytubefix (Android Client) for: {id}")
-                # pytubefix supports client selection to bypass bot detection
-                yt = YouTube(f"https://www.youtube.com/watch?v={id}", client='ANDROID')
-                stream = yt.streams.filter(only_audio=True).first()
-                if stream:
-                    audio_url = stream.url
-                    logger.info("✅ [pytubefix] Extraction successful via Android client")
-            except Exception as pe:
-                logger.error(f"❌ [pytubefix] Failed: {str(pe)}")
+            # --- Attempt 2: yt-dlp (iOS Client) ---
+            if not audio_url:
+                try:
+                    logger.info(f"🔍 [Attempt 2] Extracting with yt-dlp (iOS) for: {id}")
+                    opts = ydl_opts_base.copy()
+                    opts['extractor_args'] = {'youtube': {'player_client': ['ios']}}
+                    with yt_dlp.YoutubeDL(opts) as ydl:
+                        info = ydl.extract_info(f"https://www.youtube.com/watch?v={id}", download=False)
+                        if info:
+                            audio_url = info.get('url')
+                            logger.info("✅ [yt-dlp-ios] Success")
+                except Exception as ye:
+                    last_error = str(ye)
+                    logger.warning(f"⚠️ [yt-dlp-ios] Failed: {last_error}")
+
+            # --- Attempt 3: pytubefix (Android) ---
+            if not audio_url:
+                try:
+                    logger.info(f"🔍 [Attempt 3] Extracting with pytubefix (Android) for: {id}")
+                    yt = YouTube(f"https://www.youtube.com/watch?v={id}", client='ANDROID')
+                    stream = yt.streams.filter(only_audio=True).first()
+                    if stream:
+                        audio_url = stream.url
+                        logger.info("✅ [pytubefix] Success")
+                except Exception as pe:
+                    last_error = str(pe)
+                    logger.error(f"❌ [pytubefix] Failed: {last_error}")
+
+        finally:
+            if temp_cookie_file and os.path.exists(temp_cookie_file.name):
+                try: os.unlink(temp_cookie_file.name)
+                except: pass
 
         if not audio_url:
-            raise Exception("Failed to extract audio URL from all providers (yt-dlp & pytubefix).")
+            # Log the final failure with the last error message
+            logger.error(f"❌ ALL EXTRACTION ATTEMPTS FAILED for {id}")
+            raise Exception(f"Extraction failed: {last_error}")
 
         # Stream the audio
         async def stream_generator():
@@ -148,10 +172,18 @@ async def play(id: str):
         )
 
     except Exception as e:
+        # Crucial: Log the FULL error so user can find it in Render logs
         logger.error(f"❌ Proxy Stream Error: {str(e)}")
-        # Log limited traceback to avoid cluttering but show the cause
-        logger.error(traceback.format_exc().splitlines()[-2:])
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(traceback.format_exc())
+        
+        # Return the error message to the frontend so it's visible in network tab
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "error": str(e),
+                "hint": "Check Render logs for the detailed yt-dlp error message."
+            }
+        )
 
 if __name__ == "__main__":
     import uvicorn

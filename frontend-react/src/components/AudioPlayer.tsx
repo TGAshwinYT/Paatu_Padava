@@ -131,8 +131,8 @@ export default function AudioPlayer({
 
     // --- 3. PRE-WARMING CONFIGURATION ---
     const opts: YouTubeProps['opts'] = {
-        height: '0', 
-        width: '0',  
+        height: '1', 
+        width: '1',  
         playerVars: {
             autoplay: 0, 
             controls: 0,
@@ -149,12 +149,22 @@ export default function AudioPlayer({
 
     return (
         <div className="custom-audio-player">
-            {/* The pre-warmed invisible YouTube Engine: ALWAYS rendered, never conditionally hidden */}
-            <div style={{ display: 'none', position: 'absolute', pointerEvents: 'none' }}>
+            {/* THE FIX: Visually hidden, but fully active in the browser's rendering engine to bypass throttling */}
+            <div style={{ 
+                position: 'absolute', 
+                opacity: 0, 
+                pointerEvents: 'none', 
+                zIndex: -100,
+                top: 0,
+                left: 0,
+                width: '1px',
+                height: '1px',
+                overflow: 'hidden'
+            }}>
                 <YouTube 
                     videoId={currentVideoId || ''} 
                     opts={opts} 
-                    onReady={handleReady}
+                    onReady={handleReady} 
                     onEnd={onEnd}
                     onStateChange={handleStateChange}
                 />

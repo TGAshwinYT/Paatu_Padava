@@ -3,7 +3,6 @@ import type { Song } from '../types';
 import api, { addListenHistory } from '../services/api';
 import { useAuth } from './AuthContext';
 import AudioPlayer from '../components/AudioPlayer';
-import { getValidImage } from '../utils/imageUtils';
 
 const shuffleArray = (array: any[]) => {
   const shuffled = [...array];

@@ -119,7 +119,6 @@ const Home = ({ isLoggedIn }: HomeProps) => {
                 if (!item.id) return;
                 
                 const id = item.id;
-                const isArtistID = id.startsWith('UC') && !id.includes('playlist');
                 const isPlaylistID = id.startsWith('PL') || id.startsWith('RDCL') || id.startsWith('RDTK');
                 const isAlbumID = id.startsWith('MPREb') || id.startsWith('OLAK5uy_') || id.startsWith('AMGR_') || topAlbums.some(a => a.id === id);
 

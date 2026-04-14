@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Search as SearchIcon, Music, Album, Clock, X, Play, PlusCircle, MoreHorizontal, ListMusic } from 'lucide-react';
 import type { Song } from '../types';
-import { searchTracks, getRecentSearches, deleteSearchHistoryItem, saveSearchClick, likeSong } from '../services/api';
+import { searchTracks, getRecentSearches, deleteSearchHistoryItem, saveSearchClick } from '../services/api';
 import { useAudio } from '../context/AudioContext';
 import { useAuth } from '../context/AuthContext';
 import { usePlaylistModal } from '../context/PlaylistModalContext';

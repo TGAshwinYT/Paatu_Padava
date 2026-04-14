@@ -362,7 +362,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
            youtubePlayer.current = player;
         }}
         onEnd={onEnded}
-        onStateChange={(state) => {
+        onStateChange={() => {
            // We keep the contextual callback for any side-effects, 
            // but the primary state sync now happens inside AudioPlayer.
         }}

@@ -144,6 +144,8 @@ export default function AudioPlayer({
             // THE CORS FIX: Explicitly declare origin
             origin: typeof window !== 'undefined' ? window.location.origin : 'https://paatupadava.vercel.app',
             enablejsapi: 1,
+            // Suggested lowest possible quality (144p) to save user bandwidth
+            vq: 'tiny',
         },
     };
 

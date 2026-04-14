@@ -56,47 +56,65 @@ export default function AudioPlayer({
 
     // --- 2. INTERACTION HANDLERS ---
     
-    // BUG FIX 2: Songs don't play on the first click
+    // THE FIX: Use loadVideoById to eliminate race conditions and playback freezes
     useEffect(() => {
         if (currentVideoId && playerRef.current) {
-            // When the video ID changes, forcefully trigger playback
             try {
-                playerRef.current.playVideo();
+                // Ensure the player is stable before calling load
+                if (typeof playerRef.current.loadVideoById === 'function') {
+                    playerRef.current.loadVideoById(currentVideoId);
+                }
             } catch (e) {
-                console.warn("Auto-play failed:", e);
+                console.warn("loadVideoById failed:", e);
             }
         }
     }, [currentVideoId]);
 
     // Sync play/pause state
     useEffect(() => {
-        if (!playerRef.current) return;
+        if (!playerRef.current || typeof playerRef.current.playVideo !== 'function') return;
         try {
+            const iframe = typeof playerRef.current.getIframe === 'function' ? playerRef.current.getIframe() : null;
+            if (!iframe) return;
+
             if (isPlaying) {
                 playerRef.current.playVideo();
             } else {
                 playerRef.current.pauseVideo();
             }
         } catch (e) {
-            // Player might be re-buffering
+            // Silently recover if player is mid-transition
         }
-    }, [isPlaying, currentVideoId]);
+    }, [isPlaying]); 
 
     // Sync volume (YouTube is 0-100, our context is 0-1)
     useEffect(() => {
-        if (!playerRef.current) return;
-        playerRef.current.setVolume(volume * 100);
+        if (!playerRef.current || typeof playerRef.current.setVolume !== 'function') return;
+        try {
+            playerRef.current.setVolume(volume * 100);
+        } catch (e) {}
     }, [volume]);
 
     // Handle manual seeks from Context
     useEffect(() => {
-        if (!playerRef.current || seekToTime === null) return;
-        playerRef.current.seekTo(seekToTime, true);
+        if (!playerRef.current || seekToTime === null || typeof playerRef.current.seekTo !== 'function') return;
+        try {
+            playerRef.current.seekTo(seekToTime, true);
+        } catch (e) {}
     }, [seekToTime]);
 
     const handleReady = (event: YouTubeEvent) => {
         playerRef.current = event.target;
         playerRef.current.setVolume(volume * 100);
+        
+        // If we have a track already selected when the component mounts/readies
+        if (currentVideoId) {
+            try {
+                event.target.loadVideoById(currentVideoId);
+                if (!isPlaying) event.target.pauseVideo(); 
+            } catch (e) {}
+        }
+        
         onReady(event.target);
     };
 

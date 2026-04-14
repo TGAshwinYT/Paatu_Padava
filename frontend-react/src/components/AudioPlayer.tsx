@@ -28,40 +28,57 @@ export default function AudioPlayer({
     const playerRef = useRef<any>(null);
 
     // --- 1. SYNC ENGINE (POLLING) ---
-    // YouTube doesn't automatically push time updates to React. 
-    // We poll it using a useEffect when the song is playing.
     useEffect(() => {
         let interval: any;
-        // Only run the timer if the song is actively playing
         if (isPlaying && playerRef.current) {
             interval = setInterval(async () => {
                 try {
-                    // Fetch the current time from the hidden YouTube player
+                    // Force a check that the player and its internal bridge are actually alive
+                    if (!playerRef.current || typeof playerRef.current.getIframe !== 'function') return;
+                    
+                    const iframe = playerRef.current.getIframe();
+                    if (!iframe) return; // This prevents the 'reading src of null' crash
+
                     const time = await playerRef.current.getCurrentTime();
                     onTimeUpdate(time);
                     
-                    // Grab the total duration of the song if we haven't yet
                     const songDuration = await playerRef.current.getDuration();
                     if (songDuration > 0) {
                         onDurationChange(songDuration);
                     }
                 } catch (e) {
-                    // Silently ignore temporary glitches during track changes
+                    // Silently skip if the player is being re-initialized
                 }
-            }, 1000); // Update every 1 second
+            }, 1000);
         }
         return () => clearInterval(interval);
     }, [isPlaying, currentVideoId, onTimeUpdate, onDurationChange]);
 
     // --- 2. INTERACTION HANDLERS ---
     
+    // BUG FIX 2: Songs don't play on the first click
+    useEffect(() => {
+        if (currentVideoId && playerRef.current) {
+            // When the video ID changes, forcefully trigger playback
+            try {
+                playerRef.current.playVideo();
+            } catch (e) {
+                console.warn("Auto-play failed:", e);
+            }
+        }
+    }, [currentVideoId]);
+
     // Sync play/pause state
     useEffect(() => {
         if (!playerRef.current) return;
-        if (isPlaying) {
-            playerRef.current.playVideo();
-        } else {
-            playerRef.current.pauseVideo();
+        try {
+            if (isPlaying) {
+                playerRef.current.playVideo();
+            } else {
+                playerRef.current.pauseVideo();
+            }
+        } catch (e) {
+            // Player might be re-buffering
         }
     }, [isPlaying, currentVideoId]);
 

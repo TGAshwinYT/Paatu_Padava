@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Search as SearchIcon, Music, Album, Clock, X, Play, PlusCircle, MoreHorizontal, Heart, ListMusic, User } from 'lucide-react';
+import { Search as SearchIcon, Music, Album, Clock, X, Play, PlusCircle, MoreHorizontal, ListMusic } from 'lucide-react';
 import type { Song } from '../types';
 import { searchTracks, getRecentSearches, deleteSearchHistoryItem, saveSearchClick, likeSong } from '../services/api';
 import { useAudio } from '../context/AudioContext';
@@ -16,7 +16,7 @@ const Search = () => {
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<'all' | 'songs' | 'albums' | 'artists'>('all');
   
-  const { playFromSearch, addToQueue } = useAudio();
+  const { playFromSearch } = useAudio();
   const { user } = useAuth();
   const { openModal } = usePlaylistModal();
   const navigate = useNavigate();
@@ -29,15 +29,7 @@ const Search = () => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleToggleLike = async (e: React.MouseEvent, song: Song) => {
-    e.stopPropagation();
-    if (!user) {
-      navigate('/login');
-      return;
-    }
-    // Simple API trigger for now as per plan
-    await likeSong(song);
-  };
+
 
   const handleOpenMenu = (e: React.MouseEvent, songId: string) => {
     e.stopPropagation();

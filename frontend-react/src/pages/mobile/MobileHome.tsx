@@ -5,7 +5,7 @@ import { getHomeFeed, getListenHistory } from '../../services/api';
 import { Settings, Clock, Sparkles, Play } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { Song } from '../../types';
-import { getRecentCollections, saveCollectionPlay } from '../../utils/historyUtils';
+import { getRecentCollections } from '../../utils/historyUtils';
 
 const MobileHome: React.FC = () => {
   const { user } = useAuth();

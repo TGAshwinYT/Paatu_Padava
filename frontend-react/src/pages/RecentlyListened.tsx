@@ -324,7 +324,7 @@ const History = () => {
                              <button 
                                onClick={(e) => {
                                  e.stopPropagation();
-                                 playContext(song, items.map(h => mapHistoryToSong(h)));
+                                 playContext(song, allItems);
                                }}
                                className="absolute bottom-2 right-2 p-3 bg-green-500 rounded-full text-black shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all"
                              >

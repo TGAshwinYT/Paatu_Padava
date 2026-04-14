@@ -13,13 +13,13 @@ auth_file = os.path.join(os.path.dirname(__file__), "..", "headers.json")
 try:
     if os.path.exists(auth_file) and os.path.getsize(auth_file) > 0:
         logger.info(f"Initializing YTMusic with authentication from {auth_file}")
-        ytmusic = YTMusic(auth_file)
+        ytmusic = YTMusic(auth_file, language="ta", location="IN")
     else:
         logger.info("Initializing YTMusic as Guest")
-        ytmusic = YTMusic()
+        ytmusic = YTMusic(language="ta", location="IN")
 except Exception as e:
     logger.error(f"Failed to initialize YTMusic: {e}")
-    ytmusic = YTMusic()
+    ytmusic = YTMusic(language="ta", location="IN")
 
 def is_yt_authenticated():
     """
@@ -109,7 +109,7 @@ def map_youtube_song(result):
         logger.error(f"Error mapping YTMusic result: {e}")
         return None
 
-async def search_youtube(query, filter="songs", limit=20):
+async def search_youtube(query, filter=None, limit=20):
     """
     Async wrapper for YTMusic search.
     """
@@ -123,8 +123,15 @@ async def search_youtube(query, filter="songs", limit=20):
             functools.partial(ytmusic.search, query, filter=filter, limit=limit)
         )
         
+        # Filter for regional accuracy: Include Top result, songs, and videos
+        # This ensures we don't miss official tracks often uploaded as 'videos' by Indian labels
+        top_results = [res for res in results if res.get('category') == 'Top result' or res.get('resultType') in ['song', 'video']]
+        
+        # If no targeted results found (unlikely), fallback to all results
+        filtered_results = top_results if top_results else results
+
         mapped_results = []
-        for res in results:
+        for res in filtered_results:
             if res.get('videoId'):
                 mapped = map_youtube_song(res)
                 if mapped:

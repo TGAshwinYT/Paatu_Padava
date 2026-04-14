@@ -8,7 +8,7 @@ import type { Song } from '../types';
 import { useNavigate } from 'react-router-dom';
 import { getHomeFeed, getListenHistory, getFollowedArtists } from '../services/api';
 import { useAudio } from '../context/AudioContext';
-import { getRecentCollections, saveCollectionPlay } from '../utils/historyUtils';
+import { getRecentCollections } from '../utils/historyUtils';
 import 'swiper/css';
 
 interface HomeProps {

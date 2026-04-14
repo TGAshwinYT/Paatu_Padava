@@ -170,7 +170,7 @@ const PlayerBar = () => {
                 type="range"
                 min={0}
                 max={duration || 100}
-                value={currentTime}
+                value={currentTime || 0}
                 onChange={handleSeekChange}
                 onMouseUp={handleSeekRelease}
                 onTouchEnd={handleSeekRelease}
@@ -252,7 +252,7 @@ const PlayerBar = () => {
               min={0}
               max={1}
               step={0.01}
-              value={volume}
+              value={volume || 0}
               onChange={(e) => setVolume(Number(e.target.value))}
               className="w-full h-1 bg-neutral-600 rounded-full appearance-none cursor-pointer accent-white group-hover:accent-green-500"
               style={{

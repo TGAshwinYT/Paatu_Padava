@@ -151,7 +151,7 @@ const MobilePlayerOverlay: React.FC = () => {
             type="range"
             min={0}
             max={duration || 100}
-            value={currentTime}
+            value={currentTime || 0}
             onChange={handleSeekChange}
             onMouseUp={handleSeekRelease}
             onTouchEnd={handleSeekRelease}

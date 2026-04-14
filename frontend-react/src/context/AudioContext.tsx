@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useRef, useEffect, useCallb
 import type { Song } from '../types';
 import api, { addListenHistory, mapHistoryToSong } from '../services/api';
 import { useAuth } from './AuthContext';
+import AudioPlayer from '../components/AudioPlayer';
 import { getValidImage } from '../utils/imageUtils';
 
 const shuffleArray = (array: any[]) => {
@@ -48,7 +49,7 @@ interface AudioContextType {
   setQueue: React.Dispatch<React.SetStateAction<Song[]>>;
   clearHistory: () => void;
   playFromSearch: (track: Song) => void;
-  audioRef: React.RefObject<HTMLAudioElement | null>;
+  isBuffering: boolean;
   onEnded: () => void;
 }
 
@@ -65,7 +66,8 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isShuffle, setIsShuffle] = useState(false);
   const [repeatMode, setRepeatMode] = useState<'none' | 'all' | 'one'>('none');
   const [contextMemory, setContextMemory] = useState<Song[] | null>(null);
-  const [audioQuality, setAudioQualityState] = useState<'low' | 'normal' | 'high' | 'auto'>('normal');
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [seekToTime, setSeekToTime] = useState<number | null>(null);
 
   useEffect(() => {
     const savedQuality = localStorage.getItem('paatu_quality') as 'low' | 'normal' | 'high' | 'auto';
@@ -82,8 +84,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isEndOfTrackTimer, setIsEndOfTrackTimer] = useState(false);
   const [userPlaylists, setUserPlaylists] = useState<any[]>([]);
   
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const lastTrackId = useRef<string | null>(null);
+  const youtubePlayer = useRef<any>(null);
   const isFetchingRadio = useRef(false);
   const isActionLocked = useRef(false);
 
@@ -99,12 +100,10 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // --- 2. STABLE ACTION HANDLERS ---
   const playNext = useCallback((e?: any) => {
-    // Detect if this was called from the onEnded event
-    const isNaturalEnd = e && typeof e === 'object' && e.target;
-
-    if (isNaturalEnd && repeatMode === 'one' && audioRef.current) {
-      audioRef.current.currentTime = 0;
-      audioRef.current.play().then(() => setIsPlaying(true)).catch(err => console.error("Repeat failed:", err));
+    if (repeatMode === 'one' && youtubePlayer.current) {
+      youtubePlayer.current.seekTo(0);
+      youtubePlayer.current.playVideo();
+      setIsPlaying(true);
       return;
     }
 
@@ -148,14 +147,17 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const playPrevious = useCallback(() => {
     if (isActionLocked.current) return;
 
-    const currentTime = audioRef.current ? audioRef.current.currentTime : 0;
     if (currentTime > 3) {
-      if (audioRef.current) audioRef.current.currentTime = 0;
+      if (youtubePlayer.current) {
+        youtubePlayer.current.seekTo(0);
+      }
       return;
     }
 
     if (history.length === 0) {
-      if (audioRef.current) audioRef.current.currentTime = 0;
+      if (youtubePlayer.current) {
+        youtubePlayer.current.seekTo(0);
+      }
       return;
     }
 
@@ -179,23 +181,14 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [history]);
 
   const togglePlay = useCallback(() => {
-    const audio = audioRef.current;
-    if (isPlaying && audio) {
-      audio.pause();
+    if (isPlaying) {
+      youtubePlayer.current?.pauseVideo();
       setIsPlaying(false);
-    } else if (audio) {
-      if (!audio.src || audio.src.includes('undefined')) {
-         if (currentTrack) {
-            const url = getUrlByQuality(currentTrack, audioQuality);
-            if (url) audio.src = url;
-         }
-      }
-      if (audio.currentTime >= audio.duration) {
-        audio.currentTime = 0;
-      }
-      audio.play().then(() => setIsPlaying(true)).catch(e => console.error("Play failed:", e));
+    } else {
+      youtubePlayer.current?.playVideo();
+      setIsPlaying(true);
     }
-  }, [isPlaying, currentTrack, audioQuality, getUrlByQuality]);
+  }, [isPlaying]);
 
 
   const playContext = useCallback((clickedSong: Song, contextArray: Song[] = []) => {
@@ -300,16 +293,17 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [reorderQueue]);
 
   const seekTo = (value: number) => {
-    if (audioRef.current) {
-        audioRef.current.currentTime = value;
-        setCurrentTime(value);
-    }
+    setSeekToTime(value);
+    // Reset to null after a tick to allow re-seeking to same position
+    setTimeout(() => setSeekToTime(null), 10);
   };
 
   const setVolume = (value: number) => {
     const vol = Math.max(0, Math.min(1, value));
     setVolumeState(vol);
-    if (audioRef.current) audioRef.current.volume = vol;
+    if (youtubePlayer.current) {
+        youtubePlayer.current.setVolume(vol * 100);
+    }
   };
 
   const toggleRepeat = () => {
@@ -354,19 +348,17 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   
   // Audio Lifecycle & Event Listeners
   const onEnded = useCallback(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    
     if (isEndOfTrackTimer) {
       setIsEndOfTrackTimer(false);
       setIsPlaying(false);
-      audio.pause();
+      youtubePlayer.current?.pauseVideo();
       return;
     }
     
     if (repeatMode === 'one') {
-      audio.currentTime = 0;
-      audio.play().then(() => setIsPlaying(true)).catch(e => console.error("Repeat failed:", e));
+      youtubePlayer.current?.seekTo(0);
+      youtubePlayer.current?.playVideo();
+      setIsPlaying(true);
       return;
     }
 
@@ -390,68 +382,30 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     playNext();
   }, [isEndOfTrackTimer, repeatMode, contextMemory, playNext]);
 
+  // --- 3. EFFECTS ---
+  
+  // Track synchronization (OS/Metadata only now)
   useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.volume = volume;
-    }
-  }, [volume]);
+    if (!currentTrack) return;
+    setIsPlaying(true); // Force play on new track selection
+    addListenHistory(currentTrack);
+  }, [currentTrack]);
 
-  // Force Auto-play on Track/Quality Changes
+  // Sync Timer Polling (Because IFrame doesn't have onTimeUpdate)
   useEffect(() => {
-    if (!currentTrack || !audioRef.current) return;
-    const audio = audioRef.current;
-
-    const startPlayback = async () => {
-        try {
-            const isTrackChange = lastTrackId.current !== currentTrack.id;
-            
-            // 1. Resolve Stream URL if needed
-            // Decoupled Architecture: Route binary audio requests to the Render Proxy (Stream API)
-            const streamBaseUrl = import.meta.env.VITE_STREAM_API_URL || 'http://localhost:8001';
-            const streamEndpoint = `${streamBaseUrl}/api/play?id=${currentTrack.id}`;
-            
-            let playUrl = "";
-            if (isTrackChange || !currentTrack.audioUrl) {
-                playUrl = streamEndpoint;
-                // Update current track in memory with the base endpoint URL
-                currentTrack.audioUrl = playUrl;
-            } else {
-                playUrl = currentTrack.audioUrl;
-            }
-
-            if (!playUrl) {
-                setIsPlaying(false);
-                return;
-            }
-
-            if (isTrackChange) {
-                lastTrackId.current = currentTrack.id;
-                audio.src = playUrl;
-                audio.load();
-            } else {
-                // Quality switch or existing track - just update src if it changed significantly
-                if (audio.src !== playUrl) {
-                    const time = audio.currentTime;
-                    audio.src = playUrl;
-                    audio.load();
-                    audio.currentTime = time;
-                }
-            }
-
-            // Force play
-            await audio.play();
-            setIsPlaying(true);
-            
-            if (isTrackChange) {
-                addListenHistory(currentTrack);
-            }
-        } catch (err) {
-            console.error("Playback failed:", err);
+    let interval: any;
+    if (isPlaying && !isSeeking) {
+      interval = setInterval(() => {
+        if (youtubePlayer.current) {
+          const time = youtubePlayer.current.getCurrentTime();
+          const dur = youtubePlayer.current.getDuration();
+          if (time !== undefined) setCurrentTime(time);
+          if (dur !== undefined && dur > 0) setDuration(dur);
         }
-    };
-
-    startPlayback();
-  }, [currentTrack]); // We can simplify dependencies here as URL resolution is now mandatory
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isPlaying, isSeeking]);
 
   // Media Session Metadata (OS Lock Screen & Media Hubs)
   useEffect(() => {
@@ -478,24 +432,14 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
 
-    navigator.mediaSession.setActionHandler('play', async () => {
-      if (audioRef.current) {
-        try {
-          await audioRef.current.play();
-          setIsPlaying(true);
-          navigator.mediaSession.playbackState = "playing";
-        } catch (err) {
-          console.error("Hardware play failed:", err);
-        }
-      }
+    navigator.mediaSession.setActionHandler('play', () => {
+      youtubePlayer.current?.playVideo();
+      setIsPlaying(true);
     });
 
     navigator.mediaSession.setActionHandler('pause', () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        setIsPlaying(false);
-        navigator.mediaSession.playbackState = "paused";
-      }
+      youtubePlayer.current?.pauseVideo();
+      setIsPlaying(false);
     });
 
     navigator.mediaSession.setActionHandler('nexttrack', () => {
@@ -507,8 +451,8 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
 
     navigator.mediaSession.setActionHandler('seekto', (details) => {
-      if (details.seekTime !== undefined && audioRef.current) {
-        audioRef.current.currentTime = details.seekTime;
+      if (details.seekTime !== undefined && youtubePlayer.current) {
+        youtubePlayer.current.seekTo(details.seekTime);
         setCurrentTime(details.seekTime);
       }
     });
@@ -618,18 +562,13 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       // Bind OS buttons to React handlers
       navigator.mediaSession.setActionHandler('play', () => {
-        if (audioRef.current) {
-          audioRef.current.play()
-            .then(() => setIsPlaying(true))
-            .catch(e => console.error("OS Play Hook Failed:", e));
-        }
+        youtubePlayer.current?.playVideo();
+        setIsPlaying(true);
       });
 
       navigator.mediaSession.setActionHandler('pause', () => {
-        if (audioRef.current) {
-          audioRef.current.pause();
-          setIsPlaying(false);
-        }
+         youtubePlayer.current?.pauseVideo();
+         setIsPlaying(false);
       });
 
       navigator.mediaSession.setActionHandler('previoustrack', playPrevious);
@@ -649,30 +588,28 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   return (
     <AudioContext.Provider value={{ 
-      currentTrack, isPlaying, currentTime, setCurrentTime, duration, isSeeking, setIsSeeking, volume, isShuffle, repeatMode, audioQuality,
+      currentTrack, isPlaying, currentTime, setCurrentTime, duration, isSeeking, setIsSeeking, volume, isShuffle, repeatMode,
       remainingSleepTime, queue, history, userPlaylists,
       togglePlay, seekTo, setVolume, toggleRepeat,
-        toggleShuffle,
-        setAudioQuality: handleSetQuality,
-        playNext, playPrevious,
+      toggleShuffle,
+      playNext, playPrevious,
       setSleepTimer, addToQueue, removeFromQueue, reorderQueue, handleOnDragEnd, refreshPlaylists, setQueue, clearHistory, playContext, playFromSearch,
-      audioRef, onEnded, progress: currentTime 
+      onEnded, progress: currentTime, isBuffering
     }}>
       {children}
-      <audio
-        ref={audioRef}
-        onTimeUpdate={() => {
-          if (!isSeeking && audioRef.current) {
-            setCurrentTime(audioRef.current.currentTime || 0);
-          }
+      <AudioPlayer 
+        currentVideoId={currentTrack?.id || null}
+        isPlaying={isPlaying}
+        volume={volume}
+        seekToTime={seekToTime}
+        onReady={(player) => {
+           youtubePlayer.current = player;
         }}
-        onLoadedMetadata={() => {
-          if (audioRef.current) {
-            const d = audioRef.current.duration;
-            setDuration(isFinite(d) ? d : 0);
-          }
+        onEnd={onEnded}
+        onStateChange={(state) => {
+           // 1: Playing, 2: Paused, 3: Buffering
+           setIsBuffering(state === 3);
         }}
-        onEnded={onEnded} 
       />
     </AudioContext.Provider>
   );

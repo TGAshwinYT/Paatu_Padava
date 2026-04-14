@@ -42,7 +42,8 @@ const PlayerBar = () => {
     playPrevious,
     remainingSleepTime,
     history,
-    audioRef,
+    isBuffering,
+    seekTo,
   } = useAudio();
 
   const [showLyrics, setShowLyrics] = useState(false);
@@ -59,9 +60,7 @@ const PlayerBar = () => {
   const handleSeekRelease = (e: React.ChangeEvent<HTMLInputElement> | React.MouseEvent | React.TouchEvent | React.KeyboardEvent) => {
     setIsSeeking(false);
     const target = e.target as HTMLInputElement;
-    if (audioRef.current) {
-      audioRef.current.currentTime = Number(target.value);
-    }
+    seekTo(Number(target.value));
   };
 
   const formatTime = (seconds: number) => {
@@ -127,16 +126,21 @@ const PlayerBar = () => {
               }}
             />
             
-            <button 
-              onClick={togglePlay}
-              className="w-8 h-8 flex items-center justify-center bg-white rounded-full hover:scale-105 active:scale-95 transition"
-            >
-              {isPlaying ? (
-                <Pause size={20} className="text-black fill-black" />
-              ) : (
-                <Play size={20} className="text-black fill-black ml-1" />
-              )}
-            </button>
+            <div className="relative">
+              <button 
+                onClick={togglePlay}
+                className="w-8 h-8 flex items-center justify-center bg-white rounded-full hover:scale-105 active:scale-95 transition disabled:opacity-50"
+                disabled={isBuffering}
+              >
+                {isBuffering ? (
+                  <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                ) : isPlaying ? (
+                  <Pause size={20} className="text-black fill-black" />
+                ) : (
+                  <Play size={20} className="text-black fill-black ml-1" />
+                )}
+              </button>
+            </div>
             
             <SkipForward 
               size={24} 
@@ -189,29 +193,7 @@ const PlayerBar = () => {
 
         {/* Right: Extra Controls */}
         <div className="flex items-center justify-end gap-3 w-[30%]">
-          <div className="relative">
-             <button 
-               onClick={() => setShowQualityMenu(!showQualityMenu)}
-               className="text-[10px] font-bold text-neutral-400 hover:text-white border border-neutral-700 px-1.5 py-0.5 rounded uppercase flex items-center gap-1"
-             >
-               {audioQuality === 'high' ? 'High' : audioQuality === 'normal' ? 'Normal' : audioQuality === 'low' ? 'Low' : 'Auto'}
-               <ChevronUp size={10} className={showQualityMenu ? 'rotate-180 transition' : 'transition'} />
-             </button>
-             
-             {showQualityMenu && (
-               <div className="absolute bottom-10 right-0 bg-[#282828] rounded shadow-xl py-1 min-w-[80px] border border-white/5">
-                 {(['auto', 'high', 'normal', 'low'] as const).map((q) => (
-                   <button
-                     key={q}
-                     onClick={() => { setAudioQuality(q); setShowQualityMenu(false); }}
-                     className={`w-full text-left px-3 py-1.5 text-[10px] font-bold uppercase hover:bg-white/10 ${audioQuality === q ? 'text-green-500' : 'text-white'}`}
-                   >
-                     {q === 'high' ? 'High' : q === 'normal' ? 'Normal' : q === 'low' ? 'Low' : 'Auto'}
-                   </button>
-                 ))}
-               </div>
-             )}
-          </div>
+          <div className="w-10" /> 
 
           <Mic2 
             size={18} 

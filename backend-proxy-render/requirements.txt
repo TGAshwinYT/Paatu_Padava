@@ -1,7 +1,0 @@
-fastapi
-uvicorn
-# Integrated TLS Impersonation via curl-cffi
-yt-dlp[default,curl-cffi]
-httpx
-python-dotenv
-pytubefix

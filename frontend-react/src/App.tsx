@@ -15,7 +15,6 @@ import ArtistView from './pages/ArtistView';
 import Profile from './pages/Profile';
 import AlbumView from './pages/AlbumView';
 import LocalArtists from './pages/LocalArtists';
-import DeveloperLogs from './pages/DeveloperLogs';
 import LibraryAuthModal from './components/modals/LibraryAuthModal';
 import ProtectedRoute from './components/ProtectedRoute';
 import Sidebar from './components/Sidebar';
@@ -132,7 +131,6 @@ const AppContent = () => {
             } />
             <Route path="/album/:id" element={<AlbumView />} />
             <Route path="/local-artists" element={<LocalArtists />} />
-            <Route path="/admin/logs" element={<DeveloperLogs />} />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />

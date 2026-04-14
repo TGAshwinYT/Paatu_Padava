@@ -70,7 +70,7 @@ const AlbumView = () => {
       {/* Hero Header */}
       <div 
         className="relative pt-20 pb-10 px-8 flex flex-col md:flex-row items-center md:items-end gap-10 transition-colors duration-500"
-        style={{ background: `linear-gradient(to bottom, #2a2a2a, #121212)` }} 
+        style={{ backgroundImage: `linear-gradient(to bottom, #2a2a2a, #121212)` }} 
       >
         {/* Album Cover */}
         <div className="w-64 h-64 flex-shrink-0 shadow-[0_12px_60px_rgba(0,0,0,0.9)] rounded-lg overflow-hidden transform hover:scale-[1.03] transition-transform duration-500">

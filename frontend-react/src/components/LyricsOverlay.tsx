@@ -141,14 +141,30 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
         </div>
 
         <div className="flex flex-col md:flex-row gap-12 h-full items-center md:items-start overflow-hidden">
-          {/* Left Side: Big Album Art */}
+          {/* Left Side: Big Album Art (Responsive Wrapper) */}
           <div className="w-64 md:w-80 flex-shrink-0 animate-in zoom-in-95 duration-700 hidden md:block">
             <div className="sticky top-0">
-                <img 
-                src={song.coverUrl || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745'} 
-                alt={song.title} 
-                className="w-full aspect-square object-cover rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/10"
-                />
+                <div style={{
+                    width: '100%',           
+                    maxWidth: '400px',       // Prevents it from getting absurdly huge on 4K monitors
+                    margin: '0 auto',        
+                    aspectRatio: '1 / 1',    // THE FIX: Forces a perfect square at all times
+                    borderRadius: '16px',    
+                    overflow: 'hidden',      
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                    border: '1px solid rgba(255,255,255,0.1)'
+                }}>
+                    <img 
+                        src={song.coverUrl || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745'} 
+                        alt={song.title} 
+                        style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover', // THE FIX: Fills the square without distorting
+                            display: 'block'
+                        }}
+                    />
+                </div>
                 <div className="mt-8">
                 <h2 className="text-3xl font-black text-white mb-2">{song.title}</h2>
                 <p className="text-xl text-neutral-400 font-medium">{song.artist}</p>

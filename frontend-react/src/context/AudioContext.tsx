@@ -282,63 +282,6 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [currentTrack]);
 
 
-  useEffect(() => {
-    if (!currentTrack || !('mediaSession' in navigator)) return;
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: currentTrack.title,
-      artist: currentTrack.artist,
-      album: currentTrack.album || '',
-      artwork: [{ src: getValidImage(currentTrack), sizes: '512x512', type: 'image/png' }]
-    });
-  }, [currentTrack]);
-
-  useEffect(() => {
-    if (!('mediaSession' in navigator)) return;
-
-    navigator.mediaSession.setActionHandler('play', () => {
-      youtubePlayer.current?.playVideo();
-      setIsPlaying(true);
-    });
-
-    navigator.mediaSession.setActionHandler('pause', () => {
-      youtubePlayer.current?.pauseVideo();
-      setIsPlaying(false);
-    });
-
-    navigator.mediaSession.setActionHandler('nexttrack', () => {
-      playNext();
-    });
-
-    navigator.mediaSession.setActionHandler('previoustrack', () => {
-      playPrevious();
-    });
-
-    navigator.mediaSession.setActionHandler('seekto', (details) => {
-      if (details.seekTime !== undefined && youtubePlayer.current) {
-        youtubePlayer.current.seekTo(details.seekTime);
-        setCurrentTime(details.seekTime);
-      }
-    });
-  }, [playNext, playPrevious]);
-
-  useEffect(() => {
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
-
-      navigator.mediaSession.setActionHandler('play', () => {
-        youtubePlayer.current?.playVideo();
-        setIsPlaying(true);
-      });
-
-      navigator.mediaSession.setActionHandler('pause', () => {
-         youtubePlayer.current?.pauseVideo();
-         setIsPlaying(false);
-      });
-
-      navigator.mediaSession.setActionHandler('previoustrack', playPrevious);
-      navigator.mediaSession.setActionHandler('nexttrack', playNext);
-    }
-  }, [isPlaying, playPrevious, playNext]);
 
   return (
     <AudioContext.Provider value={{ 
@@ -351,24 +294,27 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       onEnded, progress: currentTime, isBuffering
     }}>
       {children}
-      <AudioPlayer 
-        currentVideoId={currentTrack?.id || null}
-        isPlaying={isPlaying}
-        volume={volume}
-        seekToTime={seekToTime}
-        onTimeUpdate={setCurrentTime}
-        onDurationChange={setDuration}
-        onReady={(player) => {
-           youtubePlayer.current = player;
-        }}
-        onEnd={onEnded}
-        onStateChange={() => {
-           // We keep the contextual callback for any side-effects, 
-           // but the primary state sync now happens inside AudioPlayer.
-        }}
-        setIsPlaying={setIsPlaying}
-        setIsBuffering={setIsBuffering}
-      />
+        <AudioPlayer 
+          currentVideoId={currentTrack?.id || null}
+          currentTrack={currentTrack}
+          isPlaying={isPlaying}
+          volume={volume}
+          seekToTime={seekToTime}
+          onTimeUpdate={setCurrentTime}
+          onDurationChange={setDuration}
+          onReady={(player) => {
+             youtubePlayer.current = player;
+          }}
+          onEnd={onEnded}
+          playNext={playNext}
+          playPrevious={playPrevious}
+          onStateChange={() => {
+             // We keep the contextual callback for any side-effects, 
+             // but the primary state sync now happens inside AudioPlayer.
+          }}
+          setIsPlaying={setIsPlaying}
+          setIsBuffering={setIsBuffering}
+        />
     </AudioContext.Provider>
   );
 };

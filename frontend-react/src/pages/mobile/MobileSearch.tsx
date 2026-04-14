@@ -23,19 +23,21 @@ const CATEGORIES = [
 const MobileSearch: React.FC = () => {
   const { user } = useAuth();
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<Song[]>([]);
+  const [results, setResults] = useState<{ songs: any[], albums: any[], artists: any[] }>({ songs: [], albums: [], artists: [] });
   const [topResult, setTopResult] = useState<any>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const initialQuery = searchParams.get('q') || '';
+  const initialOverlay = searchParams.get('overlay') === 'true';
+
   const [suggestions, setSuggestions] = useState<any>({ songs: [], artists: [], albums: [] });
   const [activeFilter, setActiveFilter] = useState<'all' | 'songs' | 'albums' | 'artists'>('all');
   const [isSearching, setIsSearching] = useState(false);
-  const [isOverlayOpen, setIsOverlayOpen] = useState(false);
+  const [isOverlayOpen, setIsOverlayOpen] = useState(initialOverlay || !!initialQuery);
   const [recentlyPlayed, setRecentlyPlayed] = useState<(Song & { historyId: string })[]>([]);
   
   const { playFromSearch, currentTrack } = useAudio();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const initialQuery = searchParams.get('q');
 
   // Debounce the search query with 500ms delay
   const debouncedQuery = useDebounce(query, 500);
@@ -54,17 +56,42 @@ const MobileSearch: React.FC = () => {
     fetchRecent();
   }, [user]);
 
-  // Handle initial query from URL (Handoff from Home)
+  // Update state from URL on initial load or popstate
   useEffect(() => {
     if (initialQuery && initialQuery !== query) {
       setQuery(initialQuery);
-      setIsOverlayOpen(true);
-      
-      const performInitialSearch = () => performSearch(initialQuery);
-      
-      performInitialSearch();
     }
-  }, [initialQuery]);
+    if (initialOverlay !== isOverlayOpen) {
+      setIsOverlayOpen(initialOverlay || !!initialQuery);
+    }
+  }, [initialQuery, initialOverlay]);
+
+  // Perform search when query changes from URL
+  useEffect(() => {
+    if (debouncedQuery) {
+      performSearch(debouncedQuery);
+    }
+  }, [debouncedQuery]);
+
+  // Sync Overlay State to URL
+  const toggleOverlay = (open: boolean) => {
+    setIsOverlayOpen(open);
+    if (open) {
+      setSearchParams(prev => {
+        prev.set('overlay', 'true');
+        return prev;
+      }, { replace: true });
+    } else {
+      setSearchParams(prev => {
+        prev.delete('overlay');
+        prev.delete('q');
+        return prev;
+      }, { replace: true });
+      setQuery('');
+      setResults({ songs: [], albums: [], artists: [] });
+      setTopResult(null);
+    }
+  };
 
   // Use the debounced query for suggestions
   useEffect(() => {
@@ -102,7 +129,11 @@ const MobileSearch: React.FC = () => {
     try {
       const data = await searchTracks(searchTerm);
       setTopResult(data.global_matches?.top_result || null);
-      setResults(data.global_matches?.songs || []);
+      setResults({
+        songs: data.global_matches?.songs || [],
+        albums: data.global_matches?.albums || [],
+        artists: data.global_matches?.artists || []
+      });
     } catch (error) {
       console.error("Search failed:", error);
     } finally {
@@ -132,13 +163,8 @@ const MobileSearch: React.FC = () => {
   const handleSongSelect = (song: Song) => {
     saveSearchClick(song);
     playFromSearch(song);
-    setIsOverlayOpen(false);
-    setQuery('');
-    setSuggestions({ songs: [], artists: [], albums: [] });
-    // Refresh history only if logged in
-    if (user) {
-      getRecentSearches().then(setRecentlyPlayed);
-    }
+    // Don't close overlay so user can keep browsing history of searched songs
+    // setIsOverlayOpen(false); 
   };
 
   const handleArtistSelect = (artist: any) => {
@@ -162,8 +188,9 @@ const MobileSearch: React.FC = () => {
      return merged;
   };
 
-  const displaySongs = getMergedList(results, suggestions.songs);
-  const displayArtists = getMergedList([], suggestions.artists); // results usually contains songs
+  const displaySongs = getMergedList(results.songs, suggestions.songs);
+  const displayArtists = getMergedList(results.artists, suggestions.artists);
+  const displayAlbums = getMergedList(results.albums, suggestions.albums);
 
   return (
     <div className="min-h-screen bg-black text-white pb-32 animate-in fade-in duration-500">
@@ -173,7 +200,7 @@ const MobileSearch: React.FC = () => {
         
         {/* Fake Search Bar (pinned trigger) */}
         <div 
-          onClick={() => setIsOverlayOpen(true)}
+          onClick={() => toggleOverlay(true)}
           className="sticky top-4 z-40 flex items-center gap-4 bg-white text-black py-3.5 px-5 rounded-lg shadow-xl cursor-text active:scale-[0.98] transition-transform"
         >
           <SearchIcon size={24} strokeWidth={2.5} />
@@ -254,7 +281,7 @@ const MobileSearch: React.FC = () => {
           <div className="flex flex-col gap-4 p-4 pt-8 bg-neutral-900/95 backdrop-blur-xl border-b border-white/5 sticky top-0 z-50">
             <div className="flex items-center gap-2">
                <button 
-                 onClick={() => setIsOverlayOpen(false)}
+                 onClick={() => toggleOverlay(false)}
                  className="p-2 text-white active:scale-95 transition-transform"
                >
                  <ArrowLeft size={28} />
@@ -264,14 +291,30 @@ const MobileSearch: React.FC = () => {
                    ref={inputRef}
                    type="text"
                    value={query}
-                   onChange={(e) => setQuery(e.target.value)}
+                   onChange={(e) => {
+                     const val = e.target.value;
+                     setQuery(val);
+                     setSearchParams(prev => {
+                       if (val) prev.set('q', val);
+                       else prev.delete('q');
+                       return prev;
+                     }, { replace: true });
+                   }}
                    onKeyDown={handleKeyDown}
                    placeholder="What do you want to listen to?"
                    className="w-full bg-neutral-800 text-white py-3 pl-4 pr-11 rounded-lg font-bold placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-white/10 transition-all text-lg"
                  />
                  {query && (
                    <button 
-                     onClick={() => { setQuery(''); setResults([]); setTopResult(null); }}
+                     onClick={() => { 
+                       setQuery(''); 
+                       setResults({ songs: [], albums: [], artists: [] }); 
+                       setTopResult(null);
+                       setSearchParams(prev => {
+                         prev.delete('q');
+                         return prev;
+                       }, { replace: true });
+                     }}
                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 bg-neutral-700 rounded-full"
                    >
                      <X size={16} />
@@ -305,8 +348,8 @@ const MobileSearch: React.FC = () => {
               </div>
             ) : query.length > 0 ? (
               <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                {/* Top Result Card (Stage 3) */}
-                {topResult && activeFilter === 'all' && (
+                {/* Top Result Card (Persistent across filters if type matches) */}
+                {topResult && (activeFilter === 'all' || activeFilter === (topResult.type === 'song' ? 'songs' : topResult.type === 'artist' ? 'artists' : topResult.type === 'album' ? 'albums' : '')) && (
                   <section>
                     <h3 className="text-xl font-black mb-4 px-2">Top result</h3>
                     <div 
@@ -378,12 +421,43 @@ const MobileSearch: React.FC = () => {
                   </section>
                 )}
 
+                {/* Merged Results Section: Albums */}
+                {(activeFilter === 'all' || activeFilter === 'albums') && displayAlbums.length > 0 && (
+                   <section>
+                      <h3 className="text-[11px] font-black text-neutral-500 uppercase tracking-widest px-2 mb-4">ALBUMS</h3>
+                      <div className="flex flex-col gap-4">
+                        {displayAlbums.slice(0, 5).map((alb: any) => (
+                           <div 
+                              key={alb.id} 
+                              onClick={() => {
+                                setIsOverlayOpen(false);
+                                navigate(`/album/${alb.id || alb.browseId}`);
+                              }}
+                              className="flex items-center gap-4 px-2 py-1 rounded-xl active:bg-neutral-800/50 transition-colors cursor-pointer"
+                           >
+                              <img 
+                                src={alb.image || alb.coverUrl || '/logo.png'} 
+                                className="w-14 h-14 rounded-lg object-cover shadow-md" 
+                                alt="" 
+                                onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
+                              />
+                              <div className="flex-1 min-w-0">
+                                 <p className="font-bold text-[15px] truncate">{alb.title || alb.name}</p>
+                                 <p className="text-xs text-neutral-400 truncate font-bold">Album • {alb.artist || alb.year}</p>
+                              </div>
+                              <ChevronRight size={18} className="text-neutral-600 mr-2" />
+                           </div>
+                        ))}
+                      </div>
+                   </section>
+                )}
+
                 {/* Merged Results Section: Artists */}
                 {(activeFilter === 'all' || activeFilter === 'artists') && displayArtists.length > 0 && (
                    <section>
                       <h3 className="text-[11px] font-black text-neutral-500 uppercase tracking-widest px-2 mb-4">ARTISTS</h3>
                       <div className="flex flex-col gap-4">
-                        {displayArtists.slice(0, 3).map((a: any) => (
+                        {displayArtists.slice(0, 5).map((a: any) => (
                            <div 
                               key={a.id} 
                               onClick={() => handleArtistSelect(a)}
@@ -411,7 +485,7 @@ const MobileSearch: React.FC = () => {
                    <section>
                       <h3 className="text-[11px] font-black text-neutral-500 uppercase tracking-widest px-2 mb-4">SONGS</h3>
                       <div className="flex flex-col gap-3">
-                         {displaySongs.slice(0, 12).map((s: any) => (
+                         {displaySongs.slice(0, 15).map((s: any) => (
                             <div 
                                key={s.id} 
                                onClick={() => handleSongSelect(s)}
@@ -436,11 +510,11 @@ const MobileSearch: React.FC = () => {
                    </section>
                 )}
                 
-                {displaySongs.length === 0 && displayArtists.length === 0 && !isSearching && !topResult && (
+                {(activeFilter === 'all' ? (displaySongs.length === 0 && displayArtists.length === 0 && displayAlbums.length === 0) : (activeFilter === 'songs' ? displaySongs.length === 0 : activeFilter === 'artists' ? displayArtists.length === 0 : displayAlbums.length === 0)) && !isSearching && !topResult && (
                    <div className="flex flex-col items-center justify-center py-20 text-neutral-500">
                       <Music size={40} className="mb-4 opacity-30" />
                       <p className="font-medium text-center px-10">No matches found for "{query}"</p>
-                      <p className="text-xs mt-2">Try a different song or artist</p>
+                      <p className="text-xs mt-2">Try a different song, album, or artist</p>
                    </div>
                 )}
               </div>

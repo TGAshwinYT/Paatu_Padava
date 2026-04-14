@@ -14,6 +14,7 @@ const MobileHome: React.FC = () => {
   const [recentlyPlayed, setRecentlyPlayed] = useState<Song[]>([]);
   const [recommended, setRecommended] = useState<Song[]>([]);
   const [topAlbums, setTopAlbums] = useState<Song[]>([]);
+  const [topArtists, setTopArtists] = useState<any[]>([]);
   const [artistMixes, setArtistMixes] = useState<any[]>([]);
   const [isPersonalized, setIsPersonalized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -30,6 +31,7 @@ const MobileHome: React.FC = () => {
         setRecentlyPlayed(history.slice(0, 8));
         setRecommended(feed.recommendedForYou || []);
         setTopAlbums(feed.topAlbums || []);
+        setTopArtists(feed.topArtists || []);
         setIsPersonalized(feed.personalized);
 
         // Mix Logic
@@ -66,7 +68,8 @@ const MobileHome: React.FC = () => {
     ...getRecentCollections().map(c => ({ id: c.id, title: c.title, coverUrl: c.coverUrl, type: c.type })),
     ...artistMixes.map(m => ({ id: m.id, title: m.name, coverUrl: m.imageUrl, type: 'playlist' })),
     ...topAlbums.map(a => ({ id: a.id, title: a.title, coverUrl: a.coverUrl, type: 'album' }))
-  ].reduce((acc: any[], curr) => {
+  ].filter(item => item && item.id)
+   .reduce((acc: any[], curr) => {
     if (!acc.find(item => item.id === curr.id)) acc.push(curr);
     return acc;
   }, []).slice(0, 8);
@@ -99,12 +102,18 @@ const MobileHome: React.FC = () => {
           <div 
             key={`${item.id}-${i}`} 
             onClick={() => {
+              if (!item.id) return;
+              
+              const id = item.id;
+              const isPlaylistID = id.startsWith('PL') || id.startsWith('RDCL') || id.startsWith('RDTK');
+              const isAlbumID = id.startsWith('MPREb') || id.startsWith('OLAK5uy_') || id.startsWith('AMGR_') || topAlbums.some(a => a.id === id);
+
               if (item.id === 'liked-songs') {
                 navigate('/library');
-              } else if (item.id && (item.id.startsWith('MPREb') || (item as any).type === 'album')) {
-                navigate(`/album/${item.id}`);
+              } else if (item.type === 'album' || isAlbumID || (!isPlaylistID && id.length > 20)) {
+                navigate(`/album/${id}`);
               } else {
-                navigate(`/playlist/${item.id}`);
+                navigate(`/playlist/${id}`);
               }
             }}
             className="flex items-center bg-white/10 rounded-md overflow-hidden h-[54px] border border-white/5 active:bg-white/20 active:scale-95 transition-all shadow-md backdrop-blur-sm"
@@ -126,7 +135,7 @@ const MobileHome: React.FC = () => {
         ))}
       </div>
 
-      {!isPersonalized && (
+      {!user && !isPersonalized && (
         <div className="mx-4 mb-8 p-4 rounded-xl bg-gradient-to-br from-indigo-600/20 to-purple-600/10 border border-white/5 flex items-center justify-between">
           <p className="text-xs text-neutral-300 max-w-[70%] font-medium">Get a mix made just for you by signing in.</p>
           <button onClick={() => navigate('/login')} className="bg-white text-black text-[11px] font-bold px-4 py-2 rounded-full shadow-lg">Log in</button>
@@ -183,7 +192,7 @@ const MobileHome: React.FC = () => {
       </section>
 
       {recentlyPlayed.length > 0 && (
-        <section className="mb-4">
+        <section className="mb-10">
           <h2 className="text-xl font-extrabold px-4 mb-4 text-white">Jump back in</h2>
           <div className="px-4">
              {recentlyPlayed.slice(0, 1).map((song) => (
@@ -213,6 +222,58 @@ const MobileHome: React.FC = () => {
                    </div>
                 </div>
              ))}
+          </div>
+        </section>
+      )}
+
+      {/* Popular Artists Section */}
+      {topArtists.length > 0 && (
+        <section className="mb-10">
+          <h2 className="text-xl font-extrabold px-4 mb-4 text-white">Artists you might like</h2>
+          <div className="flex overflow-x-auto snap-x snap-mandatory gap-6 px-4 hide-scrollbar pt-2">
+            {topArtists.map((artist, index) => {
+              const imageUrl = artist.image || artist.coverUrl || artist.imageUrl || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop';
+              return (
+                <div 
+                  key={artist.id || index}
+                  onClick={() => navigate(`/search?q=${encodeURIComponent(artist.name || artist.title)}`)}
+                  className="flex flex-col items-center gap-3 cursor-pointer group flex-shrink-0 w-32 snap-start active:scale-95 transition-transform"
+                >
+                  <div className="w-32 h-32 rounded-full overflow-hidden shadow-lg border border-white/5">
+                    <img src={imageUrl} className="w-full h-full object-cover" alt="" />
+                  </div>
+                  <p className="text-white font-bold text-xs truncate w-full text-center px-1 uppercase tracking-tight">{artist.name || artist.title}</p>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Top Albums Section */}
+      {topAlbums.length > 0 && (
+        <section className="mb-10">
+          <h2 className="text-xl font-extrabold px-4 mb-4 text-white">Top albums</h2>
+          <div className="flex overflow-x-auto snap-x snap-mandatory gap-4 px-4 hide-scrollbar pt-2">
+            {topAlbums.map((album) => (
+              <div 
+                key={album.id}
+                onClick={() => navigate(`/album/${album.id}`)}
+                className="flex-shrink-0 w-36 snap-start flex flex-col gap-2 active:scale-95 transition-transform"
+              >
+                <div className="relative aspect-square">
+                  <img 
+                    src={album.coverUrl || album.image || '/logo.png'} 
+                    className="w-full h-full rounded-lg object-cover shadow-lg" 
+                    alt="" 
+                  />
+                </div>
+                <div className="px-1">
+                  <p className="text-white font-bold text-[11px] truncate leading-tight">{album.title}</p>
+                  <p className="text-neutral-500 text-[10px] font-bold uppercase tracking-wider">Album</p>
+                </div>
+              </div>
+            ))}
           </div>
         </section>
       )}

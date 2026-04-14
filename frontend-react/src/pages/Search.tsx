@@ -102,7 +102,7 @@ const Search = () => {
              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
              <span>Searching database...</span>
           </div>
-        ) : results?.global_matches && (results.global_matches?.songs?.length > 0 || results.global_matches?.artists?.length > 0 || results.global_matches?.albums?.length > 0) ? (
+        ) : results?.global_matches && (results.global_matches?.top_result || results.global_matches?.songs?.length > 0 || results.global_matches?.artists?.length > 0 || results.global_matches?.albums?.length > 0) ? (
           <div className="flex flex-col gap-6">
             <div className="flex flex-col gap-4">
               <div className="flex items-center justify-between">
@@ -134,11 +134,11 @@ const Search = () => {
             <div className="flex flex-col gap-10 mt-2">
               
               {/* Top Result + Songs (Only if filter is 'all' or 'songs') */}
-              {(activeFilter === 'all' || activeFilter === 'songs') && (
-                <section className={`grid grid-cols-1 ${activeFilter === 'all' ? 'lg:grid-cols-[1fr_2fr]' : ''} gap-8`}>
+              {(activeFilter === 'all' || activeFilter === 'songs' || activeFilter === (results?.global_matches?.top_result?.type === 'artist' ? 'artists' : results?.global_matches?.top_result?.type === 'album' ? 'albums' : 'songs')) && (
+                <section className={`grid grid-cols-1 ${activeFilter === 'all' && results?.global_matches?.top_result ? 'lg:grid-cols-[1fr_2fr]' : ''} gap-8`}>
                   
-                  {/* Top Result (Only if filter is 'all') */}
-                  {activeFilter === 'all' && results?.global_matches?.top_result && (
+                  {/* Top Result (Show if filter is 'all' OR matches the top result category) */}
+                  {(activeFilter === 'all' || activeFilter === (results?.global_matches?.top_result?.type === 'artist' ? 'artists' : results?.global_matches?.top_result?.type === 'album' ? 'albums' : 'songs')) && results?.global_matches?.top_result && (
                     <div className="flex flex-col gap-4">
                       <h3 className="text-xl font-bold">Top result</h3>
                       <div 
@@ -173,7 +173,8 @@ const Search = () => {
                   )}
 
                   {/* Songs Section */}
-                  {results?.global_matches?.songs?.length > 0 && (
+                  {(results?.global_matches?.songs?.length > 0 || (results?.global_matches?.top_result?.type === 'song' && (activeFilter === 'all' || activeFilter === 'songs'))) ? (
+                    results?.global_matches?.songs?.length > 0 && (
                     <div className="flex flex-col gap-4">
                       <h3 className="text-xl font-bold">Songs</h3>
                       <div className="flex flex-col gap-1">
@@ -209,48 +210,82 @@ const Search = () => {
                         ))}
                       </div>
                     </div>
+                  )) : activeFilter === 'songs' && (
+                    <div className="flex flex-col items-center justify-center py-20 text-neutral-500 bg-white/5 rounded-2xl border border-white/5">
+                      <Music size={40} className="mb-3 opacity-20" />
+                      <p className="text-lg font-bold text-white/50">No songs found</p>
+                      <p className="text-sm">Try searching with a different term or clear filters</p>
+                    </div>
                   )}
                 </section>
               )}
 
               {/* Artists Grid (Only if filter is 'all' or 'artists') */}
-              {(activeFilter === 'all' || activeFilter === 'artists') && results?.global_matches?.artists?.length > 0 && (
+              {(activeFilter === 'all' || activeFilter === 'artists') && (
                 <section>
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-xl font-bold">Artists</h2>
-                    {activeFilter === 'all' && results.global_matches.artists.length > 6 && (
-                      <button onClick={() => setActiveFilter('artists')} className="text-xs font-bold text-neutral-400 hover:text-white transition-colors">See all</button>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 sm:gap-6">
-                    {(activeFilter === 'all' ? results.global_matches.artists.slice(0, 6) : results.global_matches.artists).map((artist: any, index: number) => (
-                      <div key={`artist-${index}`} className="bg-white/5 hover:bg-white/10 p-4 rounded-xl flex flex-col items-center gap-3 cursor-pointer transition group" onClick={() => navigate(`/artist/${artist.id}`)}>
-                        <img src={getValidImage(artist)} className="w-full aspect-square rounded-full object-cover shadow-lg" alt="" onError={(e) => { e.currentTarget.src = '/logo.png'; }} />
-                        <p className="text-sm font-bold text-white truncate w-full text-center">{artist.name || artist.title}</p>
-                      </div>
-                    ))}
-                  </div>
+                  {(results?.global_matches?.artists?.length > 0 || (results?.global_matches?.top_result?.type === 'artist' && (activeFilter === 'all' || activeFilter === 'artists'))) ? (
+                    <>
+                      {results?.global_matches?.artists?.length > 0 && (
+                        <>
+                          <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-xl font-bold">Artists</h2>
+                            {activeFilter === 'all' && results.global_matches.artists.length > 6 && (
+                              <button onClick={() => setActiveFilter('artists')} className="text-xs font-bold text-neutral-400 hover:text-white transition-colors">See all</button>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 sm:gap-6">
+                            {(activeFilter === 'all' ? results.global_matches.artists.slice(0, 6) : results.global_matches.artists).map((artist: any, index: number) => (
+                              <div key={`artist-${index}`} className="bg-white/5 hover:bg-white/10 p-4 rounded-xl flex flex-col items-center gap-3 cursor-pointer transition group" onClick={() => navigate(`/artist/${artist.id}`)}>
+                                <img src={getValidImage(artist)} className="w-full aspect-square rounded-full object-cover shadow-lg" alt="" onError={(e) => { e.currentTarget.src = '/logo.png'; }} />
+                                <p className="text-sm font-bold text-white truncate w-full text-center">{artist.name || artist.title}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  ) : activeFilter === 'artists' && (
+                    <div className="flex flex-col items-center justify-center py-20 text-neutral-500 bg-white/5 rounded-2xl border border-white/5">
+                      <PlusCircle size={40} className="mb-3 opacity-20" />
+                      <p className="text-lg font-bold text-white/50">No artists found</p>
+                      <p className="text-sm">Try searching with a different term or clear filters</p>
+                    </div>
+                  )}
                 </section>
               )}
 
               {/* Albums Grid (Only if filter is 'all' or 'albums') */}
-              {(activeFilter === 'all' || activeFilter === 'albums') && results?.global_matches?.albums?.length > 0 && (
+              {(activeFilter === 'all' || activeFilter === 'albums') && (
                 <section>
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-xl font-bold">Albums</h2>
-                    {activeFilter === 'all' && results.global_matches.albums.length > 6 && (
-                      <button onClick={() => setActiveFilter('albums')} className="text-xs font-bold text-neutral-400 hover:text-white transition-colors">See all</button>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 sm:gap-6">
-                    {(activeFilter === 'all' ? results.global_matches.albums.slice(0, 6) : results.global_matches.albums).map((album: any, index: number) => (
-                      <div key={`album-${index}`} className="bg-white/5 hover:bg-white/10 p-4 rounded-xl cursor-pointer transition group" onClick={() => navigate(`/album/${album.id}`)}>
-                        <img src={getValidImage(album)} className="w-full aspect-square rounded-lg object-cover shadow-lg mb-2" alt="" onError={(e) => { e.currentTarget.src = '/logo.png'; }} />
-                        <p className="text-sm font-bold text-white truncate w-full">{album.title}</p>
-                        <p className="text-xs text-neutral-400 truncate w-full">{album.artist || 'Album'}</p>
-                      </div>
-                    ))}
-                  </div>
+                  {(results?.global_matches?.albums?.length > 0 || (results?.global_matches?.top_result?.type === 'album' && (activeFilter === 'all' || activeFilter === 'albums'))) ? (
+                    <>
+                      {results?.global_matches?.albums?.length > 0 && (
+                        <>
+                          <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-xl font-bold">Albums</h2>
+                            {activeFilter === 'all' && results.global_matches.albums.length > 6 && (
+                              <button onClick={() => setActiveFilter('albums')} className="text-xs font-bold text-neutral-400 hover:text-white transition-colors">See all</button>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 sm:gap-6">
+                            {(activeFilter === 'all' ? results.global_matches.albums.slice(0, 6) : results.global_matches.albums).map((album: any, index: number) => (
+                              <div key={`album-${index}`} className="bg-white/5 hover:bg-white/10 p-4 rounded-xl cursor-pointer transition group" onClick={() => navigate(`/album/${album.id}`)}>
+                                <img src={getValidImage(album)} className="w-full aspect-square rounded-lg object-cover shadow-lg mb-2" alt="" onError={(e) => { e.currentTarget.src = '/logo.png'; }} />
+                                <p className="text-sm font-bold text-white truncate w-full">{album.title}</p>
+                                <p className="text-xs text-neutral-400 truncate w-full">{album.artist || 'Album'}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  ) : activeFilter === 'albums' && (
+                    <div className="flex flex-col items-center justify-center py-20 text-neutral-500 bg-white/5 rounded-2xl border border-white/5">
+                      <Album size={40} className="mb-3 opacity-20" />
+                      <p className="text-lg font-bold text-white/50">No albums found</p>
+                      <p className="text-sm">Try searching with a different term or clear filters</p>
+                    </div>
+                  )}
                 </section>
               )}
             </div>

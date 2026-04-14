@@ -38,7 +38,8 @@ const Home = ({ isLoggedIn }: HomeProps) => {
     ...(isLoggedIn ? [{ id: 'liked-songs', title: 'Liked Songs', coverUrl: 'https://misc.scdn.co/liked-songs/liked-songs-640.png', type: 'playlist' }] : []),
     ...getRecentCollections().map(c => ({ id: c.id, title: c.title, coverUrl: c.coverUrl, type: c.type })),
     ...topAlbums.map(a => ({ id: a.id, title: a.title, coverUrl: a.coverUrl, type: 'album' }))
-  ].reduce((acc: any[], curr) => {
+  ].filter(item => item && item.id)
+   .reduce((acc: any[], curr) => {
     if (!acc.find(item => item.id === curr.id)) acc.push(curr);
     return acc;
   }, []).slice(0, 8);
@@ -115,12 +116,19 @@ const Home = ({ isLoggedIn }: HomeProps) => {
             <div 
               key={`${item.id}-${i}`}
               onClick={() => {
-                if (item.id === 'liked-songs') {
+                if (!item.id) return;
+                
+                const id = item.id;
+                const isArtistID = id.startsWith('UC') && !id.includes('playlist');
+                const isPlaylistID = id.startsWith('PL') || id.startsWith('RDCL') || id.startsWith('RDTK');
+                const isAlbumID = id.startsWith('MPREb') || id.startsWith('OLAK5uy_') || id.startsWith('AMGR_') || topAlbums.some(a => a.id === id);
+
+                if (id === 'liked-songs') {
                   navigate('/library');
-                } else if (item.id && (item.id.startsWith('MPREb') || (item as any).type === 'album')) {
-                  navigate(`/album/${item.id}`);
+                } else if (item.type === 'album' || isAlbumID || (!isPlaylistID && id.length > 20)) {
+                  navigate(`/album/${id}`);
                 } else {
-                  navigate(`/playlist/${item.id}`);
+                  navigate(`/playlist/${id}`);
                 }
               }}
               className="group relative flex items-center bg-white/5 hover:bg-white/10 rounded-lg overflow-hidden h-[80px] transition-all cursor-pointer border border-transparent hover:border-white/5 shadow-lg"

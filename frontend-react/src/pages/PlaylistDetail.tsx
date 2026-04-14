@@ -3,8 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import SongCard from '../components/SongCard';
 import type { Song } from '../types';
 import { getPlaylistDetail, removeSongFromPlaylist, renamePlaylist, deletePlaylist } from '../services/api';
+import { saveCollectionPlay } from '../utils/historyUtils';
 import { useAuth } from '../context/AuthContext';
-import { Music, Trash2, Play, MoreVertical, Edit2 } from 'lucide-react';
+import { Music, Trash2, Play, MoreVertical, Edit2, ArrowLeft } from 'lucide-react';
 import { useAudio } from '../context/AudioContext';
 
 const PlaylistDetail = () => {
@@ -82,60 +83,104 @@ const PlaylistDetail = () => {
   }
 
   return (
-    <div className="flex flex-col gap-8 pb-24">
-      <div className="flex items-center gap-6 mb-8 flex-wrap md:flex-nowrap">
-        <div className="w-52 h-52 bg-neutral-800 rounded-md shadow-2xl flex items-center justify-center">
-            <Music size={100} className="text-neutral-600" />
+    <div className="flex flex-col min-h-full bg-black">
+      {/* Back Button */}
+      <button 
+        onClick={() => navigate(-1)}
+        className="fixed top-6 left-6 z-50 p-2.5 bg-black/40 backdrop-blur-md rounded-full text-white hover:bg-black/60 transition-all border border-white/10 active:scale-90"
+      >
+        <ArrowLeft size={24} strokeWidth={2.5} />
+      </button>
+
+      {/* Hero Header */}
+      <div 
+        className="relative pt-12 pb-8 px-6 flex flex-col items-center gap-6 transition-all duration-700 overflow-hidden"
+        style={{ 
+          background: `linear-gradient(to bottom, #1db95433 0%, #000 100%)`,
+          minHeight: '55vh'
+        }}
+      >
+        {/* Top Spacer for Fixed Back Button */}
+        <div className="h-6 w-full" />
+
+        {/* Big Playlist Cover */}
+        <div className="w-[85%] max-w-[300px] aspect-square flex-shrink-0 shadow-[0_20px_50px_rgba(0,0,0,0.8)] rounded-lg overflow-hidden transform hover:scale-[1.02] transition-all duration-500 border border-white/5 bg-neutral-900 flex items-center justify-center">
+          {songs.length > 0 ? (
+            <img src={songs[0].coverUrl} className="w-full h-full object-cover" alt="" />
+          ) : (
+            <Music size={120} className="text-neutral-700" />
+          )}
         </div>
-        <div className="flex flex-col gap-4 flex-1">
-            <span className="text-xs uppercase font-bold tracking-widest text-neutral-400">Playlist</span>
-            <h1 className="text-5xl md:text-7xl font-bold text-white">{playlistTitle}</h1>
-            <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold opacity-80">{user.username} • {songs.length} songs</span>
-            </div>
-            <div className="flex items-center gap-4 mt-2">
-                <button 
-                  onClick={handlePlayAll}
-                  className="bg-green-500 text-black p-4 rounded-full hover:scale-105 transition shadow-lg flex items-center justify-center"
-                >
-                  <Play fill="currentColor" size={24} />
-                </button>
 
-                <div className="relative">
-                   <button 
-                     onClick={() => setShowMenu(!showMenu)}
-                     className="p-3 text-neutral-400 hover:text-white transition-colors"
-                   >
-                     <MoreVertical size={28} />
-                   </button>
+        {/* Playlist Details Block */}
+        <div className="flex flex-col items-start w-full px-2 mt-4">
+          <h1 className="text-3xl font-black text-white mb-2 leading-tight tracking-tight">
+            {playlistTitle}
+          </h1>
+          <div className="flex items-center gap-2 mb-4 group cursor-pointer">
+             <div className="w-6 h-6 rounded-full overflow-hidden bg-neutral-800 flex items-center justify-center">
+                <Music size={12} className="text-neutral-500" />
+             </div>
+             <p className="text-sm text-neutral-300 font-bold">
+               {user.username}
+             </p>
+          </div>
+          
+          <div className="flex items-center gap-2 text-[12px] font-bold text-neutral-400 uppercase tracking-wider">
+            <span>Playlist</span>
+            <span className="text-neutral-600">•</span>
+            <span>{songs.length} tracks</span>
+          </div>
+        </div>
+      </div>
 
-                   {showMenu && (
-                      <div className="absolute top-full left-0 mt-2 w-48 bg-[#282828] rounded-lg shadow-2xl border border-white/10 py-1 z-50 animate-in slide-in-from-top-2 duration-200">
-                         <button 
-                           onClick={() => {
-                             setEditTitle(playlistTitle);
-                             setShowRenameModal(true);
-                             setShowMenu(false);
-                           }}
-                           className="w-full flex items-center gap-3 px-4 py-3 text-sm text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors"
-                         >
-                           <Edit2 size={16} />
-                           Rename Playlist
-                         </button>
-                         <button 
-                           onClick={() => {
-                             setShowDeleteConfirm(true);
-                             setShowMenu(false);
-                           }}
-                           className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-400 hover:bg-red-500 hover:text-white transition-colors border-t border-white/5"
-                         >
-                           <Trash2 size={16} />
-                           Delete Playlist
-                         </button>
-                      </div>
-                   )}
-                </div>
-            </div>
+      {/* Persistent Content Area */}
+      <div className="flex-1 bg-black px-6 pb-12">
+        {/* Action Row */}
+        <div className="flex items-center justify-between py-6">
+           <div className="flex items-center gap-6">
+              <button 
+                onClick={handlePlayAll}
+                className="w-14 h-14 bg-[#1ed760] rounded-full text-black flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-xl"
+              >
+                <Play size={24} fill="black" className="ml-1" />
+              </button>
+              
+              <div className="relative">
+                 <button 
+                   onClick={() => setShowMenu(!showMenu)}
+                   className="text-neutral-400 hover:text-white transition-all transform active:scale-90"
+                 >
+                   <MoreVertical size={28} />
+                 </button>
+
+                 {showMenu && (
+                    <div className="absolute top-full left-0 mt-2 w-48 bg-[#282828] rounded-lg shadow-2xl border border-white/10 py-1 z-50 animate-in slide-in-from-top-2 duration-200">
+                       <button 
+                         onClick={() => {
+                           setEditTitle(playlistTitle);
+                           setShowRenameModal(true);
+                           setShowMenu(false);
+                         }}
+                         className="w-full flex items-center gap-3 px-4 py-3 text-sm text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors"
+                       >
+                         <Edit2 size={16} />
+                         Rename Playlist
+                       </button>
+                       <button 
+                         onClick={() => {
+                           setShowDeleteConfirm(true);
+                           setShowMenu(false);
+                         }}
+                         className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-400 hover:bg-red-500 hover:text-white transition-colors border-t border-white/5"
+                       >
+                         <Trash2 size={16} />
+                         Delete Playlist
+                       </button>
+                    </div>
+                 )}
+              </div>
+           </div>
         </div>
       </div>
 
@@ -181,7 +226,20 @@ const PlaylistDetail = () => {
         {songs.length > 0 ? (
           songs.map((song) => (
              <div key={song.id} className="group relative">
-                <SongCard song={song} context={songs} />
+                <SongCard 
+                   song={song} 
+                   context={songs} 
+                   onPlay={() => {
+                     if (id) {
+                       saveCollectionPlay({
+                         id: id,
+                         title: playlistTitle,
+                         coverUrl: songs[0]?.coverUrl || '',
+                         type: 'playlist'
+                       });
+                     }
+                   }}
+                 />
                 <button 
                   onClick={(e) => {
                     e.stopPropagation();

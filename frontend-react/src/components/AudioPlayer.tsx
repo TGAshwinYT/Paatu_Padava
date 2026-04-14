@@ -12,6 +12,8 @@ interface AudioPlayerProps {
     onStateChange?: (state: number) => void;
     onTimeUpdate: (time: number) => void;
     onDurationChange: (duration: number) => void;
+    setIsPlaying: (playing: boolean) => void;
+    setIsBuffering: (buffering: boolean) => void;
 }
 
 export default function AudioPlayer({ 
@@ -23,7 +25,9 @@ export default function AudioPlayer({
     onEnd,
     onStateChange,
     onTimeUpdate,
-    onDurationChange
+    onDurationChange,
+    setIsPlaying,
+    setIsBuffering
 }: AudioPlayerProps) {
     const playerRef = useRef<any>(null);
 
@@ -56,19 +60,6 @@ export default function AudioPlayer({
 
     // --- 2. INTERACTION HANDLERS ---
     
-    // THE FIX: Use loadVideoById to eliminate race conditions and playback freezes
-    useEffect(() => {
-        if (currentVideoId && playerRef.current) {
-            try {
-                // Ensure the player is stable before calling load
-                if (typeof playerRef.current.loadVideoById === 'function') {
-                    playerRef.current.loadVideoById(currentVideoId);
-                }
-            } catch (e) {
-                console.warn("loadVideoById failed:", e);
-            }
-        }
-    }, [currentVideoId]);
 
     // Sync play/pause state
     useEffect(() => {
@@ -106,19 +97,33 @@ export default function AudioPlayer({
     const handleReady = (event: YouTubeEvent) => {
         playerRef.current = event.target;
         playerRef.current.setVolume(volume * 100);
-        
-        // If we have a track already selected when the component mounts/readies
-        if (currentVideoId) {
-            try {
-                event.target.loadVideoById(currentVideoId);
-                if (!isPlaying) event.target.pauseVideo(); 
-            } catch (e) {}
-        }
-        
         onReady(event.target);
     };
 
     const handleStateChange = (event: YouTubeEvent) => {
+        const playerState = event.data;
+
+        // THE FIX: State 5 = Video Cued. 
+        // The library automatically cues new songs. Once cued, we force it to play instantly.
+        if (playerState === 5) {
+            playerRef.current?.playVideo();
+        }
+
+        // 3 = Buffering, -1 = Unstarted
+        if (playerState === 3 || playerState === -1) {
+            setIsBuffering(true);
+        }
+        // 1 = Playing
+        if (playerState === 1) {
+            setIsBuffering(false);
+            setIsPlaying(true);
+        }
+        // 2 = Paused, 0 = Ended
+        if (playerState === 2 || playerState === 0) {
+            setIsBuffering(false);
+            setIsPlaying(false);
+        }
+
         if (onStateChange) {
             onStateChange(event.data);
         }

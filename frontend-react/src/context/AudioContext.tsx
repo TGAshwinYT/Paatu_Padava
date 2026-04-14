@@ -363,8 +363,11 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }}
         onEnd={onEnded}
         onStateChange={(state) => {
-           setIsBuffering(state === 3);
+           // We keep the contextual callback for any side-effects, 
+           // but the primary state sync now happens inside AudioPlayer.
         }}
+        setIsPlaying={setIsPlaying}
+        setIsBuffering={setIsBuffering}
       />
     </AudioContext.Provider>
   );

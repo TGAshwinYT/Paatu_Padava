@@ -32,7 +32,8 @@ def get_youtube_cookies():
     env_cookie = os.getenv("YOUTUBE_COOKIE")
     if env_cookie:
         logger.info("✅ Found YOUTUBE_COOKIE in environment variables")
-        if env_cookie.startswith("# Netscape"):
+        # Ensure it's in Netscape format if it's the raw content
+        if env_cookie.strip().startswith("# Netscape"):
             return {"type": "netscape", "content": env_cookie}
         return {"type": "string", "content": env_cookie}
 
@@ -73,56 +74,58 @@ async def play(id: str):
         cookie_info = get_youtube_cookies()
         audio_url = None
         
-        # --- Attempt 1: pytubefix (Modern & Resilient) ---
+        # --- Attempt 1: yt-dlp (Optimized for Cloud Proxies) ---
         try:
-            logger.info(f"🔍 [Attempt 1] Extracting with pytubefix for: {id}")
-            # pytubefix handles signatures well with the latest updates
-            yt = YouTube(f"https://www.youtube.com/watch?v={id}")
-            stream = yt.streams.filter(only_audio=True).first()
-            if stream:
-                audio_url = stream.url
-                logger.info("✅ [pytubefix] Extraction successful")
-        except Exception as pe:
-            logger.warning(f"⚠️ [pytubefix] Failed: {str(pe)}")
+            logger.info(f"🔍 [Attempt 1] Extracting with yt-dlp (Android Client) for: {id}")
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'quiet': True,
+                'no_warnings': True,
+                'nocheckcertificate': True,
+                'ignoreerrors': False, # Set to False to see actual error
+                # 🔥 CRITICAL: Spoof Android client which is less likely to be blocked on Render/HF
+                'extractor_args': {'youtube': {'player_client': ['android', 'ios']}}
+            }
 
-        # --- Attempt 2: yt-dlp (Reliable Fallback) ---
+            temp_cookie_file = None
+            if cookie_info:
+                if cookie_info["type"] == "netscape" or cookie_info["type"] == "string":
+                    temp_cookie_file = tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".txt", encoding="utf-8")
+                    temp_cookie_file.write(cookie_info["content"])
+                    temp_cookie_file.flush()
+                    temp_cookie_file.close()
+                    ydl_opts['cookiefile'] = temp_cookie_file.name
+                elif cookie_info["type"] == "file":
+                    ydl_opts['cookiefile'] = cookie_info["path"]
+
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(f"https://www.youtube.com/watch?v={id}", download=False)
+                    if info:
+                        audio_url = info.get('url')
+                        logger.info("✅ [yt-dlp] Extraction successful via Android client")
+            finally:
+                if temp_cookie_file and os.path.exists(temp_cookie_file.name):
+                    try: os.unlink(temp_cookie_file.name)
+                    except: pass
+        except Exception as ye:
+            logger.warning(f"⚠️ [yt-dlp] Failed: {str(ye)}")
+
+        # --- Attempt 2: pytubefix (Fallback with Android Client) ---
         if not audio_url:
             try:
-                logger.info(f"🔍 [Attempt 2] Extracting with yt-dlp for: {id}")
-                ydl_opts = {
-                    'format': 'bestaudio/best',
-                    'quiet': True,
-                    'no_warnings': True,
-                    'nocheckcertificate': True,
-                    'ignoreerrors': True,
-                }
-
-                temp_cookie_file = None
-                if cookie_info:
-                    if cookie_info["type"] == "netscape":
-                        temp_cookie_file = tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".txt", encoding="utf-8")
-                        temp_cookie_file.write(cookie_info["content"])
-                        temp_cookie_file.flush()
-                        temp_cookie_file.close()
-                        ydl_opts['cookiefile'] = temp_cookie_file.name
-                    elif cookie_info["type"] == "file":
-                        ydl_opts['cookiefile'] = cookie_info["path"]
-
-                try:
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(f"https://www.youtube.com/watch?v={id}", download=False)
-                        if info:
-                            audio_url = info.get('url')
-                            logger.info("✅ [yt-dlp] Extraction successful")
-                finally:
-                    if temp_cookie_file and os.path.exists(temp_cookie_file.name):
-                        try: os.unlink(temp_cookie_file.name)
-                        except: pass
-            except Exception as ye:
-                logger.error(f"❌ [yt-dlp] Failed: {str(ye)}")
+                logger.info(f"🔍 [Attempt 2] Extracting with pytubefix (Android Client) for: {id}")
+                # pytubefix supports client selection to bypass bot detection
+                yt = YouTube(f"https://www.youtube.com/watch?v={id}", client='ANDROID')
+                stream = yt.streams.filter(only_audio=True).first()
+                if stream:
+                    audio_url = stream.url
+                    logger.info("✅ [pytubefix] Extraction successful via Android client")
+            except Exception as pe:
+                logger.error(f"❌ [pytubefix] Failed: {str(pe)}")
 
         if not audio_url:
-            raise Exception("Failed to extract audio URL from all providers.")
+            raise Exception("Failed to extract audio URL from all providers (yt-dlp & pytubefix).")
 
         # Stream the audio
         async def stream_generator():
@@ -146,7 +149,8 @@ async def play(id: str):
 
     except Exception as e:
         logger.error(f"❌ Proxy Stream Error: {str(e)}")
-        logger.error(traceback.format_exc())
+        # Log limited traceback to avoid cluttering but show the cause
+        logger.error(traceback.format_exc().splitlines()[-2:])
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

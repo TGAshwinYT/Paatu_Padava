@@ -1,4 +1,11 @@
 import { useState } from 'react';
+import { 
+  Play, 
+  Pause, 
+  SkipBack, 
+  SkipForward, 
+  Repeat, 
+  Shuffle, 
   Volume2, 
   MonitorSpeaker,
   Mic2,

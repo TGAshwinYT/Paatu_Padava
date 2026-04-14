@@ -2,11 +2,13 @@ import os
 import httpx
 import logging
 import tempfile
+import traceback
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import yt_dlp
+from pytubefix import YouTube
 
 load_dotenv()
 
@@ -54,6 +56,7 @@ def get_youtube_cookies():
 @app.get("/")
 async def status():
     cookies = get_youtube_cookies()
+    logger.info("📡 Health Check Pinged from Frontend")
     return {
         "status": "ok",
         "message": "Python Renderer is ready!",
@@ -66,81 +69,84 @@ async def play(id: str):
         raise HTTPException(status_code=400, detail="Missing ID")
 
     try:
-        logger.info(f"📡 Extraction Proxy: {id}")
-        
+        logger.info(f"📡 Extraction Proxy Request: {id}")
         cookie_info = get_youtube_cookies()
+        audio_url = None
         
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'quiet': True,
-            'no_warnings': True,
-            'nocheckcertificate': True,
-            'ignoreerrors': True,
-            'no_color': True,
-        }
-
-        # Handle cookies for yt-dlp
-        temp_cookie_file = None
-        headers = {}
-        
-        if cookie_info:
-            if cookie_info["type"] == "netscape":
-                temp_cookie_file = tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".txt", encoding="utf-8")
-                temp_cookie_file.write(cookie_info["content"])
-                temp_cookie_file.flush()
-                temp_cookie_file.close()
-                ydl_opts['cookiefile'] = temp_cookie_file.name
-            elif cookie_info["type"] == "file":
-                ydl_opts['cookiefile'] = cookie_info["path"]
-            elif cookie_info["type"] == "string":
-                # Pass as header cookie
-                headers['Cookie'] = cookie_info["content"]
-                ydl_opts['http_headers'] = headers
-
+        # --- Attempt 1: pytubefix (Modern & Resilient) ---
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(f"https://www.youtube.com/watch?v={id}", download=False)
-                if not info:
-                    raise Exception("Failed to extract video info")
-                
-                audio_url = info.get('url')
-                if not audio_url:
-                    raise Exception("Could not find audio URL")
+            logger.info(f"🔍 [Attempt 1] Extracting with pytubefix for: {id}")
+            # pytubefix handles signatures well with the latest updates
+            yt = YouTube(f"https://www.youtube.com/watch?v={id}")
+            stream = yt.streams.filter(only_audio=True).first()
+            if stream:
+                audio_url = stream.url
+                logger.info("✅ [pytubefix] Extraction successful")
+        except Exception as pe:
+            logger.warning(f"⚠️ [pytubefix] Failed: {str(pe)}")
 
-            # Stream the audio
-            async def stream_generator():
-                async with httpx.AsyncClient(timeout=None, follow_redirects=True) as client:
-                    # Pass the same cookies to the stream request if we have them
-                    stream_headers = {}
-                    if 'Cookie' in headers:
-                        stream_headers['Cookie'] = headers['Cookie']
-                    
-                    async with client.stream("GET", audio_url, headers=stream_headers) as response:
-                        if response.status_code != 200:
-                            logger.error(f"Failed to stream from YouTube: {response.status_code}")
-                            return
-                        
-                        async for chunk in response.aiter_bytes():
-                            yield chunk
-
-            return StreamingResponse(
-                stream_generator(),
-                media_type="audio/mpeg",
-                headers={
-                    "Transfer-Encoding": "chunked",
-                    "Accept-Ranges": "bytes",
-                    "Access-Control-Allow-Origin": "*"
+        # --- Attempt 2: yt-dlp (Reliable Fallback) ---
+        if not audio_url:
+            try:
+                logger.info(f"🔍 [Attempt 2] Extracting with yt-dlp for: {id}")
+                ydl_opts = {
+                    'format': 'bestaudio/best',
+                    'quiet': True,
+                    'no_warnings': True,
+                    'nocheckcertificate': True,
+                    'ignoreerrors': True,
                 }
-            )
-        finally:
-            if temp_cookie_file and os.path.exists(temp_cookie_file.name):
+
+                temp_cookie_file = None
+                if cookie_info:
+                    if cookie_info["type"] == "netscape":
+                        temp_cookie_file = tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".txt", encoding="utf-8")
+                        temp_cookie_file.write(cookie_info["content"])
+                        temp_cookie_file.flush()
+                        temp_cookie_file.close()
+                        ydl_opts['cookiefile'] = temp_cookie_file.name
+                    elif cookie_info["type"] == "file":
+                        ydl_opts['cookiefile'] = cookie_info["path"]
+
                 try:
-                    os.unlink(temp_cookie_file.name)
-                except:
-                    pass
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(f"https://www.youtube.com/watch?v={id}", download=False)
+                        if info:
+                            audio_url = info.get('url')
+                            logger.info("✅ [yt-dlp] Extraction successful")
+                finally:
+                    if temp_cookie_file and os.path.exists(temp_cookie_file.name):
+                        try: os.unlink(temp_cookie_file.name)
+                        except: pass
+            except Exception as ye:
+                logger.error(f"❌ [yt-dlp] Failed: {str(ye)}")
+
+        if not audio_url:
+            raise Exception("Failed to extract audio URL from all providers.")
+
+        # Stream the audio
+        async def stream_generator():
+            async with httpx.AsyncClient(timeout=None, follow_redirects=True) as client:
+                async with client.stream("GET", audio_url) as response:
+                    if response.status_code >= 400:
+                        logger.error(f"Failed to stream from YouTube: {response.status_code}")
+                        return
+                    async for chunk in response.aiter_bytes():
+                        yield chunk
+
+        return StreamingResponse(
+            stream_generator(),
+            media_type="audio/mpeg",
+            headers={
+                "Transfer-Encoding": "chunked",
+                "Accept-Ranges": "bytes",
+                "Access-Control-Allow-Origin": "*"
+            }
+        )
 
     except Exception as e:
         logger.error(f"❌ Proxy Stream Error: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

@@ -27,6 +27,27 @@ def is_yt_authenticated():
     """
     return os.path.exists(auth_file)
 
+def safe_get(obj, key, default=None):
+    """
+    Safely extract data from YTMusic API responses which can be either a dict or a list.
+    """
+    if isinstance(obj, dict):
+        val = obj.get(key)
+        if val is not None:
+            return val
+    elif isinstance(obj, list):
+        # If it's a list, it's likely a list of sections/shelves
+        for shelf in obj:
+            if isinstance(shelf, dict):
+                title = shelf.get('title', '').lower()
+                # Check for key matches in titles (e.g., 'songs', 'videos')
+                if key.lower() in title:
+                    return shelf.get('contents') or shelf.get('items')
+                # Also check direct key in shelf
+                if key in shelf:
+                    return shelf[key]
+    return default
+
 
 
 def map_youtube_song(result):
@@ -187,50 +208,32 @@ async def get_trending_youtube(region="global"):
             functools.partial(ytmusic.get_charts, country=chart_region)
         )
         
-        # handle results if it's a list or dict to avoid 'AttributeError: list object has no attribute get'
-        songs = []
-        if isinstance(results, dict):
-            # Priority 1: Songs section (Most accurate for music only)
-            songs = results.get('songs', {}).get('items', [])
+        # Priority 1: Songs section
+        songs = safe_get(results, 'songs')
+        
+        # Priority 2: Videos section
+        if not songs:
+            logger.info(f"[GRAPH] 'songs' section empty for {chart_region}, falling back to 'videos'")
+            songs = safe_get(results, 'videos')
             
-            # Priority 2: Videos section (Usually contains trending music videos, good fallback)
-            if not songs:
-                logger.info(f"[GRAPH] 'songs' section empty for {chart_region}, falling back to 'videos' section")
-                songs = results.get('videos', {}).get('items', [])
-        elif isinstance(results, list):
-            logger.info(f"[GRAPH] get_charts returned a list for {chart_region}, checking for items...")
-            # If it's a list, it might be the items directly or a list of shelf-like dicts
-            if results and isinstance(results[0], dict):
-                if 'items' in results[0]: # List of shelves
-                    for shelf in results:
-                        if shelf.get('title') in ['Songs', 'Videos', 'Trending']:
-                            songs = shelf.get('items', [])
-                            break
-                else: # Direct list of items
-                    songs = results
-            
-        # Priority 3: Regional Fallback if still empty (Global 'ZZ' can be picky on some HF nodes)
+        # Priority 3: Regional Fallback if still empty
         if not songs and chart_region == 'ZZ':
-            logger.info("[GRAPH] Global charts empty or invalid format, trying regional fallback (IN)")
+            logger.info("[GRAPH] Global charts empty, trying regional fallback (IN)")
             try:
-                results_fallback = await loop.run_in_executor(
-                    None, 
-                    functools.partial(ytmusic.get_charts, country='IN')
-                )
-                if isinstance(results_fallback, dict):
-                    songs = results_fallback.get('songs', {}).get('items', []) or results_fallback.get('videos', {}).get('items', [])
-                elif isinstance(results_fallback, list):
-                    songs = results_fallback # Use fallback list directly
+                results_fb = await loop.run_in_executor(None, functools.partial(ytmusic.get_charts, country='IN'))
+                songs = safe_get(results_fb, 'songs') or safe_get(results_fb, 'videos')
             except Exception as fe:
                 logger.error(f"[GRAPH] Regional fallback failed: {fe}")
 
         mapped_songs = []
-        for s in songs:
-            mapped = map_youtube_song(s)
-            if mapped:
-                mapped_songs.append(mapped)
+        if isinstance(songs, list):
+            for s in songs:
+                if isinstance(s, dict):
+                    mapped = map_youtube_song(s)
+                    if mapped:
+                        mapped_songs.append(mapped)
         
-        logger.info(f"[GRAPH] Successfully extracted {len(mapped_songs)} trending items for recommendation engine.")
+        logger.info(f"[GRAPH] Successfully extracted {len(mapped_songs)} trending items.")
         return mapped_songs
     except Exception as e:
         logger.error(f"YTMusic charts error: {e}")
@@ -341,12 +344,13 @@ async def get_related_songs(video_id, limit=10):
             functools.partial(ytmusic.get_watch_playlist, videoId=video_id, limit=limit)
         )
         
-        tracks = results.get('tracks', [])
+        tracks = safe_get(results, 'tracks', [])
         mapped_tracks = []
-        for t in tracks:
-            mapped = map_youtube_song(t)
-            if mapped:
-                mapped_tracks.append(mapped)
+        if isinstance(tracks, list):
+            for t in tracks:
+                mapped = map_youtube_song(t)
+                if mapped:
+                    mapped_tracks.append(mapped)
         
         return mapped_tracks
     except Exception as e:
@@ -364,19 +368,23 @@ async def get_artist_details_youtube(channel_id):
             functools.partial(ytmusic.get_artist, channelId=channel_id)
         )
         
-        thumbnails = results.get('thumbnails', [])
-        image_url = thumbnails[-1].get('url') if thumbnails else ""
+        thumbnails = safe_get(results, 'thumbnails', [])
+        image_url = thumbnails[-1].get('url') if isinstance(thumbnails, list) and thumbnails else ""
         
-        top_songs_raw = results.get('songs', {}).get('results', [])
+        top_songs_raw = safe_get(results, 'songs', {})
+        if isinstance(top_songs_raw, dict):
+            top_songs_raw = top_songs_raw.get('results', [])
+        
         mapped_songs = []
-        for s in top_songs_raw:
-            mapped = map_youtube_song(s)
-            if mapped:
-                mapped_songs.append(mapped)
+        if isinstance(top_songs_raw, list):
+            for s in top_songs_raw:
+                mapped = map_youtube_song(s)
+                if mapped:
+                    mapped_songs.append(mapped)
                 
         return {
-            "id": results.get('channelId'),
-            "name": results.get('name'),
+            "id": safe_get(results, 'channelId'),
+            "name": safe_get(results, 'name'),
             "image": image_url,
             "topSongs": mapped_songs
         }
@@ -395,29 +403,29 @@ async def get_album_details_youtube(browse_id):
             functools.partial(ytmusic.get_album, browseId=browse_id)
         )
         
-        thumbnails = results.get('thumbnails', [])
-        image_url = thumbnails[-1].get('url') if thumbnails else ""
+        thumbnails = safe_get(results, 'thumbnails', [])
+        image_url = thumbnails[-1].get('url') if isinstance(thumbnails, list) and thumbnails else ""
         
-        tracks_raw = results.get('tracks', [])
+        tracks_raw = safe_get(results, 'tracks', [])
         mapped_songs = []
-        for t in tracks_raw:
-            if not t.get('thumbnails') and not t.get('thumbnail'):
-                t['thumbnails'] = thumbnails
-
-            if t.get('videoId'):
-                mapped = map_youtube_song(t)
-                if mapped:
-                    mapped_songs.append(mapped)
+        if isinstance(tracks_raw, list):
+            for t in tracks_raw:
+                if isinstance(t, dict):
+                    if not t.get('thumbnails') and not t.get('thumbnail'):
+                        t['thumbnails'] = thumbnails
+                    if t.get('videoId'):
+                        mapped = map_youtube_song(t)
+                        if mapped:
+                            mapped_songs.append(mapped)
         
         return {
-            "id": results.get('browseId'),
-            "title": results.get('title'),
-            "artist": results.get('artists', [{}])[0].get('name', 'Unknown Artist'),
+            "id": safe_get(results, 'browseId'),
+            "title": safe_get(results, 'title'),
+            "artist": safe_get(results, 'artists', [{}])[0].get('name', 'Unknown Artist') if isinstance(safe_get(results, 'artists'), list) else 'Unknown Artist',
             "image": image_url,
             "songs": mapped_songs
         }
     except Exception as e:
         logger.error(f"YTMusic album details error: {e}")
-        return {}
 
 

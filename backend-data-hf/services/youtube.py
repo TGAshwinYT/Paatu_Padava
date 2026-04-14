@@ -187,23 +187,40 @@ async def get_trending_youtube(region="global"):
             functools.partial(ytmusic.get_charts, country=chart_region)
         )
         
-        # Priority 1: Songs section (Most accurate for music only)
-        songs = results.get('songs', {}).get('items', [])
-        
-        # Priority 2: Videos section (Usually contains trending music videos, good fallback)
-        if not songs:
-            logger.info(f"[GRAPH] 'songs' section empty for {chart_region}, falling back to 'videos' section")
-            songs = results.get('videos', {}).get('items', [])
+        # handle results if it's a list or dict to avoid 'AttributeError: list object has no attribute get'
+        songs = []
+        if isinstance(results, dict):
+            # Priority 1: Songs section (Most accurate for music only)
+            songs = results.get('songs', {}).get('items', [])
+            
+            # Priority 2: Videos section (Usually contains trending music videos, good fallback)
+            if not songs:
+                logger.info(f"[GRAPH] 'songs' section empty for {chart_region}, falling back to 'videos' section")
+                songs = results.get('videos', {}).get('items', [])
+        elif isinstance(results, list):
+            logger.info(f"[GRAPH] get_charts returned a list for {chart_region}, checking for items...")
+            # If it's a list, it might be the items directly or a list of shelf-like dicts
+            if results and isinstance(results[0], dict):
+                if 'items' in results[0]: # List of shelves
+                    for shelf in results:
+                        if shelf.get('title') in ['Songs', 'Videos', 'Trending']:
+                            songs = shelf.get('items', [])
+                            break
+                else: # Direct list of items
+                    songs = results
             
         # Priority 3: Regional Fallback if still empty (Global 'ZZ' can be picky on some HF nodes)
         if not songs and chart_region == 'ZZ':
-            logger.info("[GRAPH] Global charts empty, trying regional fallback (IN)")
+            logger.info("[GRAPH] Global charts empty or invalid format, trying regional fallback (IN)")
             try:
                 results_fallback = await loop.run_in_executor(
                     None, 
                     functools.partial(ytmusic.get_charts, country='IN')
                 )
-                songs = results_fallback.get('songs', {}).get('items', []) or results_fallback.get('videos', {}).get('items', [])
+                if isinstance(results_fallback, dict):
+                    songs = results_fallback.get('songs', {}).get('items', []) or results_fallback.get('videos', {}).get('items', [])
+                elif isinstance(results_fallback, list):
+                    songs = results_fallback # Use fallback list directly
             except Exception as fe:
                 logger.error(f"[GRAPH] Regional fallback failed: {fe}")
 

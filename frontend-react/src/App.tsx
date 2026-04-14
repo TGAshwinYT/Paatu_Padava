@@ -193,7 +193,7 @@ const SplashLoader = () => (
 
 const App = () => {
   const [isServerReady, setIsServerReady] = useState(false);
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const API_URL = import.meta.env.VITE_DATA_API_URL || 'http://localhost:8000';
 
   useEffect(() => {
     const checkHealth = async () => {

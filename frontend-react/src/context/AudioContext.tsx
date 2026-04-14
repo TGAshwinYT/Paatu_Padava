@@ -406,11 +406,11 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             const isTrackChange = lastTrackId.current !== currentTrack.id;
             
             // 1. Resolve Stream URL if needed
-            // Withpytorch migration, the backend now returns a RedirectResponse.
-            // We can point the audio.src directly to the API endpoint for better performance.
-            let playUrl = "";
-            const streamEndpoint = `${api.defaults.baseURL}/api/music/stream/${currentTrack.id}?quality=${audioQuality}`;
+            // Decoupled Architecture: Route binary audio requests to the Render Proxy (Stream API)
+            const streamBaseUrl = import.meta.env.VITE_STREAM_API_URL || 'http://localhost:8001';
+            const streamEndpoint = `${streamBaseUrl}/api/play?id=${currentTrack.id}`;
             
+            let playUrl = "";
             if (isTrackChange || !currentTrack.audioUrl) {
                 playUrl = streamEndpoint;
                 // Update current track in memory with the base endpoint URL

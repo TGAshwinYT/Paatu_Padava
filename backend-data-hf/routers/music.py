@@ -11,27 +11,13 @@ import models
 from auth_utils import get_current_user, get_current_user_optional
 import json
 from utils.location import get_search_languages
-from urllib.parse import quote
 from graph import recommendation_graph
 from .history import get_user_top_artists
 
 
 router = APIRouter(prefix="/api/music", tags=["music"])
 
-@router.get("/stream/{yt_video_id}")
-async def stream_song(yt_video_id: str, quality: str = "normal"):
-    """
-    Extracts the direct playable audio stream URL and redirects the client.
-    """
-    # Use the new pytubefix resolver
-    url = await youtube.get_audio_url(yt_video_id)
-    if not url:
-        raise HTTPException(
-            status_code=404, 
-            detail="Audio stream currently unavailable or blocked by bot detection. Please try again later."
-        )
-    
-    return RedirectResponse(url=url)
+
 @router.get("/home")
 async def get_home_feed(
     request: Request,
@@ -316,11 +302,3 @@ async def get_album_details(album_id: str):
         raise HTTPException(status_code=500, detail="Error fetching album details")
 
 
-@router.get("/debug/{yt_video_id}")
-async def debug_stream(yt_video_id: str):
-    """
-    Diagnostic endpoint — shows all available formats per client.
-    Use this to troubleshoot streaming issues.
-    """
-    result = await asyncio.to_thread(youtube.debug_formats, yt_video_id)
-    return result

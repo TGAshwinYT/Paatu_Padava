@@ -5,7 +5,7 @@ FROM python:3.11-slim
 WORKDIR /code
 
 # The Caching Magic
-COPY ./backend/requirements.txt /code/requirements.txt
+COPY ./backend-data-hf/requirements.txt /code/requirements.txt
 
 # Install system dependencies required for curl-cffi and other builds
 RUN apt-get update && apt-get install -y \
@@ -25,9 +25,9 @@ COPY . .
 EXPOSE 7860
 
 # --- THE FIX ---
-# Step inside the backend folder and add it to PYTHONPATH
-WORKDIR /code/backend
-ENV PYTHONPATH=/code/backend
+# Step inside the backend-data-hf folder and add it to PYTHONPATH
+WORKDIR /code/backend-data-hf
+ENV PYTHONPATH=/code/backend-data-hf
 
 # Run the app
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]

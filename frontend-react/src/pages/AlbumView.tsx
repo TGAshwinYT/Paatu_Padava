@@ -4,6 +4,7 @@ import { Play, Heart, MoreHorizontal, ArrowLeft } from 'lucide-react';
 import { useAudio } from '../context/AudioContext';
 import { getAlbumDetails, getRecommendations } from '../services/api';
 import type { Song } from '../types';
+import { saveCollectionPlay } from '../utils/historyUtils';
 
 const AlbumView = () => {
   const { id } = useParams<{ id: string }>();
@@ -104,7 +105,17 @@ const AlbumView = () => {
         {/* Action Bar */}
         <div className="flex items-center gap-8 py-10">
           <button 
-            onClick={() => albumData.songs?.[0] && playContext(albumData.songs[0], albumData.songs)}
+            onClick={() => {
+              if (albumData.songs?.[0]) {
+                playContext(albumData.songs[0], albumData.songs);
+                saveCollectionPlay({
+                  id: albumData.id,
+                  title: albumData.title,
+                  coverUrl: albumData.image,
+                  type: 'album'
+                });
+              }
+            }}
             className="w-16 h-16 bg-[#1ed760] rounded-full text-black flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-2xl hover:bg-[#1fdf64]"
             title="Play"
           >
@@ -132,7 +143,15 @@ const AlbumView = () => {
             {albumData.songs?.map((track: Song, index: number) => (
               <div 
                 key={track.id}
-                onClick={() => playContext(track, albumData.songs)}
+                onClick={() => {
+                  playContext(track, albumData.songs);
+                  saveCollectionPlay({
+                    id: albumData.id,
+                    title: albumData.title,
+                    coverUrl: albumData.image,
+                    type: 'album'
+                  });
+                }}
                 className="grid grid-cols-[32px_1fr_120px] gap-6 px-4 py-4 hover:bg-[#2a2a2a] rounded-lg group transition-all cursor-pointer items-center border border-transparent hover:border-white/5"
               >
                 <div className="flex items-center justify-center w-8 h-8 text-neutral-500 font-bold font-mono">

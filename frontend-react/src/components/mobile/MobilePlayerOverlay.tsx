@@ -20,7 +20,8 @@ const MobilePlayerOverlay: React.FC = () => {
     setIsSeeking,
     isShuffle, 
     repeatMode, 
-    toggleShuffle, 
+    toggleShuffle,
+    toggleRepeat, 
     remainingSleepTime,
     isBuffering,
     seekTo

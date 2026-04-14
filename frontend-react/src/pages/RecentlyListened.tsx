@@ -41,20 +41,28 @@ const groupHistoryBySessions = (historyArray: any[]) => {
       const song = mapHistoryToSong(item);
       const playedAt = item.played_at ? new Date(item.played_at).getTime() : Date.now();
       
-      const shouldGroup = currentSession && 
-        (currentSession.artist === song.artist) && 
-        (Math.abs(currentSession.lastPlayedAt - playedAt) < 10 * 60 * 1000); // 10 mins threshold
+      // Threshold: Same album OR (Within 20 mins AND same artist)
+      const isSameAlbum = currentSession && song.album && currentSession.album === song.album;
+      const isContinuity = currentSession && (Math.abs(currentSession.lastPlayedAt - playedAt) < 20 * 60 * 1000);
+      
+      const shouldGroup = currentSession && (isSameAlbum || isContinuity);
 
       if (shouldGroup) {
         currentSession.items.push(item);
         currentSession.lastPlayedAt = playedAt;
+        // Update label to album if multiple songs join an album session
+        if (isSameAlbum) {
+          currentSession.label = song.album;
+          currentSession.type = 'Album';
+        }
       } else {
         currentSession = {
           id: `session-${dateKey}-${index}`,
-          label: song.artist,
+          label: song.album || 'Session',
           artist: song.artist,
+          album: song.album,
           coverUrl: getValidImage(song),
-          type: 'Session',
+          type: song.album ? 'Album' : 'Session',
           lastPlayedAt: playedAt,
           items: [item]
         };
@@ -161,86 +169,93 @@ const History = () => {
         </div>
 
         {groupedSessions.length > 0 ? (
-          <div className="flex flex-col gap-8 px-4">
+          <div className="flex flex-col gap-6">
             {groupedSessions.map(({ label: dateCategory, rawDate, sessions }) => (
-              <div key={dateCategory} className="flex flex-col gap-6">
-                <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                  <h2 className="text-xl font-black text-white">{dateCategory}</h2>
+              <div key={dateCategory} className="flex flex-col gap-2">
+                {/* Sticky Daily Header */}
+                <div className="sticky top-16 bg-black/95 backdrop-blur-md z-20 px-4 py-3 flex items-center justify-between border-b border-white/5">
+                  <h2 className="text-xl font-black text-white tracking-tight">{dateCategory}</h2>
                   <button 
                     onClick={() => rawDate && handleClearDay(rawDate)}
-                    className="text-neutral-500 hover:text-red-400 p-2"
+                    className="p-2 text-neutral-500 hover:text-red-400 active:scale-90 transition-all"
                   >
                     <Trash2 size={18} />
                   </button>
                 </div>
                 
-                <div className="flex flex-col gap-6">
+                <div className="flex flex-col px-2">
                   {sessions.map((session) => {
                     const isExpanded = expandedSessions.has(session.id);
+                    const firstSong = mapHistoryToSong(session.items[0]);
+                    
                     return (
-                      <div key={session.id} className="flex flex-col gap-4">
-                        {/* Session Header */}
+                      <div key={session.id} className="flex flex-col transition-all duration-300">
+                        {/* Session List Item */}
                         <div 
-                          className="flex items-center gap-4 active:scale-[0.98] transition-all"
-                          onClick={() => toggleSession(session.id)}
+                          className="flex items-center gap-4 px-2 py-3 rounded-lg active:bg-neutral-900 transition-colors"
+                          onClick={() => session.items.length > 1 ? toggleSession(session.id) : playContext(firstSong, [firstSong])}
                         >
-                          <div className="w-16 h-16 rounded-md overflow-hidden flex-shrink-0 shadow-xl relative">
+                          <div className="w-14 h-14 rounded-md overflow-hidden flex-shrink-0 shadow-lg relative border border-white/5">
                              <img 
                                src={session.coverUrl} 
                                className="w-full h-full object-cover" 
                                alt={session.label} 
                              />
                              {session.items.length > 1 && (
-                               <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
-                                  <div className="w-6 h-6 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20">
-                                    <ChevronDown size={14} className={`transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
-                                  </div>
-                               </div>
+                               <div className="absolute inset-0 bg-black/10" />
                              )}
                           </div>
                           
                           <div className="flex-1 min-w-0">
                             <h3 className="font-bold text-white text-[15px] truncate">
-                              {session.items.length > 1 ? `${session.items.length} songs played` : mapHistoryToSong(session.items[0]).title}
+                              {session.label === 'Session' ? firstSong.title : session.label}
                             </h3>
-                            <div className="flex items-center gap-1.5 text-neutral-400 text-[13px] font-semibold mt-0.5">
-                               <span className="truncate">{session.items.length} song{session.items.length > 1 ? 's' : ''} played</span>
-                               <span className="w-1 h-1 rounded-full bg-neutral-700 flex-shrink-0" />
-                               <span className="truncate">Session</span>
-                               <span className="w-1 h-1 rounded-full bg-neutral-700 flex-shrink-0" />
+                            <div className="flex items-center gap-1.5 text-neutral-400 text-[13px] font-medium mt-0.5">
+                               {session.items.length > 1 && (
+                                 <>
+                                   <span className="truncate">{session.items.length} songs played</span>
+                                   <span className="w-0.5 h-0.5 rounded-full bg-neutral-600 flex-shrink-0" />
+                                 </>
+                               )}
+                               <span className="truncate">{session.type}</span>
+                               <span className="w-0.5 h-0.5 rounded-full bg-neutral-600 flex-shrink-0" />
                                <p className="truncate text-neutral-500">{session.artist}</p>
                             </div>
                           </div>
 
-                          <button className="p-2 text-neutral-600 transition-colors">
-                            <ChevronDown size={22} className={`transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
-                          </button>
+                          {session.items.length > 1 && (
+                            <button className="p-2 text-neutral-500">
+                              <ChevronDown size={22} className={`transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
+                            </button>
+                          )}
                         </div>
 
-                        {/* Expanded items */}
+                        {/* Expandable Song List */}
                         {isExpanded && (
-                          <div className="flex flex-col gap-4 ml-2 border-l-2 border-neutral-800 pl-4 animate-in slide-in-from-top-2 fade-in duration-300">
+                          <div className="flex flex-col gap-1 ml-14 py-2 animate-in slide-in-from-top-2 fade-in duration-300">
                              {session.items.map((h: any, idx: number) => {
                                const song = mapHistoryToSong(h);
                                return (
                                  <div 
                                    key={idx}
-                                   className="flex items-center gap-3 active:bg-neutral-900 rounded-lg p-1"
+                                   className="flex items-center gap-3 px-2 py-2.5 rounded-md active:bg-neutral-800 transition-all"
                                    onClick={(e) => {
                                       e.stopPropagation();
                                       playContext(song, session.items.map((it: any) => mapHistoryToSong(it)));
                                    }}
                                  >
-                                    <div className="w-10 h-10 rounded bg-neutral-800 overflow-hidden flex-shrink-0">
+                                    <div className="w-9 h-9 rounded bg-neutral-800 overflow-hidden flex-shrink-0 border border-white/5">
                                        <img src={getValidImage(song)} className="w-full h-full object-cover" alt="" />
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                       <p className="text-sm font-bold text-white truncate">{song.title}</p>
-                                       <p className="text-xs text-neutral-500 truncate">{new Date(h.played_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                                       <p className="text-[13px] font-bold text-white truncate">{song.title}</p>
+                                       <p className="text-[11px] text-neutral-500 font-medium">
+                                          {new Date(h.played_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                       </p>
                                     </div>
                                     <button 
                                       onClick={(e) => handleRemoveSong(e, h.id)}
-                                      className="p-2 text-neutral-700 hover:text-red-500"
+                                      className="p-2 text-neutral-600 hover:text-red-500 active:scale-90 transition-all"
                                     >
                                       <X size={16} />
                                     </button>

@@ -1,14 +1,19 @@
 import { useRef, useEffect } from 'react';
 import YouTube from 'react-youtube';
 import type { YouTubeProps, YouTubeEvent } from 'react-youtube';
+import type { Song } from '../types';
+import { getValidImage } from '../utils/imageUtils';
 
 interface AudioPlayerProps {
     currentVideoId: string | null;
+    currentTrack: Song | null;
     isPlaying: boolean;
     volume: number;
     seekToTime: number | null;
     onReady: (player: any) => void;
     onEnd: () => void;
+    playNext: () => void;
+    playPrevious: () => void;
     onStateChange?: (state: number) => void;
     onTimeUpdate: (time: number) => void;
     onDurationChange: (duration: number) => void;
@@ -18,6 +23,7 @@ interface AudioPlayerProps {
 
 export default function AudioPlayer({ 
     currentVideoId, 
+    currentTrack,
     isPlaying, 
     volume, 
     seekToTime,
@@ -26,10 +32,61 @@ export default function AudioPlayer({
     onStateChange,
     onTimeUpdate,
     onDurationChange,
+    playNext,
+    playPrevious,
     setIsPlaying,
     setIsBuffering
 }: AudioPlayerProps) {
     const playerRef = useRef<any>(null);
+
+    // --- 0. MEDIA SESSION SYNC (THE FIX FOR BACKGROUND PLAYBACK) ---
+    useEffect(() => {
+        if (!('mediaSession' in navigator) || !currentTrack) return;
+
+        // 1. Sync Metadata to OS Lock Screen
+        navigator.mediaSession.metadata = new MediaMetadata({
+            title: currentTrack.title || 'Unknown Title',
+            artist: currentTrack.artist || 'Unknown Artist',
+            album: currentTrack.album || '',
+            artwork: [
+                { src: getValidImage(currentTrack), sizes: '512x512', type: 'image/png' }
+            ]
+        });
+
+        // 2. Register Global Media Handlers
+        navigator.mediaSession.setActionHandler('play', () => {
+            if (playerRef.current) {
+                playerRef.current.playVideo();
+                setIsPlaying(true);
+            }
+        });
+        
+        navigator.mediaSession.setActionHandler('pause', () => {
+            if (playerRef.current) {
+                playerRef.current.pauseVideo();
+                setIsPlaying(false);
+            }
+        });
+
+        navigator.mediaSession.setActionHandler('nexttrack', () => {
+            playNext();
+        });
+
+        navigator.mediaSession.setActionHandler('previoustrack', () => {
+            playPrevious();
+        });
+
+        // Sync Playback State back to OS
+        navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+
+        return () => {
+            // Cleanup handlers on unmount
+            navigator.mediaSession.setActionHandler('play', null);
+            navigator.mediaSession.setActionHandler('pause', null);
+            navigator.mediaSession.setActionHandler('nexttrack', null);
+            navigator.mediaSession.setActionHandler('previoustrack', null);
+        };
+    }, [currentTrack, isPlaying, playNext, playPrevious, setIsPlaying]);
 
     // --- 1. SYNC ENGINE (POLLING) ---
     useEffect(() => {
@@ -119,9 +176,16 @@ export default function AudioPlayer({
             setIsPlaying(true);
         }
         // 2 = Paused, 0 = Ended
-        if (playerState === 2 || playerState === 0) {
+        if (playerState === 2) {
             setIsBuffering(false);
             setIsPlaying(false);
+        }
+
+        if (playerState === 0) {
+            setIsBuffering(false);
+            setIsPlaying(false);
+            // THE FIX: Immediately trigger the next song state to bypass background throttling
+            onEnd(); 
         }
 
         if (onStateChange) {

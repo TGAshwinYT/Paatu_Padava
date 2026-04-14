@@ -70,11 +70,17 @@ const AlbumView = () => {
 
       {/* Hero Header */}
       <div 
-        className="relative pt-20 pb-10 px-8 flex flex-col md:flex-row items-center md:items-end gap-10 transition-colors duration-500"
-        style={{ backgroundImage: `linear-gradient(to bottom, #2a2a2a, #121212)` }} 
+        className="relative pt-12 pb-8 px-6 flex flex-col items-center gap-6 transition-all duration-700 overflow-hidden"
+        style={{ 
+          background: `linear-gradient(to bottom, ${albumData.color || '#2a2a2a'} 0%, #000 100%)`,
+          minHeight: '60vh'
+        }}
       >
-        {/* Album Cover */}
-        <div className="w-64 h-64 flex-shrink-0 shadow-[0_12px_60px_rgba(0,0,0,0.9)] rounded-lg overflow-hidden transform hover:scale-[1.03] transition-transform duration-500">
+        {/* Top Spacer for Fixed Back Button */}
+        <div className="h-6 w-full" />
+
+        {/* Big Album Cover - Mobile Focused */}
+        <div className="w-[85%] max-w-[300px] aspect-square flex-shrink-0 shadow-[0_20px_50px_rgba(0,0,0,0.8)] rounded-lg overflow-hidden transform hover:scale-[1.02] transition-all duration-500 border border-white/5">
           <img 
             src={albumData.image || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&h=500&fit=crop'} 
             alt={albumData.title}
@@ -82,53 +88,64 @@ const AlbumView = () => {
           />
         </div>
 
-        {/* Album Details */}
-        <div className="flex flex-col items-center md:items-start text-center md:text-left">
-          <span className="text-xs font-bold uppercase tracking-widest text-white/50 mb-3 ml-1">Album</span>
-          <h1 className="text-5xl md:text-7xl font-bold text-white mb-2 tracking-tight">
+        {/* Album Details Block */}
+        <div className="flex flex-col items-start w-full px-2 mt-4">
+          <h1 className="text-3xl font-black text-white mb-2 leading-tight tracking-tight">
             {albumData.title}
           </h1>
-          <p className="text-xl md:text-2xl text-neutral-300 font-semibold mb-6 ml-1">
-            {albumData.artist}
-          </p>
+          <div className="flex items-center gap-2 mb-4 group cursor-pointer">
+             <div className="w-6 h-6 rounded-full overflow-hidden bg-neutral-800">
+                <img src={albumData.image} className="w-full h-full object-cover opacity-80" alt="" />
+             </div>
+             <p className="text-sm text-neutral-300 font-bold hover:underline">
+               {albumData.artist}
+             </p>
+          </div>
           
-          <div className="flex items-center gap-2 text-sm font-bold text-white/40 ml-1">
-            <span>{albumData.songs?.length || 0} tracks</span>
-            <span className="text-white/20">•</span>
+          <div className="flex items-center gap-2 text-[12px] font-bold text-neutral-400 uppercase tracking-wider">
+            <span>Album</span>
+            <span className="text-neutral-600">•</span>
             <span>2024</span>
           </div>
         </div>
       </div>
 
-      {/* Content Area */}
-      <div className="flex-1 bg-gradient-to-b from-[#121212]/80 via-[#121212] to-black px-8 pb-12">
-        {/* Action Bar */}
-        <div className="flex items-center gap-8 py-10">
-          <button 
-            onClick={() => {
-              if (albumData.songs?.[0]) {
-                playContext(albumData.songs[0], albumData.songs);
-                saveCollectionPlay({
-                  id: albumData.id,
-                  title: albumData.title,
-                  coverUrl: albumData.image,
-                  type: 'album'
-                });
-              }
-            }}
-            className="w-16 h-16 bg-[#1ed760] rounded-full text-black flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-2xl hover:bg-[#1fdf64]"
-            title="Play"
-          >
-            <Play size={28} fill="black" className="ml-1" />
-          </button>
-
-          <button className="text-neutral-500 hover:text-white transition-colors transform hover:scale-110" title="Add to Library">
-            <Heart size={36} />
-          </button>
-
-          <button className="text-neutral-500 hover:text-white transition-colors transform hover:scale-110" title="More options">
-            <MoreHorizontal size={36} />
-          </button>
+      {/* Persistent Content Area */}
+      <div className="flex-1 bg-black px-6 pb-12">
+        {/* Action Row (Shuffle, Play, Download) */}
+        <div className="flex items-center justify-between py-6">
+           <div className="flex items-center gap-6">
+              <button 
+                onClick={() => {
+                  if (albumData.songs?.[0]) {
+                    playContext(albumData.songs[0], albumData.songs);
+                    saveCollectionPlay({
+                      id: albumData.id || id || '',
+                      title: albumData.title,
+                      coverUrl: albumData.image,
+                      type: 'album'
+                    });
+                  }
+                }}
+                className="w-14 h-14 bg-[#1ed760] rounded-full text-black flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-xl"
+              >
+                <Play size={24} fill="black" className="ml-1" />
+              </button>
+              
+              <button className="text-neutral-400 hover:text-white transition-all transform active:scale-90">
+                <Heart size={28} />
+              </button>
+              
+              <button className="text-neutral-400 hover:text-white transition-all transform active:scale-90">
+                <MoreHorizontal size={28} />
+              </button>
+           </div>
+           
+           <div className="flex items-center gap-4">
+              <button className="text-[#1ed760] transition-all transform active:scale-90">
+                 <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M19.99 12.99a8 8 0 10-14.82 4.19L3 21l3.81-2.17A8 8 0 0019.99 12.99zM12 18a6 6 0 110-12 6 6 0 010 12z"></path></svg>
+              </button>
+           </div>
         </div>
 
         {/* Tracklist Table */}
@@ -146,7 +163,7 @@ const AlbumView = () => {
                 onClick={() => {
                   playContext(track, albumData.songs);
                   saveCollectionPlay({
-                    id: albumData.id,
+                    id: albumData.id || id || '',
                     title: albumData.title,
                     coverUrl: albumData.image,
                     type: 'album'

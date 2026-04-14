@@ -26,7 +26,8 @@ app.add_middleware(
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Cookie Handling ---
+print(logger)
+# --- Cookie Handling--
 def get_youtube_cookies():
     # 1. Environment Variable
     env_cookie = os.getenv("YOUTUBE_COOKIE")

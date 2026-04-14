@@ -281,24 +281,6 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     addListenHistory(currentTrack);
   }, [currentTrack]);
 
-  useEffect(() => {
-    let interval: any;
-    if (isPlaying && !isSeeking) {
-      interval = setInterval(() => {
-        try {
-          if (youtubePlayer.current && typeof youtubePlayer.current.getCurrentTime === 'function') {
-            const time = youtubePlayer.current.getCurrentTime();
-            const dur = youtubePlayer.current.getDuration();
-            if (time !== undefined) setCurrentTime(time);
-            if (dur !== undefined && dur > 0) setDuration(dur);
-          }
-        } catch (e) {
-          // Silently ignore temporary API glitches during unmounts/reloads
-        }
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isPlaying, isSeeking]);
 
   useEffect(() => {
     if (!currentTrack || !('mediaSession' in navigator)) return;
@@ -374,6 +356,8 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         isPlaying={isPlaying}
         volume={volume}
         seekToTime={seekToTime}
+        onTimeUpdate={setCurrentTime}
+        onDurationChange={setDuration}
         onReady={(player) => {
            youtubePlayer.current = player;
         }}

@@ -1,9 +1,7 @@
 import httpx
-import os
 import json
 import html
 import logging
-import time
 from graph import recommendation_graph
 from typing import List, Dict, Any, Optional
 from fastapi_cache.decorator import cache

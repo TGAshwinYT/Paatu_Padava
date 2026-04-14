@@ -1,34 +1,12 @@
 from ytmusicapi import YTMusic
-import yt_dlp
 import asyncio
 import logging
 import functools
 import os
-import httpx
-import json
 
 logger = logging.getLogger(__name__)
 
-# ── Cookie Setup ──────────────────────────────────────────────────────────────
-# Write YOUTUBE_COOKIES secret to /tmp/cookies.txt at import time
-COOKIE_PATH = "/tmp/yt_cookies.txt"
 
-def _setup_cookies():
-    cookie_data = os.environ.get("YOUTUBE_COOKIES", "")
-    if cookie_data.strip():
-        try:
-            with open(COOKIE_PATH, "w", encoding="utf-8") as f:
-                f.write(cookie_data)
-            logger.info("[COOKIES] cookies.txt written from YOUTUBE_COOKIES secret.")
-            return True
-        except Exception as e:
-            logger.error(f"[COOKIES] Failed to write cookie file: {e}")
-            return False
-    logger.warning("[COOKIES] YOUTUBE_COOKIES secret not found. Requests may be blocked.")
-    return False
-
-HAS_COOKIES = _setup_cookies()
-# ─────────────────────────────────────────────────────────────────────────────
 
 # Initialize YTMusic
 auth_file = os.path.join(os.path.dirname(__file__), "..", "headers.json")
@@ -49,47 +27,7 @@ def is_yt_authenticated():
     """
     return os.path.exists(auth_file)
 
-# --- Piped API Configuration ---
-PIPED_INSTANCES = [
-    "https://pipedapi.kavin.rocks",
-    "https://pipedapi.adminforge.de",
-    "https://piped-api.garudalinux.org",
-    "https://api-piped.mha.fi",
-]
 
-async def get_audio_url(video_id: str):
-    """
-    Fetches direct audio URL using Piped API instances with a fallback strategy.
-    """
-    async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-        for instance in PIPED_INSTANCES:
-            try:
-                logger.info(f"Trying Piped instance: {instance} for {video_id}")
-                res = await client.get(f"{instance}/streams/{video_id}")
-                if res.status_code != 200:
-                    continue
-                    
-                data = res.json()
-                streams = data.get("audioStreams", [])
-                if streams:
-                    # Pick highest quality based on bitrate
-                    best = sorted(streams, key=lambda s: s.get("bitrate", 0), reverse=True)
-                    url = best[0].get("url")
-                    if url:
-                        logger.info(f"Success with Piped instance: {instance}")
-                        return url
-            except Exception as e:
-                logger.warning(f"Piped instance {instance} failed for {video_id}: {e}")
-                continue
-                
-    logger.error(f"All Piped instances failed for {video_id}")
-    return None
-
-async def resolve_stream_url(video_id):
-    """
-    Alias for get_audio_url.
-    """
-    return await get_audio_url(video_id)
 
 def map_youtube_song(result):
     """
@@ -445,18 +383,3 @@ async def get_album_details_youtube(browse_id):
         return {}
 
 
-def debug_formats(video_id: str):
-    """
-    Diagnostic: probes Piped instances directly.
-    """
-    results = {}
-    for instance in PIPED_INSTANCES:
-        try:
-            res = httpx.get(f"{instance}/streams/{video_id}", timeout=10)
-            results[instance] = {
-                "status_code": res.status_code,
-                "data": res.json() if res.status_code == 200 else "error"
-            }
-        except Exception as e:
-            results[instance] = f"Error: {str(e)}"
-    return results

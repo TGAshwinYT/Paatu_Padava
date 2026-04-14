@@ -38,6 +38,10 @@ export default function AudioPlayer({
     setIsBuffering
 }: AudioPlayerProps) {
     const playerRef = useRef<any>(null);
+    const silentAudioRef = useRef<HTMLAudioElement>(null);
+
+    // A mathematically silent, 1-second WAV file base64
+    const SILENT_WAV = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
 
     // --- 0. MEDIA SESSION SYNC (THE FIX FOR BACKGROUND PLAYBACK) ---
     useEffect(() => {
@@ -174,16 +178,28 @@ export default function AudioPlayer({
         if (playerState === 1) {
             setIsBuffering(false);
             setIsPlaying(true);
+            // Engage the Wake-Lock
+            if (silentAudioRef.current) {
+                silentAudioRef.current.play().catch(() => console.log("Wake-lock initialized"));
+            }
         }
         // 2 = Paused, 0 = Ended
         if (playerState === 2) {
             setIsBuffering(false);
             setIsPlaying(false);
+            // Release the Wake-Lock
+            if (silentAudioRef.current) {
+                silentAudioRef.current.pause();
+            }
         }
 
         if (playerState === 0) {
             setIsBuffering(false);
             setIsPlaying(false);
+            // Release the Wake-Lock
+            if (silentAudioRef.current) {
+                silentAudioRef.current.pause();
+            }
             // THE FIX: Immediately trigger the next song state to bypass background throttling
             onEnd(); 
         }
@@ -235,6 +251,15 @@ export default function AudioPlayer({
                     onStateChange={handleStateChange}
                 />
             </div>
+
+            {/* THE FIX: The Silent Wake-Lock. Loops infinitely in the background */}
+            <audio 
+                ref={silentAudioRef} 
+                src={SILENT_WAV} 
+                loop 
+                playsInline 
+                style={{ display: 'none' }} 
+            />
         </div>
     );
 }

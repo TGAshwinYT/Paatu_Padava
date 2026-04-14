@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react';
 import type { Song } from '../types';
-import api, { addListenHistory, mapHistoryToSong } from '../services/api';
+import api, { addListenHistory } from '../services/api';
 import { useAuth } from './AuthContext';
 import AudioPlayer from '../components/AudioPlayer';
 import { getValidImage } from '../utils/imageUtils';
@@ -74,11 +74,10 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [userPlaylists, setUserPlaylists] = useState<any[]>([]);
   
   const youtubePlayer = useRef<any>(null);
-  const isFetchingRadio = useRef(false);
   const isActionLocked = useRef(false);
 
   // --- 2. STABLE ACTION HANDLERS ---
-  const playNext = useCallback((e?: any) => {
+  const playNext = useCallback(() => {
     if (repeatMode === 'one' && youtubePlayer.current) {
       youtubePlayer.current.seekTo(0);
       youtubePlayer.current.playVideo();

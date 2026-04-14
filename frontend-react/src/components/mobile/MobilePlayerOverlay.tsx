@@ -23,7 +23,7 @@ const MobilePlayerOverlay: React.FC = () => {
     toggleShuffle, 
     toggleRepeat, 
     remainingSleepTime,
-    audioRef
+    seekTo
   } = useAudio();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showSleepTimer, setShowSleepTimer] = useState(false);
@@ -40,9 +40,7 @@ const MobilePlayerOverlay: React.FC = () => {
   const handleSeekRelease = (e: React.ChangeEvent<HTMLInputElement> | React.MouseEvent | React.TouchEvent | React.KeyboardEvent) => {
     setIsSeeking(false);
     const target = e.target as HTMLInputElement;
-    if (audioRef.current) {
-      audioRef.current.currentTime = Number(target.value);
-    }
+    seekTo(Number(target.value));
   };
 
   const formatTime = (time: number) => {

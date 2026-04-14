@@ -1,15 +1,7 @@
 import { useState } from 'react';
-import { 
-  Play, 
-  Pause, 
-  SkipBack, 
-  SkipForward, 
-  Repeat, 
-  Shuffle, 
   Volume2, 
   MonitorSpeaker,
   Mic2,
-  ChevronUp,
   Settings,
   Clock,
   ListMusic,
@@ -36,8 +28,6 @@ const PlayerBar = () => {
     isShuffle,
     toggleRepeat,
     toggleShuffle,
-    audioQuality,
-    setAudioQuality,
     playNext,
     playPrevious,
     remainingSleepTime,
@@ -48,7 +38,6 @@ const PlayerBar = () => {
 
   const [showLyrics, setShowLyrics] = useState(false);
   const [showSleepTimer, setShowSleepTimer] = useState(false);
-  const [showQualityMenu, setShowQualityMenu] = useState(false);
   const [showDevicePicker, setShowDevicePicker] = useState(false);
   const [showQueue, setShowQueue] = useState(false);
   

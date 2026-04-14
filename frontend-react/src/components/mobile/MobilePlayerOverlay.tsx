@@ -21,8 +21,8 @@ const MobilePlayerOverlay: React.FC = () => {
     isShuffle, 
     repeatMode, 
     toggleShuffle, 
-    toggleRepeat, 
     remainingSleepTime,
+    isBuffering,
     seekTo
   } = useAudio();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -173,9 +173,16 @@ const MobilePlayerOverlay: React.FC = () => {
           </button>
           <button 
             onClick={togglePlay} 
-            className="bg-white text-black p-5 rounded-full transform active:scale-95 transition-transform"
+            className="bg-white text-black p-5 rounded-full transform active:scale-95 transition-transform flex items-center justify-center min-w-[76px] min-h-[76px]"
+            disabled={isBuffering}
           >
-            {isPlaying ? <Pause size={36} fill="black" /> : <Play size={36} fill="black" />}
+            {isBuffering ? (
+               <div className="w-8 h-8 border-4 border-black border-t-transparent rounded-full animate-spin" />
+            ) : isPlaying ? (
+               <Pause size={36} fill="black" />
+            ) : (
+               <Play size={36} fill="black" className="ml-1" />
+            )}
           </button>
           <button onClick={playNext} className="text-white">
             <SkipForward size={36} fill="white" />

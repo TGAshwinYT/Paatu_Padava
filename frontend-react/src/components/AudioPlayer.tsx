@@ -10,6 +10,8 @@ interface AudioPlayerProps {
     onReady: (player: any) => void;
     onEnd: () => void;
     onStateChange?: (state: number) => void;
+    onTimeUpdate: (time: number) => void;
+    onDurationChange: (duration: number) => void;
 }
 
 export default function AudioPlayer({ 
@@ -19,10 +21,40 @@ export default function AudioPlayer({
     seekToTime,
     onReady, 
     onEnd,
-    onStateChange
+    onStateChange,
+    onTimeUpdate,
+    onDurationChange
 }: AudioPlayerProps) {
     const playerRef = useRef<any>(null);
 
+    // --- 1. SYNC ENGINE (POLLING) ---
+    // YouTube doesn't automatically push time updates to React. 
+    // We poll it using a useEffect when the song is playing.
+    useEffect(() => {
+        let interval: any;
+        // Only run the timer if the song is actively playing
+        if (isPlaying && playerRef.current) {
+            interval = setInterval(async () => {
+                try {
+                    // Fetch the current time from the hidden YouTube player
+                    const time = await playerRef.current.getCurrentTime();
+                    onTimeUpdate(time);
+                    
+                    // Grab the total duration of the song if we haven't yet
+                    const songDuration = await playerRef.current.getDuration();
+                    if (songDuration > 0) {
+                        onDurationChange(songDuration);
+                    }
+                } catch (e) {
+                    // Silently ignore temporary glitches during track changes
+                }
+            }, 1000); // Update every 1 second
+        }
+        return () => clearInterval(interval);
+    }, [isPlaying, currentVideoId, onTimeUpdate, onDurationChange]);
+
+    // --- 2. INTERACTION HANDLERS ---
+    
     // Sync play/pause state
     useEffect(() => {
         if (!playerRef.current) return;
@@ -57,31 +89,36 @@ export default function AudioPlayer({
         }
     };
 
+    // --- 3. PRE-WARMING CONFIGURATION ---
     const opts: YouTubeProps['opts'] = {
-        height: '0',
-        width: '0',
+        height: '0', 
+        width: '0',  
         playerVars: {
-            autoplay: 1,
+            autoplay: 0, 
             controls: 0,
             disablekb: 1,
             fs: 0,
             playsinline: 1,
             modestbranding: 1,
             rel: 0,
-            origin: window.location.origin,
+            // THE CORS FIX: Explicitly declare origin
+            origin: typeof window !== 'undefined' ? window.location.origin : 'https://paatupadava.vercel.app',
             enablejsapi: 1,
         },
     };
 
     return (
-        <div className="hidden" aria-hidden="true">
-            <YouTube 
-                videoId={currentVideoId || ''} 
-                opts={opts} 
-                onReady={handleReady}
-                onEnd={onEnd}
-                onStateChange={handleStateChange}
-            />
+        <div className="custom-audio-player">
+            {/* The pre-warmed invisible YouTube Engine: ALWAYS rendered, never conditionally hidden */}
+            <div style={{ display: 'none', position: 'absolute', pointerEvents: 'none' }}>
+                <YouTube 
+                    videoId={currentVideoId || ''} 
+                    opts={opts} 
+                    onReady={handleReady}
+                    onEnd={onEnd}
+                    onStateChange={handleStateChange}
+                />
+            </div>
         </div>
     );
 }

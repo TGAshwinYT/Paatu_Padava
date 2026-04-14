@@ -171,6 +171,7 @@ async def search_artists_youtube(query, limit=10):
 async def get_trending_youtube(region="global"):
     """
     Fetches trending songs from YouTube Music Charts.
+    Improved with fallback logic to handle empty 'songs' sections for Guest sessions.
     """
     if not ytmusic:
         return []
@@ -178,21 +179,41 @@ async def get_trending_youtube(region="global"):
     loop = asyncio.get_event_loop()
     try:
         # region should be a 2-letter country code for charts, or 'ZZ' for global
-        # map 'global' or None to 'ZZ'
         chart_region = region if region and len(region) == 2 else 'ZZ'
         
+        logger.info(f"[GRAPH] Fetching charts for region: {chart_region}")
         results = await loop.run_in_executor(
             None, 
             functools.partial(ytmusic.get_charts, country=chart_region)
         )
         
+        # Priority 1: Songs section (Most accurate for music only)
         songs = results.get('songs', {}).get('items', [])
+        
+        # Priority 2: Videos section (Usually contains trending music videos, good fallback)
+        if not songs:
+            logger.info(f"[GRAPH] 'songs' section empty for {chart_region}, falling back to 'videos' section")
+            songs = results.get('videos', {}).get('items', [])
+            
+        # Priority 3: Regional Fallback if still empty (Global 'ZZ' can be picky on some HF nodes)
+        if not songs and chart_region == 'ZZ':
+            logger.info("[GRAPH] Global charts empty, trying regional fallback (IN)")
+            try:
+                results_fallback = await loop.run_in_executor(
+                    None, 
+                    functools.partial(ytmusic.get_charts, country='IN')
+                )
+                songs = results_fallback.get('songs', {}).get('items', []) or results_fallback.get('videos', {}).get('items', [])
+            except Exception as fe:
+                logger.error(f"[GRAPH] Regional fallback failed: {fe}")
+
         mapped_songs = []
         for s in songs:
             mapped = map_youtube_song(s)
             if mapped:
                 mapped_songs.append(mapped)
         
+        logger.info(f"[GRAPH] Successfully extracted {len(mapped_songs)} trending items for recommendation engine.")
         return mapped_songs
     except Exception as e:
         logger.error(f"YTMusic charts error: {e}")

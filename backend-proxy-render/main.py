@@ -33,8 +33,6 @@ def get_youtube_cookies():
     if env_cookie:
         masked = env_cookie[:15] + "..." + env_cookie[-5:] if len(env_cookie) > 20 else "RAW_TEXT"
         logger.info(f"✅ Found YOUTUBE_COOKIE (Len: {len(env_cookie)}): {masked}")
-        
-        # Handle Netscape format specifically
         if env_cookie.strip().startswith("# Netscape") or "\t" in env_cookie:
             return {"type": "netscape", "content": env_cookie}
         return {"type": "string", "content": env_cookie}
@@ -53,7 +51,6 @@ def get_youtube_cookies():
         except Exception as e:
             logger.error(f"Error reading cookie file: {e}")
 
-    logger.warning("⚠️ No YouTube cookies found. Extraction will likely fail on Render.")
     return None
 
 @app.get("/")
@@ -63,7 +60,8 @@ async def status():
     return {
         "status": "ok",
         "message": "Python Renderer is ready!",
-        "cookies_loaded": cookies is not None
+        "cookies_loaded": cookies is not None,
+        "engine": "yt-dlp + pytubefix + piped"
     }
 
 @app.get("/api/play")
@@ -79,7 +77,7 @@ async def play(id: str):
         
         # --- Common Options ---
         ydl_opts_base = {
-            'format': 'bestaudio/best',
+            'format': 'ba/ba*/best', # 🔥 Specific format fallback for mobile clients
             'quiet': True,
             'no_warnings': True,
             'nocheckcertificate': True,
@@ -99,36 +97,37 @@ async def play(id: str):
                 ydl_opts_base['cookiefile'] = cookie_info["path"]
 
         try:
-            # --- Attempt 1: yt-dlp (Android Client) ---
+            # --- Attempt 1: yt-dlp (Targeted YTMusic/Android) ---
             try:
-                logger.info(f"🔍 [Attempt 1] Extracting with yt-dlp (Android) for: {id}")
+                logger.info(f"🔍 [Attempt 1] Extracting with yt-dlp (YTMusic/Android) for: {id}")
                 opts = ydl_opts_base.copy()
-                opts['extractor_args'] = {'youtube': {'player_client': ['android']}}
+                # YTMusic client is often the most reliable for audio streams
+                opts['extractor_args'] = {'youtube': {'player_client': ['ytmusic', 'android']}}
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(f"https://www.youtube.com/watch?v={id}", download=False)
                     if info:
                         audio_url = info.get('url')
-                        logger.info("✅ [yt-dlp-android] Success")
+                        logger.info("✅ [yt-dlp-ytmusic] Success")
             except Exception as ye:
                 last_error = str(ye)
-                logger.warning(f"⚠️ [yt-dlp-android] Failed: {last_error}")
+                logger.warning(f"⚠️ [yt-dlp-ytmusic] Failed: {last_error}")
 
-            # --- Attempt 2: yt-dlp (iOS Client) ---
+            # --- Attempt 2: yt-dlp (Standard Mobile) ---
             if not audio_url:
                 try:
-                    logger.info(f"🔍 [Attempt 2] Extracting with yt-dlp (iOS) for: {id}")
+                    logger.info(f"🔍 [Attempt 2] Extracting with yt-dlp (iOS/Android) for: {id}")
                     opts = ydl_opts_base.copy()
-                    opts['extractor_args'] = {'youtube': {'player_client': ['ios']}}
+                    opts['extractor_args'] = {'youtube': {'player_client': ['ios', 'android']}}
                     with yt_dlp.YoutubeDL(opts) as ydl:
                         info = ydl.extract_info(f"https://www.youtube.com/watch?v={id}", download=False)
                         if info:
                             audio_url = info.get('url')
-                            logger.info("✅ [yt-dlp-ios] Success")
+                            logger.info("✅ [yt-dlp-mobile] Success")
                 except Exception as ye:
                     last_error = str(ye)
-                    logger.warning(f"⚠️ [yt-dlp-ios] Failed: {last_error}")
+                    logger.warning(f"⚠️ [yt-dlp-mobile] Failed: {last_error}")
 
-            # --- Attempt 3: pytubefix (Android) ---
+            # --- Attempt 3: pytubefix (Fallback) ---
             if not audio_url:
                 try:
                     logger.info(f"🔍 [Attempt 3] Extracting with pytubefix (Android) for: {id}")
@@ -141,13 +140,29 @@ async def play(id: str):
                     last_error = str(pe)
                     logger.error(f"❌ [pytubefix] Failed: {last_error}")
 
+            # --- Attempt 4: Piped API (Emergency Global Proxy Fallback) ---
+            if not audio_url:
+                try:
+                    logger.info(f"🔍 [Attempt 4] Emergency Fallback via Piped API for: {id}")
+                    async with httpx.AsyncClient(timeout=10) as client:
+                        # kavin.rocks is a high-availability piped instance
+                        res = await client.get(f"https://pipedapi.kavin.rocks/streams/{id}")
+                        if res.status_code == 200:
+                            data = res.json()
+                            audio_streams = data.get('audioStreams', [])
+                            if audio_streams:
+                                audio_url = audio_streams[0].get('url')
+                                logger.info("✅ [Piped-Fallback] Success")
+                except Exception as pe:
+                    last_error = str(pe)
+                    logger.error(f"❌ [Piped-Fallback] Failed: {last_error}")
+
         finally:
             if temp_cookie_file and os.path.exists(temp_cookie_file.name):
                 try: os.unlink(temp_cookie_file.name)
                 except: pass
 
         if not audio_url:
-            # Log the final failure with the last error message
             logger.error(f"❌ ALL EXTRACTION ATTEMPTS FAILED for {id}")
             raise Exception(f"Extraction failed: {last_error}")
 
@@ -172,18 +187,9 @@ async def play(id: str):
         )
 
     except Exception as e:
-        # Crucial: Log the FULL error so user can find it in Render logs
         logger.error(f"❌ Proxy Stream Error: {str(e)}")
         logger.error(traceback.format_exc())
-        
-        # Return the error message to the frontend so it's visible in network tab
-        raise HTTPException(
-            status_code=500, 
-            detail={
-                "error": str(e),
-                "hint": "Check Render logs for the detailed yt-dlp error message."
-            }
-        )
+        raise HTTPException(status_code=500, detail={"error": str(e)})
 
 if __name__ == "__main__":
     import uvicorn

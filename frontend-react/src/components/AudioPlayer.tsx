@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
-import YouTube, { YouTubeProps, YouTubeEvent } from 'react-youtube';
+import YouTube from 'react-youtube';
+import type { YouTubeProps, YouTubeEvent } from 'react-youtube';
 
 interface AudioPlayerProps {
     currentVideoId: string | null;
@@ -67,6 +68,8 @@ export default function AudioPlayer({
             playsinline: 1,
             modestbranding: 1,
             rel: 0,
+            origin: window.location.origin,
+            enablejsapi: 1,
         },
     };
 

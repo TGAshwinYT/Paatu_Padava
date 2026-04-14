@@ -26,14 +26,12 @@ interface AudioContextType {
   volume: number;
   isShuffle: boolean;
   repeatMode: 'none' | 'all' | 'one';
-  audioQuality: 'low' | 'normal' | 'high' | 'auto';
   playContext: (track: Song, tracks?: Song[]) => void;
   togglePlay: () => void;
   seekTo: (value: number) => void;
   setVolume: (value: number) => void;
   toggleRepeat: () => void;
   toggleShuffle: () => void;
-  setAudioQuality: (quality: 'low' | 'normal' | 'high' | 'auto') => void;
   playNext: () => void;
   playPrevious: () => void;
   setSleepTimer: (minutes: number | 'end' | null) => void;
@@ -69,15 +67,6 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isBuffering, setIsBuffering] = useState(false);
   const [seekToTime, setSeekToTime] = useState<number | null>(null);
 
-  useEffect(() => {
-    const savedQuality = localStorage.getItem('paatu_quality') as 'low' | 'normal' | 'high' | 'auto';
-    if (savedQuality) setAudioQualityState(savedQuality);
-  }, []);
-
-  const handleSetQuality = useCallback((quality: 'low' | 'normal' | 'high' | 'auto') => {
-    setAudioQualityState(quality);
-    localStorage.setItem('paatu_quality', quality);
-  }, []);
   const [queue, setQueue] = useState<Song[]>([]);
   const [history, setHistory] = useState<Song[]>([]);
   const [remainingSleepTime, setRemainingSleepTime] = useState<number | null>(null);
@@ -88,16 +77,6 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const isFetchingRadio = useRef(false);
   const isActionLocked = useRef(false);
 
-  // --- 1. HELPERS ---
-  const getUrlByQuality = useCallback((song: Song | any, quality: 'low' | 'normal' | 'high' | 'auto') => {
-    const backupUrl = song.audioUrl || song.audio_url || song.url;
-    if (!song.downloadUrls || song.downloadUrls.length === 0) return backupUrl;
-    // Map auto to normal for mapping purposes
-    const effectiveQuality = quality === 'auto' ? 'normal' : quality;
-    const index = effectiveQuality === 'low' ? 0 : effectiveQuality === 'normal' ? 2 : 4;
-    return song.downloadUrls[Math.min(index, song.downloadUrls.length - 1)] || backupUrl;
-  }, []);
-
   // --- 2. STABLE ACTION HANDLERS ---
   const playNext = useCallback((e?: any) => {
     if (repeatMode === 'one' && youtubePlayer.current) {
@@ -107,42 +86,19 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return;
     }
 
-    if (isActionLocked.current) return;
-    
-    setQueue(prevQueue => {
-      if (prevQueue.length === 0) {
-        if (isNaturalEnd && repeatMode === 'all' && contextMemory && contextMemory.length > 0) {
-          const nextTrack = contextMemory[0];
-          setCurrentTrack(prev => {
-            if (prev) setHistory(h => [...h, prev]);
-            return nextTrack;
-          });
-          setIsPlaying(true);
-          return contextMemory.slice(1);
-        }
-        setIsPlaying(false);
-        return prevQueue;
+    if (queue.length > 0) {
+      const nextTrack = queue[0];
+      setQueue(prev => prev.slice(1));
+      
+      if (currentTrack) {
+        setHistory(prev => [currentTrack, ...prev.slice(0, 49)]);
       }
-
-      isActionLocked.current = true;
-      setTimeout(() => isActionLocked.current = false, 800);
-
-      const nextTrack = prevQueue[0];
-
-      setCurrentTrack(currentlyPlaying => {
-        if (currentlyPlaying) {
-          setHistory(h => {
-            if (h.length > 0 && h[h.length - 1].id === currentlyPlaying.id) return h;
-            return [...h, currentlyPlaying];
-          });
-        }
-        return nextTrack;
-      });
-
-      setIsPlaying(true);
-      return prevQueue.slice(1);
-    });
-  }, [repeatMode, contextMemory]);
+      
+      setCurrentTrack(nextTrack);
+    } else {
+      setIsPlaying(false);
+    }
+  }, [queue, currentTrack, repeatMode]);
 
   const playPrevious = useCallback(() => {
     if (isActionLocked.current) return;
@@ -162,23 +118,16 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     isActionLocked.current = true;
-    setTimeout(() => isActionLocked.current = false, 800);
-
-    const songToRestore = history[history.length - 1];
-
-    setCurrentTrack(currentlyPlaying => {
-      if (currentlyPlaying && currentlyPlaying.id !== songToRestore.id) {
-        setQueue(prevQueue => {
-          const cleanQueue = prevQueue.filter(s => s.id !== currentlyPlaying.id && s.id !== songToRestore.id);
-          return [currentlyPlaying, ...cleanQueue];
-        });
-      }
-      return songToRestore;
-    });
-
-    setHistory(prevHistory => prevHistory.slice(0, -1));
-    setIsPlaying(true);
-  }, [history]);
+    const prevTrack = history[0];
+    setHistory(prev => prev.slice(1));
+    
+    if (currentTrack) {
+      setQueue(prev => [currentTrack, ...prev]);
+    }
+    
+    setCurrentTrack(prevTrack);
+    setTimeout(() => { isActionLocked.current = false; }, 500);
+  }, [history, currentTrack, currentTime]);
 
   const togglePlay = useCallback(() => {
     if (isPlaying) {
@@ -190,111 +139,50 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [isPlaying]);
 
-
   const playContext = useCallback((clickedSong: Song, contextArray: Song[] = []) => {
-    // 1. Save current track to history before switching
-    setCurrentTrack(prev => {
-      if (prev && prev.id !== clickedSong.id) {
-        setHistory(h => {
-          if (h.length > 0 && h[h.length - 1].id === prev.id) return h;
-          return [...h, prev];
-        });
-      }
-      return clickedSong;
-    });
-
-    // 2. Overwrite the Queue with the REST of the array
-    if (contextArray.length > 0) {
-      const songIndex = contextArray.findIndex(s => s.id === clickedSong.id);
-      if (songIndex !== -1) {
-        setQueue(contextArray.slice(songIndex + 1));
-      } else {
-        setQueue([]); // Fallback
-      }
+    setCurrentTrack(clickedSong);
+    
+    const songIndex = contextArray.findIndex(s => s.id === clickedSong.id);
+    if (songIndex !== -1) {
+      const nextSongs = contextArray.slice(songIndex + 1);
+      setQueue(nextSongs);
       setContextMemory(contextArray);
-    } else {
-      setQueue([]);
-      setContextMemory(null);
     }
+    
     setIsPlaying(true);
   }, []);
 
-  const playFromSearch = useCallback((song: Song) => {
-    // 1. Set the clicked song as the current track and update history
-    setCurrentTrack(prev => {
-      if (prev && prev.id !== song.id) {
-        setHistory(h => {
-          if (h.length > 0 && h[h.length - 1].id === prev.id) return h;
-          return [...h, prev];
-        });
-      }
-      return song;
-    });
-
-    // 2. Clear the old queue and set ONLY this song as a manual entry.
-    // Because the queue length is now 1, our existing Pre-Fetch useEffect 
-    // will automatically trigger and fetch the Radio Mix for this new song!
-    setQueue([{ ...song, isManual: true }]);
-
-    // 3. Ensure playback starts
+  const playFromSearch = useCallback((track: Song) => {
+    setQueue([]);
+    setContextMemory(null);
+    setCurrentTrack(track);
     setIsPlaying(true);
   }, []);
 
-  const setSleepTimer = (value: number | 'end' | null) => {
-    if (value === 'end') {
-      setIsEndOfTrackTimer(true);
-      setRemainingSleepTime(null);
-    } else if (typeof value === 'number') {
-      setIsEndOfTrackTimer(false);
-      setRemainingSleepTime(value * 60);
-    } else {
-      setIsEndOfTrackTimer(false);
-      setRemainingSleepTime(null);
-    }
+  const addToQueue = (track: Song) => {
+    setQueue(prev => [...prev, track]);
   };
-
-  const addToQueue = useCallback((song: Song) => {
-    setQueue(prevQueue => {
-      // Prevent duplicates (including currently playing)
-      if (prevQueue.some(s => s.id === song.id) || currentTrack?.id === song.id) return prevQueue;
-
-      const manualSongs = prevQueue.filter(s => s.isManual);
-      const autoSongs = prevQueue.filter(s => !s.isManual);
-
-      // Add to the end of manual songs, before auto songs
-      return [...manualSongs, { ...song, isManual: true }, ...autoSongs];
-    });
-  }, [currentTrack]);
 
   const removeFromQueue = (trackId: string) => {
-    setQueue(prev => prev.filter(s => s.id !== trackId));
+    setQueue(prev => prev.filter(t => t.id !== trackId));
   };
 
-  const reorderQueue = (startIndex: number, endIndex: number) => {
+  const reorderQueue = useCallback((startIndex: number, endIndex: number) => {
     setQueue(prev => {
       const result = Array.from(prev);
       const [removed] = result.splice(startIndex, 1);
       result.splice(endIndex, 0, removed);
       return result;
     });
-  };
+  }, []);
 
   const handleOnDragEnd = useCallback((result: any) => {
-    // 1. Guard clause for invalid drops
-    if (!result.destination || result.destination.index === result.source.index) return;
-
-    // 2. Throttling lock
-    if (isActionLocked.current) return;
-    isActionLocked.current = true;
-    setTimeout(() => isActionLocked.current = false, 500); // 500ms lock for drag-drop
-
-    // 3. Perform atomic update
+    if (!result.destination) return;
     reorderQueue(result.source.index, result.destination.index);
   }, [reorderQueue]);
 
   const seekTo = (value: number) => {
     setSeekToTime(value);
-    // Reset to null after a tick to allow re-seeking to same position
     setTimeout(() => setSeekToTime(null), 10);
   };
 
@@ -307,46 +195,68 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const toggleRepeat = () => {
-    setRepeatMode(prev => {
-      if (contextMemory) {
-        if (prev === 'none') return 'all';
-        if (prev === 'all') return 'one';
-        return 'none';
-      }
-      return prev === 'none' ? 'one' : 'none';
-    });
+    setRepeatMode(prev => prev === 'none' ? 'all' : prev === 'all' ? 'one' : 'none');
   };
 
   const toggleShuffle = () => {
-    setIsShuffle(prev => {
-      const next = !prev;
-      if (next) {
-        setQueue(current => shuffleArray(current));
-      } else if (contextMemory && currentTrack) {
-        const idx = contextMemory.findIndex(s => s.id === currentTrack.id);
-        if (idx !== -1) setQueue(contextMemory.slice(idx + 1));
+    setIsShuffle(prev => !prev);
+    if (!isShuffle) {
+      setQueue(prev => shuffleArray(prev));
+    } else if (contextMemory && currentTrack) {
+      const songIndex = contextMemory.findIndex(s => s.id === currentTrack.id);
+      if (songIndex !== -1) {
+        setQueue(contextMemory.slice(songIndex + 1));
       }
-      return next;
-    });
-  };
-
-
-
-  const refreshPlaylists = async () => {
-    if (!user) return;
-    try {
-      const { data } = await api.get('/api/playlists/');
-      setUserPlaylists(data);
-    } catch (error) {
-      console.error("Error refreshing playlists:", error);
     }
   };
 
-  const clearHistory = () => setHistory([]);
+  const setSleepTimer = (minutes: number | 'end' | null) => {
+    if (minutes === null) {
+      setRemainingSleepTime(null);
+      setIsEndOfTrackTimer(false);
+      return;
+    }
+    if (minutes === 'end') {
+      setIsEndOfTrackTimer(true);
+      setRemainingSleepTime(null);
+      return;
+    }
+    setRemainingSleepTime(minutes * 60);
+    setIsEndOfTrackTimer(false);
+  };
 
-  // --- 3. EFFECTS ---
-  
-  // Audio Lifecycle & Event Listeners
+  useEffect(() => {
+    if (remainingSleepTime === null || remainingSleepTime <= 0) return;
+    const timer = setInterval(() => {
+      setRemainingSleepTime(prev => {
+        if (prev !== null && prev <= 1) {
+          setIsPlaying(false);
+          youtubePlayer.current?.pauseVideo();
+          return null;
+        }
+        return prev !== null ? prev - 1 : null;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [remainingSleepTime]);
+
+  const refreshPlaylists = async () => {
+    try {
+      const response = await api.get('/api/playlists');
+      setUserPlaylists(response.data || []);
+    } catch (error) {
+      console.error("Failed to fetch playlists:", error);
+    }
+  };
+
+  useEffect(() => {
+    if (user) refreshPlaylists();
+  }, [user]);
+
+  const clearHistory = () => {
+    setHistory([]);
+  };
+
   const onEnded = useCallback(() => {
     if (isEndOfTrackTimer) {
       setIsEndOfTrackTimer(false);
@@ -362,36 +272,16 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return;
     }
 
-    // Access the latest queue length and context memory via functional check
-    setQueue(prevQueue => {
-      if (repeatMode === 'all' && prevQueue.length === 0 && contextMemory && contextMemory.length > 0) {
-        setCurrentTrack(prevTrack => {
-          if (prevTrack) setHistory(h => [...h, prevTrack]);
-          return contextMemory[0];
-        });
-        setIsPlaying(true);
-        return contextMemory.slice(1);
-      }
-      
-      // If we are not repeating all or still have items, let playNext handle it
-      // We call playNext outside or handle it here. 
-      // To keep it simple and bulletproof, we trigger playNext directly here.
-      return prevQueue; 
-    });
-
     playNext();
-  }, [isEndOfTrackTimer, repeatMode, contextMemory, playNext]);
+  }, [isEndOfTrackTimer, repeatMode, playNext]);
 
   // --- 3. EFFECTS ---
-  
-  // Track synchronization (OS/Metadata only now)
   useEffect(() => {
     if (!currentTrack) return;
-    setIsPlaying(true); // Force play on new track selection
+    setIsPlaying(true);
     addListenHistory(currentTrack);
   }, [currentTrack]);
 
-  // Sync Timer Polling (Because IFrame doesn't have onTimeUpdate)
   useEffect(() => {
     let interval: any;
     if (isPlaying && !isSeeking) {
@@ -407,28 +297,16 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => clearInterval(interval);
   }, [isPlaying, isSeeking]);
 
-  // Media Session Metadata (OS Lock Screen & Media Hubs)
   useEffect(() => {
     if (!currentTrack || !('mediaSession' in navigator)) return;
-    
-    const artworkUrl = getValidImage(currentTrack);
-
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: currentTrack.title || 'Unknown Title',
-      artist: currentTrack.artist || (currentTrack as any).subtitle || (currentTrack as any).primary_artists || 'Unknown Artist',
-      album: (currentTrack as any).album || 'Paatu Padava',
-      artwork: [
-        { src: artworkUrl, sizes: '96x96', type: 'image/png' },
-        { src: artworkUrl, sizes: '128x128', type: 'image/png' },
-        { src: artworkUrl, sizes: '192x192', type: 'image/png' },
-        { src: artworkUrl, sizes: '256x256', type: 'image/png' },
-        { src: artworkUrl, sizes: '384x384', type: 'image/png' },
-        { src: artworkUrl, sizes: '512x512', type: 'image/png' },
-      ]
+      title: currentTrack.title,
+      artist: currentTrack.artist,
+      album: currentTrack.album || '',
+      artwork: [{ src: getValidImage(currentTrack), sizes: '512x512', type: 'image/png' }]
     });
   }, [currentTrack]);
 
-  // Hardware Media Controls (Bluetooth, Lock Screen Buttons)
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
 
@@ -456,111 +334,12 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setCurrentTime(details.seekTime);
       }
     });
-
-    return () => {
-      navigator.mediaSession.setActionHandler('play', null);
-      navigator.mediaSession.setActionHandler('pause', null);
-      navigator.mediaSession.setActionHandler('nexttrack', null);
-      navigator.mediaSession.setActionHandler('previoustrack', null);
-      navigator.mediaSession.setActionHandler('seekto', null);
-    };
   }, [playNext, playPrevious]);
 
-  // Keep MediaSession Playback State in sync with UI
   useEffect(() => {
     if ('mediaSession' in navigator) {
-      navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
-    }
-  }, [isPlaying]);
-
-  // Pre-fetch
-  useEffect(() => {
-    if (!currentTrack || repeatMode !== 'none' || isFetchingRadio.current) return;
-    if (queue.length > 2 || isFetchingRadio.current) return;
-    const preFetch = async () => {
-      isFetchingRadio.current = true;
-      try {
-        const token = localStorage.getItem('token');
-        const res = await api.get(`/api/music/recommendations/${currentTrack.id}`, {
-          params: { lang: currentTrack.language || 'tamil', artist: (currentTrack as any).primaryArtists || currentTrack.artist || '' },
-          headers: token ? { Authorization: `Bearer ${token}` } : {}
-        });
-        
-        if (res.data && res.data.length > 0) {
-          const mappedSongs = res.data.map(mapHistoryToSong);
-          
-          setQueue(prevQueue => {
-            // 1. Strict Deduplication (vital for DND)
-            const existingIds = new Set(prevQueue.map(song => song.id));
-            if (currentTrack) existingIds.add(currentTrack.id);
-            // Also exclude recently played history for better variety
-            history.forEach(h => existingIds.add(h.id));
-
-            // Only add brand new songs
-            const newGraphSongs = mappedSongs.filter((newSong: Song) => !existingIds.has(newSong.id));
-
-            // 2. Blend: Add recommended songs to the bottom of the draggable queue (Auto-generated)
-            const autoSongs = newGraphSongs.map((s: Song) => ({ ...s, isManual: false }));
-            return [...prevQueue, ...autoSongs];
-          });
-        }
-      } catch (e) { console.error("Pre-fetch failed:", e); }
-      finally { isFetchingRadio.current = false; }
-    };
-    preFetch();
-  }, [currentTrack?.id, queue.length, repeatMode, history]);
-
-  // Playlist Refresh
-  useEffect(() => {
-    if (user) refreshPlaylists();
-    else setUserPlaylists([]);
-  }, [user]);
-
-  // Sleep Timer
-  useEffect(() => {
-    let interval: any;
-    if (remainingSleepTime !== null && remainingSleepTime > 0) {
-      interval = setInterval(() => {
-        setRemainingSleepTime(prev => {
-          if (prev === null || prev <= 1) {
-            clearInterval(interval);
-            togglePlay(); 
-            return null;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [remainingSleepTime, togglePlay]);
-
-  // --- MEDIA SESSION API INTEGRATION ---
-  
-  // Task 1: Lock Screen Metadata Sync
-  useEffect(() => {
-    if ('mediaSession' in navigator && currentTrack) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: currentTrack.title || 'Unknown Title',
-        artist: currentTrack.artist || 'Unknown Artist',
-        album: currentTrack.album || 'Paatu Padava',
-        artwork: [
-          { 
-            src: currentTrack.coverUrl || currentTrack.cover_url || currentTrack.image || '/logo.png', 
-            sizes: '512x512', 
-            type: 'image/jpeg' 
-          }
-        ]
-      });
-    }
-  }, [currentTrack]);
-
-  // Task 2 & 3: Playback State & OS Action Handlers
-  useEffect(() => {
-    if ('mediaSession' in navigator) {
-      // Tell OS if we are playing or paused
       navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
 
-      // Bind OS buttons to React handlers
       navigator.mediaSession.setActionHandler('play', () => {
         youtubePlayer.current?.playVideo();
         setIsPlaying(true);
@@ -574,16 +353,6 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       navigator.mediaSession.setActionHandler('previoustrack', playPrevious);
       navigator.mediaSession.setActionHandler('nexttrack', playNext);
     }
-
-    return () => {
-      // Cleanup to prevent memory leaks when context destroys/remounts
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.setActionHandler('play', null);
-        navigator.mediaSession.setActionHandler('pause', null);
-        navigator.mediaSession.setActionHandler('previoustrack', null);
-        navigator.mediaSession.setActionHandler('nexttrack', null);
-      }
-    };
   }, [isPlaying, playPrevious, playNext]);
 
   return (
@@ -607,7 +376,6 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }}
         onEnd={onEnded}
         onStateChange={(state) => {
-           // 1: Playing, 2: Paused, 3: Buffering
            setIsBuffering(state === 3);
         }}
       />

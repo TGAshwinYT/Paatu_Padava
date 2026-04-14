@@ -5,11 +5,11 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
-    host: true, // Listen on all addresses
+    host: true, 
     strictPort: true,
-    hmr: {
-      clientPort: 5173,
-    },
+  },
+  optimizeDeps: {
+    include: ['react-youtube'],
   },
   build: {
     chunkSizeWarningLimit: 1600,
@@ -20,6 +20,7 @@ export default defineConfig({
              if (id.includes('lucide-react')) return 'lucide';
              if (id.includes('swiper')) return 'swiper';
              if (id.includes('axios')) return 'axios';
+             if (id.includes('react-youtube')) return 'youtube';
              return 'vendor';
           }
         }

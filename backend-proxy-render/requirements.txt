@@ -1,6 +1,7 @@
 fastapi
 uvicorn
-yt-dlp
+# Use the latest pre-release for better mobile client support
+yt-dlp>=2024.12.0
 httpx
 python-dotenv
 pytubefix

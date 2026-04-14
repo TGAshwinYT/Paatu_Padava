@@ -86,7 +86,12 @@ const MobilePlayerOverlay: React.FC = () => {
       {/* Background Blur */}
       <div 
         className="absolute inset-0 opacity-40 blur-[100px] pointer-events-none scale-150 transition-all duration-1000"
-        style={{ background: `url(${getValidImage(currentTrack)}) no-repeat center center`, backgroundSize: 'cover' }}
+        style={{ 
+          backgroundImage: `url(${getValidImage(currentTrack)})`, 
+          backgroundRepeat: 'no-repeat', 
+          backgroundPosition: 'center center', 
+          backgroundSize: 'cover' 
+        }}
       />
 
       {/* Header */}
@@ -103,14 +108,29 @@ const MobilePlayerOverlay: React.FC = () => {
         </button>
       </div>
 
-      {/* Album Art */}
-      <div className="flex-1 flex items-center justify-center py-4 z-10">
-        <img 
-          src={getValidImage(currentTrack)} 
-          className="w-full aspect-square rounded-lg shadow-2xl object-cover" 
-          alt="" 
-          onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
-        />
+      {/* Album Art: Responsive Square Wrapper */}
+      <div className="flex-1 flex items-center justify-center p-4 z-10 w-full overflow-hidden">
+        <div style={{
+            width: '100%',           
+            maxWidth: '400px',       // Prevents it from getting oversized on tablets/large phones
+            margin: '0 auto',        
+            aspectRatio: '1 / 1',    // THE FIX: Forces a perfect square at all times
+            borderRadius: '12px',    
+            overflow: 'hidden',      
+            boxShadow: '0 8px 24px rgba(0,0,0,0.5)' 
+        }}>
+            <img 
+                src={getValidImage(currentTrack)} 
+                alt="Album Art"
+                style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover', // THE FIX: Fills the square without distorting
+                    display: 'block'
+                }}
+                onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
+            />
+        </div>
       </div>
 
       {/* Title & Controls */}

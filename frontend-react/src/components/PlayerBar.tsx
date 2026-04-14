@@ -177,7 +177,7 @@ const PlayerBar = () => {
                 onKeyUp={handleSeekRelease}
                 className="w-full h-1 bg-neutral-600 rounded-full appearance-none cursor-pointer accent-white group-hover:accent-green-500"
                 style={{
-                  background: `linear-gradient(to right, #1db954 ${(currentTime / (duration || 100)) * 100}%, #4d4d4d 0%)`
+                  backgroundImage: `linear-gradient(to right, #1db954 ${(currentTime / (duration || 100)) * 100}%, #4d4d4d 0%)`
                 }}
               />
             </div>
@@ -256,7 +256,7 @@ const PlayerBar = () => {
               onChange={(e) => setVolume(Number(e.target.value))}
               className="w-full h-1 bg-neutral-600 rounded-full appearance-none cursor-pointer accent-white group-hover:accent-green-500"
               style={{
-                background: `linear-gradient(to right, #1db954 ${volume * 100}%, #4d4d4d 0%)`
+                backgroundImage: `linear-gradient(to right, #1db954 ${volume * 100}%, #4d4d4d 0%)`
               }}
             />
           </div>

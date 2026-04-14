@@ -13,13 +13,13 @@ auth_file = os.path.join(os.path.dirname(__file__), "..", "headers.json")
 try:
     if os.path.exists(auth_file) and os.path.getsize(auth_file) > 0:
         logger.info(f"Initializing YTMusic with authentication from {auth_file}")
-        ytmusic = YTMusic(auth_file, language="ta", location="IN")
+        ytmusic = YTMusic(auth_file, language="en", location="IN")
     else:
         logger.info("Initializing YTMusic as Guest")
-        ytmusic = YTMusic(language="ta", location="IN")
+        ytmusic = YTMusic(language="en", location="IN")
 except Exception as e:
     logger.error(f"Failed to initialize YTMusic: {e}")
-    ytmusic = YTMusic(language="ta", location="IN")
+    ytmusic = YTMusic(language="en", location="IN")
 
 def is_yt_authenticated():
     """

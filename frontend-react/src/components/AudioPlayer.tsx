@@ -74,7 +74,7 @@ export default function AudioPlayer({
     };
 
     return (
-        <div className="hidden" aria-hidden="true text-transparent">
+        <div className="hidden" aria-hidden="true">
             {currentVideoId && (
                 <YouTube 
                     videoId={currentVideoId} 

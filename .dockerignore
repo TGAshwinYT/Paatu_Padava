@@ -1,10 +1,14 @@
 .git
+.github
 node_modules
-frontend/node_modules
+frontend-react/node_modules
+frontend-react/dist
 **/__pycache__
 .env
+backend-data-hf/.env
 .vscode
 .idea
+.agents
 .antigravity
 *.png
 *.jpg
@@ -12,3 +16,9 @@ frontend/node_modules
 *.bat
 scripts/
 mobile/
+test*.png
+scratch_song*.jpg
+README.md
+LICENSE
+mcp_server.py
+start_server.bat

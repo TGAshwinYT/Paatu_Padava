@@ -160,7 +160,25 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [isSeeking, setIsSeeking] = useState(false);
+  const [isSeeking, setIsSeekingState] = useState(false);
+  const isSeekingRef = useRef(false);
+
+  const setIsSeeking = useCallback((seeking: boolean) => {
+    isSeekingRef.current = seeking;
+    setIsSeekingState(seeking);
+  }, []);
+
+  const handleTimeUpdate = useCallback((time: number) => {
+    if (!isSeekingRef.current) {
+      setCurrentTime(time);
+    }
+  }, []);
+
+  const handleDurationChange = useCallback((newDur: number) => {
+    if (typeof newDur === 'number' && isFinite(newDur) && !isNaN(newDur) && newDur > 0) {
+      setDuration(Math.round(newDur));
+    }
+  }, []);
   const [volume, setVolumeState] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('paatu_player_volume');
@@ -283,7 +301,22 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         localStorage.removeItem('paatu_current_track');
       }
     } catch {}
-  }, [currentTrack]);
+
+    if (currentTrack) {
+      const dur = typeof currentTrack.duration === 'number'
+        ? currentTrack.duration
+        : Number(currentTrack.duration);
+      if (dur && isFinite(dur) && dur > 0) {
+        setDuration(Math.round(dur));
+      } else {
+        setDuration(0);
+      }
+      setCurrentTime(0);
+    } else {
+      setDuration(0);
+      setCurrentTime(0);
+    }
+  }, [currentTrack?.id]);
 
   useEffect(() => {
     try {
@@ -1010,8 +1043,17 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [reorderQueue]);
 
   const seekTo = (value: number) => {
-    setSeekToTime(value);
-    setTimeout(() => setSeekToTime(null), 10);
+    const validValue = Math.max(0, value);
+    isSeekingRef.current = false;
+    setIsSeekingState(false);
+    setCurrentTime(validValue);
+    setSeekToTime(validValue);
+    if (youtubePlayer.current?.seekTo) {
+      try {
+        youtubePlayer.current.seekTo(validValue);
+      } catch (e) {}
+    }
+    setTimeout(() => setSeekToTime(null), 50);
   };
 
   const setVolume = (value: number) => {

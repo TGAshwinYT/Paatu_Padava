@@ -423,17 +423,19 @@ export default function AudioPlayer({
         if (onStateChange) onStateChange(state);
     };
 
-    // Poll YouTube currentTime at 250ms
+    // Poll YouTube currentTime & duration at 250ms
     useEffect(() => {
         if (playbackEngine !== 'youtube') return;
         const interval = setInterval(() => {
             if (isPlaying) {
                 const t = ytPlayerRef.current?.getCurrentTime?.();
-                if (t != null) onTimeUpdate(t);
+                if (typeof t === 'number' && isFinite(t)) onTimeUpdate(t);
+                const dur = ytPlayerRef.current?.getDuration?.();
+                if (typeof dur === 'number' && isFinite(dur) && dur > 0) onDurationChange(dur);
             }
         }, 250);
         return () => clearInterval(interval);
-    }, [playbackEngine, isPlaying, onTimeUpdate]);
+    }, [playbackEngine, isPlaying, onTimeUpdate, onDurationChange]);
 
     // YouTube seek sync
     useEffect(() => {
@@ -510,6 +512,9 @@ export default function AudioPlayer({
         const el = slot === 'A' ? audioRefA.current : audioRefB.current;
         if (el) {
             onTimeUpdate(el.currentTime);
+            if (typeof el.duration === 'number' && isFinite(el.duration) && !isNaN(el.duration) && el.duration > 0) {
+                onDurationChange(el.duration);
+            }
             // Check if crossfade should start
             if (el.duration && el.duration > 0) {
                 handleCrossfadeCheck(el.currentTime, el.duration);
@@ -522,7 +527,9 @@ export default function AudioPlayer({
         if (slot !== activeSlotRef.current) return;
         const el = slot === 'A' ? audioRefA.current : audioRefB.current;
         if (el) {
-            onDurationChange(el.duration);
+            if (typeof el.duration === 'number' && isFinite(el.duration) && !isNaN(el.duration) && el.duration > 0) {
+                onDurationChange(el.duration);
+            }
             setIsBuffering(false);
         }
     };
@@ -559,6 +566,9 @@ export default function AudioPlayer({
                 src={playbackEngine === 'native' && activeSlotRef.current === 'A' ? (nativeAudioUrl || undefined) : undefined}
                 onTimeUpdate={handleTimeUpdate('A')}
                 onLoadedMetadata={handleLoadedMetadata('A')}
+                onDurationChange={handleLoadedMetadata('A')}
+                onCanPlay={handleLoadedMetadata('A')}
+                onLoadedData={handleLoadedMetadata('A')}
                 onWaiting={() => { if (playbackEngine === 'native' && activeSlotRef.current === 'A') setIsBuffering(true); }}
                 onPlaying={() => {
                     if (playbackEngine === 'native' && activeSlotRef.current === 'A') {
@@ -589,6 +599,9 @@ export default function AudioPlayer({
                 ref={audioRefB}
                 onTimeUpdate={handleTimeUpdate('B')}
                 onLoadedMetadata={handleLoadedMetadata('B')}
+                onDurationChange={handleLoadedMetadata('B')}
+                onCanPlay={handleLoadedMetadata('B')}
+                onLoadedData={handleLoadedMetadata('B')}
                 onWaiting={() => { if (playbackEngine === 'native' && activeSlotRef.current === 'B') setIsBuffering(true); }}
                 onPlaying={() => {
                     if (playbackEngine === 'native' && activeSlotRef.current === 'B') {

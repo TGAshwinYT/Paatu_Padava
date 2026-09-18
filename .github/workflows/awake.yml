@@ -1,14 +1,37 @@
 name: Keep Hugging Face Awake
+
 on:
   schedule:
-    - cron: '0 0 * * *' # Runs daily at midnight
-  workflow_dispatch: # Allows you to run it manually
+    # Ping every 14 minutes to prevent HF Space from sleeping (free tier sleeps after ~15 min idle)
+    - cron: '*/14 * * * *'
+  workflow_dispatch:
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Space
+      - name: Ping HF Space Health Endpoint
         run: |
-          # Replace with your actual Space URL
-          curl -I https://huggingface.co/spaces/TGAshwinYT/Paatu_Padava
+          echo "🏓 Pinging Paatu Padava backend..."
+          
+          # Ping the direct Space API URL (bypasses HuggingFace page, hits the container directly)
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 30 \
+            --retry 3 \
+            --retry-delay 10 \
+            "https://tgashwinyt-paatu-padava.hf.space/api/health")
+          
+          echo "Health endpoint responded with HTTP $HTTP_CODE"
+          
+          if [ "$HTTP_CODE" -eq 200 ]; then
+            echo "✅ Space is awake and healthy!"
+          elif [ "$HTTP_CODE" -eq 000 ]; then
+            echo "⚠️  Space may be cold-starting (timeout). Will retry next cycle."
+          else
+            echo "⚠️  Unexpected response code: $HTTP_CODE"
+          fi
+          
+          # Also ping the root endpoint as a fallback
+          curl -s --max-time 15 "https://tgashwinyt-paatu-padava.hf.space/" > /dev/null 2>&1 || true
+          
+          echo "🏁 Keep-alive ping complete."

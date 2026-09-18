@@ -23,9 +23,11 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # Create a clean orphan branch containing only the current files (no historical LFS pointers)
+          # Create a clean orphan branch containing only the backend files for Hugging Face
           git checkout --orphan hf-sync
-          git commit -m "Deploy Paatu Padava to Hugging Face Spaces"
+          # Remove frontend and mobile directories so Hugging Face Space hosts only the backend
+          git rm -rf frontend-react mobile scripts --ignore-unmatch
+          git commit -m "Deploy Paatu Padava Backend to Hugging Face Spaces"
           
           # Add HF remote and force-push to main
           git remote add hf https://TGAshwinYT:$HF_TOKEN@huggingface.co/spaces/TGAshwinYT/Paatu_Padava || true

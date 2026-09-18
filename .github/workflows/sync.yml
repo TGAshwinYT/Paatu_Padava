@@ -12,17 +12,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          lfs: true
+          lfs: false
 
       - name: Configure Git
         run: |
           git config user.email "tgashwinyt@gmail.com"
           git config user.name "TGAshwinYT"
+          # Skip LFS verification — HF Space doesn't need old LFS objects
+          git config lfs.allowincompletepush true
+          git lfs install --skip-smudge || true
 
       - name: Push to Hugging Face Spaces
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # Add HF remote and force-push the entire repo
+          # Remove any .gitattributes LFS tracking that may conflict
+          git lfs untrack "*.png" "*.jpg" "*.jpeg" "*.svg" "*.ico" "*.gif" || true
+          
+          # Add HF remote and force-push
           git remote add hf https://TGAshwinYT:$HF_TOKEN@huggingface.co/spaces/TGAshwinYT/Paatu_Padava || true
           git push hf main --force

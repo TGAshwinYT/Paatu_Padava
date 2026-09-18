@@ -33,7 +33,7 @@ interface AudioContextType {
   setCurrentTime: React.Dispatch<React.SetStateAction<number>>;
   duration: number;
   isSeeking: boolean;
-  setIsSeeking: React.Dispatch<React.SetStateAction<boolean>>;
+  setIsSeeking: (seeking: boolean) => void;
   progress: number; 
   volume: number;
   isShuffle: boolean;
@@ -168,17 +168,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setIsSeekingState(seeking);
   }, []);
 
-  const handleTimeUpdate = useCallback((time: number) => {
-    if (!isSeekingRef.current) {
-      setCurrentTime(time);
-    }
-  }, []);
 
-  const handleDurationChange = useCallback((newDur: number) => {
-    if (typeof newDur === 'number' && isFinite(newDur) && !isNaN(newDur) && newDur > 0) {
-      setDuration(Math.round(newDur));
-    }
-  }, []);
   const [volume, setVolumeState] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('paatu_player_volume');

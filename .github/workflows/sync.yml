@@ -11,24 +11,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           lfs: false
 
       - name: Configure Git
         run: |
           git config user.email "tgashwinyt@gmail.com"
           git config user.name "TGAshwinYT"
-          # Skip LFS verification — HF Space doesn't need old LFS objects
-          git config lfs.allowincompletepush true
-          git lfs install --skip-smudge || true
 
       - name: Push to Hugging Face Spaces
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # Remove any .gitattributes LFS tracking that may conflict
-          git lfs untrack "*.png" "*.jpg" "*.jpeg" "*.svg" "*.ico" "*.gif" || true
+          # Create a clean orphan branch containing only the current files (no historical LFS pointers)
+          git checkout --orphan hf-sync
+          git commit -m "Deploy Paatu Padava to Hugging Face Spaces"
           
-          # Add HF remote and force-push
+          # Add HF remote and force-push to main
           git remote add hf https://TGAshwinYT:$HF_TOKEN@huggingface.co/spaces/TGAshwinYT/Paatu_Padava || true
-          git push hf main --force
+          git push hf hf-sync:main --force

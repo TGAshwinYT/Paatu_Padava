@@ -15,6 +15,7 @@ class HistoryCreate(BaseModel):
     artist: Optional[str] = "Unknown Artist"
     cover_url: Optional[str] = None
     audio_url: Optional[str] = None
+    language: Optional[str] = None
 
 router = APIRouter(prefix="/api/history", tags=["history"])
 
@@ -59,7 +60,8 @@ async def add_listen_history(
                 title=song.title,
                 artist=song.artist,
                 cover_url=song.cover_url,
-                audio_url=song.audio_url
+                audio_url=song.audio_url,
+                language=song.language
             )
             db.add(new_entry)
             await db.commit()
@@ -201,7 +203,8 @@ async def add_search_click_history(song: HistoryCreate, user: User = Depends(get
             title=song.title,
             artist=song.artist,
             cover_url=song.cover_url,
-            audio_url=song.audio_url
+            audio_url=song.audio_url,
+            language=song.language
         )
         db.add(new_entry)
         

@@ -37,6 +37,7 @@ const Home = ({ isLoggedIn }: HomeProps) => {
   const shortcuts = [
     ...(isLoggedIn ? [{ id: 'liked-songs', title: 'Liked Songs', coverUrl: 'https://misc.scdn.co/liked-songs/liked-songs-640.png', type: 'playlist' }] : []),
     ...getRecentCollections().map(c => ({ id: c.id, title: c.title, coverUrl: c.coverUrl, type: c.type })),
+    ...(recommended.length > 0 ? [{ id: 'personal-mix', title: 'Personal Mix', coverUrl: recommended[0]?.coverUrl, type: 'playlist' }] : []),
     ...topAlbums.map(a => ({ id: a.id, title: a.title, coverUrl: a.coverUrl, type: 'album' }))
   ].filter(item => item && item.id)
    .reduce((acc: any[], curr) => {
@@ -46,6 +47,7 @@ const Home = ({ isLoggedIn }: HomeProps) => {
 
   const recommendedRef = useRef<HTMLDivElement>(null);
   const recentlyPlayedRef = useRef<HTMLDivElement>(null);
+  const isHoveredRef = useRef(false);
 
   const scrollAction = (ref: React.RefObject<HTMLDivElement | null>, direction: 'left' | 'right') => {
     if (ref.current) {
@@ -53,6 +55,25 @@ const Home = ({ isLoggedIn }: HomeProps) => {
         ref.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
     }
   };
+
+  // ── Auto-scroll Home carousels every 4.5s with smooth reset and hover pause ──
+  useEffect(() => {
+    const targetRef = recommended.length > 0 ? recommendedRef : recentlyPlayedRef;
+    const interval = setInterval(() => {
+      if (isHoveredRef.current) return;
+      const el = targetRef.current;
+      if (!el) return;
+
+      const maxScroll = el.scrollWidth - el.clientWidth;
+      if (el.scrollLeft >= maxScroll - 20) {
+        el.scrollTo({ left: 0, behavior: 'smooth' });
+      } else {
+        el.scrollBy({ left: 320, behavior: 'smooth' });
+      }
+    }, 4500);
+
+    return () => clearInterval(interval);
+  }, [recommended.length, recentlyPlayed.length]);
 
   useEffect(() => {
     const fetchFeed = async () => {
@@ -65,8 +86,9 @@ const Home = ({ isLoggedIn }: HomeProps) => {
         ]);
         
         const data = feedData;
-        setIsPersonalized(data.personalized);
         setRecentlyPlayed((historyData || []).slice(0, 12));
+        setRecommended(data.recommendedForYou || []);
+        setIsPersonalized(data.personalized);
         
         let normalizedArtists = (artistsData || []).map((a: any) => ({
           id: a.id || a.artist_id || '',
@@ -74,11 +96,23 @@ const Home = ({ isLoggedIn }: HomeProps) => {
           image: [{ url: a.image_url || a.image || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop' }]
         }));
 
-        const backendArtists = data.topArtists || [];
-        const finalArtists = normalizedArtists.length > 0 ? normalizedArtists : backendArtists;
+        const backendArtists = (data.topArtists || []).map((a: any) => ({
+          id: a.id || a.browseId || '',
+          name: a.name || a.title || 'Unknown Artist',
+          image: [{ url: a.cover_url || a.image_url || a.image || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop' }]
+        }));
 
-        setTopArtists(finalArtists.slice(0, 24));
-        setRecommended(data.recommendedForYou || []);
+        const seenNames = new Set<string>();
+        const mergedArtists: any[] = [];
+        for (const a of [...normalizedArtists, ...backendArtists]) {
+          const key = (a.name || '').toLowerCase().trim();
+          if (key && !seenNames.has(key)) {
+            seenNames.add(key);
+            mergedArtists.push(a);
+          }
+        }
+
+        setTopArtists(mergedArtists);
         setTopAlbums(data.topAlbums || []);
       } catch (error) {
         console.error("Error fetching home feed:", error);
@@ -103,7 +137,7 @@ const Home = ({ isLoggedIn }: HomeProps) => {
     <div className="flex flex-col gap-10 pb-24 pt-2">
       
       {/* 🟢 Spotify-Style Greeting & Filters 🟢 */}
-      <section className="relative -mx-6 px-6 pt-6 pb-10 bg-gradient-to-b from-green-900/30 to-[#121212]">
+      <section className="relative -mx-6 px-6 pt-6 pb-10 bg-gradient-to-b from-brand/20 to-surface-base">
         <div className="flex flex-col gap-6 mb-8">
           <div className="flex items-center justify-between">
             <h1 className="text-3xl font-extrabold tracking-tight text-white">{getGreeting()}</h1>
@@ -112,50 +146,71 @@ const Home = ({ isLoggedIn }: HomeProps) => {
 
         {/* Shortcut Grid (4x2 on Desktop, 2x4 on Mobile) */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {shortcuts.map((item, i) => (
-            <div 
-              key={`${item.id}-${i}`}
-              onClick={() => {
-                if (!item.id) return;
-                
-                const id = item.id;
-                const isPlaylistID = id.startsWith('PL') || id.startsWith('RDCL') || id.startsWith('RDTK');
-                const isAlbumID = id.startsWith('MPREb') || id.startsWith('OLAK5uy_') || id.startsWith('AMGR_') || topAlbums.some(a => a.id === id);
+          {shortcuts.map((item, i) => {
+            const id = item.id || '';
+            const isPlaylistID = id.startsWith('PL') || id.startsWith('RDCL') || id.startsWith('RDTK');
+            const isAlbumID = id.startsWith('MPREb') || id.startsWith('OLAK5uy_') || id.startsWith('AMGR_') || topAlbums.some(a => a.id === id);
 
-                if (id === 'liked-songs') {
-                  navigate('/library');
-                } else if (item.type === 'album' || isAlbumID || (!isPlaylistID && id.length > 20)) {
-                  navigate(`/album/${id}`);
-                } else {
-                  navigate(`/playlist/${id}`);
-                }
-              }}
-              className="group relative flex items-center bg-white/5 hover:bg-white/10 rounded-lg overflow-hidden h-[80px] transition-all cursor-pointer border border-transparent hover:border-white/5 shadow-lg"
-            >
-              <div className="h-full aspect-square w-20 flex-shrink-0 relative">
-                <img 
-                  src={item.coverUrl || '/logo.png'} 
-                  alt={item.title}
-                  className="w-full h-full object-cover shadow-[4px_0_10px_rgba(0,0,0,0.3)]"
-                  onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
-                />
+            return (
+              <div 
+                key={`${item.id}-${i}`}
+                onClick={() => {
+                  if (!item.id) return;
+                  if (id === 'liked-songs') {
+                    navigate('/library');
+                  } else if (id === 'personal-mix') {
+                    if (recommended.length > 0) {
+                      playContext(recommended[0], recommended);
+                    }
+                  } else if (item.type === 'album' || isAlbumID || (!isPlaylistID && id.length > 20)) {
+                    navigate(`/album/${id}`);
+                  } else {
+                    navigate(`/playlist/${id}`);
+                  }
+                }}
+                className="group relative flex items-center bg-white/5 hover:bg-white/10 rounded-lg overflow-hidden h-[80px] transition-all cursor-pointer border border-transparent hover:border-white/5 shadow-lg"
+              >
+                <div className="h-full aspect-square w-20 flex-shrink-0 relative">
+                  <img 
+                    src={item.coverUrl || '/logo.png'} 
+                    alt={item.title}
+                    className="w-full h-full object-cover shadow-[4px_0_10px_rgba(0,0,0,0.3)]"
+                    onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
+                  />
+                </div>
+                <div className="flex-1 px-4 flex items-center justify-between overflow-hidden">
+                  <span className="text-white font-bold text-sm line-clamp-2 truncate pr-2">
+                    {item.title}
+                  </span>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (item.id === 'liked-songs') {
+                        navigate('/library');
+                      } else if (item.id === 'personal-mix') {
+                        if (recommended.length > 0) {
+                          playContext(recommended[0], recommended);
+                        }
+                      } else if (item.type === 'album' || isAlbumID || (!isPlaylistID && id.length > 20)) {
+                        navigate(`/album/${id}`);
+                      } else {
+                        navigate(`/playlist/${id}`);
+                      }
+                    }}
+                    className="w-12 h-12 bg-brand rounded-full shadow-2xl flex items-center justify-center translate-y-2 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-300 transform scale-0 group-hover:scale-100 flex-shrink-0 hover:bg-brand-hover"
+                  >
+                    <Play size={20} fill="black" className="ml-1" />
+                  </button>
+                </div>
               </div>
-              <div className="flex-1 px-4 flex items-center justify-between overflow-hidden">
-                <span className="text-white font-bold text-sm line-clamp-2 truncate pr-2">
-                  {item.title}
-                </span>
-                <button className="w-12 h-12 bg-[#1ed760] rounded-full shadow-2xl flex items-center justify-center translate-y-2 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-300 transform scale-0 group-hover:scale-100 flex-shrink-0">
-                  <Play size={20} fill="black" className="ml-1" />
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 
       {/* 🚀 Personalization Banner 🚀 */}
       {!isLoggedIn && !isPersonalized && (
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-900/60 via-purple-900/40 to-[#121212] border border-white/5 p-8 group">
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-900/60 via-purple-900/40 to-surface-card border border-white/5 p-8 group">
           <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 blur-[100px] rounded-full -translate-y-1/2 translate-x-1/2 group-hover:bg-indigo-500/20 transition-all duration-700"></div>
           <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div className="flex items-start gap-4">
@@ -164,8 +219,8 @@ const Home = ({ isLoggedIn }: HomeProps) => {
               </div>
               <div className="flex flex-col gap-1">
                 <h3 className="text-xl md:text-2xl font-bold text-white tracking-tight">Unlock Your Personalized Mix</h3>
-                <p className="text-neutral-400 text-sm md:text-base max-w-xl leading-relaxed">
-                  Sign in to sync your YouTube Music history and let our algorithm build unique playlists just for you.
+                <p className="text-muted text-sm md:text-base max-w-xl leading-relaxed">
+                  Sign in to sync your listening history and let our collaborative filtering algorithm build unique mixes just for you.
                 </p>
               </div>
             </div>
@@ -179,8 +234,9 @@ const Home = ({ isLoggedIn }: HomeProps) => {
         </div>
       )}
 
+      {/* 🎵 Recommended For You Section 🎵 */}
       {recommended.length > 0 && (
-        <HomeSection title="Recommended For You" showAllLink="/recommendations" className="bg-gradient-to-r from-green-500/10 to-transparent p-6 rounded-2xl border border-white/5">
+        <HomeSection title="Recommended For You" showAllLink="/recommendations" className="bg-gradient-to-r from-brand/10 to-transparent p-6 rounded-2xl border border-white/5">
           <div className="relative group/slider">
             <button 
                 onClick={() => scrollAction(recommendedRef, 'left')} 
@@ -188,30 +244,15 @@ const Home = ({ isLoggedIn }: HomeProps) => {
             >
                 <ChevronLeft size={24} />
             </button>
-            <div ref={recommendedRef} className="flex overflow-x-auto gap-4 pb-4 snap-x snap-mandatory scroll-smooth hide-scrollbar">
+            <div 
+              ref={recommendedRef} 
+              onMouseEnter={() => { isHoveredRef.current = true; }}
+              onMouseLeave={() => { isHoveredRef.current = false; }}
+              className="flex overflow-x-auto gap-4 pb-4 snap-x snap-mandatory scroll-smooth hide-scrollbar"
+            >
               {recommended.map((song, index) => (
-                <div key={`${song.id}-${index}`} className="flex-shrink-0 w-36 md:w-44 lg:w-48 snap-start group bg-[#181818] p-4 rounded-lg hover:bg-[#282828] transition-all duration-300 cursor-pointer flex flex-col h-full" onClick={() => playContext(song, recommended)}>
-                    <div className="relative mb-4">
-                      <img 
-                        src={song.coverUrl || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop'} 
-                        className="w-full aspect-square object-cover rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.5)]" 
-                        alt={song.title} 
-                        loading="lazy"
-                      />
-                      <button 
-                        className="absolute bottom-2 right-2 bg-[#1ed760] w-12 h-12 rounded-full shadow-lg opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 ease-out flex items-center justify-center hover:scale-105 active:scale-95"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          playContext(song, recommended);
-                        }}
-                      >
-                        <Play size={20} fill="black" className="text-black ml-1" />
-                      </button>
-                    </div>
-                    <div className="flex flex-col">
-                      <p className="text-white font-bold text-base truncate pb-1">{song.title}</p>
-                      <p className="text-[#a7a7a7] text-sm font-medium truncate">{song.artist}</p>
-                    </div>
+                <div key={`${song.id}-${index}`} className="flex-shrink-0 w-36 md:w-44 lg:w-48 snap-start">
+                  <SongCard song={song} context={recommended} />
                 </div>
               ))}
             </div>
@@ -234,7 +275,12 @@ const Home = ({ isLoggedIn }: HomeProps) => {
             >
                 <ChevronLeft size={24} />
             </button>
-            <div ref={recentlyPlayedRef} className="flex overflow-x-auto gap-4 pb-4 snap-x snap-mandatory scroll-smooth hide-scrollbar">
+            <div 
+              ref={recentlyPlayedRef} 
+              onMouseEnter={() => { isHoveredRef.current = true; }}
+              onMouseLeave={() => { isHoveredRef.current = false; }}
+              className="flex overflow-x-auto gap-4 pb-4 snap-x snap-mandatory scroll-smooth hide-scrollbar"
+            >
               {recentlyPlayed.map((song, index) => (
                 <div key={`${song.id}-${index}`} className="flex-shrink-0 w-36 md:w-44 lg:w-48 snap-start">
                   <SongCard song={song} context={recentlyPlayed} />
@@ -252,8 +298,8 @@ const Home = ({ isLoggedIn }: HomeProps) => {
       )}
 
       {topArtists?.length > 0 && (
-        <PopularArtists artists={topArtists.slice(0, 5)} onArtistClick={(name) => {
-          navigate(`/search?q=${encodeURIComponent(name)}`);
+        <PopularArtists artists={topArtists} onArtistClick={(artistIdOrName) => {
+          navigate(`/artist/${encodeURIComponent(artistIdOrName)}`);
         }} />
       )}
 

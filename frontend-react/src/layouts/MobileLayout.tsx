@@ -14,6 +14,7 @@ import ArtistView from '../pages/ArtistView';
 import PlaylistDetail from '../pages/PlaylistDetail';
 import Profile from '../pages/Profile';
 import LocalArtists from '../pages/LocalArtists';
+import DownloadedSongs from '../pages/DownloadedSongs';
 import ForgotPassword from '../pages/ForgotPassword';
 import MobileBottomNavbar from '../components/mobile/MobileBottomNavbar';
 import MobilePlayerOverlay from '../components/mobile/MobilePlayerOverlay';
@@ -47,11 +48,7 @@ const MobileLayout: React.FC = () => {
             </ProtectedRoute>
           } />
           <Route path="/album/:id" element={<AlbumView />} />
-          <Route path="/artist/:artistId" element={
-            <ProtectedRoute>
-              <ArtistView />
-            </ProtectedRoute>
-          } />
+          <Route path="/artist/:artistId" element={<ArtistView />} />
           <Route path="/playlist/:id" element={
             <ProtectedRoute>
               <PlaylistDetail />
@@ -63,6 +60,7 @@ const MobileLayout: React.FC = () => {
             </ProtectedRoute>
           } />
           <Route path="/local-artists" element={<LocalArtists />} />
+          <Route path="/downloaded" element={<DownloadedSongs />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />

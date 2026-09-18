@@ -57,7 +57,7 @@ const InstallPWA: React.FC = () => {
             {isInstallable && (
                 <button 
                     onClick={handleInstallClick}
-                    className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-green-500 text-black font-bold rounded-xl hover:bg-green-400 transition shadow-lg active:scale-95"
+                    className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-brand text-black font-bold rounded-xl hover:bg-brand-hover transition shadow-lg active:scale-95"
                 >
                     <ArrowDownTrayIcon className="w-5 h-5" strokeWidth={2.5} />
                     Install App
@@ -66,7 +66,7 @@ const InstallPWA: React.FC = () => {
 
             {/* Show Manual Instructions for iOS */}
             {isIOS && !isInstallable && (
-                <div className="bg-[#282828] text-gray-300 text-sm p-4 rounded-xl flex items-center gap-3 border border-white/5 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                <div className="bg-surface text-gray-300 text-sm p-4 rounded-xl flex items-center gap-3 border border-white/5 animate-in fade-in slide-in-from-bottom-2 duration-500">
                     <div className="bg-white/10 p-2 rounded-lg">
                         <ArrowUpOnSquareIcon className="w-6 h-6 text-white" />
                     </div>

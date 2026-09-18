@@ -37,10 +37,14 @@ const LocalArtists = () => {
         <button 
           onClick={() => navigate(-1)}
           className="p-2 hover:bg-white/10 rounded-full transition-colors"
+          title="Go Back"
         >
           <ArrowLeft size={24} className="text-white" />
         </button>
-        <h1 className="text-3xl font-bold text-white tracking-tight">Top Artists in Your Region</h1>
+        <div>
+          <h1 className="text-3xl font-black text-white tracking-tight">Top Artists in Your Region</h1>
+          <p className="text-xs text-neutral-400 font-semibold mt-0.5">Explore {artists.length} legendary & trending artists</p>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-8">
@@ -52,18 +56,25 @@ const LocalArtists = () => {
             <div 
               key={artist.id || index}
               className="flex flex-col items-center gap-4 group cursor-pointer"
-              onClick={() => navigate(`/search?q=${encodeURIComponent(displayName)}`)}
+              onClick={() => {
+                const targetId = artist.id || artist.browseId || displayName;
+                navigate(`/artist/${encodeURIComponent(targetId)}`);
+              }}
             >
-              <div className="w-full aspect-square rounded-full overflow-hidden shadow-xl ring-1 ring-white/10 group-hover:ring-white/30 transition-all duration-300">
+              <div className="relative w-full aspect-square rounded-full overflow-hidden shadow-xl ring-1 ring-white/10 group-hover:ring-brand/50 transition-all duration-300">
                 <img 
                   src={imageUrl} 
                   alt={displayName}
                   className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                   loading="lazy"
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200&h=200&fit=crop';
+                  }}
                 />
               </div>
-              <div className="text-center">
-                <p className="text-white font-bold text-base truncate px-2 group-hover:text-green-500 transition-colors uppercase tracking-tight">
+              <div className="text-center w-full px-2">
+                <p className="text-white font-bold text-base truncate group-hover:text-brand transition-colors uppercase tracking-tight">
                   {displayName}
                 </p>
                 <p className="text-neutral-500 text-xs font-bold uppercase tracking-widest mt-1">Artist</p>

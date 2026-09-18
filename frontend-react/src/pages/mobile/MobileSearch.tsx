@@ -1,24 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search as SearchIcon, X, ArrowLeft, Clock, Music, Play, ChevronRight, MoreVertical } from 'lucide-react';
+import { Search as SearchIcon, X, ArrowLeft, Clock, Music, Play, ChevronRight, MoreVertical, Loader2, Zap } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAudio } from '../../context/AudioContext';
 import { useAuth } from '../../context/AuthContext';
-import type { Song } from '../../types';
+import type { Song, SpotifyTrack } from '../../types';
 import useDebounce from '../../hooks/useDebounce';
+import useSpotifySearch from '../../hooks/useSpotifySearch';
+import { getSpotifyArt, formatSpotifyDuration } from '../../services/spotifyApi';
 import { getRecentSearches, searchTracks, getSuggestions, deleteSearchHistoryItem, saveSearchClick } from '../../services/api';
-
-const CATEGORIES = [
-  { id: 'music', title: 'Music', color: 'bg-pink-600', query: 'Latest hits' },
-  { id: 'podcasts', title: 'Podcasts', color: 'bg-emerald-700', query: 'Tamil Podcasts' },
-  { id: 'live', title: 'Live Events', color: 'bg-purple-700', query: 'Concert' },
-  { id: 'made_for_you', title: 'Made For You', color: 'bg-indigo-600', query: 'Recommended' },
-  { id: 'new_releases', title: 'New Releases', color: 'bg-lime-700', query: 'New' },
-  { id: 'hindi', title: 'Hindi', color: 'bg-rose-600', query: 'Hindi' },
-  { id: 'tamil', title: 'Tamil', color: 'bg-orange-600', query: 'Tamil' },
-  { id: 'punjabi', title: 'Punjabi', color: 'bg-fuchsia-700', query: 'Punjabi' },
-  { id: 'charts', title: 'Charts', color: 'bg-violet-800', query: 'Top 50' },
-  { id: 'podcast_charts', title: 'Podcast Charts', color: 'bg-blue-600', query: 'Top Podcasts' }
-];
 
 const MobileSearch: React.FC = () => {
   const { user } = useAuth();
@@ -30,17 +19,63 @@ const MobileSearch: React.FC = () => {
   const initialQuery = searchParams.get('q') || '';
   const initialOverlay = searchParams.get('overlay') === 'true';
 
+  const userLangs = React.useMemo(() => {
+    const raw = user?.preferredLanguages || user?.preferred_languages;
+    if (!raw) return ['tamil'];
+    if (Array.isArray(raw) && raw.length > 0) {
+      return raw.map(l => String(l).trim().toLowerCase()).filter(Boolean);
+    }
+    if (typeof raw === 'string') {
+      if (raw.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed.map(l => String(l).trim().toLowerCase()).filter(Boolean);
+          }
+        } catch {}
+      }
+      return raw.split(',').map(l => l.trim().toLowerCase()).filter(Boolean);
+    }
+    return ['tamil'];
+  }, [user]);
+
+  const categories = React.useMemo(() => {
+    const primary = userLangs[0] || 'tamil';
+    const primaryCap = primary.charAt(0).toUpperCase() + primary.slice(1);
+    
+    const items = [
+      { id: 'primary_lang', title: `${primaryCap} Hits`, color: 'bg-orange-600', query: `${primaryCap} hits` },
+      { id: 'new_releases', title: 'New Releases', color: 'bg-lime-700', query: 'New Releases' },
+      { id: 'charts', title: 'Top Charts', color: 'bg-violet-800', query: 'Top 50' },
+      { id: 'podcasts', title: 'Podcasts', color: 'bg-emerald-700', query: `${primaryCap} Podcasts` },
+      { id: 'music', title: 'Trending', color: 'bg-pink-600', query: `${primaryCap} trending` },
+    ];
+
+    userLangs.slice(1).forEach((l, idx) => {
+      const cap = l.charAt(0).toUpperCase() + l.slice(1);
+      items.push({
+        id: `lang_${l}`,
+        title: `${cap} Hits`,
+        color: idx % 2 === 0 ? 'bg-rose-600' : 'bg-fuchsia-700',
+        query: `${cap} songs`
+      });
+    });
+
+    return items;
+  }, [userLangs]);
+
   const [suggestions, setSuggestions] = useState<any>({ songs: [], artists: [], albums: [] });
-  const [activeFilter, setActiveFilter] = useState<'all' | 'songs' | 'albums' | 'artists'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'songs' | 'albums' | 'artists' | 'spotify'>('all');
+  const [resolvingSpotifyId, setResolvingSpotifyId] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [isOverlayOpen, setIsOverlayOpen] = useState(initialOverlay || !!initialQuery);
   const [recentlyPlayed, setRecentlyPlayed] = useState<(Song & { historyId: string })[]>([]);
   
-  const { playFromSearch, currentTrack } = useAudio();
-  const inputRef = useRef<HTMLInputElement>(null);
-
+  const { playFromSearch, playHybridTrack, isResolvingStream, currentTrack } = useAudio();
   // Debounce the search query with 500ms delay
   const debouncedQuery = useDebounce(query, 500);
+  const { results: spotifyResults, isLoading: isSpotifyLoading } = useSpotifySearch(activeFilter === 'spotify' ? debouncedQuery : '');
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Fetch history on mount
   useEffect(() => {
@@ -237,7 +272,7 @@ const MobileSearch: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className={`font-bold truncate text-[15px] ${currentTrack?.id === song.id ? 'text-green-500' : 'text-white'}`}>
+                    <p className={`font-bold truncate text-[15px] ${currentTrack?.id === song.id ? 'text-brand' : 'text-white'}`}>
                       {song.title}
                     </p>
                     <p className="text-sm text-neutral-400 truncate">{song.artist}</p>
@@ -255,7 +290,7 @@ const MobileSearch: React.FC = () => {
         <section className="pb-8">
           <h2 className="text-xl font-bold mb-6">Browse all</h2>
           <div className="grid grid-cols-2 gap-4">
-            {CATEGORIES.map((cat) => (
+            {categories.map((cat) => (
               <div 
                 key={cat.id}
                 onClick={() => {
@@ -325,15 +360,17 @@ const MobileSearch: React.FC = () => {
 
             {/* Filter Chips */}
             <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar -mx-4 px-4">
-              {['all', 'songs', 'artists', 'albums'].map((f) => (
+              {(['all', 'songs', 'artists', 'albums', 'spotify'] as const).map((f) => (
                 <button
                   key={f}
-                  onClick={() => setActiveFilter(f as any)}
-                  className={`px-5 py-1.5 rounded-full text-sm font-bold capitalize transition-colors whitespace-nowrap ${
-                    activeFilter === f ? 'bg-green-500 text-black' : 'bg-neutral-800 text-white border border-white/5'
+                  onClick={() => setActiveFilter(f)}
+                  className={`px-5 py-1.5 rounded-full text-sm font-bold capitalize transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+                    activeFilter === f
+                      ? 'bg-brand text-black'
+                      : 'bg-neutral-800 text-white border border-white/5'
                   }`}
                 >
-                  {f === 'all' ? 'All' : f}
+                  {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
                 </button>
               ))}
             </div>
@@ -341,12 +378,80 @@ const MobileSearch: React.FC = () => {
 
           {/* Results Area */}
           <div className="flex-1 overflow-y-auto p-4 pb-32">
-            {isSearching ? (
+            {/* ── Spotify Results ─────────────────────────────── */}
+            {activeFilter === 'spotify' && (
+              <div className="space-y-1 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                {isSpotifyLoading ? (
+                  <div className="flex items-center justify-center py-16 gap-3 text-neutral-400">
+                    <Loader2 className="animate-spin" size={20} />
+                    <span>Searching Spotify…</span>
+                  </div>
+                ) : !query ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-neutral-500">
+                    <SearchIcon size={40} className="mb-4 opacity-20" />
+                    <p className="font-bold">Search Spotify's catalogue</p>
+                    <p className="text-sm mt-2 text-center px-8">Clean metadata, played via JioSaavn or YouTube</p>
+                  </div>
+                ) : !spotifyResults.length && !isSpotifyLoading ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-neutral-500">
+                    <Music size={40} className="mb-4 opacity-20" />
+                    <p className="font-bold">No Spotify results</p>
+                  </div>
+                ) : (
+                  spotifyResults.map((track: SpotifyTrack) => {
+                    const isThis = isResolvingStream && resolvingSpotifyId === track.spotifyId;
+                    return (
+                      <div
+                        key={track.spotifyId}
+                        onClick={async () => {
+                          setResolvingSpotifyId(track.spotifyId);
+                          await playHybridTrack(track);
+                          setResolvingSpotifyId(null);
+                        }}
+                        className="flex items-center gap-4 px-2 py-2 rounded-xl active:bg-neutral-800/50 transition-colors cursor-pointer group"
+                      >
+                        <div className="relative w-14 h-14 flex-shrink-0">
+                          <img
+                            src={getSpotifyArt(track)}
+                            className="w-full h-full rounded-lg object-cover shadow-md"
+                            alt=""
+                            onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
+                          />
+                          {/* Spotify badge */}
+                          <div className="absolute -top-1 -right-1 w-4 h-4 bg-brand rounded-full border-2 border-neutral-900 flex items-center justify-center">
+                            <span className="text-[6px] font-black text-black">S</span>
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-[15px] truncate group-active:text-brand transition-colors">
+                            {track.name}
+                            {track.explicit && <span className="ml-1 text-[9px] bg-neutral-700 text-neutral-400 px-1 py-0.5 rounded align-middle">E</span>}
+                          </p>
+                          <p className="text-xs text-neutral-400 truncate font-medium">
+                            {track.artists.map(a => a.name).join(', ')} · {formatSpotifyDuration(track.durationMs)}
+                          </p>
+                        </div>
+                        {isThis ? (
+                          <div className="flex items-center gap-1 text-green-400 animate-pulse">
+                            <Zap size={14} />
+                          </div>
+                        ) : (
+                          <Play size={16} className="text-neutral-600 group-active:text-brand transition-colors mr-1" />
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+
+            {/* ── Standard Results ──────────────────────────── */}
+            {activeFilter !== 'spotify' && isSearching ? (
               <div className="flex flex-col items-center justify-center py-20 gap-4 text-neutral-400">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
                 <p className="font-medium">Searching for "{query}"...</p>
               </div>
-            ) : query.length > 0 ? (
+            ) : activeFilter !== 'spotify' && query.length > 0 ? (
               <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 {/* Top Result Card (Persistent across filters if type matches) */}
                 {topResult && (activeFilter === 'all' || activeFilter === (topResult.type === 'song' ? 'songs' : topResult.type === 'artist' ? 'artists' : topResult.type === 'album' ? 'albums' : '')) && (
@@ -354,7 +459,7 @@ const MobileSearch: React.FC = () => {
                     <h3 className="text-xl font-black mb-4 px-2">Top result</h3>
                     <div 
                       onClick={() => topResult.type === 'artist' ? handleArtistSelect(topResult) : handleSongSelect(topResult)}
-                      className="bg-[#181818] p-5 rounded-2xl flex flex-col gap-5 border border-white/5 active:scale-[0.98] transition-all relative group"
+                      className="bg-surface-card p-5 rounded-2xl flex flex-col gap-5 border border-white/5 active:scale-[0.98] transition-all relative group"
                     >
                       <div className="relative w-32 h-32">
                         <img 
@@ -365,7 +470,7 @@ const MobileSearch: React.FC = () => {
                         />
                         {topResult.type === 'song' && (
                           <div className="absolute inset-0 flex items-center justify-center">
-                            <div className="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center shadow-2xl scale-100 group-active:scale-90 transition-transform">
+                            <div className="w-12 h-12 bg-brand rounded-full flex items-center justify-center shadow-2xl scale-100 group-active:scale-90 transition-transform">
                               <Play size={24} fill="black" className="text-black ml-1" />
                             </div>
                           </div>
@@ -391,7 +496,6 @@ const MobileSearch: React.FC = () => {
                     <div className="flex overflow-x-auto gap-4 px-4 pb-2 hide-scrollbar">
                       {[
                         { id: 'radio', title: `${topResult.name || topResult.title} Radio`, color: 'bg-neutral-800' },
-                        { id: 'mix', title: `${topResult.name || topResult.title} Mix`, color: 'bg-neutral-800' },
                         { id: 'hits', title: `${topResult.name || topResult.title} Hits`, color: 'bg-neutral-800' },
                         { id: 'essential', title: 'Essentials', color: 'bg-neutral-800' }
                       ].map((item) => (
@@ -498,7 +602,7 @@ const MobileSearch: React.FC = () => {
                                  onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }}
                                />
                                <div className="flex-1 min-w-0">
-                                  <p className="font-bold text-[15px] truncate group-active:text-green-500 transition-colors">{s.title}</p>
+                                  <p className="font-bold text-[15px] truncate group-active:text-brand transition-colors">{s.title}</p>
                                   <p className="text-xs text-neutral-400 truncate font-medium">Song • {s.artist}</p>
                                </div>
                                <button className="p-2 text-neutral-500 hover:text-white transition-colors">
@@ -518,7 +622,7 @@ const MobileSearch: React.FC = () => {
                    </div>
                 )}
               </div>
-            ) : (
+            ) : activeFilter !== 'spotify' && (
               <div className="flex flex-col items-center justify-center py-32 text-neutral-500">
                 <SearchIcon size={56} className="mb-6 opacity-20" />
                 <p className="font-bold text-xl">Search Paaatu_Padava</p>

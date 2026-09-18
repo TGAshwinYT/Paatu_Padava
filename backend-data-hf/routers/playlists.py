@@ -8,20 +8,39 @@ from auth_utils import get_current_user
 from typing import List, Optional
 from pydantic import BaseModel
 import uuid
+from services.spotify_import import (
+    parse_spotify_playlist_id,
+    fetch_spotify_playlist_metadata,
+    resolve_spotify_tracks_batch
+)
 
 router = APIRouter(prefix="/api/playlists", tags=["playlists"])
 
 class PlaylistCreate(BaseModel):
     title: str
     is_public: bool = False
+    cover_url: Optional[str] = None
+    description: Optional[str] = None
 
 class PlaylistUpdate(BaseModel):
     title: str
 
 class TrackAdd(BaseModel):
     yt_video_id: str
+    title: Optional[str] = None
+    artist: Optional[str] = None
+    cover_url: Optional[str] = None
+    duration: Optional[int] = None
+
+class SpotifyPreviewRequest(BaseModel):
+    url: str
+
+class SpotifyImportRequest(BaseModel):
+    url: str
+    custom_title: Optional[str] = None
 
 @router.get("/")
+@router.get("")
 async def get_playlists(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """
     Get all playlists owned by the current user.
@@ -30,6 +49,7 @@ async def get_playlists(user: User = Depends(get_current_user), db: AsyncSession
     return result.scalars().all()
 
 @router.post("/")
+@router.post("")
 async def create_playlist(data: PlaylistCreate, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """
     Create a new custom playlist.
@@ -156,7 +176,7 @@ async def delete_playlist(playlist_id: str, user: User = Depends(get_current_use
 @router.get("/{playlist_id}")
 async def get_playlist_detail(playlist_id: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """
-    Get basic playlist details.
+    Get full playlist details including tracks with metadata.
     """
     try:
         playlist_uuid = uuid.UUID(playlist_id)
@@ -168,18 +188,41 @@ async def get_playlist_detail(playlist_id: str, user: User = Depends(get_current
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
         
-    return playlist
+    # Fetch all tracks for this playlist ordered by added_at
+    tracks_result = await db.execute(
+        select(PlaylistTrack).where(PlaylistTrack.playlist_id == playlist_uuid).order_by(PlaylistTrack.added_at.asc())
+    )
+    raw_tracks = tracks_result.scalars().all()
+    tracks = [{
+        "id": t.yt_video_id,
+        "title": t.title or "Unknown Title",
+        "artist": t.artist or "Unknown Artist",
+        "coverUrl": t.cover_url or "",
+        "cover_url": t.cover_url or "",
+        "duration": t.duration or 0,
+        "added_at": t.added_at
+    } for t in raw_tracks]
+
+    return {
+        "id": str(playlist.id),
+        "title": playlist.title,
+        "description": playlist.description,
+        "cover_url": playlist.cover_url,
+        "is_public": playlist.is_public,
+        "created_at": playlist.created_at,
+        "tracks": tracks
+    }
 
 @router.get("/{playlist_id}/tracks")
 async def get_playlist_tracks(
     playlist_id: str, 
-    limit: int = 20, 
+    limit: int = 50, 
     offset: int = 0, 
     user: User = Depends(get_current_user), 
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Get paginated tracks for a specific playlist.
+    Get paginated tracks for a specific playlist with complete metadata.
     """
     try:
         playlist_uuid = uuid.UUID(playlist_id)
@@ -192,9 +235,117 @@ async def get_playlist_tracks(
         raise HTTPException(status_code=404, detail="Playlist not found or unauthorized")
 
     # Fetch paginated tracks
-    query = select(PlaylistTrack).where(PlaylistTrack.playlist_id == playlist_uuid).order_by(PlaylistTrack.added_at.desc()).limit(limit).offset(offset)
+    query = select(PlaylistTrack).where(PlaylistTrack.playlist_id == playlist_uuid).order_by(PlaylistTrack.added_at.asc()).limit(limit).offset(offset)
     result = await db.execute(query)
     tracks = result.scalars().all()
     
-    # Map to expected frontend format (fetching IDs for now)
-    return [{"id": t.yt_video_id, "added_at": t.added_at} for t in tracks]
+    return [{
+        "id": t.yt_video_id,
+        "title": t.title or "Unknown Title",
+        "artist": t.artist or "Unknown Artist",
+        "coverUrl": t.cover_url or "",
+        "cover_url": t.cover_url or "",
+        "duration": t.duration or 0,
+        "added_at": t.added_at
+    } for t in tracks]
+
+
+@router.post("/preview-spotify")
+async def preview_spotify_playlist(
+    data: SpotifyPreviewRequest,
+    user: User = Depends(get_current_user)
+):
+    """
+    Extracts metadata, cover image, and track count from a Spotify playlist link.
+    """
+    spotify_id = parse_spotify_playlist_id(data.url)
+    if not spotify_id:
+        raise HTTPException(status_code=400, detail="Invalid Spotify link. Format: https://open.spotify.com/playlist/{id} or /album/{id}")
+
+    try:
+        metadata = await fetch_spotify_playlist_metadata(spotify_id, raw_url=data.url)
+        return {
+            "spotify_id": metadata["spotify_id"],
+            "title": metadata["title"],
+            "description": metadata["description"],
+            "cover_url": metadata["cover_url"],
+            "total_tracks": metadata["total_tracks"],
+            "sample_tracks": metadata["tracks"][:6]
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch Spotify playlist: {str(e)}")
+
+
+@router.post("/import-spotify")
+async def import_spotify_playlist(
+    data: SpotifyImportRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Imports a Spotify playlist directly into the user's Paatu Padava library:
+    1. Extracts playlist metadata & track list from Spotify embed
+    2. Resolves each track to Paatu Padava catalog (via YouTube/Saavn)
+    3. Creates playlist with identical name, cover art, and description
+    4. Attaches resolved tracks
+    """
+    spotify_id = parse_spotify_playlist_id(data.url)
+    if not spotify_id:
+        raise HTTPException(status_code=400, detail="Invalid Spotify playlist or album link")
+
+    try:
+        metadata = await fetch_spotify_playlist_metadata(spotify_id, raw_url=data.url)
+        tracks_to_import = metadata.get("tracks", [])
+        if not tracks_to_import:
+            raise HTTPException(status_code=400, detail="The Spotify playlist contains no tracks.")
+
+        # Create the new Playlist in user's library
+        playlist_title = (data.custom_title or metadata.get("title") or "Imported Spotify Playlist").strip()
+        new_playlist = Playlist(
+            user_id=user.id,
+            title=playlist_title,
+            description=metadata.get("description") or f"Imported from Spotify ({metadata.get('total_tracks')} tracks)",
+            cover_url=metadata.get("cover_url"),
+            is_public=False
+        )
+        db.add(new_playlist)
+        await db.commit()
+        await db.refresh(new_playlist)
+
+        # Asynchronously resolve tracks and associate with playlist
+        # Resolve up to 75 tracks in parallel
+        resolved_tracks = await resolve_spotify_tracks_batch(tracks_to_import, max_tracks=75)
+        
+        added_count = 0
+        for item in resolved_tracks:
+            track_record = PlaylistTrack(
+                playlist_id=new_playlist.id,
+                yt_video_id=item["yt_video_id"],
+                title=item["title"],
+                artist=item["artist"],
+                cover_url=item["cover_url"],
+                duration=item.get("duration", 0)
+            )
+            db.add(track_record)
+            added_count += 1
+
+        await db.commit()
+
+        return {
+            "success": True,
+            "playlist_id": str(new_playlist.id),
+            "title": new_playlist.title,
+            "cover_url": new_playlist.cover_url,
+            "imported_count": added_count,
+            "total_spotify_tracks": metadata.get("total_tracks", 0)
+        }
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")

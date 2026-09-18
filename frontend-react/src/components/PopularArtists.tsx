@@ -47,7 +47,7 @@ const PopularArtists = ({ artists, onArtistClick }: Props) => {
           return (
             <div 
               key={artist.id || index}
-              onClick={() => onArtistClick(displayName)}
+              onClick={() => onArtistClick(artist.id || displayName)}
               className="flex flex-col items-center gap-3 cursor-pointer group flex-shrink-0 w-32 md:w-36 lg:w-40 snap-start"
             >
               {/* The Perfect Circle Image */}

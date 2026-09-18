@@ -10,10 +10,12 @@ class Trie:
     def __init__(self):
         self.root = TrieNode()
 
-    def insert(self, word: str, data: Dict[str, Any]):
+    def insert(self, word: str, data: Optional[Dict[str, Any]] = None):
         """
         Inserts a word into the trie with associated data.
         """
+        if data is None:
+            data = {"name": word, "title": word, "type": "artist"}
         node = self.root
         for char in word.lower():
             if char not in node.children:

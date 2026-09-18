@@ -109,37 +109,100 @@ def map_youtube_song(result):
         logger.error(f"Error mapping YTMusic result: {e}")
         return None
 
-async def search_youtube(query, filter=None, limit=20):
+async def search_youtube(query, filter="songs", limit=20):
     """
-    Async wrapper for YTMusic search.
+    Async wrapper for YTMusic search with dual-retrieval (songs + official videos)
+    and robust deduplication.
     """
-    if not ytmusic:
+    if not ytmusic or not query:
         return []
     
     loop = asyncio.get_event_loop()
-    try:
-        results = await loop.run_in_executor(
-            None, 
-            functools.partial(ytmusic.search, query, filter=filter, limit=limit)
-        )
-        
-        # Filter for regional accuracy: Include Top result, songs, and videos
-        # This ensures we don't miss official tracks often uploaded as 'videos' by Indian labels
-        top_results = [res for res in results if res.get('category') == 'Top result' or res.get('resultType') in ['song', 'video']]
-        
-        # If no targeted results found (unlikely), fallback to all results
-        filtered_results = top_results if top_results else results
+    
+    # If filter is explicitly set to something other than songs (e.g., 'videos'), respect it.
+    # Otherwise, default to dual-stream retrieval ('songs' + 'videos')
+    if filter and filter != "songs":
+        try:
+            results = await loop.run_in_executor(
+                None, 
+                functools.partial(ytmusic.search, query, filter=filter, limit=limit)
+            )
+            mapped_results = []
+            for res in results:
+                if res.get('videoId'):
+                    mapped = map_youtube_song(res)
+                    if mapped:
+                        mapped_results.append(mapped)
+            return mapped_results
+        except Exception as e:
+            logger.error(f"YTMusic search error ({filter}): {e}")
+            return []
 
+    # Dual-stream retrieval: Fetch studio songs AND official music videos concurrently
+    try:
+        def _fetch_songs():
+            try:
+                return ytmusic.search(query, filter="songs", limit=limit)
+            except Exception as e:
+                logger.warning(f"YTMusic songs filter search failed: {e}")
+                return []
+
+        def _fetch_videos():
+            try:
+                return ytmusic.search(query, filter="videos", limit=min(limit, 10))
+            except Exception as e:
+                logger.warning(f"YTMusic videos filter search failed: {e}")
+                return []
+
+        songs_raw, videos_raw = await asyncio.gather(
+            loop.run_in_executor(None, _fetch_songs),
+            loop.run_in_executor(None, _fetch_videos),
+            return_exceptions=True
+        )
+
+        songs_list = songs_raw if isinstance(songs_raw, list) else []
+        videos_list = videos_raw if isinstance(videos_raw, list) else []
+
+        seen_ids = set()
         mapped_results = []
-        for res in filtered_results:
-            if res.get('videoId'):
+
+        # 1. First add studio songs (highest quality audio and official album tags)
+        for res in songs_list:
+            vid = res.get('videoId')
+            if vid and vid not in seen_ids:
+                seen_ids.add(vid)
                 mapped = map_youtube_song(res)
                 if mapped:
+                    mapped["is_studio"] = True
                     mapped_results.append(mapped)
-        
+
+        # 2. Then add official music videos / lyric videos (for catalog breadth)
+        for res in videos_list:
+            vid = res.get('videoId')
+            if vid and vid not in seen_ids:
+                seen_ids.add(vid)
+                mapped = map_youtube_song(res)
+                if mapped:
+                    mapped["is_studio"] = False
+                    mapped_results.append(mapped)
+
+        # If both specific filters yielded empty results (rare), fallback to unfiltered search
+        if not mapped_results:
+            fallback = await loop.run_in_executor(
+                None,
+                functools.partial(ytmusic.search, query, limit=limit)
+            )
+            for res in fallback:
+                vid = res.get('videoId')
+                if vid and vid not in seen_ids:
+                    seen_ids.add(vid)
+                    mapped = map_youtube_song(res)
+                    if mapped:
+                        mapped_results.append(mapped)
+
         return mapped_results
     except Exception as e:
-        logger.error(f"YTMusic search error: {e}")
+        logger.error(f"YTMusic dual search error: {e}")
         return []
 
 async def search_albums_youtube(query, limit=10):
@@ -183,11 +246,22 @@ async def search_artists_youtube(query, limit=10):
         
         mapped_artists = []
         for res in results:
-            thumbnails = res.get('thumbnails', [])
+            thumbnails = res.get('thumbnails') or res.get('thumbnail') or []
+            if isinstance(thumbnails, dict):
+                img_url = thumbnails.get('url', '')
+            elif isinstance(thumbnails, list) and thumbnails:
+                img_url = thumbnails[-1].get('url', '') if isinstance(thumbnails[-1], dict) else str(thumbnails[-1])
+            else:
+                img_url = res.get('image', '')
+
+            artist_name = res.get('artist') or res.get('name') or res.get('title') or ''
+            if not artist_name or not str(artist_name).strip() or str(artist_name).strip().lower() == 'unknown artist':
+                continue
+
             mapped_artists.append({
-                "id": res.get('browseId'),
-                "name": res.get('artist'),
-                "image": thumbnails[-1].get('url') if thumbnails else "",
+                "id": res.get('browseId') or res.get('id') or '',
+                "name": str(artist_name).strip(),
+                "image": img_url or "",
                 "type": "artist"
             })
         
@@ -246,6 +320,109 @@ async def get_trending_youtube(region="global"):
         logger.error(f"YTMusic charts error: {e}")
         return []
 
+CURATED_TOP_ARTISTS = [
+    {
+        "id": "UCwzzSiogpjsYBMoyVcwDXwQ",
+        "name": "Ilaiyaraaja",
+        "cover_url": "https://lh3.googleusercontent.com/QxbV6wK_wcQWcBY9rBicZlsl1-gX5M6nGjfNN3BTzgknhaSJ6yhnHW7NmF4dTx0Ch9g9-VTD6YUD2crW=w500-h500-p-l90-rj"
+    },
+    {
+        "id": "UC7_KgmSrwM247k2lnh5GhHw",
+        "name": "Sid Sriram",
+        "cover_url": "https://yt3.googleusercontent.com/Ip35qauI_vMztXkJ3Wd6etvLwiyRrHIGvDyKK3714vyWMBx1ogHxPxkA8ohPnOLyy68wzEVBblPmsHHU=w500-h500-p-l90-rj"
+    },
+    {
+        "id": "UCtJe0RYzgPddQXKtWduxz_w",
+        "name": "A. R. Rahman",
+        "cover_url": "https://yt3.googleusercontent.com/vHMOuDn8gr3SW9Pm8yFgmtYzM5kj4ayng5HKRjW0OyjG9mPK923XMVtTZTt4NUG_1aemWNLSQ27zjtA=w500-h500-l90-rj"
+    },
+    {
+        "id": "UCbRSywya_rl8YS15Lo9ttsA",
+        "name": "Anirudh Ravichander",
+        "cover_url": "https://lh3.googleusercontent.com/wBG4jypwBcEGHd-qSbM2_4B46WPEhlOCjusCOEkxdnsoIC4WLS9LmFARZsE854pB-vAEYlsp4x2yiHE=w500-h500-p-l90-rj"
+    },
+    {
+        "id": "UCQXg6kTstIOwbrjBwE3IlDw",
+        "name": "Yuvan Shankar Raja",
+        "cover_url": "https://lh3.googleusercontent.com/-IRVL5B0n7-V9Gh9XZvQG161HYqkH_SNSHfJwWYeIcVVh35sMq9-jHTk1FCeAmeUHSdEq7UMpoVzUPw=w500-h500-p-l90-rj"
+    },
+    {
+        "id": "UCv6xCP3bn5Pdq0E4SJ4iEKg",
+        "name": "Harris Jayaraj",
+        "cover_url": "https://yt3.googleusercontent.com/uGytpfjALdTSzoh2hU7FJAqTRrhgWy0Qrio8wrpzRKwAeREv4yBQJpXm-KcOLM3LJW9VQKRNdaeXrL4=w500-h500-l90-rj"
+    },
+    {
+        "id": "UCl4iPtukwe7m0kIxUMskkgA",
+        "name": "S. P. Balasubrahmanyam",
+        "cover_url": "https://yt3.googleusercontent.com/i-PUJfHy7H3_s1AUBWUaulTzhclF5MobqSIw_3nM3a2-kfCGsY_67K-dEOW7baAiBdfHvSOuHVjR_g=w500-h500-p-l90-rj"
+    },
+    {
+        "id": "UCWUjYIas3aSW65lQOpGiRrg",
+        "name": "K. J. Yesudas",
+        "cover_url": "https://yt3.googleusercontent.com/R6D0x83Uvnnhdy55hbdpi4SS0I3xqYZsqr_WcsGY0SlQOimmh2HJrkq3KMunG0l9ymm1gGbvtY_HJw=w500-h500-p-l90-rj"
+    },
+    {
+        "id": "UCAMJ6FZcDvdrSRoYcZ14x1Q",
+        "name": "Santhosh Narayanan",
+        "cover_url": "https://yt3.googleusercontent.com/YfMj32x0B85XqpZCgWu1KXSSXsy8t4Ajt3GUIJw5oLLU94for_wN4HMDQYNvO3U-Hou1TiML9w=w500-h500-l90-rj"
+    },
+    {
+        "id": "UCK-E95XlAlzJtXKIrF4-hjA",
+        "name": "G. V. Prakash Kumar",
+        "cover_url": "https://yt3.googleusercontent.com/jEh-GLa0VeT7J8D3IhnDH9WqfdPNTp0OthFle0NNtpU6b2nVHUr3vS_trVXlBeYROz-36bAQYw=w500-h500-l90-rj"
+    },
+    {
+        "id": "UC0tPcuSe25Ly0wksSzN4iKg",
+        "name": "Pradeep Kumar",
+        "cover_url": "https://yt3.googleusercontent.com/g5vebpXaepoLnJv5fBGFmZB1NDwy8IK6VC4BK-iAOnHjdO57Fbg8py5XkgGkJ_S-hNd2_2lW=w500-h500-l90-rj"
+    },
+    {
+        "id": "UCrC-7fsdTCYeaRBpwA6j-Eg",
+        "name": "Shreya Ghoshal",
+        "cover_url": "https://yt3.ggpht.com/PgINZNe0qVxgMSXKG5vF82bNN4WCC12zgWsz9I7OLs4CLF9Cn0Vxq7Xc1ToupnzXrCv0nKfe3VM=w500-c-h500-k-c0x00ffffff-no-l90-rj"
+    },
+    {
+        "id": "UCX4g5pMVYlYN9K6D8n6HmGg",
+        "name": "Shankar Mahadevan",
+        "cover_url": "https://lh3.googleusercontent.com/dJy5Bpwx4qENTOXxk9YPXrjAhghP4pRdlzvoOZq8uZXihEPMN8PXnZzM-05R1TDDJkjU7oEij8LhEfw=w500-h500-p-l90-rj"
+    },
+    {
+        "id": "UCdSwA2RiBJIQKhCO4NXTJqQ",
+        "name": "Vijay Antony",
+        "cover_url": "https://yt3.googleusercontent.com/yneoKhPb7HK9XiZkRKK-S_2nY1cU0eY0_u0P6smf1vKGB1Z2AY9Kjt2rrnbSuKkFaTNMyPhMYePUlg=w500-h500-p-l90-rj"
+    },
+    {
+        "id": "UCm9LbLvK2bAy3pemdtduZCw",
+        "name": "D. Imman",
+        "cover_url": "https://yt3.googleusercontent.com/vyWvssNMFaoGKP2VQvVrWMcsUotLTZfzp4-nGsMEbSAngEJBvXCMEo6rbM1di1kYkTz88zbNGiaabxI=w500-h500-l90-rj"
+    },
+    {
+        "id": "UCO59Hgc5qAqhLr6EW9vy9pg",
+        "name": "Karthik",
+        "cover_url": "https://lh3.googleusercontent.com/OUTEpU0QNlUG7I21rEHkvCokmM8GsmYiIhUYcYThaiT0QsXANrcvk99WNskRIas0PZVG_eDR8XAtLwC6=w500-h500-p-l90-rj"
+    },
+    {
+        "id": "UCz087dh7lLqMBb0CipRYNjA",
+        "name": "Chinmayi Sripaada",
+        "cover_url": "https://yt3.ggpht.com/ytc/AIdro_mPEnSp0WmCq864i3bcGKgC9XGPJy07U6khn_GmIYMLGw=w500-h500-l90-rj-dcrSSejhkK"
+    },
+    {
+        "id": "UC8_JHp4od83YimfxGWqrefQ",
+        "name": "Hiphop Tamizha",
+        "cover_url": "https://yt3.googleusercontent.com/zkX7FBr1BBzAhH7U5KT6hzBbPx8kjfK1QpTRbW-oM-J8v2f6P0t9idQuPZkssxnIk3U5yBC3KcmU5g=w500-h500-p-l90-rj"
+    },
+    {
+        "id": "UCLQiZGceMt_IvFVCMOq5TCQ",
+        "name": "Deva",
+        "cover_url": "https://yt3.ggpht.com/ytc/AIdro_lNlmHeHlwCPvq1t6tEKVaXCuWqKoOxNJX9EnhHMhv6r8E=w500-h500-l90-rj-dcHWSQraUH"
+    },
+    {
+        "id": "UCMMzoPx_YAFFYP-qKoFk9rg",
+        "name": "Vidyasagar",
+        "cover_url": "https://yt3.googleusercontent.com/W_a-fL77QPLAfg_VjUFgI5yUqGV7iPWjJV2cen9SudtT4p1Ivpx-8CxyAJX9y7xK_ts7rHzpAqvob_J9=w500-h500-l90-rj"
+    }
+]
+
 async def get_home_youtube(limit=20, region=""):
     if not ytmusic:
         return {"recommendedForYou": [], "topAlbums": [], "topArtists": [], "personalized": False}
@@ -294,15 +471,15 @@ async def get_home_youtube(limit=20, region=""):
                             })
             
             response["personalized"] = len(response["recommendedForYou"]) > 0
+        else:
+            return await fetch_regional_fallback(region)
 
-        # PATH B: Guest Regional Fallback
-        if not response["recommendedForYou"] or not response["personalized"]:
-            logger.info(f"Using regional fallback logic for region: {region}")
-            fallback = await fetch_regional_fallback(region)
-            response["recommendedForYou"] = fallback["recommendedForYou"]
-            if not response["topAlbums"]: response["topAlbums"] = fallback["topAlbums"]
-            if not response["topArtists"]: response["topArtists"] = fallback["topArtists"]
-            response["personalized"] = False
+        # Ensure topArtists is always rich and contains all iconic artists
+        existing_artist_ids = {a.get("id") for a in response["topArtists"] if a.get("id")}
+        for artist in CURATED_TOP_ARTISTS:
+            if artist["id"] not in existing_artist_ids:
+                response["topArtists"].append(artist)
+                existing_artist_ids.add(artist["id"])
 
         return response
     except Exception as e:
@@ -311,7 +488,11 @@ async def get_home_youtube(limit=20, region=""):
 
 async def fetch_regional_fallback(region=""):
     loop = asyncio.get_event_loop()
-    response = {"recommendedForYou": [], "topAlbums": [], "topArtists": []}
+    response = {
+        "recommendedForYou": [], 
+        "topAlbums": [], 
+        "topArtists": list(CURATED_TOP_ARTISTS)
+    }
     
     song_query = f"{region} Hit Songs" if region else "Tamil Hit Songs"
     search_songs = await loop.run_in_executor(None, functools.partial(ytmusic.search, song_query, filter="songs", limit=12))
@@ -329,14 +510,21 @@ async def fetch_regional_fallback(region=""):
             "cover_url": item.get('thumbnails', [{'url': ''}])[-1].get('url', '')
         })
 
-    artist_query = f"Trending {region} Artists" if region else "Trending Tamil Artists"
-    search_artists = await loop.run_in_executor(None, functools.partial(ytmusic.search, artist_query, filter="artists", limit=20))
-    for item in search_artists:
-        response["topArtists"].append({
-            "id": item.get('browseId', ''),
-            "name": item.get('artist', item.get('title', 'Unknown Artist')),
-            "cover_url": item.get('thumbnails', [{'url': ''}])[-1].get('url', '')
-        })
+    try:
+        artist_query = f"Trending {region} Artists" if region else "Trending Tamil Artists"
+        search_artists = await loop.run_in_executor(None, functools.partial(ytmusic.search, artist_query, filter="artists", limit=10))
+        existing_ids = {a.get("id") for a in response["topArtists"]}
+        for item in search_artists:
+            b_id = item.get('browseId', '')
+            if b_id and b_id not in existing_ids:
+                response["topArtists"].append({
+                    "id": b_id,
+                    "name": item.get('artist', item.get('title', 'Unknown Artist')),
+                    "cover_url": item.get('thumbnails', [{'url': ''}])[-1].get('url', '')
+                })
+                existing_ids.add(b_id)
+    except Exception as ae:
+        logger.warning(f"Regional artist search error: {ae}")
 
     return response
 
@@ -370,11 +558,49 @@ async def get_artist_details_youtube(channel_id):
     
     loop = asyncio.get_event_loop()
     try:
-        results = await loop.run_in_executor(
-            None, 
-            functools.partial(ytmusic.get_artist, channelId=channel_id)
-        )
-        
+        results = None
+        # Attempt direct lookup if ID looks like a valid YouTube browse/channel ID
+        if channel_id and (channel_id.startswith("UC") or channel_id.startswith("FE") or len(channel_id) > 20):
+            try:
+                results = await loop.run_in_executor(
+                    None, 
+                    functools.partial(ytmusic.get_artist, channelId=channel_id)
+                )
+            except Exception:
+                results = None
+
+        # Fallback: search for artist by name/query if direct lookup failed or channel_id was a name
+        if not results or not results.get('name'):
+            search_query = channel_id.replace("%20", " ")
+            try:
+                search_res = await loop.run_in_executor(
+                    None,
+                    functools.partial(ytmusic.search, query=search_query, filter="artists")
+                )
+                if search_res and len(search_res) > 0:
+                    first_artist = search_res[0]
+                    browse_id = first_artist.get("browseId")
+                    if browse_id:
+                        try:
+                            results = await loop.run_in_executor(
+                                None,
+                                functools.partial(ytmusic.get_artist, channelId=browse_id)
+                            )
+                        except Exception:
+                            results = None
+
+                    if not results:
+                        results = {
+                            "channelId": browse_id or channel_id,
+                            "name": first_artist.get("artist", search_query),
+                            "thumbnails": first_artist.get("thumbnails", [])
+                        }
+            except Exception as se:
+                logger.warning(f"Artist search fallback error: {se}")
+
+        if not results:
+            return {"name": channel_id.replace("%20", " "), "image": "", "topSongs": []}
+
         thumbnails = safe_get(results, 'thumbnails', [])
         image_url = thumbnails[-1].get('url') if isinstance(thumbnails, list) and thumbnails else ""
         
@@ -389,9 +615,25 @@ async def get_artist_details_youtube(channel_id):
                 if mapped:
                     mapped_songs.append(mapped)
                 
+        # If no songs in artist profile, query top songs for this artist so the page is rich
+        if not mapped_songs:
+            artist_name = safe_get(results, 'name', channel_id.replace("%20", " "))
+            try:
+                songs_search = await loop.run_in_executor(
+                    None,
+                    functools.partial(ytmusic.search, query=f"{artist_name} hits", filter="songs")
+                )
+                if songs_search and isinstance(songs_search, list):
+                    for s in songs_search[:10]:
+                        mapped = map_youtube_song(s)
+                        if mapped:
+                            mapped_songs.append(mapped)
+            except Exception as sq_err:
+                logger.warning(f"Top songs search fallback error: {sq_err}")
+
         return {
-            "id": safe_get(results, 'channelId'),
-            "name": safe_get(results, 'name'),
+            "id": safe_get(results, 'channelId', channel_id),
+            "name": safe_get(results, 'name', channel_id.replace("%20", " ")),
             "image": image_url,
             "topSongs": mapped_songs
         }
@@ -405,11 +647,37 @@ async def get_album_details_youtube(browse_id):
     
     loop = asyncio.get_event_loop()
     try:
-        results = await loop.run_in_executor(
-            None, 
-            functools.partial(ytmusic.get_album, browseId=browse_id)
-        )
+        results = None
+        if browse_id and (browse_id.startswith("MPRE") or len(browse_id) > 20):
+            try:
+                results = await loop.run_in_executor(
+                    None, 
+                    functools.partial(ytmusic.get_album, browseId=browse_id)
+                )
+            except Exception:
+                results = None
         
+        # Fallback: search for album by title if not found directly
+        if not results:
+            album_query = browse_id.replace("%20", " ")
+            try:
+                search_res = await loop.run_in_executor(
+                    None,
+                    functools.partial(ytmusic.search, query=album_query, filter="albums")
+                )
+                if search_res and len(search_res) > 0:
+                    found_id = search_res[0].get("browseId")
+                    if found_id:
+                        results = await loop.run_in_executor(
+                            None,
+                            functools.partial(ytmusic.get_album, browseId=found_id)
+                        )
+            except Exception as se:
+                logger.warning(f"Album search fallback error: {se}")
+
+        if not results:
+            return {}
+
         thumbnails = safe_get(results, 'thumbnails', [])
         image_url = thumbnails[-1].get('url') if isinstance(thumbnails, list) and thumbnails else ""
         
@@ -426,13 +694,14 @@ async def get_album_details_youtube(browse_id):
                             mapped_songs.append(mapped)
         
         return {
-            "id": safe_get(results, 'browseId'),
-            "title": safe_get(results, 'title'),
-            "artist": safe_get(results, 'artists', [{}])[0].get('name', 'Unknown Artist') if isinstance(safe_get(results, 'artists'), list) else 'Unknown Artist',
+            "id": safe_get(results, 'browseId', browse_id),
+            "title": safe_get(results, 'title', 'Album'),
+            "artist": safe_get(results, 'artists', [{}])[0].get('name', 'Unknown Artist') if isinstance(safe_get(results, 'artists'), list) and results.get('artists') else 'Unknown Artist',
             "image": image_url,
             "songs": mapped_songs
         }
     except Exception as e:
         logger.error(f"YTMusic album details error: {e}")
+        return {}
 
 

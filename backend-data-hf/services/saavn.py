@@ -2,6 +2,13 @@ import httpx
 import json
 import html
 import logging
+import base64
+try:
+    from cryptography.hazmat.decrepit.ciphers.algorithms import TripleDES
+except ImportError:
+    from cryptography.hazmat.primitives.ciphers.algorithms import TripleDES
+from cryptography.hazmat.primitives.ciphers import Cipher, modes
+
 from graph import recommendation_graph
 from typing import List, Dict, Any, Optional
 from fastapi_cache.decorator import cache
@@ -125,18 +132,50 @@ def extract_audio_url(item: Dict[str, Any]) -> str:
         
     return ""
 
+def decrypt_saavn_media_url(encrypted_url: str) -> str:
+    """
+    Directly decrypts JioSaavn's DES-encrypted media URL to pristine CDN audio streams.
+    Replaces 96kbps / 160kbps with 320kbps for maximum fidelity.
+    """
+    if not encrypted_url:
+        return ""
+    try:
+        key = b'38346591' * 3
+        cipher = Cipher(TripleDES(key), modes.ECB())
+        decryptor = cipher.decryptor()
+        raw_data = base64.b64decode(encrypted_url)
+        decrypted = decryptor.update(raw_data) + decryptor.finalize()
+        pad = decrypted[-1]
+        if pad < 8:
+            decrypted = decrypted[:-pad]
+        url = decrypted.decode('utf-8', errors='ignore').strip()
+        if '_96.mp4' in url:
+            return url.replace('_96.mp4', '_320.mp4')
+        if '_160.mp4' in url:
+            return url.replace('_160.mp4', '_320.mp4')
+        return url
+    except Exception:
+        return ""
+
 async def fetch_from_saavn(endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
-    Generic fetch utility for JioSaavn API.
+    Generic fetch utility for JioSaavn proxy fallback.
+    Catches 429 rate limits quietly to avoid log spam.
     """
     async with httpx.AsyncClient() as client:
         try:
             url = f"{SAAVN_API_URL.rstrip('/')}/{endpoint.lstrip('/')}"
-            response = await client.get(url, params=params, timeout=15.0)
+            response = await client.get(url, params=params, timeout=3.0)
             response.raise_for_status()
             return response.json()
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                logger.debug(f"Saavn proxy 429 rate limited on {endpoint}; falling back silently.")
+            else:
+                logger.warning(f"Saavn API status error ({endpoint}): {e}")
+            return {"success": False, "data": None}
         except Exception as e:
-            print(f"API Request Failed ({endpoint}): {str(e)}")
+            logger.debug(f"Saavn API Request Failed ({endpoint}): {str(e)}")
             return {"success": False, "data": None}
 
 async def map_saavn_song(item: Dict[str, Any], lenient: bool = False) -> Dict[str, Any]:
@@ -255,19 +294,87 @@ async def map_saavn_song(item: Dict[str, Any], lenient: bool = False) -> Dict[st
         print(f"⚠️ Mapping failed for item: {str(e)}")
         return {}
 
+async def search_saavn_direct(query: str, limit: int = 15) -> List[Dict[str, Any]]:
+    """
+    Directly searches JioSaavn's official API (www.jiosaavn.com/api.php).
+    Bypasses third-party proxy nodes to completely eliminate 429 Too Many Requests.
+    """
+    clean_query = query.strip()
+    if not clean_query:
+        return []
+
+    url = "https://www.jiosaavn.com/api.php"
+    params = {
+        "__call": "search.getResults",
+        "_format": "json",
+        "_marker": "0",
+        "api_version": "4",
+        "ctx": "web6dot0",
+        "p": "1",
+        "n": str(limit),
+        "q": clean_query
+    }
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*"
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, params=params, headers=headers, timeout=4.0)
+            if resp.status_code != 200:
+                return []
+            data = resp.json()
+            results = data.get("results", [])
+            mapped_songs = []
+            for item in results:
+                more = item.get("more_info", {})
+                enc_url = more.get("encrypted_media_url", "")
+                audio_url = decrypt_saavn_media_url(enc_url)
+                if not audio_url:
+                    continue
+                title = html.unescape(item.get("title", "Unknown Title"))
+                artist = html.unescape(more.get("music") or more.get("singers") or "Unknown Artist")
+                album = html.unescape(more.get("album") or "Unknown Album")
+                img = extract_high_res_image(item.get("image", ""))
+                duration = int(more.get("duration", 0)) if more.get("duration") else 0
+                mapped_songs.append({
+                    "id": item.get("id"),
+                    "title": title,
+                    "artist": artist,
+                    "artist_id": item.get("id"),
+                    "album": album,
+                    "album_id": more.get("album_id", ""),
+                    "cover_url": img,
+                    "coverUrl": img,
+                    "image": img,
+                    "audio_url": audio_url,
+                    "audioUrl": audio_url,
+                    "duration": duration,
+                    "download_urls": [audio_url],
+                    "is_studio": True,
+                    "source": "saavn"
+                })
+            return mapped_songs
+    except Exception as e:
+        logger.debug(f"Direct Saavn search failed: {e}")
+        return []
+
 @cache(expire=1800)
 async def search_saavn(query: str, language: str = None) -> List[Dict[str, Any]]:
     """
     Official Search implementation. Strictly returns playable tracks.
-    Expects 'query' to be potentially pre-encoded or contain special characters.
-    'language' is a comma-separated string of prioritized languages.
+    1. First attempts direct JioSaavn official API with DES decryption (bypasses 429 proxy).
+    2. Falls back to public proxy with silent exception catching if direct query is empty.
     """
-    # Note: httpx.get with params=params handles URI encoding automatically.
-    # To avoid double-encoding if 'query' was pre-quoted, we ensure it's unquoted first
-    # so that the library can handle it cleanly and consistently.
     from urllib.parse import unquote
     clean_query = unquote(query)
     
+    # 1. Direct core API (Fastest, zero rate limits, authentic 320kbps stream URLs)
+    direct_results = await search_saavn_direct(clean_query, limit=15)
+    if direct_results:
+        return direct_results
+
+    # 2. Fallback to public mirror with silent error handling
     params = {"query": clean_query}
     if language:
         params["language"] = language
@@ -275,8 +382,6 @@ async def search_saavn(query: str, language: str = None) -> List[Dict[str, Any]]
     response = await fetch_from_saavn("search/songs", params)
     data = response.get("data") or {}
     results = data.get("results", [])
-    
-    print(f"[SEARCH DEBUG] Found {len(results)} items in API results for '{query}'")
     
     mapped_songs = []
     for item in results:

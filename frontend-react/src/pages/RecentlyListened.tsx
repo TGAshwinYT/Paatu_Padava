@@ -144,7 +144,7 @@ const History = () => {
   if (isLoading) {
     return (
       <div className="flex justify-center py-20 min-h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-500"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand"></div>
       </div>
     );
   }
@@ -163,7 +163,7 @@ const History = () => {
 
         {/* Filter Chip */}
         <div className="px-4 -mt-2">
-          <div className="inline-flex items-center px-4 py-1.5 bg-[#282828] text-white rounded-full text-xs font-medium border border-transparent">
+          <div className="inline-flex items-center px-4 py-1.5 bg-surface text-white rounded-full text-xs font-medium border border-transparent">
             Music
           </div>
         </div>
@@ -341,7 +341,7 @@ const History = () => {
                                  e.stopPropagation();
                                  playContext(song, allItems);
                                }}
-                               className="absolute bottom-2 right-2 p-3 bg-green-500 rounded-full text-black shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all"
+                               className="absolute bottom-2 right-2 p-3 bg-brand hover:bg-brand-hover rounded-full text-black shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all"
                              >
                                <Play fill="currentColor" size={20} />
                              </button>

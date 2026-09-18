@@ -91,7 +91,7 @@ const AddToPlaylistModal: React.FC<AddToPlaylistModalProps> = ({ song, isOpen, o
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
-      <div className="bg-[#181818] w-full max-w-sm rounded-2xl shadow-2xl border border-white/5 overflow-hidden animate-in zoom-in-95 duration-300">
+      <div className="bg-surface-card w-full max-w-sm rounded-2xl shadow-2xl border border-white/5 overflow-hidden animate-in zoom-in-95 duration-300">
         <div className="p-6">
           <div className="flex justify-between items-center mb-6">
             <div>
@@ -113,7 +113,7 @@ const AddToPlaylistModal: React.FC<AddToPlaylistModalProps> = ({ song, isOpen, o
                   className="w-full flex items-center gap-4 p-3 rounded-xl hover:bg-neutral-800/80 transition-all group border border-transparent hover:border-white/5"
                 >
                   <div className="bg-neutral-800 p-2.5 rounded-lg group-hover:bg-neutral-700 transition-colors">
-                    <Music size={18} className="text-neutral-500 group-hover:text-green-500" />
+                    <Music size={18} className="text-neutral-500 group-hover:text-brand" />
                   </div>
                   <span className="font-medium text-neutral-200 text-left truncate flex-1">{playlist.title}</span>
                 </button>
@@ -142,12 +142,12 @@ const AddToPlaylistModal: React.FC<AddToPlaylistModalProps> = ({ song, isOpen, o
               <div className="mt-4 animate-in slide-in-from-top-2 duration-300">
                 {status === 'loading' && (
                     <div className="flex items-center justify-center gap-2 text-neutral-400 py-2">
-                        <Loader2 size={16} className="animate-spin text-green-500" />
+                        <Loader2 size={16} className="animate-spin text-brand" />
                         <span className="text-xs font-semibold">Processing...</span>
                     </div>
                 )}
                 {status === 'success' && (
-                    <div className="flex items-center justify-center gap-2 text-green-500 py-2 bg-green-500/10 rounded-lg">
+                    <div className="flex items-center justify-center gap-2 text-brand py-2 bg-brand/10 rounded-lg">
                         <CheckCircle2 size={16} />
                         <span className="text-xs font-bold">Successfully added!</span>
                     </div>

@@ -1,6 +1,7 @@
 import axios from 'axios';
 import type { Song } from '../types';
 import { getValidImage } from '../utils/imageUtils';
+import { saveOfflineTrack } from '../utils/offlineStorage';
 
 export const mapHistoryToSong = (item: any): Song => {
   if (!item) return { id: '', title: 'Unknown', artist: 'Unknown', coverUrl: '', audioUrl: '' };
@@ -38,29 +39,9 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// 🚨 REGION DETECTION HELPER 🚨
-const getUserRegion = async (): Promise<string> => {
-  const cachedRegion = localStorage.getItem('user_region');
-  if (cachedRegion) return cachedRegion;
-
-  try {
-    const response = await axios.get('https://ipapi.co/json/');
-    const region = response.data.region || 'Maharashtra';
-    localStorage.setItem('user_region', region);
-    return region;
-  } catch (error) {
-    console.warn("Region detection failed, falling back to Maharashtra:", error);
-    return 'Maharashtra';
-  }
-};
-
 export const getHomeFeed = async (): Promise<{ recentlyPlayed: Song[], topAlbums: Song[], topArtists: Song[], recommendedForYou: Song[], personalized: boolean }> => {
   try {
-    // 1. Fetch user region for localization
-    const region = await getUserRegion();
-    
-    // 2. Pass region as query param
-    const response = await api.get('/api/music/home', { params: { region } });
+    const response = await api.get('/api/music/home');
     const { recentlyPlayed, topAlbums, topArtists, recommendedForYou, personalized } = response.data;
     return { 
       recentlyPlayed: (recentlyPlayed || []).map(mapHistoryToSong), 
@@ -153,8 +134,32 @@ export const getSuggestions = async (query: string): Promise<any> => {
     const data = response.data;
     return {
       songs: (data.songs || []).map(mapHistoryToSong),
-      artists: (data.artists || []).map(mapHistoryToSong),
-      albums: (data.albums || []).map(mapHistoryToSong)
+      artists: (data.artists || []).map((a: any) => {
+        const name = a.name || a.artist || a.title || 'Unknown Artist';
+        const img = a.image || a.coverUrl || a.cover_url || (Array.isArray(a.thumbnails) ? a.thumbnails[a.thumbnails.length - 1]?.url : '') || '/logo.png';
+        return {
+          id: a.id || a.browseId || '',
+          name,
+          artist: name,
+          title: name,
+          image: img,
+          coverUrl: img,
+          type: 'artist'
+        };
+      }),
+      albums: (data.albums || []).map((alb: any) => {
+        const title = alb.title || alb.name || 'Unknown Album';
+        const img = alb.coverUrl || alb.image || alb.cover_url || '/logo.png';
+        return {
+          id: alb.id || '',
+          title,
+          name: title,
+          artist: alb.artist || alb.artists || '',
+          coverUrl: img,
+          image: img,
+          type: 'album'
+        };
+      })
     };
   } catch (error) {
     console.error("Error fetching suggestions:", error);
@@ -170,19 +175,53 @@ export const addListenHistory = async (track: Song) => {
       title: track.title || "Unknown Title",
       artist: track.artist || "Unknown Artist",
       cover_url: getValidImage(track),
-      audio_url: track.audioUrl || ""
+      audio_url: track.audioUrl || "",
+      language: track.language || ""
     });
   } catch (error) {
     console.error("Failed to add to history:", error);
   }
 };
 
-export const getRecommendations = async (songId: string, artist?: string, language?: string): Promise<Song[]> => {
+export const getPersonalMix = async (): Promise<{ queue: Song[], personalized: boolean }> => {
+  try {
+    const response = await api.get('/api/music/for-you');
+    const queue = (response.data?.queue || []).map(mapHistoryToSong);
+    return {
+      queue,
+      personalized: !!response.data?.personalized
+    };
+  } catch (error) {
+    console.error("Error fetching personal mix:", error);
+    return { queue: [], personalized: false };
+  }
+};
+
+export const getShuffleOrder = async (queueIds: string[], currentSongId?: string): Promise<string[]> => {
+  try {
+    const response = await api.post('/api/music/shuffle-order', {
+      queue_ids: queueIds,
+      current_song_id: currentSongId
+    });
+    return response.data?.ordered_ids || [];
+  } catch (error) {
+    console.error("Error fetching shuffle order:", error);
+    return [];
+  }
+};
+
+export const getRecommendations = async (
+  songId: string, 
+  artist?: string, 
+  language?: string, 
+  limit: number = 25
+): Promise<Song[]> => {
   try {
     const response = await api.get(`/api/music/recommendations/${songId}`, {
       params: {
         ...(artist ? { artist } : {}),
-        ...(language ? { lang: language } : {})
+        ...(language ? { lang: language } : {}),
+        limit
       }
     });
     return (response.data || []).map(mapHistoryToSong);
@@ -273,6 +312,17 @@ export const updatePreferences = async (artists: string[]) => {
   }
 };
 
+export const updatePreferredLanguages = async (languages: string[]) => {
+  try {
+    const response = await api.patch('/api/auth/language-preferences', languages);
+    return response.data;
+  } catch (error) {
+    console.error("Error updating language preferences:", error);
+    throw error;
+  }
+};
+
+
 export const saveSearchClick = async (track: Song) => {
   if (!localStorage.getItem('token')) return; // Silently skip for guests
   try {
@@ -281,7 +331,8 @@ export const saveSearchClick = async (track: Song) => {
       title: track.title || "Unknown Title",
       artist: track.artist || "Unknown Artist",
       cover_url: track.coverUrl || "",
-      audio_url: track.audioUrl || ""
+      audio_url: track.audioUrl || "",
+      language: track.language || ""
     });
   } catch (error) {
     console.error("Error saving search click:", error);
@@ -309,12 +360,12 @@ export const deleteSearchHistoryItem = async (historyId: string) => {
   }
 };
 
-export const getPlaylistDetail = async (id: string): Promise<{ title: string, songs: Song[] }> => {
+export const getPlaylistDetail = async (id: string): Promise<{ title: string, description?: string, coverUrl?: string, songs: Song[] }> => {
   try {
     const response = await api.get(`/api/playlists/${id}`);
-    const { title, tracks } = response.data;
+    const { title, description, cover_url, tracks } = response.data;
     const songs = (tracks || []).map(mapHistoryToSong);
-    return { title, songs };
+    return { title, description, coverUrl: cover_url, songs };
   } catch (error) {
     console.error("Error fetching playlist detail:", error);
     return { title: "Playlist", songs: [] };
@@ -393,6 +444,167 @@ export const unfollowArtist = async (artistId: string) => {
   } catch (error) {
     console.error("Error unfollowing artist:", error);
     throw error;
+  }
+};
+
+export interface StreamResolution {
+  song_id: string;
+  audio_url: string | null;
+  download_urls?: string[];
+  youtube_id?: string;
+  engine: 'native' | 'youtube';
+  source: string;
+  cached?: boolean;
+}
+
+export const resolveStreamUrl = async (
+  songId: string, 
+  title?: string, 
+  artist?: string
+): Promise<StreamResolution | null> => {
+  if (!songId) return null;
+  try {
+    const params: Record<string, string> = {};
+    if (title) params.title = title;
+    if (artist) params.artist = artist;
+    const response = await api.get(`/api/music/stream/${encodeURIComponent(songId)}`, { params });
+    return response.data;
+  } catch (error) {
+    console.debug('[API] resolveStreamUrl error:', error);
+    return null;
+  }
+};
+
+export const prefetchStreamUrls = async (
+  tracks: { id: string; title?: string; artist?: string }[]
+): Promise<StreamResolution[]> => {
+  if (!tracks || tracks.length === 0) return [];
+  try {
+    const response = await api.post('/api/music/prefetch-stream', {
+      tracks: tracks.map(t => ({ id: t.id, title: t.title, artist: t.artist }))
+    });
+    return response.data?.streams || [];
+  } catch (error) {
+    console.debug('[API] prefetchStreamUrls error:', error);
+    return [];
+  }
+};
+
+export const savePlayerStateToRedis = async (state: any): Promise<boolean> => {
+  try {
+    const response = await api.post('/api/music/player-state', state);
+    return !!response.data?.saved;
+  } catch (error) {
+    console.debug('[API] savePlayerStateToRedis error:', error);
+    return false;
+  }
+};
+
+export const getPlayerStateFromRedis = async (): Promise<any> => {
+  try {
+    const response = await api.get('/api/music/player-state');
+    return response.data;
+  } catch (error) {
+    console.debug('[API] getPlayerStateFromRedis error:', error);
+    return null;
+  }
+};
+
+export interface SpotifyPlaylistPreview {
+  spotify_id: string;
+  title: string;
+  description: string;
+  cover_url: string;
+  total_tracks: number;
+  sample_tracks: { title: string; artist: string; duration: number }[];
+}
+
+export interface SpotifyImportResult {
+  success: boolean;
+  playlist_id: string;
+  title: string;
+  cover_url: string;
+  imported_count: number;
+  total_spotify_tracks: number;
+}
+
+export const previewSpotifyPlaylist = async (url: string): Promise<SpotifyPlaylistPreview> => {
+  const response = await api.post('/api/playlists/preview-spotify', { url });
+  return response.data;
+};
+
+export const importSpotifyPlaylist = async (url: string, customTitle?: string): Promise<SpotifyImportResult> => {
+  const response = await api.post('/api/playlists/import-spotify', {
+    url,
+    custom_title: customTitle
+  });
+  return response.data;
+};
+
+export const getDownloadTrackUrl = (song: Song): string => {
+  const baseURL = api.defaults.baseURL || '';
+  const params = new URLSearchParams();
+  if (song.id) params.append('song_id', song.id);
+  if (song.title) params.append('title', song.title);
+  if (song.artist) params.append('artist', song.artist);
+  if (song.audioUrl && song.audioUrl.startsWith('http')) {
+    params.append('url', song.audioUrl);
+  }
+  return `${baseURL}/api/music/download?${params.toString()}`;
+};
+
+export const downloadSongFile = async (
+  song: Song,
+  onProgress?: (percent: number) => void
+): Promise<void> => {
+  if (!song) return;
+
+  const downloadUrl = getDownloadTrackUrl(song);
+
+  try {
+    const response = await api.get('/api/music/download', {
+      params: {
+        ...(song.id ? { song_id: song.id } : {}),
+        ...(song.title ? { title: song.title } : {}),
+        ...(song.artist ? { artist: song.artist } : {}),
+        ...(song.audioUrl && song.audioUrl.startsWith('http') ? { url: song.audioUrl } : {})
+      },
+      responseType: 'blob',
+      onDownloadProgress: (progressEvent) => {
+        if (progressEvent.total && onProgress) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(percent);
+        }
+      }
+    });
+
+    const blob = new Blob([response.data], { type: 'audio/mpeg' });
+
+    // 1. Save for offline playback
+    await saveOfflineTrack(song, blob, '320kbps');
+
+    // 2. Trigger native download to user's device
+    const cleanTitle = (song.title || 'Track').replace(/[^\w\s-]/g, '').trim() || 'Track';
+    const cleanArtist = (song.artist || 'Paatu Padava').replace(/[^\w\s-]/g, '').trim() || 'Paatu Padava';
+    const filename = `${cleanTitle} - ${cleanArtist}.mp3`;
+
+    const blobUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+
+  } catch (error) {
+    console.error('Direct download blob failed, using fallback URL:', error);
+    const fallbackLink = document.createElement('a');
+    fallbackLink.href = downloadUrl;
+    fallbackLink.target = '_blank';
+    document.body.appendChild(fallbackLink);
+    fallbackLink.click();
+    document.body.removeChild(fallbackLink);
   }
 };
 

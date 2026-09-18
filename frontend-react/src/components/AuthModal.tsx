@@ -34,7 +34,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-[#181818] w-full max-w-md rounded-xl p-8 relative animate-in fade-in zoom-in duration-300 shadow-2xl">
+      <div className="bg-surface-card w-full max-w-md rounded-xl p-8 relative animate-in fade-in zoom-in duration-300 shadow-2xl">
         <button 
           onClick={onClose}
           className="absolute right-4 top-4 text-gray-400 hover:text-white transition-colors"
@@ -62,7 +62,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="Your username"
-                className="w-full bg-[#282828] border-none rounded-lg p-3 text-white focus:ring-2 focus:ring-green-500 transition-all outline-none"
+                className="w-full bg-surface border-none rounded-lg p-3 text-white focus:ring-2 focus:ring-brand transition-all outline-none"
               />
             </div>
           )}
@@ -75,7 +75,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="name@example.com"
-              className="w-full bg-[#282828] border-none rounded-lg p-3 text-white focus:ring-2 focus:ring-green-500 transition-all outline-none"
+              className="w-full bg-surface border-none rounded-lg p-3 text-white focus:ring-2 focus:ring-brand transition-all outline-none"
             />
           </div>
 
@@ -87,14 +87,14 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full bg-[#282828] border-none rounded-lg p-3 text-white focus:ring-2 focus:ring-green-500 transition-all outline-none"
+              className="w-full bg-surface border-none rounded-lg p-3 text-white focus:ring-2 focus:ring-brand transition-all outline-none"
             />
           </div>
 
           <button 
             type="submit"
             disabled={isLoading}
-            className="w-full bg-green-500 text-black font-bold p-3 rounded-full hover:scale-105 transition-transform disabled:opacity-50 disabled:hover:scale-100 mt-4"
+            className="w-full bg-brand hover:bg-brand-hover text-black font-bold p-3 rounded-full hover:scale-105 transition-transform disabled:opacity-50 disabled:hover:scale-100 mt-4"
           >
             {isLoading ? 'Processing...' : isLogin ? 'Log In' : 'Sign Up'}
           </button>

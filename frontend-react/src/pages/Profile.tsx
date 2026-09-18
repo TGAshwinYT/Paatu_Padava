@@ -20,6 +20,16 @@ const Profile = () => {
         }
     }, [user]);
 
+    // Handle scroll to artists when navigated via profile menu
+    useEffect(() => {
+        if (window.location.hash === '#artists') {
+            setTimeout(() => {
+                const el = document.getElementById('artists-section');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }, 100);
+        }
+    }, [followedArtists]);
+
     const fetchFollowed = async () => {
         const data = await getFollowedArtists();
         setFollowedArtists(data);
@@ -93,14 +103,12 @@ const Profile = () => {
                     </h1>
                     <div className="flex items-center gap-4 mt-6">
                         <span className="text-sm font-medium text-neutral-400">{followedArtists.length} Following</span>
-                        <div className="w-1 h-1 rounded-full bg-neutral-600" />
-                        <span className="text-sm font-medium text-neutral-400">Premium Member</span>
                     </div>
                 </div>
             </div>
 
             {/* Sections */}
-            <div className="flex flex-col gap-12 mt-8">
+            <div id="artists-section" className="flex flex-col gap-12 mt-8 scroll-mt-24">
                 {/* Top Artists (Proxy using first 6 followed) */}
                 {followedArtists.length > 0 && (
                     <HomeSection title="Top artists this month">
@@ -135,9 +143,9 @@ const Profile = () => {
                     }
                 >
                     {followedArtists.length > 0 ? (
-                         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
+                          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
                             {followedArtists.map((artist) => (
-                                <div key={artist.id} className="bg-[#181818] p-5 rounded-xl hover:bg-[#282828] transition-all group relative">
+                                <div key={artist.id} className="bg-surface-card p-5 rounded-xl hover:bg-surface transition-all group relative">
                                     <div className="w-full aspect-square rounded-full overflow-hidden mb-4 shadow-lg">
                                         <img 
                                             src={artist.imageUrl || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop'} 
@@ -168,7 +176,7 @@ const Profile = () => {
             {/* Edit Preferences Modal */}
             {isModalOpen && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
-                    <div className="bg-[#181818] w-full max-w-2xl rounded-2xl shadow-2xl border border-white/10 flex flex-col max-h-[80vh] overflow-hidden">
+                    <div className="bg-surface-card w-full max-w-2xl rounded-2xl shadow-2xl border border-white/10 flex flex-col max-h-[80vh] overflow-hidden">
                         {/* Modal Header */}
                         <div className="p-6 border-b border-white/5 flex items-center justify-between">
                             <h2 className="text-2xl font-black text-white">Find Artists</h2>

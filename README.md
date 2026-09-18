@@ -1,179 +1,190 @@
-# 🎵 Paatu Padava
+---
+title: Paaatu_Padava
+emoji: 🎵
+colorFrom: indigo
+colorTo: purple
+sdk: docker
+pinned: false
+---
 
-A full-stack, YouTube/Saavn-powered music streaming web app — search for songs, stream audio, follow artists, build playlists, view synced lyrics, and get AI-curated "DJ" recommendations. Built with a **React + TypeScript** frontend and a **FastAPI (Python)** backend, with a React Native mobile client in progress.
+# 🎵 Paatu Padava (பாட்டு பாடவா) — v2.0
 
-> Note: This file documents the actual web application. The auto-generated `README.md` in this repo is the default Vite template file and has been left untouched as requested — refer to this file for real project documentation.
+> **Your Infinite Music Universe** — Studio-quality 320kbps audio streaming, dual-engine hybrid audio resolution, collaborative filtering recommendation graphs, smart shuffle queues, Spotify playlist & album imports, and 100% true offline HTML5 CacheStorage playback.
 
 ---
 
-## ✨ Features
+## 🌟 Overview
 
-- **Search & Discover** — Search tracks and artists with instant autocomplete suggestions (powered by an in-memory Trie), browse a personalized home feed, and explore popular albums/artists.
-- **Streaming** — Stream audio sourced via YouTube Music (`ytmusicapi`, `yt-dlp`) with a custom audio player and mobile player overlay.
-- **Lyrics** — Fetch plain and time-synced lyrics (via `syncedlyrics` / LRCLIB) that scroll in time with playback.
-- **Playlists & Library** — Create, rename, and delete playlists, add/remove songs, like songs, and follow your favorite artists.
-- **Listening History** — Automatic listen history, search history, and "recently clicked" search results, with the ability to clear history by song, by date, or entirely.
-- **AI DJ** — An AI-powered recommendation endpoint (Google Gemini) that curates a queue based on mood/prompt.
-- **Recommendation Graph** — A graph-based "related songs" engine that connects trending tracks so users get relevant recommendations.
-- **Auth & Accounts** — Email/password registration with email verification, login/logout (JWT-based sessions), password reset, and profile preferences (favorite artists).
-- **Data Portability** — Export and import your account data (playlists, history, likes) as a file.
-- **Onboarding** — First-run onboarding flow to pick favorite artists/genres.
-- **Responsive & Mobile-aware UI** — Dedicated mobile views (`Mobile Home`, `Mobile Search`, `Mobile Library`, mobile player overlay) alongside the desktop experience, plus an early-stage React Native mobile app.
+**Paatu Padava** is a modern, high-performance web music streaming platform tailored for regional Indian and international music lovers. Built with **React 19**, **Vite**, and **FastAPI**, it combines direct high-fidelity 320kbps audio streams with YouTube Music failover to deliver an uninterrupted, ad-free listening experience.
+
+Whether you are listening online with real-time synchronized karaoke lyrics and dynamic 10-band equalization, or travelling completely offline with cached audio tracks, Paatu Padava keeps the music playing smoothly.
 
 ---
 
-## 🏗️ Tech Stack
+## ✨ Key Features
 
-### Frontend (`frontend-react/`)
-- **React 19** + **TypeScript** + **Vite**
-- **Tailwind CSS** for styling
-- **React Router** for navigation
-- **Axios** for API calls
-- **Swiper**, **@hello-pangea/dnd** (drag & drop), **Heroicons** / **lucide-react** (icons)
-- **react-youtube** for playback
+### 🎧 1. Dual-Engine Hybrid Audio Streaming
+- **JioSaavn Native 320kbps Streams**: Direct high-bitrate AAC streaming with real-time DES cipher decoding.
+- **Strict-Match YouTube Music Fallback**: When songs aren't on regional CDNs, the intelligent resolver queries YouTube with strict title and artist verification to prevent mismatched or incorrect covers.
 
-### Backend (`backend-data-hf/`)
-- **FastAPI** (async Python web framework)
-- **SQLAlchemy** (async) + **PostgreSQL** (`asyncpg`) — via Supabase in production
-- **Redis** (Upstash-compatible) for caching (`fastapi-cache2`) and rate limiting (`slowapi`)
-- **JWT auth** (`python-jose`) with **Argon2** password hashing (`passlib`, `argon2-cffi`)
-- **ytmusicapi** / **yt-dlp** / **curl-cffi** for fetching music metadata & audio streams
-- **syncedlyrics** for time-synced lyrics
-- **google-genai** (Gemini) for the AI DJ feature
-- Deployed via **Docker** (see `Dockerfile`), configured for Hugging Face Spaces
+### 📻 2. Infinite Song Radio & Smart Queue
+- **Seed-Based Infinite Radio**: Pick any song and automatically launch an endless, intelligent radio queue tailored to its genre, mood, and artist.
+- **Anti-Repetition Tracking**: Session-aware history tracking maintains a sliding window of 20+ songs before allowing duplicates, guaranteeing variety.
+- **Co-Occurrence Smart Shuffle**: Graph-based shuffle reorders the queue to maintain smooth stylistic transitions instead of pure random noise.
 
-### Mobile (`mobile/`)
-- Early-stage **React Native** client (track player service + audio bridge utilities)
+### 💾 3. Downloaded Songs & 100% Offline Playback
+- **HTML5 CacheStorage Architecture**: Audio files are stored locally in the browser's persistent cache.
+- **Zero-Internet Playback**: Dedicated `/downloaded` page allows full offline browsing, playback, and queue management without network connectivity.
+- **Storage Management**: Visual storage quota indicators displaying megabytes used and one-click track deletion.
+
+### 🟢 4. Spotify Playlist & Album Importer
+- **One-Click Import**: Paste any public Spotify playlist or album URL to fetch track metadata automatically.
+- **Fast Canonical Matching**: Seamlessly maps Spotify tracks to 320kbps studio streams for immediate listening without Spotify Premium.
+
+### 🎚️ 5. 10-Band Studio Web Equalizer & Visualizer
+- **Web Audio API Parametric Equalizer**: 10 frequency bands (32Hz to 16kHz) with dedicated gain control.
+- **Acoustic Presets**: Quick switching between Bass Boost, Vocal, Pop, Rock, Electronic, Classical, and Flat profiles.
+- **Dynamic Beat Visualizer**: Real-time frequency spectrum visualizer rendered via HTML5 Canvas.
+
+### 🎤 6. Real-Time Synchronized Lyrics
+- Synchronized karaoke-style scrolling lyrics powered by LRC data.
+- Full-screen lyrics overlay with fluid auto-scrolling and manual navigation.
+
+### 📱 7. Responsive Desktop & Dedicated Mobile PWA
+- **Desktop Interface**: Full-featured sidebar, collapsible queues, quick-access grids, and keyboard navigation.
+- **Mobile Experience**: Dedicated touch-optimized layout with bottom navigation, mini-player bar, and swipeable full-screen mobile player.
+- **Progressive Web App (PWA)**: Installable directly to desktop or home screen for a native app feel.
+
+### ⌨️ 8. Keyboard Shortcuts
+Press <kbd>?</kbd> anywhere in the app to open the shortcut cheatsheet:
+- <kbd>Space</kbd> or <kbd>K</kbd>: Play / Pause
+- <kbd>J</kbd> or <kbd>Shift + ←</kbd>: Previous Track
+- <kbd>L</kbd> or <kbd>Shift + →</kbd>: Next Track
+- <kbd>←</kbd> / <kbd>→</kbd>: Seek ±5 Seconds
+- <kbd>↑</kbd> / <kbd>↓</kbd>: Volume Up / Down
+- <kbd>M</kbd>: Toggle Mute
+- <kbd>R</kbd>: Toggle Repeat Mode (Off / All / One)
+- <kbd>S</kbd>: Toggle Smart Shuffle
+- <kbd>Q</kbd>: Toggle Playback Queue Panel
+- <kbd>/</kbd>: Focus Search Bar
+
+### 🤖 9. Model Context Protocol (MCP) Server
+- Includes `mcp_server.py` exposing music search, smart shuffle queues, and recommendation graphs directly to AI assistants.
 
 ---
 
-## 📁 Project Structure
+## 🏗️ Architecture & Tech Stack
 
 ```
-Paatu_Padava/
-├── backend-data-hf/          # FastAPI backend
-│   ├── main.py                # App entrypoint, lifespan, middleware, table migrations
-│   ├── routers/                # API route modules
-│   │   ├── music.py            # Search, home feed, likes, recommendations, lyrics, artist/album details
-│   │   ├── auth.py             # Register, login, logout, password reset, email verification
-│   │   ├── playlists.py        # CRUD for playlists & playlist tracks
-│   │   ├── history.py          # Listen/search history, search-click history
-│   │   ├── users.py            # Data export/import, account deletion, followed artists
-│   │   ├── utils.py             # Misc utility endpoints
-│   │   └── ai.py                # AI DJ endpoint (Gemini-powered)
-│   ├── services/               # External integrations (YouTube, Saavn, lyrics)
-│   ├── graph.py                 # Song recommendation graph
-│   ├── trie.py                  # Artist autocomplete Trie
-│   ├── connection.py            # DB & Redis connection helpers
-│   ├── models.py                # SQLAlchemy models
-│   └── requirements.txt
-├── frontend-react/            # React + TypeScript + Vite web app
+Paatu_Paaduva/
+├── frontend-react/           # React 19 + TypeScript + Vite UI
 │   ├── src/
-│   │   ├── pages/               # Home, Search, Login, Signup, Profile, Playlists, Liked Songs, etc.
-│   │   ├── pages/mobile/        # Mobile-specific pages
-│   │   ├── components/          # Player bar, audio player, modals, home sections, etc.
-│   │   ├── context/              # React context providers
-│   │   ├── hooks/, services/, utils/, types/
-│   └── package.json
-├── mobile/                     # React Native mobile client (WIP)
-├── scripts/                    # Icon generation & build scripts
-├── Dockerfile                  # Backend container image (Hugging Face Spaces ready)
-└── start_server.bat            # Windows helper script to start the backend
+│   │   ├── components/       # UI Cards, PlayerBar, Modals, Equalizer, Visualizer
+│   │   ├── context/          # AudioContext (playback engine), AuthContext
+│   │   ├── hooks/            # useKeyboardShortcuts, useEqualizer, useSpotifySearch
+│   │   ├── pages/            # Home, Search, DownloadedSongs, ArtistView, AlbumView
+│   │   ├── services/         # API clients (FastAPI, Spotify import)
+│   │   └── utils/            # offlineStorage (CacheStorage API), audio helpers
+├── backend-data-hf/          # FastAPI Python 3.13 Data API
+│   ├── routers/              # music, playlists, history, auth, users
+│   ├── services/             # saavn (DES decrypter), youtube (ytmusic), recommender
+│   ├── graph.py              # Co-occurrence music graph engine
+│   ├── trie.py               # Prefix trie for instant search autocomplete
+│   ├── models.py             # SQLAlchemy async database models
+│   └── connection.py         # Async PostgreSQL & Upstash Redis connections
+├── mcp_server.py             # Model Context Protocol server for AI integration
+├── start_server.bat          # One-click dual-server Windows launcher
+└── Dockerfile                # Production container deployment
 ```
+
+### Technology Highlights
+- **Frontend**: React 19, TypeScript, Vite 6, Tailwind CSS, Lucide React, Swiper, Hello-Pangea DnD
+- **Backend**: FastAPI, Python 3.13, SQLAlchemy (Asyncio), PostgreSQL / SQLite, Upstash Redis, SlowAPI
+- **Audio Engine**: HTML5 Audio + Web Audio API + YouTube Iframe API
+- **Deployment**: Docker, Hugging Face Spaces, Vercel
 
 ---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-- **Node.js** (18+) and npm for the frontend
-- **Python 3.11+** for the backend
-- A **PostgreSQL** database (e.g. Supabase)
-- A **Redis** instance (e.g. Upstash) — optional but recommended for caching/rate limiting
-- A **Google Gemini API key** — optional, only required for the AI DJ feature
+- **Node.js**: v18.0.0 or higher
+- **Python**: v3.11 or higher
+- **Git**
 
-### 1. Backend setup
+### 1. Clone the Repository
+```bash
+git clone https://github.com/TGAshwinYT/Paatu_Padava.git
+cd Paatu_Padava
+```
 
+### 2. Configure Environment Variables
+Create `.env` inside `backend-data-hf/`:
+```env
+DATABASE_URL=sqlite+aiosqlite:///./paatu_padava.db   # Or PostgreSQL async connection string
+REDIS_URL=redis://localhost:6379                   # Or Upstash Redis URL
+SECRET_KEY=your-super-secret-jwt-key
+ALLOWED_ORIGINS=http://localhost:5173,http://localhost:5174
+```
+
+Create `.env` inside `frontend-react/`:
+```env
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+### 3. Run Locally (One-Click for Windows)
+Double-click `start_server.bat` or run:
+```powershell
+.\start_server.bat
+```
+This automatically initializes the FastAPI backend on port `8000`, starts the Vite frontend on port `5173`, and opens your default browser.
+
+### 4. Manual Setup
+
+#### Backend Setup
 ```bash
 cd backend-data-hf
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# Linux/macOS:
+source .venv/bin/activate
+
 pip install -r requirements.txt
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Create a `.env` file inside `backend-data-hf/` with the variables below, then start the server:
-
-```bash
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-On Windows, you can alternatively run the included helper script from the repo root:
-
-```bash
-start_server.bat
-```
-
-The API will be available at `http://localhost:8000`, with a health check at `GET /api/health`.
-
-### 2. Frontend setup
-
+#### Frontend Setup
 ```bash
 cd frontend-react
 npm install
 npm run dev
 ```
 
-The app will be available at `http://localhost:5173` (Vite's default dev server, matching the backend's configured CORS origins).
-
-### 3. Environment variables (backend)
-
-| Variable | Required | Description |
-|---|---|---|
-| `DATABASE_URL` | Yes | PostgreSQL connection string (async, e.g. `postgresql+asyncpg://...`) |
-| `REDIS_URL` | No | Redis connection string; defaults to `redis://localhost:6379` |
-| `JWT_SECRET` | Recommended | Secret key used to sign JWT auth tokens |
-| `GEMINI_API_KEY` | No | Google Gemini API key, required only for the `/ai/dj` endpoint |
-
-> Tip: check `backend-data-hf/email_utils.py` and `auth_utils.py` if you plan to enable email verification/reset flows — you'll need SMTP-related configuration for outgoing email.
+Visit [http://localhost:5173](http://localhost:5173) in your browser.
 
 ---
 
-## 🐳 Docker (Backend)
+## 🧪 Testing
 
-The backend ships with a Dockerfile pre-configured for Hugging Face Spaces (exposes port `7860`):
-
+Run backend unit tests for security and recommendations:
 ```bash
-docker build -t paatu-padava-backend .
-docker run -p 7860:7860 --env-file backend-data-hf/.env paatu-padava-backend
+cd backend-data-hf
+pytest tests/
 ```
 
----
-
-## 📡 Key API Endpoints (Backend)
-
-| Area | Examples |
-|---|---|
-| **Music** | `GET /home`, `GET /search`, `GET /search/suggestions`, `GET /lyrics/{song_id}`, `GET /recommendations/{song_id}`, `GET /artist/{artist_id}`, `GET /albums/{album_id}` |
-| **Auth** | `POST /register`, `POST /login`, `GET /me`, `POST /forgot-password`, `POST /reset-password`, `GET /verify/{token}` |
-| **Playlists** | `GET /`, `POST /`, `POST /{playlist_id}/songs`, `DELETE /{playlist_id}` |
-| **History** | `POST /listen`, `GET /listen`, `POST /search`, `DELETE /all` |
-| **Users** | `GET /export`, `POST /import`, `POST /follow-artist`, `GET /me/followed-artists` |
-| **AI** | `POST /dj` (AI DJ recommendation queue) |
-
-Full interactive API docs are available via FastAPI's auto-generated Swagger UI at `/docs` once the backend is running.
-
----
-
-## 📱 Mobile App
-
-The `mobile/` directory contains the beginnings of a React Native client, including a track player service and an audio bridge utility, intended to eventually mirror the web app's playback experience on iOS/Android.
-
----
-
-## 🤝 Contributing
-
-Contributions, issues, and feature requests are welcome. Feel free to open a pull request or file an issue on the repository.
+Test frontend production compilation:
+```bash
+cd frontend-react
+npm run build
+```
 
 ---
 
 ## 📄 License
 
-This project is licensed under the [MIT License](./LICENSE).
+This project is open-source and licensed under the [MIT License](LICENSE).
+
+---
+
+Made with ❤️ by [Ashwin (TGAshwinYT)](https://github.com/TGAshwinYT)

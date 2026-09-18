@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Home, Search, Library, Music, Plus, Heart, Clock, PanelLeftClose, User as UserIcon } from 'lucide-react';
+import { Home, Search, Library, Music, Plus, Heart, PanelLeftClose, ArrowDownCircle } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import api, { getFollowedArtists } from '../services/api';
+import { useAudio } from '../context/AudioContext';
+import api from '../services/api';
+import ImportSpotifyModal from './ImportSpotifyModal';
 
 interface Playlist {
   id: string; 
   title: string;
+  cover_url?: string;
 }
 
 interface SidebarProps {
@@ -14,46 +17,36 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = () => {
   const { user, openLibraryAuthModal } = useAuth();
+  const { userPlaylists, refreshPlaylists } = useAudio();
   const navigate = useNavigate();
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [followedArtists, setFollowedArtists] = useState<any[]>([]);
-  const [favoriteArtists, setFavoriteArtists] = useState<{id: string, name: string, image: string}[]>([]);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [showSpotifyModal, setShowSpotifyModal] = useState(false);
 
   useEffect(() => {
     if (user) {
+      refreshPlaylists();
       fetchPlaylists();
-      fetchFollowedArtists();
-      fetchFavoriteArtists();
     } else {
       setPlaylists([]);
-      setFollowedArtists([]);
-      setFavoriteArtists([]);
     }
   }, [user]);
 
-  const fetchFavoriteArtists = async () => {
-    try {
-      const response = await api.get('/api/auth/me/artists-details');
-      setFavoriteArtists(response.data);
-    } catch (error) {
-      console.error("Error fetching favorite artists details:", error);
-    }
-  };
-
-  const fetchFollowedArtists = async () => {
-    try {
-      const data = await getFollowedArtists();
-      setFollowedArtists(data);
-    } catch (error) {
-      console.error("Error fetching followed artists:", error);
-    }
-  };
+  useEffect(() => {
+    const handleSync = () => {
+      if (user) {
+        refreshPlaylists();
+        fetchPlaylists();
+      }
+    };
+    window.addEventListener('playlists-updated', handleSync);
+    return () => window.removeEventListener('playlists-updated', handleSync);
+  }, [user]);
 
   const fetchPlaylists = async () => {
     try {
       const response = await api.get('/api/playlists/');
-      setPlaylists(response.data);
+      setPlaylists(response.data || []);
     } catch (error) {
       console.error("Error fetching playlists:", error);
     }
@@ -65,7 +58,8 @@ const Sidebar: React.FC<SidebarProps> = () => {
       return;
     }
 
-    const title = window.prompt("Enter Playlist Name", `My Playlist #${playlists.length + 1}`);
+    const currentCount = (userPlaylists && userPlaylists.length > 0 ? userPlaylists.length : playlists.length);
+    const title = window.prompt("Enter Playlist Name", `My Playlist #${currentCount + 1}`);
     if (!title) return; 
 
     try {
@@ -73,7 +67,9 @@ const Sidebar: React.FC<SidebarProps> = () => {
         title,
         is_public: false
       });
+      await refreshPlaylists();
       fetchPlaylists();
+      window.dispatchEvent(new Event('playlists-updated'));
     } catch (error) {
       console.error("Error creating playlist:", error);
     }
@@ -82,8 +78,9 @@ const Sidebar: React.FC<SidebarProps> = () => {
   const toggleCollapse = () => setIsCollapsed(!isCollapsed);
 
   return (
-    <aside className={`hidden md:flex flex-col gap-2 h-full transition-all duration-300 ease-in-out ${isCollapsed ? 'w-20' : 'w-64'}`}>
-      <div className="bg-[#121212] rounded-xl p-5 flex flex-col gap-6">
+    <>
+    <aside className={`hidden md:flex flex-col gap-2 h-full min-h-0 transition-all duration-300 ease-in-out ${isCollapsed ? 'w-20' : 'w-64'}`}>
+      <div className="bg-surface-base rounded-xl p-5 flex flex-col gap-6 flex-shrink-0">
         <div className={`flex items-center gap-2 text-white px-2 overflow-hidden transition-all duration-300 ${isCollapsed ? 'justify-center' : ''}`}>
           <div className="w-8 h-8 rounded-lg flex-shrink-0 overflow-hidden shadow-lg border border-white/10 group-hover:scale-110 transition-transform duration-300">
             <img src="/logo.png" className="w-full h-full object-cover" alt="Logo" />
@@ -95,7 +92,7 @@ const Sidebar: React.FC<SidebarProps> = () => {
           <Link 
             to="/" 
             title={isCollapsed ? "Home" : ""}
-            className={`flex items-center gap-4 text-neutral-400 hover:text-white transition-all font-semibold px-2 ${isCollapsed ? 'justify-center' : ''}`}
+            className={`flex items-center gap-4 text-muted hover:text-white transition-all font-semibold px-2 ${isCollapsed ? 'justify-center' : ''}`}
           >
             <Home size={28} className="flex-shrink-0" />
             {!isCollapsed && <span className="animate-in fade-in slide-in-from-left-2 duration-300">Home</span>}
@@ -103,7 +100,7 @@ const Sidebar: React.FC<SidebarProps> = () => {
           <Link 
             to="/search" 
             title={isCollapsed ? "Search" : ""}
-            className={`flex items-center gap-4 text-neutral-400 hover:text-white transition-all font-semibold px-2 ${isCollapsed ? 'justify-center' : ''}`}
+            className={`flex items-center gap-4 text-muted hover:text-white transition-all font-semibold px-2 ${isCollapsed ? 'justify-center' : ''}`}
           >
             <Search size={28} className="flex-shrink-0" />
             {!isCollapsed && <span className="animate-in fade-in slide-in-from-left-2 duration-300">Search</span>}
@@ -111,9 +108,8 @@ const Sidebar: React.FC<SidebarProps> = () => {
         </nav>
       </div>
 
-      <div className="bg-[#121212] rounded-xl flex-1 flex flex-col gap-2 overflow-hidden">
-        <div className="p-5 flex flex-col gap-6 h-full">
-          <div className={`flex items-center justify-between text-neutral-400 px-2 ${isCollapsed ? 'flex-col gap-4 items-center' : ''}`}>
+      <div className="bg-surface-base rounded-xl flex-1 min-h-0 flex flex-col p-4 gap-4 overflow-hidden">
+        <div className={`flex items-center justify-between text-muted px-2 flex-shrink-0 ${isCollapsed ? 'flex-col gap-4 items-center' : ''}`}>
             <div 
                 onClick={toggleCollapse}
                 title={isCollapsed ? "Expand Library" : "Collapse Library"}
@@ -138,22 +134,27 @@ const Sidebar: React.FC<SidebarProps> = () => {
             </div>
           </div>
 
-          <div className="flex flex-col gap-2 mt-2 overflow-y-auto max-h-[60vh] scrollbar-hide">
+          <div className="flex-1 min-h-0 flex flex-col gap-1.5 overflow-y-auto overflow-x-hidden pr-1 pb-8 custom-scrollbar">
             <div 
-              onClick={handleCreatePlaylist}
-              title={isCollapsed ? "Create Playlist" : ""}
-              className={`flex items-center gap-4 text-neutral-400 hover:text-white transition-all font-semibold p-2 rounded-lg hover:bg-[#282828] cursor-pointer ${isCollapsed ? 'justify-center' : ''}`}
+              onClick={() => {
+                if (!user) { openLibraryAuthModal(); return; }
+                setShowSpotifyModal(true);
+              }}
+              title={isCollapsed ? "Import from Spotify" : ""}
+              className={`flex items-center gap-4 text-muted hover:text-white transition-all font-semibold p-2 rounded-lg hover:bg-surface cursor-pointer ${isCollapsed ? 'justify-center' : ''}`}
             >
-              <div className="bg-neutral-800 p-2 rounded-md flex-shrink-0">
-                <Plus size={20} />
+              <div className="bg-[#1DB954]/20 p-2 rounded-md flex-shrink-0">
+                <svg className="w-5 h-5 text-[#1DB954] fill-current" viewBox="0 0 24 24">
+                  <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.502 17.31c-.22.36-.68.472-1.04.252-2.85-1.742-6.438-2.137-10.665-1.17-.412.094-.816-.168-.91-.58-.094-.412.168-.816.58-.91 4.63-1.057 8.59-.61 11.783 1.34.36.22.472.68.252 1.068zm1.47-3.268c-.276.45-.86.59-1.31.314-3.264-2.007-8.24-2.59-12.1-1.417-.506.154-1.043-.136-1.197-.642-.154-.506.136-1.043.642-1.197 4.414-1.34 9.897-.69 13.65 1.62.45.276.59.86.315 1.322zm.126-3.41c-3.916-2.325-10.37-2.54-14.1-1.398-.6.183-1.237-.16-1.42-.76-.183-.6.16-1.237.76-1.42 4.29-1.302 11.41-1.05 15.89 1.61.54.32.72 1.02.4 1.56-.32.54-1.02.72-1.53.408z"/>
+                </svg>
               </div>
-              {!isCollapsed && <span className="truncate text-sm animate-in fade-in slide-in-from-left-2 duration-300">Create Playlist</span>}
+              {!isCollapsed && <span className="truncate text-sm animate-in fade-in slide-in-from-left-2 duration-300">Import from Spotify</span>}
             </div>
 
             <div 
               onClick={() => user ? navigate('/library') : openLibraryAuthModal()}
               title={isCollapsed ? "Liked Songs" : ""}
-              className={`flex items-center gap-4 text-neutral-400 hover:text-white transition-all font-semibold p-2 rounded-lg hover:bg-[#282828] cursor-pointer ${isCollapsed ? 'justify-center' : ''}`}
+              className={`flex items-center gap-4 text-muted hover:text-white transition-all font-semibold p-2 rounded-lg hover:bg-surface cursor-pointer ${isCollapsed ? 'justify-center' : ''}`}
             >
               <div className="bg-gradient-to-br from-purple-800 to-pink-300 p-2 rounded-md flex-shrink-0">
                 <Heart size={20} className="text-white fill-current" />
@@ -161,87 +162,48 @@ const Sidebar: React.FC<SidebarProps> = () => {
               {!isCollapsed && <span className="truncate text-sm animate-in fade-in slide-in-from-left-2 duration-300">Liked Songs</span>}
             </div>
 
-            <div 
-              onClick={() => user ? navigate('/history') : openLibraryAuthModal()}
-              title={isCollapsed ? "Recently Listened" : ""}
-              className={`flex items-center gap-4 text-neutral-400 hover:text-white transition-all font-semibold p-2 rounded-lg hover:bg-[#282828] cursor-pointer ${isCollapsed ? 'justify-center' : ''}`}
+            <Link 
+              to="/downloaded"
+              title={isCollapsed ? "Downloaded Songs" : ""}
+              className={`flex items-center gap-4 text-muted hover:text-white transition-all font-semibold p-2 rounded-lg hover:bg-surface cursor-pointer ${isCollapsed ? 'justify-center' : ''}`}
             >
-              <div className="bg-neutral-800 p-2 rounded-md flex-shrink-0">
-                <Clock size={20} className="text-white" />
+              <div className="bg-gradient-to-br from-emerald-600 to-teal-800 p-2 rounded-md flex-shrink-0">
+                <ArrowDownCircle size={20} className="text-white" />
               </div>
-              {!isCollapsed && <span className="truncate text-sm animate-in fade-in slide-in-from-left-2 duration-300">Recently Listened</span>}
-            </div>
+              {!isCollapsed && <span className="truncate text-sm animate-in fade-in slide-in-from-left-2 duration-300">Downloaded Songs</span>}
+            </Link>
 
             {user && (
               <>
-                {followedArtists.length > 0 && (
-                  <div className={`mt-4 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
-                    {!isCollapsed && <div className="text-[10px] uppercase font-bold text-neutral-500 px-3 mb-2 tracking-widest animate-in fade-in duration-300">Favorite Artists</div>}
-                    <div className="flex flex-col gap-1 w-full">
-                      {followedArtists.map((artist) => (
-                        <Link 
-                          key={artist.id}
-                          to={`/artist/${artist.id}`}
-                          title={artist.name}
-                          className={`flex items-center gap-3 text-neutral-400 hover:text-green-500 hover:bg-neutral-800 transition-all font-semibold p-2 rounded-lg cursor-pointer group ${isCollapsed ? 'justify-center' : ''}`}
-                        >
-                          <div className="w-10 h-10 rounded-full bg-neutral-800 flex items-center justify-center flex-shrink-0 overflow-hidden ring-1 ring-white/10 group-hover:ring-green-500/50 transition-all">
-                            {artist.image ? (
-                              <img src={typeof artist.image === 'string' ? artist.image : artist.image[0]?.url} className="w-full h-full object-cover" alt={artist.name} loading="lazy" />
-                            ) : (
-                              <UserIcon size={18} />
-                            )}
-                          </div>
-                          {!isCollapsed && <span className="truncate text-sm animate-in fade-in duration-300">{artist.name}</span>}
-                        </Link>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {playlists.map((playlist) => (
+                {((userPlaylists && userPlaylists.length > 0) ? userPlaylists : playlists).map((playlist) => (
                   <Link 
                     key={playlist.id}
                     to={`/playlist/${playlist.id}`}
                     title={playlist.title}
-                    className={`flex items-center gap-4 text-neutral-400 hover:text-white transition-all font-semibold p-2 rounded-lg hover:bg-[#282828] cursor-pointer truncate ${isCollapsed ? 'justify-center' : ''}`}
+                    className={`flex items-center gap-3 text-muted hover:text-white transition-all font-semibold p-2 rounded-lg hover:bg-surface cursor-pointer truncate ${isCollapsed ? 'justify-center' : ''}`}
                   >
-                    <div className="bg-neutral-800 p-2 rounded-md flex-shrink-0">
-                      <Music size={24} />
+                    <div className="w-9 h-9 bg-neutral-800 rounded-md flex-shrink-0 flex items-center justify-center overflow-hidden border border-white/5 shadow-sm">
+                      {playlist.cover_url ? (
+                        <img 
+                          src={playlist.cover_url} 
+                          alt={playlist.title} 
+                          className="w-full h-full object-cover" 
+                          onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                        />
+                      ) : (
+                        <Music size={18} className="text-neutral-400" />
+                      )}
                     </div>
                     {!isCollapsed && <span className="truncate text-sm animate-in fade-in duration-300">{playlist.title}</span>}
                   </Link>
                 ))}
-
-                {favoriteArtists.length > 0 && (
-                  <div className={`mt-6 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
-                    {!isCollapsed && <p className="text-xs font-semibold text-neutral-400 tracking-wider mb-4 px-2 animate-in fade-in duration-300">YOUR ARTISTS</p>}
-                    <div className="flex flex-col gap-1 w-full">
-                      {favoriteArtists.map((artist, index) => (
-                        <Link 
-                          key={artist.id || index}
-                          to={`/artist/${artist.id || artist.name}`}
-                          title={artist.name}
-                          className={`flex items-center gap-3 py-2 text-neutral-400 hover:text-white transition-all cursor-pointer group px-2 ${isCollapsed ? 'justify-center' : ''}`}
-                        >
-                          <img 
-                            src={artist.image || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=100&h=100&fit=crop'} 
-                            alt={artist.name} 
-                            className="w-10 h-10 rounded-full object-cover shadow-md group-hover:shadow-lg transition-shadow" 
-                            loading="lazy"
-                          />
-                          {!isCollapsed && <span className="text-sm font-medium truncate animate-in fade-in duration-300">{artist.name}</span>}
-                        </Link>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </>
             )}
           </div>
         </div>
-      </div>
-    </aside>
+      </aside>
+    <ImportSpotifyModal isOpen={showSpotifyModal} onClose={() => setShowSpotifyModal(false)} />
+    </>
   );
 };
 

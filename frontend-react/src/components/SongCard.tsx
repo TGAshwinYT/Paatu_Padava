@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Play, Plus, Heart, ListMusic, PlusCircle } from 'lucide-react';
+import { Play, Plus, Heart, ListMusic, PlusCircle, Download, Radio, Loader2, Check } from 'lucide-react';
 import type { Song } from '../types';
 import { useAudio } from '../context/AudioContext';
 import { usePlaylistModal } from '../context/PlaylistModalContext';
 import { getValidImage } from '../utils/imageUtils';
 import { useAuth } from '../context/AuthContext';
-import { likeSong, unlikeSong } from '../services/api';
+import { likeSong, unlikeSong, downloadSongFile } from '../services/api';
+import { isOfflineTrack } from '../utils/offlineStorage';
 
 interface SongCardProps {
   song: Song;
@@ -18,11 +19,14 @@ interface SongCardProps {
 const SongCard: React.FC<SongCardProps> = ({ song, isInitiallyLiked = false, onPlay, context }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { playContext, addToQueue } = useAudio();
+  const { playContext, addToQueue, startSongRadio } = useAudio();
   const { openModal } = usePlaylistModal();
   const { user } = useAuth();
   const [isLiked, setIsLiked] = useState(isInitiallyLiked);
   const [showPlusMenu, setShowPlusMenu] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadSuccess, setDownloadSuccess] = useState(false);
+  const isDownloaded = isOfflineTrack(song.id);
 
   const handleLikeToggle = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -61,7 +65,7 @@ const SongCard: React.FC<SongCardProps> = ({ song, isInitiallyLiked = false, onP
              onClick={handleLikeToggle}
              className="p-2 bg-neutral-900/60 backdrop-blur-md rounded-full text-white hover:scale-110 active:scale-95 transition"
            >
-             <Heart size={18} fill={isLiked ? "#22c55e" : "transparent"} stroke={isLiked ? "#22c55e" : "currentColor"} />
+             <Heart size={18} fill={isLiked ? "var(--color-brand)" : "transparent"} stroke={isLiked ? "var(--color-brand)" : "currentColor"} />
            </button>
         </div>
         <div className="absolute bottom-2 right-2 flex gap-2 translate-y-2 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-300">
@@ -77,14 +81,14 @@ const SongCard: React.FC<SongCardProps> = ({ song, isInitiallyLiked = false, onP
              </button>
              
              {showPlusMenu && (
-               <div className="absolute bottom-full right-0 mb-2 w-48 bg-[#282828] rounded-lg shadow-2xl border border-white/10 py-1 overflow-hidden z-20 animate-in slide-in-from-bottom-2 duration-200">
+               <div className="absolute bottom-full right-0 mb-2 w-52 bg-surface rounded-lg shadow-2xl border border-white/10 py-1 overflow-hidden z-20 animate-in slide-in-from-bottom-2 duration-200">
                  <button 
                    onClick={(e) => {
                      e.stopPropagation();
                      addToQueue(song);
                      setShowPlusMenu(false);
                    }}
-                   className="w-full flex items-center gap-3 px-4 py-2 text-sm text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors"
+                   className="w-full flex items-center gap-3 px-4 py-2 text-sm text-neutral-300 hover:bg-surface-hover hover:text-white transition-colors"
                  >
                    <ListMusic size={16} />
                    Add to Queue
@@ -95,17 +99,58 @@ const SongCard: React.FC<SongCardProps> = ({ song, isInitiallyLiked = false, onP
                      openModal(song);
                      setShowPlusMenu(false);
                    }}
-                   className="w-full flex items-center gap-3 px-4 py-2 text-sm text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors border-t border-white/5"
+                   className="w-full flex items-center gap-3 px-4 py-2 text-sm text-neutral-300 hover:bg-surface-hover hover:text-white transition-colors border-t border-white/5"
                  >
                    <PlusCircle size={16} />
                    Add to Playlist
+                 </button>
+                 <button 
+                   onClick={(e) => {
+                     e.stopPropagation();
+                     startSongRadio(song);
+                     setShowPlusMenu(false);
+                   }}
+                   className="w-full flex items-center gap-3 px-4 py-2 text-sm text-neutral-300 hover:bg-surface-hover hover:text-white transition-colors border-t border-white/5"
+                 >
+                   <Radio size={16} className="text-brand" />
+                   Start Song Radio
+                 </button>
+                 <button 
+                   onClick={async (e) => {
+                     e.stopPropagation();
+                     if (isDownloading) return;
+                     setIsDownloading(true);
+                     try {
+                       await downloadSongFile(song);
+                       setDownloadSuccess(true);
+                       setTimeout(() => setDownloadSuccess(false), 2500);
+                     } finally {
+                       setIsDownloading(false);
+                       setShowPlusMenu(false);
+                     }
+                   }}
+                   disabled={isDownloading}
+                   className="w-full flex items-center gap-3 px-4 py-2 text-sm text-neutral-300 hover:bg-surface-hover hover:text-white transition-colors border-t border-white/5"
+                 >
+                   {isDownloading ? (
+                     <Loader2 size={16} className="animate-spin text-brand" />
+                   ) : isDownloaded || downloadSuccess ? (
+                     <Check size={16} className="text-brand" />
+                   ) : (
+                     <Download size={16} />
+                   )}
+                   {isDownloading
+                     ? 'Downloading 320kbps...'
+                     : isDownloaded
+                     ? 'Downloaded (320kbps)'
+                     : 'Download MP3 (320kbps)'}
                  </button>
                </div>
              )}
            </div>
            
            <button 
-             className="p-3 bg-green-500 rounded-full text-black shadow-xl hover:scale-105"
+             className="p-3 bg-brand rounded-full text-black shadow-xl hover:scale-105 hover:bg-brand-hover active:scale-95 transition-all"
              onClick={(e) => {
                e.stopPropagation(); if (onPlay) onPlay(song); playContext(song, context || [song]);
              }}
@@ -115,8 +160,9 @@ const SongCard: React.FC<SongCardProps> = ({ song, isInitiallyLiked = false, onP
         </div>
       </div>
       <h3 className="font-semibold text-white truncate mb-1">{song.title}</h3>
-      <p className="text-sm text-neutral-400 truncate">{song.artist}</p>
+      <p className="text-sm text-muted truncate">{song.artist}</p>
     </div>
+
   );
 };
 

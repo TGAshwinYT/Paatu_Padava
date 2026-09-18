@@ -14,6 +14,41 @@ export interface Song {
   isManual?: boolean;
 }
 
+// ─── Spotify Visual Layer Types ───────────────────────────────────────────────
+
+export interface SpotifyArtist {
+  id: string;
+  name: string;
+}
+
+export interface SpotifyImage {
+  url: string;
+  width: number;
+  height: number;
+}
+
+export interface SpotifyAlbum {
+  id: string;
+  name: string;
+  images: SpotifyImage[];
+}
+
+export interface SpotifyTrack {
+  spotifyId: string;
+  name: string;
+  durationMs: number;
+  explicit: boolean;
+  artists: SpotifyArtist[];
+  album: SpotifyAlbum;
+  previewUrl: string | null;
+}
+
+// ─── Playback Engine ─────────────────────────────────────────────────────────
+
+/** 'native' = HTML5 <audio> with a direct URL (JioSaavn 320kbps)
+ *  'youtube' = hidden 1×1 react-youtube IFrame */
+export type PlaybackEngine = 'native' | 'youtube';
+
 export interface Album {
   id: string;
   title: string;

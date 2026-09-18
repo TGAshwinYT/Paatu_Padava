@@ -20,11 +20,13 @@ class User(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     username = Column(String(50), unique=True, index=True, nullable=False)
     email = Column(String(255), unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
-    is_premium = Column(Boolean, default=False)
+    hashed_password = Column(String, nullable=True)
+    google_id = Column(String, unique=True, index=True, nullable=True)
+    avatar_url = Column(String, nullable=True)
     is_verified = Column(Boolean, default=False)
     verification_token = Column(String, nullable=True)
     favorite_artists = Column(String, default="[]") # JSON string of artist names
+    preferred_languages = Column(String, default="[]") # JSON string of language names
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     playlists = relationship("Playlist", back_populates="user")
@@ -49,6 +51,8 @@ class Playlist(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     title = Column(String(100), nullable=False)
+    description = Column(String, nullable=True)
+    cover_url = Column(String, nullable=True)
     is_public = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -60,6 +64,10 @@ class PlaylistTrack(Base):
 
     playlist_id = Column(UUID(as_uuid=True), ForeignKey("playlists.id"), primary_key=True)
     yt_video_id = Column(String(100), primary_key=True)
+    title = Column(String(255), nullable=True)
+    artist = Column(String(255), nullable=True)
+    cover_url = Column(String, nullable=True)
+    duration = Column(Integer, nullable=True)
     added_at = Column(DateTime(timezone=True), server_default=func.now())
 
     playlist = relationship("Playlist", back_populates="tracks")
@@ -74,6 +82,7 @@ class ListeningHistory(Base):
     artist = Column(String(255))
     cover_url = Column(String)
     audio_url = Column(String)
+    language = Column(String(50), nullable=True)
     played_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     __table_args__ = (
@@ -102,6 +111,7 @@ class SearchClickHistory(Base):
     artist = Column(String(255))
     cover_url = Column(String)
     audio_url = Column(String)
+    language = Column(String(50), nullable=True)
     clicked_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="search_click_history")
@@ -116,6 +126,7 @@ class LikedSong(Base):
     artist = Column(String(255), nullable=False)
     cover_url = Column(String)
     audio_url = Column(String)
+    language = Column(String(50), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Ensure a user can only like a song once

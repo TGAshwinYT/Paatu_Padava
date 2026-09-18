@@ -18,10 +18,11 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from limiter_config import limiter
 
-from connection import check_redis_connection, check_db_connection, engine
+from connection import check_redis_connection, check_db_connection, engine, AsyncSessionLocal
 from base import Base
-from routers import music, auth, playlists, history, users, utils, ai
+from routers import music, auth, playlists, history, users, utils
 from services.youtube import get_trending_youtube
+from services.recommender import personal_recommender
 from trie import Trie
 from graph import recommendation_graph
 import models
@@ -29,34 +30,84 @@ import models
 # Global Autocomplete Engine
 artist_trie = Trie()
 
-# CORS Configuration
-allowed_origins = [
+# CORS Configuration: Load origins dynamically from env (ALLOWED_ORIGINS / FRONTEND_URL)
+default_origins = [
     "http://localhost:5173",
     "http://localhost:5174",
     "http://127.0.0.1:5173",
     "http://127.0.0.1:5174"
 ]
+env_origins = os.getenv("ALLOWED_ORIGINS", "")
+if env_origins:
+    for o in env_origins.split(","):
+        clean_o = o.strip()
+        if clean_o and clean_o not in default_origins:
+            default_origins.append(clean_o)
+frontend_url = os.getenv("FRONTEND_URL", "").strip()
+if frontend_url and frontend_url not in default_origins:
+    default_origins.append(frontend_url)
+
+allowed_origins = default_origins
+
+async def populate_artist_trie():
+    """Populates artist autocomplete trie from curated regional artists and database history."""
+    curated = [
+        "A.R. Rahman", "Anirudh Ravichander", "Yuvan Shankar Raja", "Ilaiyaraaja",
+        "Harris Jayaraj", "Sid Sriram", "Santhosh Narayanan", "G.V. Prakash Kumar",
+        "Vidyasagar", "D. Imman", "Sean Roldan", "Devi Sri Prasad", "Thaman S",
+        "Hiphop Tamizha", "Vijay Antony", "S.P. Balasubrahmanyam", "K.J. Yesudas",
+        "Shreya Ghoshal", "Chinmayi Sripaada", "Jonita Gandhi", "Pradeep Kumar",
+        "Stephen Zechariah", "Sushin Shyam", "Hesham Abdul Wahab", "Deepak Dev",
+        "Pritam", "Arijit Singh", "Badshah", "Diljit Dosanjh", "Armaan Malik"
+    ]
+    for name in curated:
+        artist_trie.insert(name)
+
+    try:
+        async with AsyncSessionLocal() as session:
+            lh_res = await session.execute(text("SELECT DISTINCT artist FROM listening_history WHERE artist IS NOT NULL LIMIT 500"))
+            for a in lh_res.scalars().all():
+                if a and len(a.strip()) > 1:
+                    artist_trie.insert(a.strip())
+            liked_res = await session.execute(text("SELECT DISTINCT artist FROM liked_songs WHERE artist IS NOT NULL LIMIT 500"))
+            for a in liked_res.scalars().all():
+                if a and len(a.strip()) > 1:
+                    artist_trie.insert(a.strip())
+        print(f"[TRIE] Artist autocomplete trie populated successfully ({len(curated)} curated + DB entries)!")
+    except Exception as e:
+        print(f"[TRIE] Curated artists populated, DB supplement deferred: {e}")
 
 # Ensure tables are created (Simple approach for development)
 async def create_tables():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         try:
-            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_premium BOOLEAN DEFAULT FALSE"))
+            # We must alter hashed_password to drop NOT NULL if it existed
+            await conn.execute(text("ALTER TABLE users ALTER COLUMN hashed_password DROP NOT NULL"))
+        except Exception as e:
+            print(f"Migration Note (hashed_password): {e}")
+
+        try:
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT UNIQUE"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT"))
+            await conn.execute(text("ALTER TABLE users DROP COLUMN IF EXISTS is_premium"))
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE"))
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token TEXT"))
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS favorite_artists TEXT DEFAULT '[]'"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_languages TEXT DEFAULT '[]'"))
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()"))
             
             await conn.execute(text("ALTER TABLE listening_history ADD COLUMN IF NOT EXISTS title TEXT"))
             await conn.execute(text("ALTER TABLE listening_history ADD COLUMN IF NOT EXISTS artist TEXT"))
             await conn.execute(text("ALTER TABLE listening_history ADD COLUMN IF NOT EXISTS cover_url TEXT"))
             await conn.execute(text("ALTER TABLE listening_history ADD COLUMN IF NOT EXISTS audio_url TEXT"))
+            await conn.execute(text("ALTER TABLE listening_history ADD COLUMN IF NOT EXISTS language TEXT"))
             
             await conn.execute(text("ALTER TABLE liked_songs ADD COLUMN IF NOT EXISTS title TEXT"))
             await conn.execute(text("ALTER TABLE liked_songs ADD COLUMN IF NOT EXISTS artist TEXT"))
             await conn.execute(text("ALTER TABLE liked_songs ADD COLUMN IF NOT EXISTS cover_url TEXT"))
             await conn.execute(text("ALTER TABLE liked_songs ADD COLUMN IF NOT EXISTS audio_url TEXT"))
+            await conn.execute(text("ALTER TABLE liked_songs ADD COLUMN IF NOT EXISTS language TEXT"))
             
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS search_click_history (
@@ -67,9 +118,11 @@ async def create_tables():
                     artist TEXT,
                     cover_url TEXT,
                     audio_url TEXT,
+                    language TEXT,
                     clicked_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                 )
             """))
+            await conn.execute(text("ALTER TABLE search_click_history ADD COLUMN IF NOT EXISTS language TEXT"))
             
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS artists (
@@ -127,27 +180,60 @@ async def load_initial_graph_data():
 
     print(f"[GRAPH] Successfully pre-loaded {total_added} songs into the recommendation engine!")
 
+async def recommender_background_worker():
+    """
+    Background worker that runs an initial build of the PersonalRecommender
+    and then periodically rebuilds every 20 minutes (1200 seconds).
+    """
+    await asyncio.sleep(2) # Give DB connections a moment to settle
+    while True:
+        try:
+            print("[RECOMMENDER] Rebuilding personal recommender model in background...")
+            async with AsyncSessionLocal() as session:
+                await personal_recommender.rebuild(session)
+        except Exception as e:
+            print(f"[RECOMMENDER] Background rebuild error: {e}")
+        await asyncio.sleep(1200)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic
     print("[INIT] Starting PaaatuPadava Backend Lifespan...")
     
-    # 0. Diagnostic DNS Check (Helpful for 'gaierror 11001' on Windows)
-    mandatory_hosts = ["aws-1-ap-south-1.pooler.supabase.com"]
-    for host in mandatory_hosts:
+    # 0. Diagnostic DNS Check (Derived dynamically from DATABASE_URL / DB_HOST)
+    db_raw = os.getenv("DATABASE_URL", "")
+    target_host = os.getenv("DB_HOST", "")
+    if not target_host and "@" in db_raw:
         try:
-            socket.gethostbyname(host)
-            print(f"[DNS] {host} resolved successfully.")
-        except socket.gaierror:
-            print(f"[CRITICAL] DNS Resolution failed for {host}.")
+            target_host = db_raw.split("@")[1].split(":")[0].split("/")[0]
+        except Exception:
+            pass
+    if not target_host:
+        target_host = "aws-1-ap-south-1.pooler.supabase.com"
+
+    try:
+        socket.gethostbyname(target_host)
+        print(f"[DNS] {target_host} resolved successfully.")
+    except socket.gaierror:
+        print(f"[CRITICAL] DNS Resolution failed for {target_host}.")
 
     # 1. Database & Tables
     try:
         await create_tables()
         await check_db_connection()
     except Exception as e:
-        print(f"[CRITICAL ERROR] Database initialization failed: {e}")
-        print("[TIP] The server will continue to start, but DB-dependent features will fail.")
+        err_msg = str(e)
+        print(f"[CRITICAL ERROR] Database initialization failed: {err_msg}")
+        if "tenant" in err_msg.lower() or "not found" in err_msg.lower():
+            print("\n" + "="*70)
+            print(" [SUPABASE NOTICE] Tenant/User Not Found")
+            print(" Your Supabase project is currently PAUSED (standard after 7 days of inactivity)")
+            print(" or the project reference in DATABASE_URL has changed.")
+            print(" -> To restore: Visit https://supabase.com/dashboard and click 'Restore Project'.")
+            print(" -> The app will continue running with offline/cold-start search & streaming.")
+            print("="*70 + "\n")
+        else:
+            print("[TIP] The server will continue to start, but DB-dependent features will fail.")
 
     await check_redis_connection()
     
@@ -163,14 +249,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[ERROR] Redis Cache initialization failed: {e}")
     
-    # 3. Populate Autocomplete Trie
-    print("[INIT] Populating Artist Autocomplete Trie...")
-    # NOTE: REGIONAL_VIP_ARTISTS was removed from saavn import. 
-    # For now, we'll use a placeholder or eventually move it to a config.
-    print("[INIT] Trie population skipped (Regional VIP Artists dependency removed).")
+    # 3. Populate Autocomplete Trie (curated regional artists + database history)
+    await populate_artist_trie()
     
     # 4. Populate Recommendation Graph (Backgrounded)
     asyncio.create_task(load_initial_graph_data())
+
+    # 5. Populate Personal Recommender (Backgrounded periodic loop)
+    asyncio.create_task(recommender_background_worker())
     
     yield
     # Shutdown logic
@@ -196,7 +282,6 @@ app.include_router(playlists.router)
 app.include_router(history.router)
 app.include_router(users.router)
 app.include_router(utils.router)
-app.include_router(ai.router)
 
 @app.get("/api/health")
 async def health_check():

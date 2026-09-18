@@ -52,9 +52,9 @@ const ForgotPassword = () => {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[80vh] bg-neutral-900">
-      <div className="bg-[#181818] w-full max-w-md rounded-xl p-8 shadow-2xl">
+      <div className="bg-surface-card w-full max-w-md rounded-xl p-8 shadow-2xl">
         <div className="flex items-center gap-2 justify-center mb-8">
-          <div className="p-2 bg-green-500 rounded-lg">
+          <div className="p-2 bg-brand rounded-lg">
             <Music size={32} className="text-black" />
           </div>
           <h1 className="text-3xl font-bold">Paatu Paaduva</h1>
@@ -82,14 +82,14 @@ const ForgotPassword = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="name@example.com"
-                  className="w-full bg-[#282828] border-none rounded-lg p-3 text-white focus:ring-2 focus:ring-green-500 transition-all outline-none"
+                  className="w-full bg-surface border-none rounded-lg p-3 text-white focus:ring-2 focus:ring-brand transition-all outline-none"
                 />
               </div>
 
               <button 
                 type="submit"
                 disabled={isLoading}
-                className="w-full bg-green-500 text-black font-bold p-3 rounded-full hover:scale-105 transition-transform disabled:opacity-50 mt-4"
+                className="w-full bg-brand hover:bg-brand-hover text-black font-bold p-3 rounded-full hover:scale-105 transition-transform disabled:opacity-50 mt-4"
               >
                 {isLoading ? 'Sending...' : 'Send OTP'}
               </button>
@@ -120,7 +120,7 @@ const ForgotPassword = () => {
                   value={otp}
                   onChange={(e) => setOtp(e.target.value)}
                   placeholder="123456"
-                  className="w-full bg-[#282828] border-none rounded-lg p-3 text-white tracking-[0.5em] text-center font-bold text-lg focus:ring-2 focus:ring-green-500 transition-all outline-none"
+                  className="w-full bg-surface border-none rounded-lg p-3 text-white tracking-[0.5em] text-center font-bold text-lg focus:ring-2 focus:ring-brand transition-all outline-none"
                 />
               </div>
 
@@ -132,14 +132,14 @@ const ForgotPassword = () => {
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full bg-[#282828] border-none rounded-lg p-3 text-white focus:ring-2 focus:ring-green-500 transition-all outline-none"
+                  className="w-full bg-surface border-none rounded-lg p-3 text-white focus:ring-2 focus:ring-brand transition-all outline-none"
                 />
               </div>
 
               <button 
                 type="submit"
                 disabled={isLoading}
-                className="w-full bg-green-500 text-black font-bold p-3 rounded-full hover:scale-105 transition-transform disabled:opacity-50 mt-4"
+                className="w-full bg-brand hover:bg-brand-hover text-black font-bold p-3 rounded-full hover:scale-105 transition-transform disabled:opacity-50 mt-4"
               >
                 {isLoading ? 'Processing...' : 'Reset Password'}
               </button>
@@ -158,12 +158,12 @@ const ForgotPassword = () => {
         {step === 3 && (
           <div className="text-center py-6">
             <div className="flex justify-center mb-4">
-                <CheckCircle size={48} className="text-green-500" />
+                <CheckCircle size={48} className="text-brand" />
             </div>
             <p className="text-white font-medium mb-8">{message}</p>
             <button 
               onClick={() => navigate('/login')}
-              className="w-full bg-green-500 text-black font-bold p-3 rounded-full hover:scale-105 transition-transform"
+              className="w-full bg-brand hover:bg-brand-hover text-black font-bold p-3 rounded-full hover:scale-105 transition-transform"
             >
               Go to Login
             </button>

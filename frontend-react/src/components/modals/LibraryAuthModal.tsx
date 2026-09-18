@@ -20,7 +20,7 @@ const LibraryAuthModal: React.FC<LibraryAuthModalProps> = ({ isOpen, onClose }) 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
       <div 
-        className="bg-[#282828] w-full max-w-sm rounded-xl p-8 relative animate-in fade-in zoom-in duration-300 shadow-2xl border border-white/5"
+        className="bg-surface w-full max-w-sm rounded-xl p-8 relative animate-in fade-in zoom-in duration-300 shadow-2xl border border-white/5"
         onClick={(e) => e.stopPropagation()}
       >
         <button 
@@ -31,8 +31,8 @@ const LibraryAuthModal: React.FC<LibraryAuthModalProps> = ({ isOpen, onClose }) 
         </button>
 
         <div className="flex flex-col items-center text-center">
-          <div className="p-4 bg-green-500/10 rounded-full mb-6">
-            <Library size={48} className="text-green-500" />
+          <div className="p-4 bg-brand/10 rounded-full mb-6">
+            <Library size={48} className="text-brand" />
           </div>
 
           <h2 className="text-2xl font-bold mb-3 text-white">Enjoy your Library</h2>

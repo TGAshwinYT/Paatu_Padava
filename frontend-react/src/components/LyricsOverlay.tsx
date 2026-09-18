@@ -1,29 +1,36 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Sparkles } from 'lucide-react';
+import { X, Sparkles, Activity, Waves, EyeOff } from 'lucide-react';
 import { getRelatedSongs, getLyrics } from '../services/api';
 import type { Song } from '../types';
 import { useAudio } from '../context/AudioContext';
 import { parseLRC } from '../utils/LyricsParser';
 import type { LyricsLine } from '../utils/LyricsParser';
+import AudioVisualizer from './AudioVisualizer';
+import type { VisualizerMode } from './AudioVisualizer';
 
 interface LyricItemProps {
   text: string;
   isActive: boolean;
   lineRef: (el: HTMLParagraphElement | null) => void;
+  onSeek: () => void;
 }
 
-const LyricItem = React.memo<LyricItemProps>(({ text, isActive, lineRef }) => (
-  <p 
-    ref={lineRef}
-    className={`transition-all duration-500 transform ${
-      isActive 
-        ? 'text-4xl md:text-5xl font-bold text-white scale-105 origin-left drop-shadow-2xl opacity-100 py-4' 
-        : 'text-2xl md:text-3xl font-semibold text-neutral-500 hover:text-neutral-300 cursor-pointer opacity-40 py-2'
-    }`}
-  >
-    {text}
-  </p>
-));
+const LyricItem = React.memo<LyricItemProps>(
+  ({ text, isActive, lineRef, onSeek }) => (
+    <p 
+      ref={lineRef}
+      onClick={onSeek}
+      className={`transition-all duration-300 transform select-none cursor-pointer ${
+        isActive 
+          ? 'text-3xl md:text-5xl font-bold text-white origin-left drop-shadow-2xl opacity-100 py-3 scale-100' 
+          : 'text-2xl md:text-3xl font-semibold text-neutral-500 hover:text-neutral-300 opacity-40 py-3 scale-[0.98]'
+      }`}
+    >
+      {text}
+    </p>
+  ),
+  (prev, next) => prev.text === next.text && prev.isActive === next.isActive
+);
 
 interface LyricsOverlayProps {
   song: Song;
@@ -38,10 +45,33 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
   const [recommendations, setRecommendations] = useState<Song[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [activeIndex, setActiveIndex] = useState<number>(-1);
+  const [visualizerMode, setVisualizerMode] = useState<VisualizerMode>(() => {
+    try {
+      const saved = localStorage.getItem('paatu_lyrics_visualizer');
+      return (saved as VisualizerMode) || 'bars';
+    } catch {
+      return 'bars';
+    }
+  });
   
-  const { playContext, currentTime } = useAudio();
+  const { playContext, currentTime, seekTo, isPlaying } = useAudio();
   const lineRefs = useRef<(HTMLParagraphElement | null)[]>([]);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const cachedLyricsRef = useRef<{ id: string; synced: LyricsLine[]; plain: string } | null>(null);
+
+  const cycleVisualizerMode = () => {
+    setVisualizerMode(prev => {
+      const next: VisualizerMode = prev === 'bars' ? 'wave' : prev === 'wave' ? 'off' : 'bars';
+      try { localStorage.setItem('paatu_lyrics_visualizer', next); } catch {}
+      return next;
+    });
+  };
+
+  // Reset state when song changes
+  useEffect(() => {
+    setActiveIndex(-1);
+    lineRefs.current = [];
+  }, [song.id]);
 
   useEffect(() => {
     if (isOpen && song.id) {
@@ -54,13 +84,13 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
   useEffect(() => {
     if (!lyricsLines.length) return;
     
-    // 1. Efficiently find the current index
+    // Efficiently find current index
     const index = lyricsLines.findIndex((line, i) => {
       const nextLine = lyricsLines[i + 1];
       return currentTime >= line.time && (!nextLine || currentTime < nextLine.time);
     });
 
-    // 2. Only update if the index actually changed to reduce re-renders
+    // Only update if index actually changed to prevent re-renders
     if (index !== -1 && index !== activeIndex) {
       setActiveIndex(index);
     }
@@ -68,15 +98,27 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
 
   // Handle auto-scroll based on activeIndex
   useEffect(() => {
-    if (activeIndex !== -1 && activeTab === 'lyrics' && lineRefs.current[activeIndex]) {
-      lineRefs.current[activeIndex]?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center'
-      });
+    if (activeIndex !== -1 && activeTab === 'lyrics') {
+      const scrollIt = () => {
+        lineRefs.current[activeIndex]?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center'
+        });
+      };
+      scrollIt();
+      const timer = setTimeout(scrollIt, 80);
+      return () => clearTimeout(timer);
     }
-  }, [activeIndex, activeTab]);
+  }, [activeIndex, activeTab, lyricsLines]);
 
   const fetchLyrics = async () => {
+    // If lyrics already cached for this exact song, display instantly with zero lag
+    if (cachedLyricsRef.current && cachedLyricsRef.current.id === song.id) {
+      setLyricsLines(cachedLyricsRef.current.synced);
+      setPlainLyrics(cachedLyricsRef.current.plain);
+      return;
+    }
+
     setLoading(true);
     setLyricsLines([]);
     setPlainLyrics('');
@@ -84,14 +126,25 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
       const data = await getLyrics(song);
       if (!data) throw new Error("No data");
       
+      let parsedSynced: LyricsLine[] = [];
+      let parsedPlain = '';
+
       if (data.syncedLyrics) {
-        const parsed = parseLRC(data.syncedLyrics);
-        setLyricsLines(parsed);
+        parsedSynced = parseLRC(data.syncedLyrics);
+        setLyricsLines(parsedSynced);
       } else if (data.plainLyrics) {
-        setPlainLyrics(data.plainLyrics);
+        parsedPlain = data.plainLyrics;
+        setPlainLyrics(parsedPlain);
       } else {
-        setPlainLyrics("Lyrics not available for this track.");
+        parsedPlain = "Lyrics not available for this track.";
+        setPlainLyrics(parsedPlain);
       }
+
+      cachedLyricsRef.current = {
+        id: song.id,
+        synced: parsedSynced,
+        plain: parsedPlain
+      };
     } catch (error) {
       setPlainLyrics("Lyrics not available for this track.");
     } finally {
@@ -115,14 +168,37 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/95 backdrop-blur-xl animate-in fade-in slide-in-from-bottom-10 duration-500 overflow-hidden">
-      <div className="h-full flex flex-col p-8 md:p-16 relative">
-        <button 
-          onClick={onClose}
-          className="absolute top-8 right-8 p-3 hover:bg-neutral-800 rounded-full transition-colors text-neutral-400 hover:text-white z-[70]"
-        >
-          <X size={32} />
-        </button>
+    <div 
+      className="fixed inset-0 z-[60] bg-black text-white animate-in fade-in slide-in-from-bottom-10 duration-300 overflow-hidden select-none"
+      style={{ backgroundColor: '#000000' }}
+    >
+      {/* Ambient Audio Visualizer Layer */}
+      <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden opacity-35">
+        <AudioVisualizer isPlaying={isPlaying} mode={visualizerMode} />
+      </div>
+
+      <div className="h-full flex flex-col p-8 md:p-16 relative z-10">
+        {/* Top Right Actions: Visualizer Mode Toggle + Close */}
+        <div className="absolute top-8 right-8 flex items-center gap-3 z-[70]">
+          <button
+            onClick={cycleVisualizerMode}
+            className="flex items-center gap-2 px-3.5 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-full text-xs font-semibold backdrop-blur-md border border-white/10 transition-all hover:scale-105 active:scale-95 shadow-lg"
+            title={`Visualizer: ${visualizerMode.toUpperCase()} (Click to toggle: Bars -> Wave -> Off)`}
+          >
+            {visualizerMode === 'bars' && <Activity size={15} className="text-brand animate-pulse" />}
+            {visualizerMode === 'wave' && <Waves size={15} className="text-blue-400 animate-pulse" />}
+            {visualizerMode === 'off' && <EyeOff size={15} className="text-neutral-400" />}
+            <span className="capitalize font-mono text-[11px]">{visualizerMode}</span>
+          </button>
+
+          <button 
+            onClick={onClose}
+            className="p-2 hover:bg-white/10 rounded-full transition-colors text-neutral-400 hover:text-white"
+            title="Close lyrics (Esc or L)"
+          >
+            <X size={28} />
+          </button>
+        </div>
 
         {/* Tab Switcher */}
         <div className="flex gap-8 mb-12">
@@ -173,7 +249,10 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
           </div>
 
           {/* Right Side: Content */}
-          <div ref={scrollContainerRef} className="flex-1 w-full overflow-y-auto custom-scrollbar pr-4 py-32 md:py-[30vh]">
+          <div 
+            ref={scrollContainerRef} 
+            className="flex-1 w-full overflow-y-auto custom-scrollbar pr-4 py-32 md:py-[30vh]"
+          >
             {loading ? (
               <div className="h-full flex flex-col items-center justify-center text-neutral-400 gap-4">
                 <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500"></div>
@@ -190,6 +269,7 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
                       lineRef={(el) => {
                         lineRefs.current[i] = el;
                       }}
+                      onSeek={() => seekTo(line.time)}
                     />
                   ))
                 ) : (

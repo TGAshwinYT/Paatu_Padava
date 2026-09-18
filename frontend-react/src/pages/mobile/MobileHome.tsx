@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useAudio } from '../../context/AudioContext';
 import { getHomeFeed, getListenHistory } from '../../services/api';
@@ -18,6 +18,28 @@ const MobileHome: React.FC = () => {
   const [artistMixes, setArtistMixes] = useState<any[]>([]);
   const [isPersonalized, setIsPersonalized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+
+  const recommendedRef = useRef<HTMLDivElement>(null);
+  const isHoveredRef = useRef(false);
+
+  // ── Auto-scroll Mobile Recommended Carousel every 4s ──
+  useEffect(() => {
+    if (recommended.length === 0) return;
+    const interval = setInterval(() => {
+      if (isHoveredRef.current) return;
+      const el = recommendedRef.current;
+      if (!el) return;
+
+      const maxScroll = el.scrollWidth - el.clientWidth;
+      if (el.scrollLeft >= maxScroll - 20) {
+        el.scrollTo({ left: 0, behavior: 'smooth' });
+      } else {
+        el.scrollBy({ left: 160, behavior: 'smooth' });
+      }
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [recommended.length]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -76,16 +98,16 @@ const MobileHome: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center h-[100dvh] bg-[#121212]">
-        <div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin"></div>
+      <div className="flex flex-col items-center justify-center h-[100dvh] bg-surface-base">
+        <div className="w-12 h-12 border-4 border-brand border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
   }
 
   return (
-    <div className="bg-[#121212] h-[100dvh] overflow-y-auto no-scrollbar pb-32">
+    <div className="bg-surface-base h-[100dvh] overflow-y-auto no-scrollbar pb-32">
       {/* Dynamic Header */}
-      <div className="sticky top-0 z-30 bg-gradient-to-b from-neutral-800/90 to-[#121212]/80 backdrop-blur-xl px-4 pt-10 pb-6 shadow-2xl">
+      <div className="sticky top-0 z-30 bg-gradient-to-b from-neutral-800/90 to-surface-base/80 backdrop-blur-xl px-4 pt-10 pb-6 shadow-2xl">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold tracking-tighter text-white">{greeting()}</h1>
           <div className="flex items-center gap-5 text-white/90">
@@ -142,54 +164,66 @@ const MobileHome: React.FC = () => {
         </div>
       )}
 
-      {/* Horizontal Carousels with Snap */}
-      <section className="mb-8">
-        <h2 className="text-xl font-extrabold px-4 mb-4 text-white">Recommended for you</h2>
-        <div className="flex overflow-x-auto snap-x snap-mandatory gap-4 px-4 hide-scrollbar">
-          {recommended.map((song) => (
-            <div 
-              key={song.id} 
-              onClick={() => playContext(song, recommended)}
-              className="snap-start min-w-[140px] max-w-[140px] flex flex-col gap-2 group"
-            >
-              <div className="relative aspect-square">
-                <img 
-                  src={song.coverUrl || '/logo.png'} 
-                  className="w-full h-full object-cover rounded-lg shadow-2xl group-active:scale-95 transition-transform" 
-                  alt="" 
-                />
+      {/* Horizontal Recommended Carousel with Snap */}
+      {recommended.length > 0 && (
+        <section className="mb-8">
+          <h2 className="text-xl font-extrabold px-4 mb-4 text-white">Recommended for you</h2>
+          <div 
+            ref={recommendedRef}
+            onTouchStart={() => { isHoveredRef.current = true; }}
+            onTouchEnd={() => { isHoveredRef.current = false; }}
+            onMouseEnter={() => { isHoveredRef.current = true; }}
+            onMouseLeave={() => { isHoveredRef.current = false; }}
+            className="flex overflow-x-auto snap-x snap-mandatory gap-4 px-4 hide-scrollbar"
+          >
+            {recommended.map((song) => (
+              <div 
+                key={song.id} 
+                onClick={() => playContext(song, recommended)}
+                className="snap-start min-w-[140px] max-w-[140px] flex flex-col gap-2 group"
+              >
+                <div className="relative aspect-square">
+                  <img 
+                    src={song.coverUrl || '/logo.png'} 
+                    className="w-full h-full object-cover rounded-lg shadow-2xl group-active:scale-95 transition-transform" 
+                    alt="" 
+                  />
+                </div>
+                <div className="flex flex-col">
+                  <p className="text-white text-xs font-bold truncate">{song.title}</p>
+                  <p className="text-neutral-400 text-[10px] font-medium truncate">{song.artist}</p>
+                </div>
               </div>
-              <div className="flex flex-col">
-                <p className="text-white text-xs font-bold truncate">{song.title}</p>
-                <p className="text-neutral-400 text-[10px] font-medium truncate">{song.artist}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
+            ))}
+          </div>
+        </section>
+      )}
 
-      <section className="mb-8">
-        <h2 className="text-xl font-extrabold px-4 mb-4 text-white">Artist Mixes</h2>
-        <div className="flex overflow-x-auto snap-x snap-mandatory gap-4 px-4 hide-scrollbar">
-          {artistMixes.map((mix) => (
-            <div 
-              key={mix.id} 
-              onClick={() => navigate(`/search?q=${encodeURIComponent(mix.name)}`)}
-              className="snap-start min-w-[120px] max-w-[120px] flex flex-col gap-2 active:scale-95 transition-transform cursor-pointer"
-            >
-              <div className="relative aspect-square">
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent z-10 rounded-lg" />
-                <img 
-                  src={mix.imageUrl || '/logo.png'} 
-                  className="w-full h-full object-cover rounded-lg shadow-xl" 
-                  alt="" 
-                />
+      {/* Artist Mixes Carousel */}
+      {artistMixes.length > 0 && (
+        <section className="mb-8">
+          <h2 className="text-xl font-extrabold px-4 mb-4 text-white">Artist Mixes</h2>
+          <div className="flex overflow-x-auto snap-x snap-mandatory gap-4 px-4 hide-scrollbar">
+            {artistMixes.map((mix) => (
+              <div 
+                key={mix.id} 
+                onClick={() => navigate(`/search?q=${encodeURIComponent(mix.name)}`)}
+                className="snap-start min-w-[120px] max-w-[120px] flex flex-col gap-2 active:scale-95 transition-transform cursor-pointer"
+              >
+                <div className="relative aspect-square">
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent z-10 rounded-lg" />
+                  <img 
+                    src={mix.imageUrl || '/logo.png'} 
+                    className="w-full h-full object-cover rounded-lg shadow-xl" 
+                    alt="" 
+                  />
+                </div>
+                <p className="text-white text-[11px] font-bold truncate text-center">{mix.name}</p>
               </div>
-              <p className="text-white text-[11px] font-bold truncate text-center">{mix.name}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+            ))}
+          </div>
+        </section>
+      )}
 
       {recentlyPlayed.length > 0 && (
         <section className="mb-10">
@@ -202,7 +236,7 @@ const MobileHome: React.FC = () => {
                   className="relative flex items-center gap-4 bg-white/5 rounded-xl p-3 border border-white/5 active:scale-[0.98] transition-all overflow-hidden"
                 >
                    {/* Progress Visualizer Background */}
-                   <div className="absolute bottom-0 left-0 h-1 bg-green-500/30 w-[40%]" />
+                   <div className="absolute bottom-0 left-0 h-1 bg-brand/30 w-[40%]" />
                    
                    <div className="relative w-14 h-14 flex-shrink-0">
                       <img 
@@ -229,20 +263,36 @@ const MobileHome: React.FC = () => {
       {/* Popular Artists Section */}
       {topArtists.length > 0 && (
         <section className="mb-10">
-          <h2 className="text-xl font-extrabold px-4 mb-4 text-white">Artists you might like</h2>
-          <div className="flex overflow-x-auto snap-x snap-mandatory gap-6 px-4 hide-scrollbar pt-2">
+          <div className="flex items-center justify-between px-4 mb-4">
+            <h2 className="text-xl font-extrabold text-white">Artists you might like</h2>
+            <Link to="/local-artists" className="text-xs font-bold text-neutral-400 hover:text-white uppercase tracking-wider">
+              See all
+            </Link>
+          </div>
+          <div className="flex overflow-x-auto snap-x snap-mandatory gap-5 px-4 hide-scrollbar pt-2">
             {topArtists.map((artist, index) => {
               const imageUrl = artist.image || artist.coverUrl || artist.imageUrl || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop';
+              const displayName = artist.name || artist.title || 'Unknown Artist';
+              const targetId = artist.id || artist.browseId || displayName;
+
               return (
                 <div 
                   key={artist.id || index}
-                  onClick={() => navigate(`/search?q=${encodeURIComponent(artist.name || artist.title)}`)}
-                  className="flex flex-col items-center gap-3 cursor-pointer group flex-shrink-0 w-32 snap-start active:scale-95 transition-transform"
+                  onClick={() => navigate(`/artist/${encodeURIComponent(targetId)}`)}
+                  className="flex flex-col items-center gap-3 cursor-pointer group flex-shrink-0 w-28 snap-start active:scale-95 transition-transform"
                 >
-                  <div className="w-32 h-32 rounded-full overflow-hidden shadow-lg border border-white/5">
-                    <img src={imageUrl} className="w-full h-full object-cover" alt="" />
+                  <div className="w-28 h-28 rounded-full overflow-hidden shadow-lg border border-white/10 ring-1 ring-white/5">
+                    <img 
+                      src={imageUrl} 
+                      className="w-full h-full object-cover" 
+                      alt={displayName}
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop';
+                      }}
+                    />
                   </div>
-                  <p className="text-white font-bold text-xs truncate w-full text-center px-1 uppercase tracking-tight">{artist.name || artist.title}</p>
+                  <p className="text-white font-bold text-xs truncate w-full text-center px-1 uppercase tracking-tight">{displayName}</p>
                 </div>
               );
             })}

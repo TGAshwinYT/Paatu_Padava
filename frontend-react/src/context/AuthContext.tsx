@@ -6,6 +6,7 @@ interface AuthContextType {
   token: string | null;
   login: (email: string, pass: string) => Promise<void>;
   register: (email: string, pass: string, name: string) => Promise<void>;
+  googleLogin: (credential: string) => Promise<void>;
   logout: () => Promise<void>;
   isLoading: boolean;
   isLibraryAuthModalOpen: boolean;
@@ -69,6 +70,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const googleLogin = async (credential: string) => {
+    setIsLoading(true);
+    try {
+      const response = await api.post('/api/auth/google', { credential });
+      const { access_token, user } = response.data;
+      setToken(access_token);
+      setUser(user);
+      localStorage.setItem('token', access_token);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const logout = async () => {
     try {
       await api.post('/api/auth/logout');
@@ -87,6 +101,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       token, 
       login, 
       register, 
+      googleLogin,
       logout, 
       isLoading,
       isLibraryAuthModalOpen,

@@ -27,3 +27,13 @@ dist-ssr
 .env
 .env.*
 !.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+scratch_song*.jpg
+
+# Antigravity IDE local configs
+.agents/

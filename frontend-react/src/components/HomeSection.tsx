@@ -23,7 +23,7 @@ const HomeSection: React.FC<HomeSectionProps> = ({ title, showAllLink, rightElem
           showAllLink && (
             <Link 
               to={showAllLink} 
-              className="text-sm font-bold text-[#a7a7a7] hover:text-white transition-colors duration-200"
+              className="text-sm font-bold text-muted hover:text-white transition-colors duration-200"
             >
               Show all
             </Link>

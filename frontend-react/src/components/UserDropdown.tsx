@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-
+import { User, Clock, Settings, LogOut, Users, Keyboard } from 'lucide-react';
 
 interface UserDropdownProps {
   user: any;
@@ -32,19 +32,40 @@ const UserDropdown: React.FC<UserDropdownProps> = ({ user, onLogout }) => {
   const menuItems = [
     { 
       label: 'Profile', 
-      icon: null, 
+      icon: <User size={16} className="text-neutral-400" />, 
       onClick: () => { navigate('/profile'); setIsOpen(false); },
+      separator: false 
+    },
+    { 
+      label: 'Your Artists', 
+      icon: <Users size={16} className="text-neutral-400" />, 
+      onClick: () => { navigate('/profile#artists'); setIsOpen(false); },
+      separator: false 
+    },
+    { 
+      label: 'Recently Listened', 
+      icon: <Clock size={16} className="text-neutral-400" />, 
+      onClick: () => { navigate('/history'); setIsOpen(false); },
+      separator: false 
+    },
+    { 
+      label: 'Shortcuts (?)', 
+      icon: <Keyboard size={16} className="text-neutral-400" />, 
+      onClick: () => { 
+        window.dispatchEvent(new CustomEvent('paatu:toggle-shortcuts-modal')); 
+        setIsOpen(false); 
+      },
       separator: true 
     },
     { 
       label: 'Settings', 
-      icon: null, 
+      icon: <Settings size={16} className="text-neutral-400" />, 
       onClick: () => { navigate('/settings'); setIsOpen(false); },
       separator: false 
     },
     { 
       label: 'Log out', 
-      icon: null, 
+      icon: <LogOut size={16} className="text-neutral-400" />, 
       onClick: () => { onLogout(); setIsOpen(false); },
       separator: false 
     },
@@ -60,12 +81,12 @@ const UserDropdown: React.FC<UserDropdownProps> = ({ user, onLogout }) => {
       </button>
 
       {isOpen && (
-        <div className="absolute top-10 right-0 z-[100] w-48 bg-[#282828] p-1 rounded-md shadow-[0_16px_24px_rgba(0,0,0,0.5)] border border-white/5 animate-in fade-in zoom-in-95 duration-100 origin-top-right">
+        <div className="absolute top-10 right-0 z-[100] w-48 bg-surface p-1 rounded-md shadow-[0_16px_24px_rgba(0,0,0,0.5)] border border-white/5 animate-in fade-in zoom-in-95 duration-100 origin-top-right">
           {menuItems.map((item, index) => (
             <React.Fragment key={index}>
               <button
                 onClick={item.onClick}
-                className="w-full text-left px-3 py-3 text-sm font-medium text-white hover:bg-[#3e3e3e] flex items-center justify-between transition-colors rounded-sm"
+                className="w-full text-left px-3 py-3 text-sm font-medium text-white hover:bg-surface-active flex items-center justify-between transition-colors rounded-sm"
               >
                 <span>{item.label}</span>
                 {item.icon}
@@ -75,6 +96,7 @@ const UserDropdown: React.FC<UserDropdownProps> = ({ user, onLogout }) => {
           ))}
         </div>
       )}
+
     </div>
   );
 };

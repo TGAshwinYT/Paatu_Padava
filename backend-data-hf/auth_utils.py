@@ -7,9 +7,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Secret key to sign JWT tokens
-# In production, use a strong random secret!
-SECRET_KEY = os.getenv("JWT_SECRET", "super-secret-paatu-paaduva-key-12345")
+# Secret key to sign JWT tokens (Must be configured via JWT_SECRET)
+SECRET_KEY = os.getenv("JWT_SECRET")
+if not SECRET_KEY:
+    raise RuntimeError(
+        "FATAL SECURITY ERROR: 'JWT_SECRET' environment variable is not set. "
+        "Refusing to start with an insecure fallback secret."
+    )
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 1 week
 

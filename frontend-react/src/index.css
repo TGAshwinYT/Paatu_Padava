@@ -2,11 +2,35 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* Canonical Brand Accent */
+  --color-brand: #1ed760;
+  --color-brand-hover: #1fdf64;
+  --color-brand-active: #169c46;
+
+  /* Surfaces & Backgrounds */
+  --color-bg-base: #000000;
+  --color-surface-card: #121212;
+  --color-surface: #242424;
+  --color-surface-hover: #2e2e2e;
+  --color-surface-active: #383838;
+
+  /* Borders */
+  --color-border-subtle: rgba(255, 255, 255, 0.08);
+  --color-border-default: rgba(255, 255, 255, 0.15);
+
+  /* Typography / Text */
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #b3b3b3;
+  --color-text-muted: #727272;
+}
+
 @layer base {
   body {
-    @apply bg-black text-white m-0 p-0 antialiased;
+    @apply bg-surface-base text-white m-0 p-0 antialiased;
   }
 }
+
 
 /* Global Custom Scrollbar (Spotify-style) */
 ::-webkit-scrollbar {
@@ -39,4 +63,15 @@
 @layer utilities {
   .hide-scrollbar::-webkit-scrollbar { display: none; }
   .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.25);
+    border-radius: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(255, 255, 255, 0.45);
+  }
 }

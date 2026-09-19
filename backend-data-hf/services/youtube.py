@@ -493,28 +493,51 @@ async def fetch_regional_fallback(region=""):
         "topAlbums": [], 
         "topArtists": list(CURATED_TOP_ARTISTS)
     }
+    query_lang = region or "Tamil"
     
-    song_query = f"{region} Hit Songs" if region else "Tamil Hit Songs"
-    search_songs = await loop.run_in_executor(None, functools.partial(ytmusic.search, song_query, filter="songs", limit=12))
-    for item in search_songs:
-        mapped = map_youtube_song(item)
-        if mapped: response["recommendedForYou"].append(mapped)
+    # 1. Try YouTube Music first with safe exception handling
+    try:
+        song_query = f"{region} Hit Songs" if region else "Tamil Hit Songs"
+        search_songs = await loop.run_in_executor(None, functools.partial(ytmusic.search, song_query, filter="songs", limit=12))
+        for item in (search_songs or []):
+            mapped = map_youtube_song(item)
+            if mapped:
+                response["recommendedForYou"].append(mapped)
+    except Exception as se:
+        logger.warning(f"YouTube song fallback failed (falling back to JioSaavn): {se}")
 
-    album_query = f"{region} Hit Albums" if region else "Tamil Hit Albums"
-    search_albums = await loop.run_in_executor(None, functools.partial(ytmusic.search, album_query, filter="albums", limit=20))
-    for item in search_albums:
-        response["topAlbums"].append({
-            "id": item.get('browseId', ''),
-            "title": item.get('title', 'Unknown Album'),
-            "artist": item.get('artists', [{'name': 'Various Artists'}])[0].get('name') if item.get('artists') else 'Various Artists',
-            "cover_url": item.get('thumbnails', [{'url': ''}])[-1].get('url', '')
-        })
+    try:
+        album_query = f"{region} Hit Albums" if region else "Tamil Hit Albums"
+        search_albums = await loop.run_in_executor(None, functools.partial(ytmusic.search, album_query, filter="albums", limit=20))
+        for item in (search_albums or []):
+            response["topAlbums"].append({
+                "id": item.get('browseId', ''),
+                "title": item.get('title', 'Unknown Album'),
+                "artist": item.get('artists', [{'name': 'Various Artists'}])[0].get('name') if item.get('artists') else 'Various Artists',
+                "cover_url": item.get('thumbnails', [{'url': ''}])[-1].get('url', '')
+            })
+    except Exception as ae:
+        logger.warning(f"YouTube album fallback failed (falling back to JioSaavn): {ae}")
 
+    # 2. Resilient JioSaavn Direct Fallback if YouTube failed or gave empty results
+    if not response["recommendedForYou"] or not response["topAlbums"]:
+        try:
+            from services.saavn import search_saavn_direct, search_saavn_albums_direct
+            if not response["recommendedForYou"]:
+                saavn_songs = await search_saavn_direct(f"{query_lang} Hits", limit=15)
+                response["recommendedForYou"] = saavn_songs
+            if not response["topAlbums"]:
+                saavn_albums = await search_saavn_albums_direct(f"{query_lang} Hits", limit=15)
+                response["topAlbums"] = saavn_albums
+        except Exception as fe:
+            logger.warning(f"JioSaavn direct fallback failed: {fe}")
+
+    # 3. Enrich artists
     try:
         artist_query = f"Trending {region} Artists" if region else "Trending Tamil Artists"
         search_artists = await loop.run_in_executor(None, functools.partial(ytmusic.search, artist_query, filter="artists", limit=10))
         existing_ids = {a.get("id") for a in response["topArtists"]}
-        for item in search_artists:
+        for item in (search_artists or []):
             b_id = item.get('browseId', '')
             if b_id and b_id not in existing_ids:
                 response["topArtists"].append({

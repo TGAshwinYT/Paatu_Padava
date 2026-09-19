@@ -422,7 +422,25 @@ async def get_home_feed(
         return home_feed
     except Exception as e:
         print(f"Home Feed Error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error fetching home feed")
+        # Safe Fallback: Never crash the frontend with a 500 error
+        try:
+            from services import saavn
+            songs = await saavn.search_saavn_direct(f"{primary_lang} Hits", limit=15)
+            albums = await saavn.search_saavn_albums_direct(f"{primary_lang} Hits", limit=15)
+            return {
+                "recommendedForYou": songs,
+                "topAlbums": albums,
+                "topArtists": youtube.CURATED_TOP_ARTISTS,
+                "personalized": False
+            }
+        except Exception as fe:
+            print(f"Emergency fallback failed: {fe}")
+            return {
+                "recommendedForYou": [],
+                "topAlbums": [],
+                "topArtists": youtube.CURATED_TOP_ARTISTS,
+                "personalized": False
+            }
 
 import re
 

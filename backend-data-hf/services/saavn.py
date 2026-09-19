@@ -359,6 +359,102 @@ async def search_saavn_direct(query: str, limit: int = 15) -> List[Dict[str, Any
         logger.debug(f"Direct Saavn search failed: {e}")
         return []
 
+async def search_saavn_albums_direct(query: str, limit: int = 15) -> List[Dict[str, Any]]:
+    """
+    Directly searches JioSaavn albums (www.jiosaavn.com/api.php).
+    Bypasses third-party proxy nodes to eliminate 429 Too Many Requests.
+    """
+    clean_query = query.strip()
+    if not clean_query:
+        return []
+
+    url = "https://www.jiosaavn.com/api.php"
+    params = {
+        "__call": "search.getAlbumResults",
+        "_format": "json",
+        "_marker": "0",
+        "api_version": "4",
+        "ctx": "web6dot0",
+        "p": "1",
+        "n": str(limit),
+        "q": clean_query
+    }
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*"
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, params=params, headers=headers, timeout=4.0)
+            if resp.status_code != 200:
+                return []
+            data = resp.json()
+            results = data.get("results", [])
+            mapped_albums = []
+            for item in results:
+                more = item.get("more_info", {})
+                title = html.unescape(item.get("title", "Unknown Album"))
+                artist = html.unescape(more.get("music") or more.get("singers") or item.get("subtitle") or "Various Artists")
+                img = extract_high_res_image(item.get("image", ""))
+                mapped_albums.append({
+                    "id": item.get("id", ""),
+                    "title": title,
+                    "artist": artist,
+                    "subtitle": artist,
+                    "cover_url": img,
+                    "image": img
+                })
+            return mapped_albums
+    except Exception as e:
+        logger.debug(f"Direct Saavn album search failed: {e}")
+        return []
+
+async def search_saavn_artists_direct(query: str, limit: int = 15) -> List[Dict[str, Any]]:
+    """
+    Directly searches JioSaavn artists (www.jiosaavn.com/api.php).
+    """
+    clean_query = query.strip()
+    if not clean_query:
+        return []
+
+    url = "https://www.jiosaavn.com/api.php"
+    params = {
+        "__call": "search.getArtistResults",
+        "_format": "json",
+        "_marker": "0",
+        "api_version": "4",
+        "ctx": "web6dot0",
+        "p": "1",
+        "n": str(limit),
+        "q": clean_query
+    }
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*"
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, params=params, headers=headers, timeout=4.0)
+            if resp.status_code != 200:
+                return []
+            data = resp.json()
+            results = data.get("results", [])
+            mapped_artists = []
+            for item in results:
+                name = html.unescape(item.get("name") or "Unknown Artist")
+                img = extract_high_res_image(item.get("image", ""))
+                mapped_artists.append({
+                    "id": item.get("id", ""),
+                    "name": name,
+                    "cover_url": img,
+                    "image": img
+                })
+            return mapped_artists
+    except Exception as e:
+        logger.debug(f"Direct Saavn artist search failed: {e}")
+        return []
+
+
 @cache(expire=1800)
 async def search_saavn(query: str, language: str = None) -> List[Dict[str, Any]]:
     """

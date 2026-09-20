@@ -28,7 +28,7 @@ dependencies:
   hive_flutter: ^1.1.0
 
   # DES Decryption for JioSaavn 320kbps media URLs
-  pointycastle: ^3.7.3
+  dart_des: ^1.0.2
 
   # UI / UX Utilities
   cached_network_image: ^3.3.1

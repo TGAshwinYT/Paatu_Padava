@@ -35,7 +35,14 @@ jobs:
 
       - name: Analyze Flutter Code
         working-directory: mobile
-        run: flutter analyze
+        run: flutter analyze 2>&1 | tee analyze.txt
+
+      - name: Upload Analysis Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-analyze-output
+          path: mobile/analyze.txt
 
       - name: Build Release APK
         working-directory: mobile

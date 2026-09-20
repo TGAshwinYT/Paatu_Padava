@@ -309,7 +309,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             backgroundColor: const Color(0xFF1DB954),
                             foregroundColor: Colors.black,
                             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                            shape: RoundedRectangle.circular(12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                             minimumSize: Size.zero,
                           ),
                           child: const Text('Import', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),

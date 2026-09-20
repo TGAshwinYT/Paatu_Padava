@@ -6,6 +6,10 @@ import '../../services/saavn_client.dart';
 import '../../services/youtube_client.dart';
 import '../../services/player_handler.dart';
 import '../../services/download_manager.dart';
+import '../../services/favorites_manager.dart';
+import '../../services/search_history_manager.dart';
+import 'artist_screen.dart';
+import 'album_screen.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({Key? key}) : super(key: key);
@@ -18,20 +22,34 @@ class _SearchScreenState extends State<SearchScreen> {
   final TextEditingController _searchController = TextEditingController();
   Timer? _debounceTimer;
 
-  String _searchSource = 'saavn'; // 'saavn' or 'youtube'
-  List<Song> _results = [];
+  String _currentTab = 'All'; // 'All', 'Songs', 'Albums', 'Artists', 'YouTube'
+
+  List<Song> _songs = [];
+  List<Map<String, dynamic>> _albums = [];
+  List<Map<String, dynamic>> _artists = [];
+  List<Song> _ytSongs = [];
+
   bool _isSearching = false;
   bool _hasSearched = false;
 
-  final List<String> _quickSuggestions = [
+  final List<String> _trendingArtists = [
     'Anirudh Ravichander',
     'A.R. Rahman',
     'Harris Jayaraj',
     'Yuvan Shankar Raja',
     'Sid Sriram',
     'Ilayaraja',
-    'Leo Songs',
-    'Vikram Songs',
+    'Hiphop Tamizha',
+    'G.V. Prakash',
+  ];
+
+  final List<String> _genrePills = [
+    '🔥 Tamil Hits',
+    '⚡ Telugu Beats',
+    '🌙 Chill Melodies',
+    '💪 Workout Bass',
+    '📻 90s Classics',
+    '🎸 Indie Acoustics',
   ];
 
   @override
@@ -45,14 +63,17 @@ class _SearchScreenState extends State<SearchScreen> {
     _debounceTimer?.cancel();
     if (query.trim().isEmpty) {
       setState(() {
-        _results = [];
+        _songs = [];
+        _albums = [];
+        _artists = [];
+        _ytSongs = [];
         _hasSearched = false;
         _isSearching = false;
       });
       return;
     }
 
-    _debounceTimer = Timer(const Duration(milliseconds: 600), () {
+    _debounceTimer = Timer(const Duration(milliseconds: 500), () {
       _executeSearch(query);
     });
   }
@@ -61,39 +82,88 @@ class _SearchScreenState extends State<SearchScreen> {
     final clean = query.trim();
     if (clean.isEmpty) return;
 
+    // Save to recent search history
+    SearchHistoryManager.addQuery(clean);
+
     setState(() {
       _isSearching = true;
       _hasSearched = true;
     });
 
-    List<Song> searchResults = [];
-    if (_searchSource == 'saavn') {
-      searchResults = await SaavnClient.search(clean, limit: 25);
-    } else {
-      searchResults = await YouTubeClient.search(clean, limit: 20);
+    try {
+      if (_currentTab == 'All') {
+        final results = await Future.wait([
+          SaavnClient.search(clean, limit: 15),
+          SaavnClient.searchAlbums(clean, limit: 8),
+          SaavnClient.searchArtists(clean, limit: 8),
+        ]);
+        if (mounted) {
+          setState(() {
+            _songs = results[0] as List<Song>;
+            _albums = results[1] as List<Map<String, dynamic>>;
+            _artists = results[2] as List<Map<String, dynamic>>;
+            _isSearching = false;
+          });
+        }
+      } else if (_currentTab == 'Songs') {
+        final songs = await SaavnClient.search(clean, limit: 25);
+        if (mounted) {
+          setState(() {
+            _songs = songs;
+            _isSearching = false;
+          });
+        }
+      } else if (_currentTab == 'Albums') {
+        final albums = await SaavnClient.searchAlbums(clean, limit: 20);
+        if (mounted) {
+          setState(() {
+            _albums = albums;
+            _isSearching = false;
+          });
+        }
+      } else if (_currentTab == 'Artists') {
+        final artists = await SaavnClient.searchArtists(clean, limit: 20);
+        if (mounted) {
+          setState(() {
+            _artists = artists;
+            _isSearching = false;
+          });
+        }
+      } else if (_currentTab == 'YouTube') {
+        final yt = await YouTubeClient.search(clean, limit: 20);
+        if (mounted) {
+          setState(() {
+            _ytSongs = yt;
+            _isSearching = false;
+          });
+        }
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isSearching = false);
     }
+  }
 
-    if (mounted) {
-      setState(() {
-        _results = searchResults;
-        _isSearching = false;
-      });
+  void _onTabChanged(String tab) {
+    if (_currentTab == tab) return;
+    setState(() => _currentTab = tab);
+    if (_searchController.text.isNotEmpty) {
+      _executeSearch(_searchController.text);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0B0F19),
+      backgroundColor: const Color(0xFF0A0E1A),
       body: SafeArea(
         child: Column(
           children: [
-            // Search Input Header
+            // Search Input Field
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
               child: Container(
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
+                  color: const Color(0xFF131B2E),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: Colors.white.withOpacity(0.08)),
                 ),
@@ -103,7 +173,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   onSubmitted: _executeSearch,
                   style: const TextStyle(color: Colors.white, fontSize: 15),
                   decoration: InputDecoration(
-                    hintText: 'Search songs, artists, albums...',
+                    hintText: 'Search songs, artists, albums, or YT...',
                     hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 14),
                     prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF6366F1), size: 24),
                     suffixIcon: _searchController.text.isNotEmpty
@@ -122,74 +192,46 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
 
-            // Source Selector Tabs
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20.0),
-              child: Row(
-                children: [
-                  _sourceTab(
-                    label: '⚡ JioSaavn (320kbps HD)',
-                    sourceKey: 'saavn',
-                    icon: Icons.hd_rounded,
-                  ),
-                  const SizedBox(width: 8),
-                  _sourceTab(
-                    label: '▶ YouTube',
-                    sourceKey: 'youtube',
-                    icon: Icons.smart_display_rounded,
-                  ),
-                ],
+            // Search Multi-Entity Category Tabs
+            SizedBox(
+              height: 38,
+              child: ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                scrollDirection: Axis.horizontal,
+                children: ['All', 'Songs', 'Albums', 'Artists', 'YouTube'].map((tab) {
+                  final isSelected = _currentTab == tab;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8.0),
+                    child: ChoiceChip(
+                      label: Text(tab),
+                      selected: isSelected,
+                      selectedColor: const Color(0xFF6366F1),
+                      backgroundColor: const Color(0xFF131B2E),
+                      labelStyle: TextStyle(
+                        color: isSelected ? Colors.white : const Color(0xFF94A3B8),
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                        fontSize: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(
+                          color: isSelected ? const Color(0xFF6366F1) : Colors.white.withOpacity(0.06),
+                        ),
+                      ),
+                      onSelected: (_) => _onTabChanged(tab),
+                    ),
+                  );
+                }).toList(),
               ),
             ),
 
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
 
-            // Search Results or Suggestions
+            // Search Body (Results or Empty/Suggestions)
             Expanded(
               child: _buildBody(),
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _sourceTab({required String label, required String sourceKey, required IconData icon}) {
-    final isSelected = _searchSource == sourceKey;
-    return Expanded(
-      child: InkWell(
-        onTap: () {
-          if (_searchSource != sourceKey) {
-            setState(() => _searchSource = sourceKey);
-            if (_searchController.text.isNotEmpty) {
-              _executeSearch(_searchController.text);
-            }
-          }
-        },
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFF6366F1) : const Color(0xFF1E293B),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: 16, color: isSelected ? Colors.white : const Color(0xFF94A3B8)),
-                const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: isSelected ? Colors.white : const Color(0xFF94A3B8),
-                    fontSize: 12,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
         ),
       ),
     );
@@ -203,91 +245,319 @@ class _SearchScreenState extends State<SearchScreen> {
     }
 
     if (!_hasSearched) {
-      return ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          const Text(
-            'Popular Searches',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 10,
-            children: _quickSuggestions.map((tag) {
-              return ActionChip(
-                backgroundColor: const Color(0xFF1E293B),
-                label: Text(tag, style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13)),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                  side: BorderSide(color: Colors.white.withOpacity(0.06)),
+      return _buildPreSearchContent();
+    }
+
+    // Tab-specific rendering
+    if (_currentTab == 'All') {
+      return _buildAllResults();
+    } else if (_currentTab == 'Songs') {
+      return _buildSongsList(_songs);
+    } else if (_currentTab == 'Albums') {
+      return _buildAlbumsGrid(_albums);
+    } else if (_currentTab == 'Artists') {
+      return _buildArtistsList(_artists);
+    } else if (_currentTab == 'YouTube') {
+      return _buildSongsList(_ytSongs);
+    }
+
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildPreSearchContent() {
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      children: [
+        // Recent Searches
+        ValueListenableBuilder<List<String>>(
+          valueListenable: SearchHistoryManager.historyNotifier,
+          builder: (context, history, _) {
+            if (history.isEmpty) return const SizedBox.shrink();
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Recent Searches',
+                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    TextButton(
+                      child: const Text('Clear All', style: TextStyle(color: Color(0xFF64748B), fontSize: 12)),
+                      onPressed: () => SearchHistoryManager.clearAll(),
+                    ),
+                  ],
                 ),
-                onPressed: () {
-                  _searchController.text = tag;
-                  _executeSearch(tag);
-                },
-              );
-            }).toList(),
-          ),
-        ],
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: history.map((q) {
+                    return InputChip(
+                      backgroundColor: const Color(0xFF131B2E),
+                      label: Text(q, style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 12)),
+                      deleteIcon: const Icon(Icons.close_rounded, size: 16, color: Color(0xFF64748B)),
+                      onDeleted: () => SearchHistoryManager.removeQuery(q),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(color: Colors.white.withOpacity(0.06)),
+                      ),
+                      onPressed: () {
+                        _searchController.text = q;
+                        _executeSearch(q);
+                      },
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 24),
+              ],
+            );
+          },
+        ),
+
+        // Trending Artists
+        const Text(
+          'Trending Artists',
+          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 10,
+          children: _trendingArtists.map((artist) {
+            return ActionChip(
+              backgroundColor: const Color(0xFF131B2E),
+              avatar: const Icon(Icons.person_rounded, size: 16, color: Color(0xFF6366F1)),
+              label: Text(artist, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: Colors.white.withOpacity(0.06)),
+              ),
+              onPressed: () {
+                _searchController.text = artist;
+                _executeSearch(artist);
+              },
+            );
+          }).toList(),
+        ),
+
+        const SizedBox(height: 24),
+
+        // Top Genres & Moods
+        const Text(
+          'Browse Categories',
+          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 10,
+          children: _genrePills.map((genre) {
+            return ActionChip(
+              backgroundColor: const Color(0xFF131B2E),
+              label: Text(genre, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: Colors.white.withOpacity(0.06)),
+              ),
+              onPressed: () {
+                final clean = genre.substring(2).trim();
+                _searchController.text = clean;
+                _executeSearch(clean);
+              },
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAllResults() {
+    if (_songs.isEmpty && _albums.isEmpty && _artists.isEmpty) {
+      return Center(
+        child: Text(
+          'No results found for "${_searchController.text}"',
+          style: const TextStyle(color: Color(0xFF94A3B8)),
+        ),
       );
     }
 
-    if (_results.isEmpty) {
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 120),
+      children: [
+        // Top Artists Row
+        if (_artists.isNotEmpty) ...[
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 12, 20, 10),
+            child: Text(
+              'Artists',
+              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+          SizedBox(
+            height: 105,
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              scrollDirection: Axis.horizontal,
+              itemCount: _artists.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 14),
+              itemBuilder: (context, index) {
+                final art = _artists[index];
+                final id = art['id']?.toString() ?? '';
+                final name = art['name']?.toString() ?? '';
+                final img = art['image']?.toString() ?? '';
+
+                return GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ArtistScreen(
+                          artistId: id,
+                          artistName: name,
+                          imageUrl: img,
+                        ),
+                      ),
+                    );
+                  },
+                  child: Column(
+                    children: [
+                      CircleAvatar(
+                        radius: 34,
+                        backgroundColor: const Color(0xFF131B2E),
+                        backgroundImage: img.isNotEmpty ? CachedNetworkImageProvider(img) : null,
+                      ),
+                      const SizedBox(height: 6),
+                      SizedBox(
+                        width: 70,
+                        child: Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.white70, fontSize: 11),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+
+        // Top Albums Row
+        if (_albums.isNotEmpty) ...[
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 16, 20, 10),
+            child: Text(
+              'Albums',
+              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+          SizedBox(
+            height: 160,
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              scrollDirection: Axis.horizontal,
+              itemCount: _albums.length,
+              itemBuilder: (context, index) {
+                final album = _albums[index];
+                final id = album['id']?.toString() ?? '';
+                final title = album['title']?.toString() ?? '';
+                final img = album['image']?.toString() ?? '';
+
+                return GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => AlbumScreen(
+                          albumId: id,
+                          albumTitle: title,
+                          imageUrl: img,
+                        ),
+                      ),
+                    );
+                  },
+                  child: Container(
+                    width: 120,
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: SizedBox(
+                            width: 120,
+                            height: 120,
+                            child: CachedNetworkImage(
+                              imageUrl: img,
+                              fit: BoxFit.cover,
+                              errorWidget: (_, __, ___) => Container(color: const Color(0xFF1E293B)),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+
+        // Songs Header
+        if (_songs.isNotEmpty) ...[
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
+            child: Text(
+              'Songs',
+              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+          ..._songs.map((song) => _buildSongItem(song, _songs)).toList(),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildSongsList(List<Song> songList) {
+    if (songList.isEmpty) {
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.search_off_rounded, size: 50, color: Color(0xFF64748B)),
-            const SizedBox(height: 12),
-            Text(
-              'No results for "${_searchController.text}"',
-              style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 15),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'Try switching between JioSaavn and YouTube tabs',
-              style: TextStyle(color: Color(0xFF64748B), fontSize: 12),
-            ),
-          ],
+        child: Text(
+          'No songs found for "${_searchController.text}"',
+          style: const TextStyle(color: Color(0xFF94A3B8)),
         ),
       );
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.only(bottom: 100),
-      itemCount: _results.length,
+      padding: const EdgeInsets.only(bottom: 120),
+      itemCount: songList.length,
       itemBuilder: (context, index) {
-        final song = _results[index];
-        return _SearchResultTile(
-          song: song,
-          onTap: () => audioHandler.playSong(song, queue: _results),
-        );
+        return _buildSongItem(songList[index], songList);
       },
     );
   }
-}
 
-class _SearchResultTile extends StatelessWidget {
-  final Song song;
-  final VoidCallback onTap;
-
-  const _SearchResultTile({required this.song, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildSongItem(Song song, List<Song> queue) {
     return ValueListenableBuilder<Song?>(
       valueListenable: audioHandler.currentSongNotifier,
       builder: (context, currentSong, _) {
         final isPlaying = currentSong?.id == song.id;
 
         return ListTile(
-          onTap: onTap,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+          onTap: () => audioHandler.playSong(song, queue: queue),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
           leading: Stack(
             alignment: Alignment.center,
             children: [
@@ -296,17 +566,11 @@ class _SearchResultTile extends StatelessWidget {
                 child: SizedBox(
                   width: 50,
                   height: 50,
-                  child: song.coverUrl.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: song.coverUrl,
-                          fit: BoxFit.cover,
-                          placeholder: (_, __) => Container(color: const Color(0xFF1E293B)),
-                          errorWidget: (_, __, ___) => Container(
-                            color: const Color(0xFF1E293B),
-                            child: const Icon(Icons.music_note_rounded, color: Colors.white24),
-                          ),
-                        )
-                      : Container(color: const Color(0xFF1E293B)),
+                  child: CachedNetworkImage(
+                    imageUrl: song.coverUrl,
+                    fit: BoxFit.cover,
+                    errorWidget: (_, __, ___) => Container(color: const Color(0xFF1E293B)),
+                  ),
                 ),
               ),
               if (isPlaying)
@@ -356,67 +620,165 @@ class _SearchResultTile extends StatelessWidget {
                   song.artist,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF94A3B8),
-                    fontSize: 12,
-                  ),
+                  style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
                 ),
               ),
             ],
           ),
-          trailing: _SearchDownloadButton(song: song),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ValueListenableBuilder<List<Song>>(
+                valueListenable: FavoritesManager.favoritesNotifier,
+                builder: (context, _, __) {
+                  final isFav = FavoritesManager.isFavorite(song.id);
+                  return IconButton(
+                    icon: Icon(
+                      isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                      size: 20,
+                      color: isFav ? const Color(0xFFEC4899) : const Color(0xFF64748B),
+                    ),
+                    onPressed: () => FavoritesManager.toggleFavorite(song),
+                  );
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.download_for_offline_outlined, color: Color(0xFF64748B), size: 22),
+                onPressed: () => DownloadManager.downloadSong(song),
+              ),
+            ],
+          ),
         );
       },
     );
   }
-}
 
-class _SearchDownloadButton extends StatelessWidget {
-  final Song song;
-  const _SearchDownloadButton({required this.song});
+  Widget _buildAlbumsGrid(List<Map<String, dynamic>> albums) {
+    if (albums.isEmpty) {
+      return Center(
+        child: Text(
+          'No albums found for "${_searchController.text}"',
+          style: const TextStyle(color: Color(0xFF94A3B8)),
+        ),
+      );
+    }
 
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<Map<String, double>>(
-      valueListenable: DownloadManager.activeDownloads,
-      builder: (context, activeDownloads, _) {
-        final isDownloaded = DownloadManager.isDownloaded(song.id);
-        final isDownloading = activeDownloads.containsKey(song.id);
-        final progress = activeDownloads[song.id] ?? 0.0;
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        childAspectRatio: 0.78,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+      ),
+      itemCount: albums.length,
+      itemBuilder: (context, index) {
+        final album = albums[index];
+        final id = album['id']?.toString() ?? '';
+        final title = album['title']?.toString() ?? '';
+        final artist = album['artist']?.toString() ?? '';
+        final img = album['image']?.toString() ?? '';
 
-        if (isDownloaded) {
-          return const IconButton(
-            icon: Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 22),
-            onPressed: null,
-          );
-        }
-
-        if (isDownloading) {
-          return Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(
-                value: progress > 0 ? progress : null,
-                color: const Color(0xFF6366F1),
-                strokeWidth: 2,
-              ),
-            ),
-          );
-        }
-
-        return IconButton(
-          icon: const Icon(Icons.download_for_offline_outlined, color: Color(0xFF64748B), size: 22),
-          onPressed: () async {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Downloading "${song.title}"...'),
-                duration: const Duration(seconds: 1),
+        return GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => AlbumScreen(
+                  albumId: id,
+                  albumTitle: title,
+                  imageUrl: img,
+                ),
               ),
             );
-            await DownloadManager.downloadSong(song);
           },
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF131B2E),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            padding: const EdgeInsets.all(10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: CachedNetworkImage(
+                        imageUrl: img,
+                        fit: BoxFit.cover,
+                        errorWidget: (_, __, ___) => Container(color: const Color(0xFF1E293B)),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  artist,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildArtistsList(List<Map<String, dynamic>> artists) {
+    if (artists.isEmpty) {
+      return Center(
+        child: Text(
+          'No artists found for "${_searchController.text}"',
+          style: const TextStyle(color: Color(0xFF94A3B8)),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.only(bottom: 120),
+      itemCount: artists.length,
+      itemBuilder: (context, index) {
+        final art = artists[index];
+        final id = art['id']?.toString() ?? '';
+        final name = art['name']?.toString() ?? '';
+        final img = art['image']?.toString() ?? '';
+
+        return ListTile(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ArtistScreen(
+                  artistId: id,
+                  artistName: name,
+                  imageUrl: img,
+                ),
+              ),
+            );
+          },
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+          leading: CircleAvatar(
+            radius: 26,
+            backgroundColor: const Color(0xFF131B2E),
+            backgroundImage: img.isNotEmpty ? CachedNetworkImageProvider(img) : null,
+          ),
+          title: Text(
+            name,
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+          ),
+          subtitle: const Text('Artist', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+          trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Color(0xFF64748B)),
         );
       },
     );

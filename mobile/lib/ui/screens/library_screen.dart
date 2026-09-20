@@ -82,7 +82,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                           color: isUser ? const Color(0xFF6366F1) : Colors.white70,
                         ),
                         label: Text(
-                          isUser ? user.username : 'Sign In',
+                          (user != null && !user.isGuest) ? user.username : 'Sign In',
                           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                         ),
                       );

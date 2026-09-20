@@ -37,6 +37,8 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _initStreams();
   }
 
+  bool _hasRecordedListen = false;
+
   void _initStreams() {
     _player.playbackEventStream.listen((event) {
       final playing = _player.playing;
@@ -66,6 +68,14 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         speed: _player.speed,
         queueIndex: _currentIndex,
       ));
+    });
+
+    // 15-second listen tracker: trains backend item-item collaborative filtering ML graph!
+    _player.positionStream.listen((pos) {
+      if (!_hasRecordedListen && pos.inSeconds >= 15 && currentSong != null) {
+        _hasRecordedListen = true;
+        ApiClient.addListenHistory(currentSong!);
+      }
     });
 
     _player.playerStateStream.listen((state) {
@@ -103,12 +113,13 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   Future<void> _loadAndPlay(Song song) async {
     try {
+      _hasRecordedListen = false;
       currentSongNotifier.value = song;
-      currentLyricsNotifier.value = null;
+      currentLyricsNotifier.value = (song.lyrics != null && song.lyrics!.isNotEmpty) ? song.lyrics : null;
 
-      // 1. Fetch lyrics asynchronously in background
-      ApiClient.fetchLyrics(song.id).then((lyrics) {
-        if (currentSong?.id == song.id) {
+      // 1. Fetch multi-source lyrics asynchronously in background
+      ApiClient.fetchLyrics(song).then((lyrics) {
+        if (currentSong?.id == song.id && lyrics != null && lyrics.isNotEmpty) {
           currentLyricsNotifier.value = lyrics;
         }
       });
@@ -263,8 +274,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     if (nextState) {
       // Intelligent shuffle via recommendation graph
       if (_playlist.length > 2 && currentSong != null) {
-        final ids = _playlist.map((s) => s.id).toList();
-        final orderedIds = await ApiClient.fetchSmartShuffle(ids, currentSong!.id);
+        final orderedIds = await ApiClient.fetchSmartShuffle(_playlist, currentSong);
 
         final Map<String, Song> map = {for (final s in _playlist) s.id: s};
         final List<Song> reordered = [];

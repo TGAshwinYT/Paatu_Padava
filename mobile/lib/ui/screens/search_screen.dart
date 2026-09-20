@@ -8,6 +8,7 @@ import '../../services/player_handler.dart';
 import '../../services/download_manager.dart';
 import '../../services/favorites_manager.dart';
 import '../../services/search_history_manager.dart';
+import '../widgets/spotify_import_dialog.dart';
 import 'artist_screen.dart';
 import 'album_screen.dart';
 
@@ -268,6 +269,47 @@ class _SearchScreenState extends State<SearchScreen> {
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       children: [
+        // Spotify Import Quick Action
+        Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF131B2E),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0x331DB954)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1DB954).withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.album_rounded, color: Color(0xFF1DB954), size: 20),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Paste a Spotify Link to Import',
+                  style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+              ),
+              ElevatedButton(
+                onPressed: () => SpotifyImportDialog.show(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1DB954),
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  minimumSize: Size.zero,
+                ),
+                child: const Text('Import', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+              ),
+            ],
+          ),
+        ),
+
         // Recent Searches
         ValueListenableBuilder<List<String>>(
           valueListenable: SearchHistoryManager.historyNotifier,

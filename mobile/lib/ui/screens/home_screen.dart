@@ -6,6 +6,9 @@ import '../../services/api_client.dart';
 import '../../services/player_handler.dart';
 import '../../services/download_manager.dart';
 import '../../services/favorites_manager.dart';
+import '../../services/auth_manager.dart';
+import '../widgets/spotify_import_dialog.dart';
+import '../widgets/auth_dialog.dart';
 import 'artist_screen.dart';
 import 'album_screen.dart';
 
@@ -17,11 +20,15 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  // Mode: 'studio' (320kbps Lossless JioSaavn CDN) or 'youtube' (YouTube Music)
+  String _activeMode = 'studio';
+
   final List<String> _languages = ['Tamil', 'Telugu', 'Hindi', 'Malayalam', 'English', 'Kannada'];
   String _selectedLanguage = 'Tamil';
 
   List<Song> _forYouSongs = [];
   List<Song> _trendingSongs = [];
+  List<Song> _youtubeTrendingSongs = [];
   List<Map<String, dynamic>> _topAlbums = [];
   List<Map<String, dynamic>> _topArtists = [];
   bool _isLoading = true;
@@ -36,22 +43,32 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Load in parallel
-      final results = await Future.wait([
-        SaavnClient.getTrending(language: _selectedLanguage),
-        ApiClient.fetchForYou(),
-        SaavnClient.searchAlbums('$_selectedLanguage Hit Albums', limit: 10),
-        SaavnClient.searchArtists('Top $_selectedLanguage Artists', limit: 10),
-      ]);
+      if (_activeMode == 'studio') {
+        final results = await Future.wait([
+          SaavnClient.getTrending(language: _selectedLanguage),
+          ApiClient.fetchForYou(),
+          SaavnClient.searchAlbums('$_selectedLanguage Hit Albums', limit: 10),
+          SaavnClient.searchArtists('Top $_selectedLanguage Artists', limit: 10),
+        ]);
 
-      if (mounted) {
-        setState(() {
-          _trendingSongs = results[0] as List<Song>;
-          _forYouSongs = results[1] as List<Song>;
-          _topAlbums = results[2] as List<Map<String, dynamic>>;
-          _topArtists = results[3] as List<Map<String, dynamic>>;
-          _isLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _trendingSongs = results[0] as List<Song>;
+            _forYouSongs = results[1] as List<Song>;
+            _topAlbums = results[2] as List<Map<String, dynamic>>;
+            _topArtists = results[3] as List<Map<String, dynamic>>;
+            _isLoading = false;
+          });
+        }
+      } else {
+        // YouTube Music Mode
+        final ytSongs = await ApiClient.fetchYouTubeTrending();
+        if (mounted) {
+          setState(() {
+            _youtubeTrendingSongs = ytSongs;
+            _isLoading = false;
+          });
+        }
       }
     } catch (_) {
       if (mounted) setState(() => _isLoading = false);
@@ -61,6 +78,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void _onLanguageSelected(String lang) {
     if (_selectedLanguage == lang) return;
     setState(() => _selectedLanguage = lang);
+    _loadHomeData();
+  }
+
+  void _switchMode(String mode) {
+    if (_activeMode == mode) return;
+    setState(() => _activeMode = mode);
     _loadHomeData();
   }
 
@@ -75,7 +98,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onRefresh: _loadHomeData,
           child: CustomScrollView(
             slivers: [
-              // Top Bar Header
+              // Top Bar: Logo, Account Icon, and Mode Switcher
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
@@ -104,8 +127,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           const SizedBox(width: 12),
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
-                            children: const [
-                              Text(
+                            children: [
+                              const Text(
                                 'Paatu Padava',
                                 style: TextStyle(
                                   color: Colors.white,
@@ -115,320 +138,506 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                               ),
                               Text(
-                                'Lossless 320kbps • Client Player',
+                                _activeMode == 'studio' ? 'Lossless 320kbps • JioSaavn' : 'YouTube Music • Direct Stream',
                                 style: TextStyle(
-                                  color: Color(0xFF94A3B8),
+                                  color: _activeMode == 'studio' ? const Color(0xFF818CF8) : const Color(0xFFEF4444),
                                   fontSize: 12,
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
                             ],
                           ),
                         ],
                       ),
-                      // Smart Radio Button
-                      InkWell(
-                        onTap: () async {
-                          if (_trendingSongs.isNotEmpty) {
-                            final first = _trendingSongs.first;
-                            await audioHandler.playSong(first, queue: _trendingSongs);
-                            audioHandler.addRadioMix();
-                          }
-                        },
-                        borderRadius: BorderRadius.circular(20),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF131B2E),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.4)),
-                          ),
-                          child: Row(
-                            children: const [
-                              Icon(Icons.radio_rounded, color: Color(0xFF6366F1), size: 16),
-                              SizedBox(width: 6),
-                              Text(
-                                'Radio',
-                                style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                      // Account Profile Icon
+                      ValueListenableBuilder<AuthUser?>(
+                        valueListenable: AuthManager.authNotifier,
+                        builder: (context, user, _) {
+                          final isUser = user != null && !user.isGuest;
+                          return InkWell(
+                            onTap: () => AuthDialog.show(context),
+                            borderRadius: BorderRadius.circular(24),
+                            child: Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: isUser ? const Color(0xFF6366F1) : Colors.white24,
+                                  width: 1.5,
+                                ),
                               ),
-                            ],
-                          ),
-                        ),
+                              child: CircleAvatar(
+                                radius: 17,
+                                backgroundColor: isUser ? const Color(0xFF6366F1) : const Color(0xFF131B2E),
+                                child: Text(
+                                  isUser && user.username.isNotEmpty ? user.username[0].toUpperCase() : '👤',
+                                  style: const TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),
                 ),
               ),
 
-              // Regional Language Chips
+              // Studio vs YouTube Music Pill Switcher
               SliverToBoxAdapter(
-                child: SizedBox(
-                  height: 48,
-                  child: ListView.separated(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _languages.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 8),
-                    itemBuilder: (context, index) {
-                      final lang = _languages[index];
-                      final isSelected = lang == _selectedLanguage;
-                      return ChoiceChip(
-                        label: Text(lang),
-                        selected: isSelected,
-                        selectedColor: const Color(0xFF6366F1),
-                        backgroundColor: const Color(0xFF131B2E),
-                        labelStyle: TextStyle(
-                          color: isSelected ? Colors.white : const Color(0xFF94A3B8),
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                          fontSize: 13,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                          side: BorderSide(
-                            color: isSelected ? const Color(0xFF6366F1) : Colors.white.withOpacity(0.06),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF131B2E),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.white10),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => _switchMode('studio'),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              decoration: BoxDecoration(
+                                color: _activeMode == 'studio' ? const Color(0xFF6366F1) : Colors.transparent,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.diamond_rounded, size: 16, color: _activeMode == 'studio' ? Colors.white : Colors.white60),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Studio 320k',
+                                    style: TextStyle(
+                                      color: _activeMode == 'studio' ? Colors.white : Colors.white60,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
-                        onSelected: (_) => _onLanguageSelected(lang),
-                      );
-                    },
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => _switchMode('youtube'),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              decoration: BoxDecoration(
+                                color: _activeMode == 'youtube' ? const Color(0xFFEF4444) : Colors.transparent,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.play_circle_filled_rounded, size: 16, color: _activeMode == 'youtube' ? Colors.white : Colors.white60),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'YouTube Music',
+                                    style: TextStyle(
+                                      color: _activeMode == 'youtube' ? Colors.white : Colors.white60,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
 
-              // Loading Spinner
-              if (_isLoading)
-                const SliverFillRemaining(
-                  child: Center(
-                    child: CircularProgressIndicator(color: Color(0xFF6366F1)),
+              // Spotify Quick Import Banner
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 6),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          const Color(0xFF1DB954).withOpacity(0.18),
+                          const Color(0xFF131B2E),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: const Color(0x331DB954)),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1DB954).withOpacity(0.2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.album_rounded, color: Color(0xFF1DB954), size: 22),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Import Spotify Playlist',
+                                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                              ),
+                              Text(
+                                'Match & play your Spotify library in 320kbps',
+                                style: TextStyle(color: Colors.white60, fontSize: 11),
+                              ),
+                            ],
+                          ),
+                        ),
+                        ElevatedButton(
+                          onPressed: () => SpotifyImportDialog.show(context),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF1DB954),
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            shape: RoundedRectangle.circular(12),
+                            minimumSize: Size.zero,
+                          ),
+                          child: const Text('Import', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        ),
+                      ],
+                    ),
                   ),
-                )
-              else ...[
-                // "Made For You" Collaborative Mix
-                if (_forYouSongs.isNotEmpty) ...[
+                ),
+              ),
+
+              // Mode 1: Studio 320kbps View
+              if (_activeMode == 'studio') ...[
+                // Regional Language Chips
+                SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: 48,
+                    child: ListView.separated(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _languages.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      itemBuilder: (context, index) {
+                        final lang = _languages[index];
+                        final isSelected = lang == _selectedLanguage;
+                        return ChoiceChip(
+                          label: Text(lang),
+                          selected: isSelected,
+                          selectedColor: const Color(0xFF6366F1),
+                          backgroundColor: const Color(0xFF131B2E),
+                          labelStyle: TextStyle(
+                            color: isSelected ? Colors.white : const Color(0xFF94A3B8),
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                            fontSize: 13,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            side: BorderSide(
+                              color: isSelected ? const Color(0xFF6366F1) : Colors.white.withOpacity(0.06),
+                            ),
+                          ),
+                          onSelected: (_) => _onLanguageSelected(lang),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+
+                if (_isLoading)
+                  const SliverFillRemaining(
+                    child: Center(
+                      child: CircularProgressIndicator(color: Color(0xFF6366F1)),
+                    ),
+                  )
+                else ...[
+                  // "Made For You" Collaborative Mix
+                  if (_forYouSongs.isNotEmpty) ...[
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: const [
+                                Icon(Icons.auto_awesome_rounded, color: Color(0xFF6366F1), size: 18),
+                                SizedBox(width: 6),
+                                Text(
+                                  'Made For You (AI Graph)',
+                                  style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                            TextButton(
+                              child: const Text('Play All', style: TextStyle(color: Color(0xFF6366F1), fontWeight: FontWeight.bold)),
+                              onPressed: () => audioHandler.playSong(_forYouSongs.first, queue: _forYouSongs),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: SizedBox(
+                        height: 190,
+                        child: ListView.builder(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _forYouSongs.length,
+                          itemBuilder: (context, index) {
+                            final song = _forYouSongs[index];
+                            return _SongCard(
+                              song: song,
+                              onTap: () => audioHandler.playSong(song, queue: _forYouSongs),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+
+                  // "Top Artists" Avatars
+                  if (_topArtists.isNotEmpty) ...[
+                    SliverToBoxAdapter(
+                      child: const Padding(
+                        padding: EdgeInsets.fromLTRB(20, 20, 20, 12),
+                        child: Text(
+                          'Popular Artists',
+                          style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: SizedBox(
+                        height: 110,
+                        child: ListView.separated(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _topArtists.length,
+                          separatorBuilder: (_, __) => const SizedBox(width: 16),
+                          itemBuilder: (context, index) {
+                            final art = _topArtists[index];
+                            final name = art['name']?.toString() ?? 'Artist';
+                            final img = art['image']?.toString() ?? '';
+                            final id = art['id']?.toString() ?? '';
+
+                            return GestureDetector(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => ArtistScreen(
+                                      artistId: id,
+                                      artistName: name,
+                                      imageUrl: img,
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: Column(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 36,
+                                    backgroundColor: const Color(0xFF131B2E),
+                                    backgroundImage: img.isNotEmpty ? CachedNetworkImageProvider(img) : null,
+                                  ),
+                                  const SizedBox(height: 6),
+                                  SizedBox(
+                                    width: 76,
+                                    child: Text(
+                                      name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+
+                  // "Top Albums"
+                  if (_topAlbums.isNotEmpty) ...[
+                    SliverToBoxAdapter(
+                      child: const Padding(
+                        padding: EdgeInsets.fromLTRB(20, 18, 20, 12),
+                        child: Text(
+                          'Featured Albums',
+                          style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: SizedBox(
+                        height: 180,
+                        child: ListView.builder(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _topAlbums.length,
+                          itemBuilder: (context, index) {
+                            final album = _topAlbums[index];
+                            final id = album['id']?.toString() ?? '';
+                            final title = album['title']?.toString() ?? 'Album';
+                            final img = album['image']?.toString() ?? '';
+                            final artist = album['artist']?.toString() ?? '';
+
+                            return GestureDetector(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => AlbumScreen(
+                                      albumId: id,
+                                      albumTitle: title,
+                                      imageUrl: img,
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: Container(
+                                width: 130,
+                                margin: const EdgeInsets.symmetric(horizontal: 6),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(16),
+                                      child: SizedBox(
+                                        width: 130,
+                                        height: 130,
+                                        child: CachedNetworkImage(
+                                          imageUrl: img,
+                                          fit: BoxFit.cover,
+                                          errorWidget: (_, __, ___) => Container(color: const Color(0xFF1E293B)),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                                    ),
+                                    Text(
+                                      artist,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+
+                  // "Trending Now" Section Header
                   SliverToBoxAdapter(
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            '🔥 Trending $_selectedLanguage Tracks',
+                            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                          if (_trendingSongs.isNotEmpty)
+                            TextButton.icon(
+                              icon: const Icon(Icons.play_circle_fill_rounded, size: 18, color: Color(0xFF6366F1)),
+                              label: const Text('Play All', style: TextStyle(color: Color(0xFF6366F1), fontWeight: FontWeight.bold)),
+                              onPressed: () => audioHandler.playSong(_trendingSongs.first, queue: _trendingSongs),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // Trending Songs List
+                  SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final song = _trendingSongs[index];
+                        return _SongTile(
+                          song: song,
+                          onTap: () => audioHandler.playSong(song, queue: _trendingSongs),
+                        );
+                      },
+                      childCount: _trendingSongs.length,
+                    ),
+                  ),
+                ],
+              ] else ...[
+                // Mode 2: YouTube Music View
+                if (_isLoading)
+                  const SliverFillRemaining(
+                    child: Center(
+                      child: CircularProgressIndicator(color: Color(0xFFEF4444)),
+                    ),
+                  )
+                else ...[
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Row(
                             children: const [
-                              Icon(Icons.auto_awesome_rounded, color: Color(0xFF6366F1), size: 18),
-                              SizedBox(width: 6),
+                              Icon(Icons.whatshot_rounded, color: Color(0xFFEF4444), size: 20),
+                              SizedBox(width: 8),
                               Text(
-                                'Made For You (AI Graph)',
-                                style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                                'YouTube Music Charts',
+                                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                               ),
                             ],
                           ),
-                          TextButton(
-                            child: const Text('Play All', style: TextStyle(color: Color(0xFF6366F1), fontWeight: FontWeight.bold)),
-                            onPressed: () => audioHandler.playSong(_forYouSongs.first, queue: _forYouSongs),
-                          ),
+                          if (_youtubeTrendingSongs.isNotEmpty)
+                            TextButton.icon(
+                              icon: const Icon(Icons.play_circle_fill_rounded, size: 18, color: Color(0xFFEF4444)),
+                              label: const Text('Play All', style: TextStyle(color: Color(0xFFEF4444), fontWeight: FontWeight.bold)),
+                              onPressed: () => audioHandler.playSong(_youtubeTrendingSongs.first, queue: _youtubeTrendingSongs),
+                            ),
                         ],
                       ),
                     ),
                   ),
-                  SliverToBoxAdapter(
-                    child: SizedBox(
-                      height: 190,
-                      child: ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        scrollDirection: Axis.horizontal,
-                        itemCount: _forYouSongs.length,
-                        itemBuilder: (context, index) {
-                          final song = _forYouSongs[index];
-                          return _SongCard(
-                            song: song,
-                            onTap: () => audioHandler.playSong(song, queue: _forYouSongs),
-                          );
-                        },
-                      ),
+
+                  SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final song = _youtubeTrendingSongs[index];
+                        return _SongTile(
+                          song: song,
+                          onTap: () => audioHandler.playSong(song, queue: _youtubeTrendingSongs),
+                        );
+                      },
+                      childCount: _youtubeTrendingSongs.length,
                     ),
                   ),
                 ],
-
-                // "Top Artists" Avatars
-                if (_topArtists.isNotEmpty) ...[
-                  SliverToBoxAdapter(
-                    child: const Padding(
-                      padding: EdgeInsets.fromLTRB(20, 22, 20, 12),
-                      child: Text(
-                        'Popular Artists',
-                        style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: SizedBox(
-                      height: 110,
-                      child: ListView.separated(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        scrollDirection: Axis.horizontal,
-                        itemCount: _topArtists.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 16),
-                        itemBuilder: (context, index) {
-                          final art = _topArtists[index];
-                          final name = art['name']?.toString() ?? 'Artist';
-                          final img = art['image']?.toString() ?? '';
-                          final id = art['id']?.toString() ?? '';
-
-                          return GestureDetector(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => ArtistScreen(
-                                    artistId: id,
-                                    artistName: name,
-                                    imageUrl: img,
-                                  ),
-                                ),
-                              );
-                            },
-                            child: Column(
-                              children: [
-                                CircleAvatar(
-                                  radius: 36,
-                                  backgroundColor: const Color(0xFF131B2E),
-                                  backgroundImage: img.isNotEmpty ? CachedNetworkImageProvider(img) : null,
-                                ),
-                                const SizedBox(height: 6),
-                                SizedBox(
-                                  width: 76,
-                                  child: Text(
-                                    name,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(color: Colors.white70, fontSize: 12),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                ],
-
-                // "Top Albums"
-                if (_topAlbums.isNotEmpty) ...[
-                  SliverToBoxAdapter(
-                    child: const Padding(
-                      padding: EdgeInsets.fromLTRB(20, 20, 20, 12),
-                      child: Text(
-                        'Featured Albums',
-                        style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: SizedBox(
-                      height: 180,
-                      child: ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        scrollDirection: Axis.horizontal,
-                        itemCount: _topAlbums.length,
-                        itemBuilder: (context, index) {
-                          final album = _topAlbums[index];
-                          final id = album['id']?.toString() ?? '';
-                          final title = album['title']?.toString() ?? 'Album';
-                          final img = album['image']?.toString() ?? '';
-                          final artist = album['artist']?.toString() ?? '';
-
-                          return GestureDetector(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => AlbumScreen(
-                                    albumId: id,
-                                    albumTitle: title,
-                                    imageUrl: img,
-                                  ),
-                                ),
-                              );
-                            },
-                            child: Container(
-                              width: 130,
-                              margin: const EdgeInsets.symmetric(horizontal: 6),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(16),
-                                    child: SizedBox(
-                                      width: 130,
-                                      height: 130,
-                                      child: CachedNetworkImage(
-                                        imageUrl: img,
-                                        fit: BoxFit.cover,
-                                        errorWidget: (_, __, ___) => Container(color: const Color(0xFF1E293B)),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-                                  ),
-                                  Text(
-                                    artist,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                ],
-
-                // "Trending Now" Section Header
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          '🔥 Trending $_selectedLanguage Tracks',
-                          style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                        ),
-                        if (_trendingSongs.isNotEmpty)
-                          TextButton.icon(
-                            icon: const Icon(Icons.play_circle_fill_rounded, size: 18, color: Color(0xFF6366F1)),
-                            label: const Text('Play All', style: TextStyle(color: Color(0xFF6366F1), fontWeight: FontWeight.bold)),
-                            onPressed: () => audioHandler.playSong(_trendingSongs.first, queue: _trendingSongs),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // Trending Songs List
-                SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      final song = _trendingSongs[index];
-                      return _SongTile(
-                        song: song,
-                        onTap: () => audioHandler.playSong(song, queue: _trendingSongs),
-                      );
-                    },
-                    childCount: _trendingSongs.length,
-                  ),
-                ),
-
-                const SliverToBoxAdapter(child: SizedBox(height: 120)),
               ],
+
+              const SliverToBoxAdapter(child: SizedBox(height: 120)),
             ],
           ),
         ),

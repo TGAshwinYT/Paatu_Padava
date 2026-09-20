@@ -3,10 +3,27 @@ import asyncio
 import logging
 import functools
 import os
+import time
 
 logger = logging.getLogger(__name__)
 
+# YouTube Music Circuit Breaker
+# When Google blocks/drops TLS connections from datacenter IPs, we engage a cooldown
+# to avoid 5-10s connection retry stalls and log spam, instantly falling back to JioSaavn.
+_yt_last_ssl_error = 0.0
+_YT_COOLDOWN_SECONDS = 180.0  # 3 minutes
 
+def _record_yt_error(e: Exception):
+    global _yt_last_ssl_error
+    err_str = str(e)
+    if "SSL" in err_str or "UNEXPECTED_EOF" in err_str or "ConnectionPool" in err_str or "1016" in err_str:
+        if (time.time() - _yt_last_ssl_error) > _YT_COOLDOWN_SECONDS:
+            logger.warning(f"YouTube Music TLS dropped by Google ({e}). Engaging 3-min circuit breaker to preserve latency.")
+        _yt_last_ssl_error = time.time()
+
+def _is_yt_circuit_open() -> bool:
+    global _yt_last_ssl_error
+    return (time.time() - _yt_last_ssl_error) < _YT_COOLDOWN_SECONDS
 
 # Initialize YTMusic
 auth_file = os.path.join(os.path.dirname(__file__), "..", "headers.json")
@@ -114,7 +131,7 @@ async def search_youtube(query, filter="songs", limit=20):
     Async wrapper for YTMusic search with dual-retrieval (songs + official videos)
     and robust deduplication.
     """
-    if not ytmusic or not query:
+    if not ytmusic or not query or _is_yt_circuit_open():
         return []
     
     loop = asyncio.get_event_loop()
@@ -135,7 +152,7 @@ async def search_youtube(query, filter="songs", limit=20):
                         mapped_results.append(mapped)
             return mapped_results
         except Exception as e:
-            logger.error(f"YTMusic search error ({filter}): {e}")
+            _record_yt_error(e)
             return []
 
     # Dual-stream retrieval: Fetch studio songs AND official music videos concurrently
@@ -144,14 +161,14 @@ async def search_youtube(query, filter="songs", limit=20):
             try:
                 return ytmusic.search(query, filter="songs", limit=limit)
             except Exception as e:
-                logger.warning(f"YTMusic songs filter search failed: {e}")
+                _record_yt_error(e)
                 return []
 
         def _fetch_videos():
             try:
                 return ytmusic.search(query, filter="videos", limit=min(limit, 10))
             except Exception as e:
-                logger.warning(f"YTMusic videos filter search failed: {e}")
+                _record_yt_error(e)
                 return []
 
         songs_raw, videos_raw = await asyncio.gather(
@@ -186,28 +203,35 @@ async def search_youtube(query, filter="songs", limit=20):
                     mapped["is_studio"] = False
                     mapped_results.append(mapped)
 
-        # If both specific filters yielded empty results (rare), fallback to unfiltered search
-        if not mapped_results:
-            fallback = await loop.run_in_executor(
-                None,
-                functools.partial(ytmusic.search, query, limit=limit)
-            )
-            for res in fallback:
-                vid = res.get('videoId')
-                if vid and vid not in seen_ids:
-                    seen_ids.add(vid)
-                    mapped = map_youtube_song(res)
-                    if mapped:
-                        mapped_results.append(mapped)
+        # If both specific filters yielded empty results and circuit is not open, fallback to unfiltered search
+        if not mapped_results and not _is_yt_circuit_open():
+            try:
+                fallback = await loop.run_in_executor(
+                    None,
+                    functools.partial(ytmusic.search, query, limit=limit)
+                )
+                for res in (fallback or []):
+                    vid = res.get('videoId')
+                    if vid and vid not in seen_ids:
+                        seen_ids.add(vid)
+                        mapped = map_youtube_song(res)
+                        if mapped:
+                            mapped_results.append(mapped)
+            except Exception as fe:
+                _record_yt_error(fe)
 
         return mapped_results
     except Exception as e:
-        logger.error(f"YTMusic dual search error: {e}")
+        _record_yt_error(e)
         return []
 
 async def search_albums_youtube(query, limit=10):
-    if not ytmusic:
-        return []
+    if not ytmusic or _is_yt_circuit_open():
+        try:
+            from services.saavn import search_saavn_albums_direct
+            return await search_saavn_albums_direct(query, limit=limit)
+        except Exception:
+            return []
     
     loop = asyncio.get_event_loop()
     try:
@@ -230,12 +254,20 @@ async def search_albums_youtube(query, limit=10):
         
         return mapped_albums
     except Exception as e:
-        logger.error(f"YTMusic album search error: {e}")
-        return []
+        _record_yt_error(e)
+        try:
+            from services.saavn import search_saavn_albums_direct
+            return await search_saavn_albums_direct(query, limit=limit)
+        except Exception:
+            return []
 
 async def search_artists_youtube(query, limit=10):
-    if not ytmusic:
-        return []
+    if not ytmusic or _is_yt_circuit_open():
+        try:
+            from services.saavn import search_saavn_artists_direct
+            return await search_saavn_artists_direct(query, limit=limit)
+        except Exception:
+            return []
     
     loop = asyncio.get_event_loop()
     try:
@@ -267,8 +299,12 @@ async def search_artists_youtube(query, limit=10):
         
         return mapped_artists
     except Exception as e:
-        logger.error(f"YTMusic artist search error: {e}")
-        return []
+        _record_yt_error(e)
+        try:
+            from services.saavn import search_saavn_artists_direct
+            return await search_saavn_artists_direct(query, limit=limit)
+        except Exception:
+            return []
 
 async def get_trending_youtube(region="global"):
     """
@@ -483,6 +519,7 @@ async def get_home_youtube(limit=20, region=""):
 
         return response
     except Exception as e:
+        _record_yt_error(e)
         logger.error(f"Home Feed Logic Error: {e}")
         return await fetch_regional_fallback(region)
 
@@ -495,29 +532,30 @@ async def fetch_regional_fallback(region=""):
     }
     query_lang = region or "Tamil"
     
-    # 1. Try YouTube Music first with safe exception handling
-    try:
-        song_query = f"{region} Hit Songs" if region else "Tamil Hit Songs"
-        search_songs = await loop.run_in_executor(None, functools.partial(ytmusic.search, song_query, filter="songs", limit=12))
-        for item in (search_songs or []):
-            mapped = map_youtube_song(item)
-            if mapped:
-                response["recommendedForYou"].append(mapped)
-    except Exception as se:
-        logger.warning(f"YouTube song fallback failed (falling back to JioSaavn): {se}")
+    # 1. Try YouTube Music first only if circuit is not open
+    if not _is_yt_circuit_open():
+        try:
+            song_query = f"{region} Hit Songs" if region else "Tamil Hit Songs"
+            search_songs = await loop.run_in_executor(None, functools.partial(ytmusic.search, song_query, filter="songs", limit=12))
+            for item in (search_songs or []):
+                mapped = map_youtube_song(item)
+                if mapped:
+                    response["recommendedForYou"].append(mapped)
+        except Exception as se:
+            _record_yt_error(se)
 
-    try:
-        album_query = f"{region} Hit Albums" if region else "Tamil Hit Albums"
-        search_albums = await loop.run_in_executor(None, functools.partial(ytmusic.search, album_query, filter="albums", limit=20))
-        for item in (search_albums or []):
-            response["topAlbums"].append({
-                "id": item.get('browseId', ''),
-                "title": item.get('title', 'Unknown Album'),
-                "artist": item.get('artists', [{'name': 'Various Artists'}])[0].get('name') if item.get('artists') else 'Various Artists',
-                "cover_url": item.get('thumbnails', [{'url': ''}])[-1].get('url', '')
-            })
-    except Exception as ae:
-        logger.warning(f"YouTube album fallback failed (falling back to JioSaavn): {ae}")
+        try:
+            album_query = f"{region} Hit Albums" if region else "Tamil Hit Albums"
+            search_albums = await loop.run_in_executor(None, functools.partial(ytmusic.search, album_query, filter="albums", limit=20))
+            for item in (search_albums or []):
+                response["topAlbums"].append({
+                    "id": item.get('browseId', ''),
+                    "title": item.get('title', 'Unknown Album'),
+                    "artist": item.get('artists', [{'name': 'Various Artists'}])[0].get('name') if item.get('artists') else 'Various Artists',
+                    "cover_url": item.get('thumbnails', [{'url': ''}])[-1].get('url', '')
+                })
+        except Exception as ae:
+            _record_yt_error(ae)
 
     # 2. Resilient JioSaavn Direct Fallback if YouTube failed or gave empty results
     if not response["recommendedForYou"] or not response["topAlbums"]:
@@ -532,22 +570,23 @@ async def fetch_regional_fallback(region=""):
         except Exception as fe:
             logger.warning(f"JioSaavn direct fallback failed: {fe}")
 
-    # 3. Enrich artists
-    try:
-        artist_query = f"Trending {region} Artists" if region else "Trending Tamil Artists"
-        search_artists = await loop.run_in_executor(None, functools.partial(ytmusic.search, artist_query, filter="artists", limit=10))
-        existing_ids = {a.get("id") for a in response["topArtists"]}
-        for item in (search_artists or []):
-            b_id = item.get('browseId', '')
-            if b_id and b_id not in existing_ids:
-                response["topArtists"].append({
-                    "id": b_id,
-                    "name": item.get('artist', item.get('title', 'Unknown Artist')),
-                    "cover_url": item.get('thumbnails', [{'url': ''}])[-1].get('url', '')
-                })
-                existing_ids.add(b_id)
-    except Exception as ae:
-        logger.warning(f"Regional artist search error: {ae}")
+    # 3. Enrich artists if circuit is not open
+    if not _is_yt_circuit_open():
+        try:
+            artist_query = f"Trending {region} Artists" if region else "Trending Tamil Artists"
+            search_artists = await loop.run_in_executor(None, functools.partial(ytmusic.search, artist_query, filter="artists", limit=10))
+            existing_ids = {a.get("id") for a in response["topArtists"]}
+            for item in (search_artists or []):
+                b_id = item.get('browseId', '')
+                if b_id and b_id not in existing_ids:
+                    response["topArtists"].append({
+                        "id": b_id,
+                        "name": item.get('artist', item.get('title', 'Unknown Artist')),
+                        "cover_url": item.get('thumbnails', [{'url': ''}])[-1].get('url', '')
+                    })
+                    existing_ids.add(b_id)
+        except Exception as ae:
+            _record_yt_error(ae)
 
     return response
 

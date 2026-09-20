@@ -211,7 +211,10 @@ class MiniPlayer extends StatelessWidget {
   Widget _coverFallback() {
     return Container(
       color: const Color(0xFF1E293B),
-      child: const Icon(Icons.music_note_rounded, color: Colors.white54, size: 24),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Image.asset('assets/logo.png', fit: BoxFit.cover),
+      ),
     );
   }
 }

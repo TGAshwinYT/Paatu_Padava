@@ -108,21 +108,22 @@ class _HomeScreenState extends State<HomeScreen> {
                       Row(
                         children: [
                           Container(
-                            padding: const EdgeInsets.all(8),
+                            width: 42,
+                            height: 42,
                             decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFF6366F1), Color(0xFFEC4899)],
-                              ),
-                              borderRadius: BorderRadius.circular(14),
+                              borderRadius: BorderRadius.circular(12),
                               boxShadow: [
                                 BoxShadow(
-                                  color: const Color(0xFF6366F1).withOpacity(0.4),
+                                  color: const Color(0xFF6366F1).withOpacity(0.35),
                                   blurRadius: 12,
                                   offset: const Offset(0, 4),
                                 ),
                               ],
                             ),
-                            child: const Icon(Icons.music_note_rounded, color: Colors.white, size: 24),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Image.asset('assets/logo.png', fit: BoxFit.cover),
+                            ),
                           ),
                           const SizedBox(width: 12),
                           Column(

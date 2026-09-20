@@ -33,6 +33,10 @@ jobs:
         working-directory: mobile
         run: flutter pub get
 
+      - name: Analyze Flutter Code
+        working-directory: mobile
+        run: flutter analyze
+
       - name: Build Release APK
         working-directory: mobile
         run: flutter build apk --release --android-skip-build-dependency-validation

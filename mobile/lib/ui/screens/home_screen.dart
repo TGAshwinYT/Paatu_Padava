@@ -171,7 +171,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                 radius: 17,
                                 backgroundColor: isUser ? const Color(0xFF6366F1) : const Color(0xFF131B2E),
                                 child: Text(
-                                  isUser && user.username.isNotEmpty ? user.username[0].toUpperCase() : '👤',
+                                  (user != null && !user.isGuest && user.username.isNotEmpty)
+                                      ? user.username[0].toUpperCase()
+                                      : '👤',
                                   style: const TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.bold),
                                 ),
                               ),

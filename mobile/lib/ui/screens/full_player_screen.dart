@@ -683,8 +683,11 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
   Widget _defaultCover() {
     return Container(
       color: const Color(0xFF1E293B),
-      child: const Center(
-        child: Icon(Icons.music_note_rounded, size: 60, color: Color(0xFF6366F1)),
+      child: Center(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: Image.asset('assets/logo.png', width: 90, height: 90, fit: BoxFit.cover),
+        ),
       ),
     );
   }

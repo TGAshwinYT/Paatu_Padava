@@ -184,6 +184,36 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
               ),
             ),
           ] else ...[
+            // Brand Logo & Heading
+            Center(
+              child: Container(
+                width: 58,
+                height: 58,
+                margin: const EdgeInsets.only(bottom: 8),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF6366F1).withOpacity(0.3),
+                      blurRadius: 14,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Image.asset('assets/logo.png', fit: BoxFit.cover),
+                ),
+              ),
+            ),
+            const Center(
+              child: Text(
+                'Paatu Padava',
+                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+            const SizedBox(height: 14),
+
             // Tabs: Sign In / Create Account
             Container(
               decoration: BoxDecoration(

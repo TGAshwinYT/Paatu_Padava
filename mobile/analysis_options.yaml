@@ -1,0 +1,12 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  errors:
+    deprecated_member_use: ignore
+    use_super_parameters: ignore
+    prefer_const_constructors: ignore
+    use_build_context_synchronously: ignore
+    unnecessary_to_list_in_spreads: ignore
+  exclude:
+    - build/**
+    - android/**

@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/song.dart';
@@ -26,7 +25,6 @@ class AlbumScreen extends StatefulWidget {
 class _AlbumScreenState extends State<AlbumScreen> {
   List<Song> _songs = [];
   bool _isLoading = true;
-  String _artist = '';
 
   @override
   void initState() {
@@ -38,13 +36,11 @@ class _AlbumScreenState extends State<AlbumScreen> {
     setState(() => _isLoading = true);
     final details = await SaavnClient.getAlbumDetails(widget.albumId);
     List<Song> songs = [];
-    String artist = '';
 
     if (details != null) {
       if (details['songs'] is List<Song>) {
         songs = details['songs'] as List<Song>;
       }
-      artist = details['artist']?.toString() ?? '';
     }
 
     // Fallback search if album details endpoint is empty
@@ -55,7 +51,6 @@ class _AlbumScreenState extends State<AlbumScreen> {
     if (mounted) {
       setState(() {
         _songs = songs;
-        _artist = artist;
         _isLoading = false;
       });
     }

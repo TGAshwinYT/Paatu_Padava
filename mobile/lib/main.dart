@@ -70,7 +70,6 @@ class PaatuPadavaApp extends StatelessWidget {
           primary: Color(0xFF6366F1),
           secondary: Color(0xFFEC4899),
           surface: Color(0xFF131B2E),
-          background: Color(0xFF0A0E1A),
         ),
         textTheme: GoogleFonts.outfitTextTheme(
           ThemeData(brightness: Brightness.dark).textTheme,

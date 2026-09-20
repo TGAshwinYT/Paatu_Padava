@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'services/auth_manager.dart';
 import 'services/download_manager.dart';
 import 'services/favorites_manager.dart';
@@ -23,22 +24,31 @@ Future<void> main() async {
   );
 
   // Initialize offline Hive storage for songs, favorites, auth session, and search history
-  await AuthManager.init();
-  await DownloadManager.init();
-  await FavoritesManager.init();
-  await SearchHistoryManager.init();
+  try {
+    await Hive.initFlutter();
+    await AuthManager.init();
+    await DownloadManager.init();
+    await FavoritesManager.init();
+    await SearchHistoryManager.init();
+  } catch (e) {
+    debugPrint('Storage init warning: $e');
+  }
 
   // Initialize background AudioService engine
-  audioHandler = await AudioService.init(
-    builder: () => PaatuAudioHandler(),
-    config: const AudioServiceConfig(
-      androidNotificationChannelId: 'com.paatupaadava.music.channel.audio',
-      androidNotificationChannelName: 'Paatu Padava Playback',
-      androidNotificationOngoing: true,
-      androidStopForegroundOnPause: true,
-      androidNotificationIcon: 'mipmap/ic_launcher',
-    ),
-  );
+  try {
+    audioHandler = await AudioService.init(
+      builder: () => PaatuAudioHandler(),
+      config: const AudioServiceConfig(
+        androidNotificationChannelId: 'com.paatupaadava.music.channel.audio',
+        androidNotificationChannelName: 'Paatu Padava Playback',
+        androidNotificationOngoing: false,
+        androidStopForegroundOnPause: false,
+        androidNotificationIcon: 'mipmap/ic_launcher',
+      ),
+    );
+  } catch (e) {
+    debugPrint('AudioService init warning: $e');
+  }
 
   runApp(const PaatuPadavaApp());
 }

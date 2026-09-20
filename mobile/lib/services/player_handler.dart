@@ -39,35 +39,46 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   bool _hasRecordedListen = false;
 
+  void _broadcastState() {
+    final playing = _player.playing;
+    final processingState = const {
+      ProcessingState.idle: AudioProcessingState.idle,
+      ProcessingState.loading: AudioProcessingState.loading,
+      ProcessingState.buffering: AudioProcessingState.buffering,
+      ProcessingState.ready: AudioProcessingState.ready,
+      ProcessingState.completed: AudioProcessingState.completed,
+    }[_player.processingState] ?? AudioProcessingState.idle;
+
+    playbackState.add(playbackState.value.copyWith(
+      controls: [
+        MediaControl.skipToPrevious,
+        if (playing) MediaControl.pause else MediaControl.play,
+        MediaControl.skipToNext,
+        MediaControl.stop,
+      ],
+      systemActions: const {
+        MediaAction.seek,
+        MediaAction.seekForward,
+        MediaAction.seekBackward,
+      },
+      androidCompactActionIndices: const [0, 1, 2],
+      processingState: processingState,
+      playing: playing,
+      updatePosition: _player.position,
+      bufferedPosition: _player.bufferedPosition,
+      speed: _player.speed,
+      queueIndex: _currentIndex,
+    ));
+  }
+
   void _initStreams() {
-    _player.playbackEventStream.listen((event) {
-      final playing = _player.playing;
-      playbackState.add(playbackState.value.copyWith(
-        controls: [
-          MediaControl.skipToPrevious,
-          if (playing) MediaControl.pause else MediaControl.play,
-          MediaControl.skipToNext,
-          MediaControl.stop,
-        ],
-        systemActions: const {
-          MediaAction.seek,
-          MediaAction.seekForward,
-          MediaAction.seekBackward,
-        },
-        androidCompactActionIndices: const [0, 1, 2],
-        processingState: const {
-          ProcessingState.idle: AudioProcessingState.idle,
-          ProcessingState.loading: AudioProcessingState.loading,
-          ProcessingState.buffering: AudioProcessingState.buffering,
-          ProcessingState.ready: AudioProcessingState.ready,
-          ProcessingState.completed: AudioProcessingState.completed,
-        }[_player.processingState]!,
-        playing: playing,
-        updatePosition: _player.position,
-        bufferedPosition: _player.bufferedPosition,
-        speed: _player.speed,
-        queueIndex: _currentIndex,
-      ));
+    _player.playbackEventStream.listen((event) => _broadcastState());
+
+    _player.playerStateStream.listen((state) {
+      _broadcastState();
+      if (state.processingState == ProcessingState.completed) {
+        skipToNext();
+      }
     });
 
     // 15-second listen tracker: trains backend item-item collaborative filtering ML graph!
@@ -75,12 +86,6 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       if (!_hasRecordedListen && pos.inSeconds >= 15 && currentSong != null) {
         _hasRecordedListen = true;
         ApiClient.addListenHistory(currentSong!);
-      }
-    });
-
-    _player.playerStateStream.listen((state) {
-      if (state.processingState == ProcessingState.completed) {
-        skipToNext();
       }
     });
   }
@@ -150,6 +155,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       ));
 
       await _player.play();
+      _broadcastState();
     } catch (e) {
       // If primary playback fails, attempt YouTube fallback before giving up
       try {
@@ -159,6 +165,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
           if (streamUrl != null) {
             await _player.setAudioSource(AudioSource.uri(Uri.parse(streamUrl)));
             await _player.play();
+            _broadcastState();
             return;
           }
         }
@@ -356,18 +363,28 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   // ================= Standard Controls ================= //
 
   @override
-  Future<void> play() => _player.play();
+  Future<void> play() async {
+    await _player.play();
+    _broadcastState();
+  }
 
   @override
-  Future<void> pause() => _player.pause();
+  Future<void> pause() async {
+    await _player.pause();
+    _broadcastState();
+  }
 
   @override
-  Future<void> seek(Duration position) => _player.seek(position);
+  Future<void> seek(Duration position) async {
+    await _player.seek(position);
+    _broadcastState();
+  }
 
   @override
   Future<void> stop() async {
     currentSongNotifier.value = null;
     await _player.stop();
+    _broadcastState();
     await super.stop();
   }
 

@@ -13,7 +13,6 @@ class DownloadManager {
   static final ValueNotifier<Map<String, double>> activeDownloads = ValueNotifier({});
 
   static Future<void> init() async {
-    await Hive.initFlutter();
     await Hive.openBox(boxName);
   }
 

@@ -180,7 +180,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.redAccent.withOpacity(0.2),
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangle.circular(14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
               ),
             ),
           ] else ...[
@@ -270,7 +270,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
                           onPressed: _isLoading ? null : _handleLogin,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF6366F1),
-                            shape: RoundedRectangle.circular(14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                           ),
                           child: _isLoading
                               ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
@@ -296,7 +296,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
                           onPressed: _isLoading ? null : _handleRegister,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF6366F1),
-                            shape: RoundedRectangle.circular(14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                           ),
                           child: _isLoading
                               ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))

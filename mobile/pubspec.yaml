@@ -1,0 +1,46 @@
+name: paatu_padava_mobile
+description: "Paatu Padava - Client-based music player with full offline downloads and background audio."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Audio & Background Playback Engine
+  just_audio: ^0.9.36
+  audio_service: ^0.18.12
+  audio_session: ^0.1.18
+
+  # Client-side YouTube Extractor (Runs on device, no AWS server)
+  youtube_explode_dart: ^2.2.1
+
+  # Network & Direct JioSaavn Client
+  http: ^1.2.0
+  dio: ^5.4.0
+
+  # Offline Storage & Database for downloaded songs
+  path_provider: ^2.1.2
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+
+  # DES Decryption for JioSaavn 320kbps media URLs
+  pointycastle: ^3.7.3
+
+  # UI / UX Utilities
+  cached_network_image: ^3.3.1
+  google_fonts: ^6.1.0
+  intl: ^0.19.0
+  permission_handler: ^11.3.0
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true

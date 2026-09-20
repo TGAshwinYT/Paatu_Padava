@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../models/song.dart';
 import '../../services/api_client.dart';
 import '../../services/player_handler.dart';
 

@@ -39,3 +39,15 @@ scratch_song*.jpg
 
 # Antigravity IDE local configs
 .agents/
+
+# Flutter & Android
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+**/android/local.properties
+**/GeneratedPluginRegistrant.java
+

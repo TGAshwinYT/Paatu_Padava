@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'services/auth_manager.dart';
 import 'services/download_manager.dart';
 import 'services/favorites_manager.dart';
 import 'services/search_history_manager.dart';
@@ -21,7 +22,8 @@ Future<void> main() async {
     ),
   );
 
-  // Initialize offline Hive storage for songs, favorites, and search history
+  // Initialize offline Hive storage for songs, favorites, auth session, and search history
+  await AuthManager.init();
   await DownloadManager.init();
   await FavoritesManager.init();
   await SearchHistoryManager.init();

@@ -5,6 +5,9 @@ import '../../models/song.dart';
 import '../../services/favorites_manager.dart';
 import '../../services/download_manager.dart';
 import '../../services/player_handler.dart';
+import '../../services/auth_manager.dart';
+import '../widgets/auth_dialog.dart';
+import '../widgets/spotify_import_dialog.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({Key? key}) : super(key: key);
@@ -45,13 +48,13 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
       body: SafeArea(
         child: Column(
           children: [
-            // Screen Title
+            // Screen Header with Auth Profile Card
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: const [
-                  Text(
+                children: [
+                  const Text(
                     'Your Library',
                     style: TextStyle(
                       color: Colors.white,
@@ -60,7 +63,78 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                       letterSpacing: -0.5,
                     ),
                   ),
+                  // User Account Action
+                  ValueListenableBuilder<AuthUser?>(
+                    valueListenable: AuthManager.authNotifier,
+                    builder: (context, user, _) {
+                      final isUser = user != null && !user.isGuest;
+                      return OutlinedButton.icon(
+                        onPressed: () => AuthDialog.show(context),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          side: BorderSide(color: isUser ? const Color(0xFF6366F1) : Colors.white24),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                        ),
+                        icon: Icon(
+                          isUser ? Icons.person_rounded : Icons.login_rounded,
+                          size: 16,
+                          color: isUser ? const Color(0xFF6366F1) : Colors.white70,
+                        ),
+                        label: Text(
+                          isUser ? user.username : 'Sign In',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      );
+                    },
+                  ),
                 ],
+              ),
+            ),
+
+            // Spotify Quick Import Banner in Library
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+              child: InkWell(
+                onTap: () => SpotifyImportDialog.show(context),
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF131B2E),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0x331DB954)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1DB954).withOpacity(0.2),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.album_rounded, color: Color(0xFF1DB954), size: 20),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Import Spotify Playlist',
+                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                            Text(
+                              'Import playlists & convert to 320kbps Lossless',
+                              style: TextStyle(color: Colors.white54, fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.white38),
+                    ],
+                  ),
+                ),
               ),
             ),
 

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'home_screen.dart';
 import 'search_screen.dart';
-import 'downloads_screen.dart';
+import 'library_screen.dart';
 import '../widgets/mini_player.dart';
 
 class MainNavigation extends StatefulWidget {
@@ -17,22 +17,22 @@ class _MainNavigationState extends State<MainNavigation> {
   final List<Widget> _screens = const [
     HomeScreen(),
     SearchScreen(),
-    DownloadsScreen(),
+    LibraryScreen(),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0B0F19),
+      backgroundColor: const Color(0xFF0A0E1A),
       body: Stack(
         children: [
-          // IndexedStack maintains state of each tab
+          // IndexedStack maintains scroll & search state across tabs
           IndexedStack(
             index: _currentIndex,
             children: _screens,
           ),
 
-          // Docked / Floating Mini Player at the bottom
+          // Docked / Floating Mini Player above Bottom Nav
           const Positioned(
             left: 0,
             right: 0,
@@ -71,8 +71,8 @@ class _MainNavigationState extends State<MainNavigation> {
               label: 'Search',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.offline_pin_rounded),
-              label: 'Downloads',
+              icon: Icon(Icons.library_music_rounded),
+              label: 'Library',
             ),
           ],
         ),

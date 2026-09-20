@@ -4,7 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:just_audio/just_audio.dart';
 import '../../models/song.dart';
 import '../../services/player_handler.dart';
-import '../../services/download_manager.dart';
+import '../../services/favorites_manager.dart';
 import '../screens/full_player_screen.dart';
 
 class MiniPlayer extends StatelessWidget {
@@ -37,15 +37,15 @@ class MiniPlayer extends StatelessWidget {
               );
             },
             child: Container(
-              height: 64,
+              height: 66,
               decoration: BoxDecoration(
-                color: const Color(0xFF1E293B).withOpacity(0.96),
-                borderRadius: BorderRadius.circular(16),
+                color: const Color(0xFF131B2E).withOpacity(0.96),
+                borderRadius: BorderRadius.circular(18),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(0.4),
-                    blurRadius: 16,
-                    offset: const Offset(0, 6),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
                   ),
                 ],
                 border: Border.all(
@@ -54,7 +54,7 @@ class MiniPlayer extends StatelessWidget {
                 ),
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(18),
                 child: Column(
                   children: [
                     // Top Tiny Playback Progress Line
@@ -78,7 +78,7 @@ class MiniPlayer extends StatelessWidget {
                     // Main Row
                     Expanded(
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 10.0),
+                        padding: const EdgeInsets.symmetric(horizontal: 12.0),
                         child: Row(
                           children: [
                             // Thumbnail
@@ -97,7 +97,7 @@ class MiniPlayer extends StatelessWidget {
                                         ? CachedNetworkImage(
                                             imageUrl: song.coverUrl,
                                             fit: BoxFit.cover,
-                                            placeholder: (_, __) => Container(color: const Color(0xFF334155)),
+                                            placeholder: (_, __) => Container(color: const Color(0xFF1E293B)),
                                             errorWidget: (_, __, ___) => _coverFallback(),
                                           )
                                         : _coverFallback()),
@@ -135,24 +135,21 @@ class MiniPlayer extends StatelessWidget {
                               ),
                             ),
 
-                            // Mini Download Indicator
-                            ValueListenableBuilder<Map<String, double>>(
-                              valueListenable: DownloadManager.activeDownloads,
-                              builder: (context, activeDownloads, _) {
-                                final isDownloaded = DownloadManager.isDownloaded(song.id);
-                                final isDownloading = activeDownloads.containsKey(song.id);
-
-                                if (isDownloaded) {
-                                  return const Icon(Icons.check_circle_rounded, size: 20, color: Color(0xFF10B981));
-                                }
-                                if (isDownloading) {
-                                  return const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(color: Color(0xFF6366F1), strokeWidth: 2),
-                                  );
-                                }
-                                return const SizedBox.shrink();
+                            // Favorite Button
+                            ValueListenableBuilder<List<Song>>(
+                              valueListenable: FavoritesManager.favoritesNotifier,
+                              builder: (context, _, __) {
+                                final isFav = FavoritesManager.isFavorite(song.id);
+                                return IconButton(
+                                  icon: Icon(
+                                    isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                                    size: 22,
+                                    color: isFav ? const Color(0xFFEC4899) : Colors.white60,
+                                  ),
+                                  onPressed: () {
+                                    FavoritesManager.toggleFavorite(song);
+                                  },
+                                );
                               },
                             ),
 
@@ -213,7 +210,7 @@ class MiniPlayer extends StatelessWidget {
 
   Widget _coverFallback() {
     return Container(
-      color: const Color(0xFF334155),
+      color: const Color(0xFF1E293B),
       child: const Icon(Icons.music_note_rounded, color: Colors.white54, size: 24),
     );
   }

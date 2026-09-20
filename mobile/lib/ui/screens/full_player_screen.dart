@@ -5,6 +5,8 @@ import 'package:just_audio/just_audio.dart';
 import '../../models/song.dart';
 import '../../services/player_handler.dart';
 import '../../services/download_manager.dart';
+import '../../services/favorites_manager.dart';
+import '../widgets/queue_sheet.dart';
 
 class FullPlayerScreen extends StatefulWidget {
   const FullPlayerScreen({Key? key}) : super(key: key);
@@ -14,11 +16,64 @@ class FullPlayerScreen extends StatefulWidget {
 }
 
 class _FullPlayerScreenState extends State<FullPlayerScreen> {
+  bool _showLyrics = false;
+
   String _formatDuration(Duration duration) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
     final minutes = twoDigits(duration.inMinutes.remainder(60));
     final seconds = twoDigits(duration.inSeconds.remainder(60));
     return '$minutes:$seconds';
+  }
+
+  void _openSleepTimerDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: const [
+            Icon(Icons.bedtime_rounded, color: Color(0xFF6366F1)),
+            SizedBox(width: 8),
+            Text('Sleep Timer', style: TextStyle(color: Colors.white, fontSize: 18)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _sleepTimerOption('15 Minutes', const Duration(minutes: 15)),
+            _sleepTimerOption('30 Minutes', const Duration(minutes: 30)),
+            _sleepTimerOption('45 Minutes', const Duration(minutes: 45)),
+            _sleepTimerOption('60 Minutes', const Duration(minutes: 60)),
+            const Divider(color: Colors.white10),
+            ListTile(
+              title: const Text('Turn Off Sleep Timer', style: TextStyle(color: Colors.redAccent)),
+              onTap: () {
+                audioHandler.cancelSleepTimer();
+                Navigator.pop(context);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sleepTimerOption(String title, Duration duration) {
+    return ListTile(
+      title: Text(title, style: const TextStyle(color: Colors.white70)),
+      trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Color(0xFF64748B)),
+      onTap: () {
+        audioHandler.setSleepTimer(duration);
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Music will stop in $title'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -28,61 +83,62 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
       builder: (context, song, _) {
         if (song == null) {
           return const Scaffold(
-            backgroundColor: Color(0xFF0B0F19),
+            backgroundColor: Color(0xFF0A0E1A),
             body: Center(
-              child: Text(
-                'No song playing',
-                style: TextStyle(color: Colors.white70),
-              ),
+              child: Text('No song playing', style: TextStyle(color: Colors.white70)),
             ),
           );
         }
 
         return Scaffold(
-          backgroundColor: const Color(0xFF0B0F19),
+          backgroundColor: const Color(0xFF0A0E1A),
           appBar: AppBar(
             backgroundColor: Colors.transparent,
             elevation: 0,
             leading: IconButton(
-              icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 32, color: Colors.white),
+              icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 34, color: Colors.white),
               onPressed: () => Navigator.of(context).pop(),
             ),
             centerTitle: true,
-            title: Column(
-              children: [
-                Text(
-                  'PLAYING FROM ${song.source.toUpperCase()}',
-                  style: const TextStyle(
-                    color: Color(0xFF94A3B8),
-                    fontSize: 11,
-                    letterSpacing: 1.5,
-                    fontWeight: FontWeight.w600,
-                  ),
+            title: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFF131B2E),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.white.withOpacity(0.08)),
+              ),
+              child: Text(
+                song.source == 'offline'
+                    ? 'OFFLINE LOSSLESS'
+                    : (song.source == 'youtube' ? 'YOUTUBE MUSIC' : 'JIOSAAVN 320KBPS'),
+                style: const TextStyle(
+                  color: Color(0xFF6366F1),
+                  fontSize: 11,
+                  letterSpacing: 1.2,
+                  fontWeight: FontWeight.w700,
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  song.album.isNotEmpty ? song.album : 'Paatu Padava',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
+              ),
             ),
             actions: [
-              IconButton(
-                icon: const Icon(Icons.queue_music_rounded, color: Colors.white),
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Queue has ${audioHandler.playlist.length} songs'),
-                      duration: const Duration(seconds: 1),
+              // Sleep Timer button
+              ValueListenableBuilder<Duration?>(
+                valueListenable: audioHandler.sleepTimerRemainingNotifier,
+                builder: (context, remaining, _) {
+                  return IconButton(
+                    icon: Icon(
+                      remaining != null ? Icons.bedtime_rounded : Icons.bedtime_outlined,
+                      color: remaining != null ? const Color(0xFF6366F1) : Colors.white70,
                     ),
+                    tooltip: 'Sleep Timer',
+                    onPressed: _openSleepTimerDialog,
                   );
                 },
+              ),
+              // Queue button (opens interactive bottom sheet!)
+              IconButton(
+                icon: const Icon(Icons.queue_music_rounded, color: Colors.white, size: 26),
+                tooltip: 'Open Queue',
+                onPressed: () => QueueSheet.show(context),
               ),
             ],
           ),
@@ -92,47 +148,72 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  // Album Artwork
-                  Center(
-                    child: Container(
-                      width: MediaQuery.of(context).size.width * 0.78,
-                      height: MediaQuery.of(context).size.width * 0.78,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(24),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF6366F1).withOpacity(0.25),
-                            blurRadius: 30,
-                            offset: const Offset(0, 15),
+                  // Tab Switcher: Artwork / Lyrics
+                  Container(
+                    height: 36,
+                    width: 180,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF131B2E),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: Colors.white.withOpacity(0.06)),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => setState(() => _showLyrics = false),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: !_showLyrics ? const Color(0xFF6366F1) : Colors.transparent,
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  'Cover',
+                                  style: TextStyle(
+                                    color: !_showLyrics ? Colors.white : const Color(0xFF94A3B8),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
                           ),
-                        ],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(24),
-                        child: (song.localFilePath != null && File(song.localFilePath!).existsSync())
-                            ? Image.file(
-                                File(song.localFilePath!),
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => _defaultCover(),
-                              )
-                            : (song.coverUrl.isNotEmpty
-                                ? CachedNetworkImage(
-                                    imageUrl: song.coverUrl,
-                                    fit: BoxFit.cover,
-                                    placeholder: (_, __) => Container(
-                                      color: const Color(0xFF1E293B),
-                                      child: const Center(
-                                        child: CircularProgressIndicator(color: Color(0xFF6366F1)),
-                                      ),
-                                    ),
-                                    errorWidget: (_, __, ___) => _defaultCover(),
-                                  )
-                                : _defaultCover()),
-                      ),
+                        ),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => setState(() => _showLyrics = true),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: _showLyrics ? const Color(0xFF6366F1) : Colors.transparent,
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  'Lyrics',
+                                  style: TextStyle(
+                                    color: _showLyrics ? Colors.white : const Color(0xFF94A3B8),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
 
-                  // Title, Artist, and Download Button Row
+                  // Middle Content: Album Artwork or Lyrics View
+                  SizedBox(
+                    height: MediaQuery.of(context).size.width * 0.82,
+                    child: _showLyrics
+                        ? _buildLyricsView(song)
+                        : _buildArtworkView(song),
+                  ),
+
+                  // Song Title, Artist, and Favorite Row
                   Row(
                     children: [
                       Expanded(
@@ -149,20 +230,37 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-                            const SizedBox(height: 6),
+                            const SizedBox(height: 4),
                             Text(
                               song.artist,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 color: Color(0xFF94A3B8),
-                                fontSize: 16,
+                                fontSize: 15,
                               ),
                             ),
                           ],
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      // Favorite / Heart button
+                      ValueListenableBuilder<List<Song>>(
+                        valueListenable: FavoritesManager.favoritesNotifier,
+                        builder: (context, _, __) {
+                          final isFav = FavoritesManager.isFavorite(song.id);
+                          return IconButton(
+                            icon: Icon(
+                              isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                              color: isFav ? const Color(0xFFEC4899) : Colors.white70,
+                              size: 28,
+                            ),
+                            onPressed: () {
+                              FavoritesManager.toggleFavorite(song);
+                            },
+                          );
+                        },
+                      ),
+                      // Download button
                       _DownloadActionButton(song: song),
                     ],
                   ),
@@ -185,7 +283,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                               overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
                               trackHeight: 4,
                               activeTrackColor: const Color(0xFF6366F1),
-                              inactiveTrackColor: const Color(0xFF334155),
+                              inactiveTrackColor: const Color(0xFF1E293B),
                               thumbColor: Colors.white,
                             ),
                             child: Slider(
@@ -218,22 +316,22 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                     },
                   ),
 
-                  // Media Controls
+                  // Main Controls: Smart Shuffle, Prev, Play/Pause, Next, Repeat
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      // Shuffle toggle
-                      StreamBuilder<bool>(
-                        stream: audioHandler.player.shuffleModeEnabledStream,
-                        builder: (context, snapshot) {
-                          final shuffle = snapshot.data ?? false;
+                      // Smart Shuffle toggle
+                      ValueListenableBuilder<bool>(
+                        valueListenable: audioHandler.isSmartShuffleNotifier,
+                        builder: (context, isSmartShuffle, _) {
                           return IconButton(
                             icon: Icon(
-                              Icons.shuffle_rounded,
-                              color: shuffle ? const Color(0xFF6366F1) : const Color(0xFF64748B),
+                              Icons.auto_awesome_rounded,
+                              color: isSmartShuffle ? const Color(0xFF6366F1) : const Color(0xFF64748B),
                               size: 26,
                             ),
-                            onPressed: () => audioHandler.setShuffle(!shuffle),
+                            tooltip: 'Smart Shuffle (Recommendation Graph)',
+                            onPressed: () => audioHandler.toggleSmartShuffle(),
                           );
                         },
                       ),
@@ -244,7 +342,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                         onPressed: () => audioHandler.skipToPrevious(),
                       ),
 
-                      // Play / Pause Circle Button
+                      // Play / Pause Circle
                       StreamBuilder<PlayerState>(
                         stream: audioHandler.player.playerStateStream,
                         builder: (context, snapshot) {
@@ -313,7 +411,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                         onPressed: () => audioHandler.skipToNext(),
                       ),
 
-                      // Repeat toggle
+                      // Repeat
                       StreamBuilder<LoopMode>(
                         stream: audioHandler.player.loopModeStream,
                         builder: (context, snapshot) {
@@ -332,33 +430,126 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                     ],
                   ),
 
-                  // Bottom Audio Quality Pill
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1E293B),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.offline_bolt_rounded, size: 14, color: Color(0xFF10B981)),
-                        const SizedBox(width: 6),
-                        Text(
-                          song.source == 'offline'
-                              ? 'OFFLINE LOSSLESS • LOCAL STORAGE'
-                              : '320 KBPS • DIRECT CLIENT STREAM',
-                          style: const TextStyle(
-                            color: Color(0xFF94A3B8),
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.5,
+                  // Bottom Auto Radio Bar
+                  InkWell(
+                    onTap: () async {
+                      final count = await audioHandler.addRadioMix();
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(count > 0 ? 'Added $count similar songs to queue!' : 'Queue updated with recommendations.'),
+                            duration: const Duration(seconds: 2),
                           ),
-                        ),
-                      ],
+                        );
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF131B2E),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.white.withOpacity(0.06)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Icon(Icons.radio_rounded, size: 16, color: Color(0xFF6366F1)),
+                          SizedBox(width: 8),
+                          Text(
+                            'Start Radio • Auto-Mix Similar Songs',
+                            style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildArtworkView(Song song) {
+    return Center(
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.78,
+        height: MediaQuery.of(context).size.width * 0.78,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(28),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF6366F1).withOpacity(0.35),
+              blurRadius: 36,
+              offset: const Offset(0, 16),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(28),
+          child: (song.localFilePath != null && File(song.localFilePath!).existsSync())
+              ? Image.file(
+                  File(song.localFilePath!),
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => _defaultCover(),
+                )
+              : (song.coverUrl.isNotEmpty
+                  ? CachedNetworkImage(
+                      imageUrl: song.coverUrl,
+                      fit: BoxFit.cover,
+                      placeholder: (_, __) => Container(
+                        color: const Color(0xFF1E293B),
+                        child: const Center(
+                          child: CircularProgressIndicator(color: Color(0xFF6366F1)),
+                        ),
+                      ),
+                      errorWidget: (_, __, ___) => _defaultCover(),
+                    )
+                  : _defaultCover()),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLyricsView(Song song) {
+    return ValueListenableBuilder<String?>(
+      valueListenable: audioHandler.currentLyricsNotifier,
+      builder: (context, lyrics, _) {
+        if (lyrics == null) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: const [
+                Icon(Icons.lyrics_rounded, size: 48, color: Color(0xFF64748B)),
+                SizedBox(height: 12),
+                Text(
+                  'No lyrics found for this track',
+                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: const Color(0xFF131B2E),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white.withOpacity(0.06)),
+          ),
+          child: SingleChildScrollView(
+            child: Text(
+              lyrics,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                height: 1.8,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
@@ -391,16 +582,9 @@ class _DownloadActionButton extends StatelessWidget {
         final isDownloaded = DownloadManager.isDownloaded(song.id);
 
         if (isDownloaded) {
-          return IconButton(
-            icon: const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 28),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Song is saved offline! Plays without internet.'),
-                  duration: Duration(seconds: 2),
-                ),
-              );
-            },
+          return const IconButton(
+            icon: Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 28),
+            onPressed: null,
           );
         }
 
@@ -428,18 +612,7 @@ class _DownloadActionButton extends StatelessWidget {
                 duration: const Duration(seconds: 2),
               ),
             );
-            final success = await DownloadManager.downloadSong(song);
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    success ? 'Downloaded "${song.title}"!' : 'Download failed. Check connection.',
-                  ),
-                  backgroundColor: success ? const Color(0xFF10B981) : Colors.redAccent,
-                  duration: const Duration(seconds: 2),
-                ),
-              );
-            }
+            await DownloadManager.downloadSong(song);
           },
         );
       },

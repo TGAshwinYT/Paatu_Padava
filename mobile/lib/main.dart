@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'services/download_manager.dart';
+import 'services/favorites_manager.dart';
+import 'services/search_history_manager.dart';
 import 'services/player_handler.dart';
 import 'ui/screens/main_navigation.dart';
 
@@ -19,8 +21,10 @@ Future<void> main() async {
     ),
   );
 
-  // Initialize offline Hive storage for songs
+  // Initialize offline Hive storage for songs, favorites, and search history
   await DownloadManager.init();
+  await FavoritesManager.init();
+  await SearchHistoryManager.init();
 
   // Initialize background AudioService engine
   audioHandler = await AudioService.init(
@@ -48,15 +52,15 @@ class PaatuPadavaApp extends StatelessWidget {
       themeMode: ThemeMode.dark,
       darkTheme: ThemeData(
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF0B0F19),
+        scaffoldBackgroundColor: const Color(0xFF0A0E1A),
         primaryColor: const Color(0xFF6366F1),
         colorScheme: const ColorScheme.dark(
           primary: Color(0xFF6366F1),
           secondary: Color(0xFFEC4899),
-          surface: Color(0xFF1E293B),
-          background: Color(0xFF0B0F19),
+          surface: Color(0xFF131B2E),
+          background: Color(0xFF0A0E1A),
         ),
-        textTheme: GoogleFonts.interTextTheme(
+        textTheme: GoogleFonts.outfitTextTheme(
           ThemeData(brightness: Brightness.dark).textTheme,
         ),
         appBarTheme: const AppBarTheme(

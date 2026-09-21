@@ -7,6 +7,7 @@ import '../models/song.dart';
 import 'api_client.dart';
 import 'download_manager.dart';
 import 'saavn_client.dart';
+import 'settings_manager.dart';
 import 'youtube_client.dart';
 
 late PaatuAudioHandler audioHandler;
@@ -118,6 +119,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   Future<void> _loadAndPlay(Song song) async {
     try {
+      await _player.stop(); // Stop previous stream immediately to prevent leaking previous audio
       _hasRecordedListen = false;
       currentSongNotifier.value = song;
       currentLyricsNotifier.value = (song.lyrics != null && song.lyrics!.isNotEmpty) ? song.lyrics : null;
@@ -179,15 +181,41 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   Future<void> _resolveRemoteAndPlay(Song song) async {
     String? streamUrl = song.streamUrl;
 
-    // If stream URL is missing, resolve it
-    if (streamUrl == null || streamUrl.isEmpty) {
-      if (song.source == 'youtube') {
+    if (song.source == 'youtube' || song.id.length == 11) {
+      // 1. First attempt direct YouTube audio stream extraction
+      try {
         streamUrl = await YouTubeClient.getAudioStreamUrl(song.id);
-      } else {
+      } catch (_) {}
+
+      // 2. Fallback: Search JioSaavn in high fidelity 320kbps for pristine native stream
+      if (streamUrl == null || streamUrl.isEmpty) {
+        try {
+          final query = '${song.title} ${song.artist}'.replaceAll(RegExp(r'[\(\[\{].*?[\)\]\}]'), '').trim();
+          final saavnMatches = await SaavnClient.search(query, limit: 1);
+          if (saavnMatches.isNotEmpty && saavnMatches.first.streamUrl != null) {
+            streamUrl = saavnMatches.first.streamUrl;
+          }
+        } catch (_) {}
+      }
+    } else {
+      // JioSaavn Source
+      if (streamUrl == null || streamUrl.isEmpty) {
         final matches = await SaavnClient.search('${song.title} ${song.artist}', limit: 1);
         if (matches.isNotEmpty && matches.first.streamUrl != null) {
           streamUrl = matches.first.streamUrl;
         }
+      }
+    }
+
+    // Apply audio quality setting to JioSaavn streams
+    if (streamUrl != null && (streamUrl.contains('jiosaavn') || streamUrl.contains('.mp4'))) {
+      final q = SettingsManager.streamingQuality;
+      if (q == '96kbps') {
+        streamUrl = streamUrl.replaceAll('_320.mp4', '_96.mp4').replaceAll('_160.mp4', '_96.mp4');
+      } else if (q == '160kbps') {
+        streamUrl = streamUrl.replaceAll('_320.mp4', '_160.mp4').replaceAll('_96.mp4', '_160.mp4');
+      } else {
+        streamUrl = streamUrl.replaceAll('_96.mp4', '_320.mp4').replaceAll('_160.mp4', '_320.mp4');
       }
     }
 
@@ -279,33 +307,50 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     isSmartShuffleNotifier.value = nextState;
 
     if (nextState) {
-      // Intelligent shuffle via recommendation graph
-      if (_playlist.length > 2 && currentSong != null) {
-        final orderedIds = await ApiClient.fetchSmartShuffle(_playlist, currentSong);
+      if (currentSong != null) {
+        // Keep songs up to and including _currentIndex intact
+        final pastAndCurrent = _playlist.sublist(0, _currentIndex + 1);
+        final upcoming = _playlist.sublist(_currentIndex + 1);
 
-        final Map<String, Song> map = {for (final s in _playlist) s.id: s};
-        final List<Song> reordered = [];
-        for (final id in orderedIds) {
-          if (map.containsKey(id)) {
-            reordered.add(map[id]!);
-          }
-        }
-        for (final s in _playlist) {
-          if (!reordered.any((r) => r.id == s.id)) {
-            reordered.add(s);
-          }
+        // If upcoming has few songs, automatically append fresh radio mix recommendations!
+        if (upcoming.length < 5) {
+          try {
+            final recommendations = await ApiClient.fetchRecommendations(
+              currentSong!.id,
+              artist: currentSong!.artist,
+            );
+            final existingIds = _playlist.map((s) => s.id).toSet();
+            final fresh = recommendations.where((s) => !existingIds.contains(s.id)).toList();
+            upcoming.addAll(fresh);
+          } catch (_) {}
         }
 
-        _playlist = reordered;
-        _currentIndex = _playlist.indexWhere((s) => s.id == currentSong!.id);
-        _syncQueueState();
+        if (upcoming.isNotEmpty) {
+          final orderedUpcomingIds = await ApiClient.fetchSmartShuffle(upcoming, currentSong);
+          final Map<String, Song> upcomingMap = {for (final s in upcoming) s.id: s};
+          final List<Song> reorderedUpcoming = [];
+          for (final id in orderedUpcomingIds) {
+            if (upcomingMap.containsKey(id)) {
+              reorderedUpcoming.add(upcomingMap[id]!);
+            }
+          }
+          for (final s in upcoming) {
+            if (!reorderedUpcoming.any((r) => r.id == s.id)) {
+              reorderedUpcoming.add(s);
+            }
+          }
+
+          _playlist = [...pastAndCurrent, ...reorderedUpcoming];
+          // Keep _currentIndex unchanged to prevent UI flickers!
+          _syncQueueState();
+        }
       }
     } else {
       // Restore standard playlist
       if (_originalPlaylist.isNotEmpty && currentSong != null) {
-        _playlist = List.from(_originalPlaylist);
-        _currentIndex = _playlist.indexWhere((s) => s.id == currentSong!.id);
-        if (_currentIndex == -1) _currentIndex = 0;
+        final pastAndCurrent = _playlist.sublist(0, _currentIndex + 1);
+        final originalUpcoming = _originalPlaylist.where((s) => !pastAndCurrent.any((p) => p.id == s.id)).toList();
+        _playlist = [...pastAndCurrent, ...originalUpcoming];
         _syncQueueState();
       }
     }

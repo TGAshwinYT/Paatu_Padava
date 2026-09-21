@@ -7,6 +7,8 @@ import 'services/auth_manager.dart';
 import 'services/download_manager.dart';
 import 'services/favorites_manager.dart';
 import 'services/search_history_manager.dart';
+import 'services/settings_manager.dart';
+import 'services/playlist_manager.dart';
 import 'services/player_handler.dart';
 import 'ui/screens/main_navigation.dart';
 
@@ -26,9 +28,11 @@ Future<void> main() async {
   // Initialize offline Hive storage for songs, favorites, auth session, and search history
   try {
     await Hive.initFlutter();
+    await SettingsManager.init();
     await AuthManager.init();
     await DownloadManager.init();
     await FavoritesManager.init();
+    await PlaylistManager.init();
     await SearchHistoryManager.init();
   } catch (e) {
     debugPrint('Storage init warning: $e');

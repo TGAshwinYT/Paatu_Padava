@@ -46,6 +46,7 @@ class AuthManager {
   static final ValueNotifier<AuthUser?> authNotifier = ValueNotifier<AuthUser?>(null);
 
   static AuthUser? get currentUser => authNotifier.value;
+  static AuthUser? get user => currentUser;
   static String? get token => tokenNotifier.value;
   static bool get isLoggedIn => token != null && token!.isNotEmpty && !(currentUser?.isGuest ?? true);
 

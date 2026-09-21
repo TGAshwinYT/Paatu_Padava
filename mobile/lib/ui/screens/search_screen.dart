@@ -9,6 +9,7 @@ import '../../services/download_manager.dart';
 import '../../services/favorites_manager.dart';
 import '../../services/search_history_manager.dart';
 import '../widgets/spotify_import_dialog.dart';
+import '../widgets/add_to_playlist_dialog.dart';
 import 'artist_screen.dart';
 import 'album_screen.dart';
 
@@ -683,6 +684,11 @@ class _SearchScreenState extends State<SearchScreen> {
                     onPressed: () => FavoritesManager.toggleFavorite(song),
                   );
                 },
+              ),
+              IconButton(
+                icon: const Icon(Icons.playlist_add_rounded, color: Color(0xFF818CF8), size: 22),
+                tooltip: 'Add to Playlist',
+                onPressed: () => AddToPlaylistDialog.show(context, song),
               ),
               IconButton(
                 icon: const Icon(Icons.download_for_offline_outlined, color: Color(0xFF64748B), size: 22),

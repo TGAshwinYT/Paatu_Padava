@@ -11,6 +11,8 @@ import '../widgets/spotify_import_dialog.dart';
 import '../widgets/auth_dialog.dart';
 import 'artist_screen.dart';
 import 'album_screen.dart';
+import 'settings_screen.dart';
+import '../widgets/add_to_playlist_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -29,6 +31,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Song> _forYouSongs = [];
   List<Song> _trendingSongs = [];
   List<Song> _youtubeTrendingSongs = [];
+  List<Song> _recentHistory = [];
   List<Map<String, dynamic>> _topAlbums = [];
   List<Map<String, dynamic>> _topArtists = [];
   bool _isLoading = true;
@@ -37,6 +40,13 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadHomeData();
+  }
+
+  String _getGreeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
   }
 
   Future<void> _loadHomeData() async {
@@ -49,6 +59,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ApiClient.fetchForYou(),
           SaavnClient.searchAlbums('$_selectedLanguage Hit Albums', limit: 10),
           SaavnClient.searchArtists('Top $_selectedLanguage Artists', limit: 10),
+          AuthManager.isLoggedIn ? ApiClient.fetchListenHistory() : Future.value(<Song>[]),
         ]);
 
         if (mounted) {
@@ -57,6 +68,7 @@ class _HomeScreenState extends State<HomeScreen> {
             _forYouSongs = results[1] as List<Song>;
             _topAlbums = results[2] as List<Map<String, dynamic>>;
             _topArtists = results[3] as List<Map<String, dynamic>>;
+            _recentHistory = results[4] as List<Song>;
             _isLoading = false;
           });
         }
@@ -85,6 +97,57 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_activeMode == mode) return;
     setState(() => _activeMode = mode);
     _loadHomeData();
+  }
+
+  Widget _buildShortcutTile({
+    required String title,
+    required IconData icon,
+    required Color iconColor,
+    required List<Color> gradient,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        height: 52,
+        decoration: BoxDecoration(
+          color: const Color(0xFF131B2E),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withOpacity(0.06)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: gradient,
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
+              ),
+              child: Icon(icon, color: iconColor, size: 24),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -150,41 +213,199 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ],
                       ),
-                      // Account Profile Icon
-                      ValueListenableBuilder<AuthUser?>(
-                        valueListenable: AuthManager.authNotifier,
-                        builder: (context, user, _) {
-                          final isUser = user != null && !user.isGuest;
-                          return InkWell(
-                            onTap: () => AuthDialog.show(context),
-                            borderRadius: BorderRadius.circular(24),
-                            child: Container(
-                              padding: const EdgeInsets.all(2),
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: isUser ? const Color(0xFF6366F1) : Colors.white24,
-                                  width: 1.5,
+                      // Action icons: Settings + Account Profile
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.settings_outlined, color: Colors.white, size: 22),
+                            tooltip: 'Settings & Equalizer',
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                              );
+                            },
+                          ),
+                          const SizedBox(width: 4),
+                          ValueListenableBuilder<AuthUser?>(
+                            valueListenable: AuthManager.authNotifier,
+                            builder: (context, user, _) {
+                              final isUser = user != null && !user.isGuest;
+                              return InkWell(
+                                onTap: () => AuthDialog.show(context),
+                                borderRadius: BorderRadius.circular(24),
+                                child: Container(
+                                  padding: const EdgeInsets.all(2),
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: isUser ? const Color(0xFF6366F1) : Colors.white24,
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                  child: CircleAvatar(
+                                    radius: 16,
+                                    backgroundColor: isUser ? const Color(0xFF6366F1) : const Color(0xFF131B2E),
+                                    child: Text(
+                                      (user != null && !user.isGuest && user.username.isNotEmpty)
+                                          ? user.username[0].toUpperCase()
+                                          : '👤',
+                                      style: const TextStyle(fontSize: 13, color: Colors.white, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
                                 ),
-                              ),
-                              child: CircleAvatar(
-                                radius: 17,
-                                backgroundColor: isUser ? const Color(0xFF6366F1) : const Color(0xFF131B2E),
-                                child: Text(
-                                  (user != null && !user.isGuest && user.username.isNotEmpty)
-                                      ? user.username[0].toUpperCase()
-                                      : '👤',
-                                  style: const TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                            ),
-                          );
-                        },
+                              );
+                            },
+                          ),
+                        ],
                       ),
                     ],
                   ),
                 ),
               ),
+
+              // Dynamic Greeting
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
+                  child: ValueListenableBuilder<AuthUser?>(
+                    valueListenable: AuthManager.authNotifier,
+                    builder: (context, user, _) {
+                      final name = (user != null && !user.isGuest && user.username.isNotEmpty)
+                          ? user.username
+                          : 'Music Lover';
+                      return Text(
+                        '${_getGreeting()}, $name',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.4,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+
+              // Quick Shortcuts 2x2 Grid (Bloomee & Spotify style)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildShortcutTile(
+                              title: 'Liked Songs',
+                              icon: Icons.favorite_rounded,
+                              iconColor: const Color(0xFFEC4899),
+                              gradient: const [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                              onTap: () {
+                                final favs = FavoritesManager.getFavorites();
+                                if (favs.isNotEmpty) {
+                                  audioHandler.playSong(favs.first, queue: favs);
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('No liked songs yet! Add favorites to play.')),
+                                  );
+                                }
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _buildShortcutTile(
+                              title: 'Made For You',
+                              icon: Icons.auto_awesome_rounded,
+                              iconColor: const Color(0xFFFBBF24),
+                              gradient: const [Color(0xFFBE185D), Color(0xFFE11D48)],
+                              onTap: () {
+                                if (_forYouSongs.isNotEmpty) {
+                                  audioHandler.playSong(_forYouSongs.first, queue: _forYouSongs);
+                                }
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildShortcutTile(
+                              title: 'Import Spotify',
+                              icon: Icons.album_rounded,
+                              iconColor: const Color(0xFF1DB954),
+                              gradient: const [Color(0xFF065F46), Color(0xFF047857)],
+                              onTap: () => SpotifyImportDialog.show(context),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _buildShortcutTile(
+                              title: _activeMode == 'studio' ? 'YouTube Hits' : 'Studio 320k',
+                              icon: _activeMode == 'studio' ? Icons.play_circle_filled_rounded : Icons.diamond_rounded,
+                              iconColor: Colors.white,
+                              gradient: _activeMode == 'studio'
+                                  ? const [Color(0xFF991B1B), Color(0xFFDC2626)]
+                                  : const [Color(0xFF1E40AF), Color(0xFF3B82F6)],
+                              onTap: () => _switchMode(_activeMode == 'studio' ? 'youtube' : 'studio'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // "Jump Back In" (Listen History)
+              if (_recentHistory.isNotEmpty) ...[
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.history_rounded, color: Color(0xFF818CF8), size: 18),
+                            SizedBox(width: 6),
+                            Text(
+                              'Jump Back In',
+                              style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                        TextButton(
+                          child: const Text('Play All', style: TextStyle(color: Color(0xFF6366F1), fontWeight: FontWeight.bold)),
+                          onPressed: () => audioHandler.playSong(_recentHistory.first, queue: _recentHistory),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: 185,
+                    child: ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _recentHistory.length,
+                      itemBuilder: (context, index) {
+                        final song = _recentHistory[index];
+                        return _SongCard(
+                          song: song,
+                          onTap: () => audioHandler.playSong(song, queue: _recentHistory),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
 
               // Studio vs YouTube Music Pill Switcher
               SliverToBoxAdapter(
@@ -750,6 +971,14 @@ class _SongTile extends StatelessWidget {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text('Added "${song.title}" to queue')),
                 );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.playlist_add_rounded, color: Color(0xFF818CF8)),
+              title: const Text('Add to Playlist', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                AddToPlaylistDialog.show(context, song);
               },
             ),
             ListTile(

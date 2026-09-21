@@ -2,11 +2,12 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:http/http.dart' as http;
+import 'package:uuid/uuid.dart';
 import '../models/song.dart';
 import 'auth_manager.dart';
 
 class UserPlaylist {
-  final String id;
+  String id;
   String title;
   final int createdAt;
   List<Song> tracks;
@@ -28,7 +29,7 @@ class UserPlaylist {
   factory UserPlaylist.fromMap(Map<dynamic, dynamic> map) {
     final rawTracks = map['tracks'] as List<dynamic>? ?? [];
     return UserPlaylist(
-      id: map['id']?.toString() ?? '',
+      id: map['id']?.toString() ?? const Uuid().v4(),
       title: map['title']?.toString() ?? 'Untitled Playlist',
       createdAt: int.tryParse(map['created_at']?.toString() ?? '') ?? DateTime.now().millisecondsSinceEpoch,
       tracks: rawTracks.map((t) => Song.fromMap(t as Map<dynamic, dynamic>)).toList(),
@@ -74,7 +75,7 @@ class PlaylistManager {
 
   static Future<UserPlaylist> createPlaylist(String title, {List<Song>? initialTracks}) async {
     final cleanTitle = title.trim().isEmpty ? 'My Playlist' : title.trim();
-    final id = 'pl_${DateTime.now().millisecondsSinceEpoch}_${playlistsNotifier.value.length + 1}';
+    final id = const Uuid().v4();
     final playlist = UserPlaylist(
       id: id,
       title: cleanTitle,
@@ -118,6 +119,16 @@ class PlaylistManager {
     playlist.tracks.removeWhere((t) => t.id == songId);
     await _box.put(playlistId, playlist.toMap());
     _refreshList();
+
+    if (AuthManager.isLoggedIn) {
+      try {
+        final token = AuthManager.token;
+        if (token != null) {
+          final uri = Uri.parse('${AuthManager.baseUrl}/api/playlists/$playlistId/songs/$songId');
+          http.delete(uri, headers: {'Authorization': 'Bearer $token'}).timeout(const Duration(seconds: 4));
+        }
+      } catch (_) {}
+    }
   }
 
   static Future<void> deletePlaylist(String playlistId) async {
@@ -150,14 +161,37 @@ class PlaylistManager {
             if (item is Map) {
               final id = item['id']?.toString() ?? '';
               final title = item['title']?.toString() ?? 'Playlist';
-              if (id.isNotEmpty && !_box.containsKey(id)) {
-                final pl = UserPlaylist(
-                  id: id,
-                  title: title,
-                  createdAt: DateTime.now().millisecondsSinceEpoch,
-                  tracks: [],
-                );
-                await _box.put(id, pl.toMap());
+              if (id.isNotEmpty) {
+                if (!_box.containsKey(id)) {
+                  // Fetch tracks for this playlist
+                  final tracksRes = await http.get(
+                    Uri.parse('${AuthManager.baseUrl}/api/playlists/$id'),
+                    headers: {'Authorization': 'Bearer $token'},
+                  ).timeout(const Duration(seconds: 4));
+
+                  List<Song> fetchedTracks = [];
+                  if (tracksRes.statusCode == 200) {
+                    final detail = json.decode(tracksRes.body);
+                    final raw = detail['tracks'] as List<dynamic>? ?? [];
+                    fetchedTracks = raw.map((t) => Song(
+                      id: t['id']?.toString() ?? '',
+                      title: t['title']?.toString() ?? 'Track',
+                      artist: t['artist']?.toString() ?? 'Artist',
+                      album: '',
+                      duration: int.tryParse(t['duration']?.toString() ?? '0') ?? 0,
+                      coverUrl: t['cover_url']?.toString() ?? t['coverUrl']?.toString() ?? '',
+                      source: 'youtube',
+                    )).toList();
+                  }
+
+                  final pl = UserPlaylist(
+                    id: id,
+                    title: title,
+                    createdAt: DateTime.now().millisecondsSinceEpoch,
+                    tracks: fetchedTracks,
+                  );
+                  await _box.put(id, pl.toMap());
+                }
               }
             }
           }
@@ -172,14 +206,29 @@ class PlaylistManager {
       final token = AuthManager.token;
       if (token == null) return;
       final uri = Uri.parse('${AuthManager.baseUrl}/api/playlists');
-      await http.post(
+      final res = await http.post(
         uri,
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
-        body: json.encode({'title': playlist.title}),
-      ).timeout(const Duration(seconds: 4));
+        body: json.encode({
+          'title': playlist.title,
+          'is_public': false,
+        }),
+      ).timeout(const Duration(seconds: 5));
+
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        final data = json.decode(res.body);
+        final backendId = data['id']?.toString();
+        if (backendId != null && backendId.isNotEmpty && backendId != playlist.id) {
+          // Re-key in Hive with backend UUID
+          await _box.delete(playlist.id);
+          playlist.id = backendId;
+          await _box.put(backendId, playlist.toMap());
+          _refreshList();
+        }
+      }
     } catch (_) {}
   }
 
@@ -187,7 +236,7 @@ class PlaylistManager {
     try {
       final token = AuthManager.token;
       if (token == null) return;
-      final uri = Uri.parse('${AuthManager.baseUrl}/api/playlists/$playlistId/tracks');
+      final uri = Uri.parse('${AuthManager.baseUrl}/api/playlists/$playlistId/songs');
       await http.post(
         uri,
         headers: {

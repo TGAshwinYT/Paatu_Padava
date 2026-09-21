@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../services/auth_manager.dart';
+import '../screens/onboarding_screen.dart';
 
 class AuthDialog extends StatefulWidget {
   const AuthDialog({super.key});
@@ -69,7 +71,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Welcome back, ${AuthManager.currentUser?.username ?? 'Listener'}!'),
-          backgroundColor: const Color(0xFF6366F1),
+          backgroundColor: const Color(0xFF1DB954),
         ),
       );
     } else {
@@ -98,14 +100,36 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
 
     if (success) {
       Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Account created! Welcome, $username!'),
-          backgroundColor: const Color(0xFF6366F1),
-        ),
+      // Navigate to 2-step onboarding
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const OnboardingScreen()),
       );
     } else {
       setState(() => _errorMessage = 'Registration failed. Email might already be registered.');
+    }
+  }
+
+  Future<void> _handleGoogleSignIn() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    // Sign in using Google flow endpoint
+    final success = await AuthManager.loginWithGoogle('demo_google_token');
+    if (!mounted) return;
+
+    setState(() => _isLoading = false);
+
+    if (success) {
+      Navigator.pop(context);
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const OnboardingScreen()),
+      );
+    } else {
+      setState(() => _errorMessage = 'Google Sign-In unavailable right now. Try email login.');
     }
   }
 
@@ -120,7 +144,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
       decoration: const BoxDecoration(
         color: Color(0xFF131B2E),
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        border: Border(top: BorderSide(color: Color(0x336366F1), width: 1.5)),
+        border: Border(top: BorderSide(color: Color(0x331DB954), width: 1.5)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -145,10 +169,10 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
               children: [
                 CircleAvatar(
                   radius: 28,
-                  backgroundColor: const Color(0xFF6366F1),
+                  backgroundColor: const Color(0xFF1DB954),
                   child: Text(
                     currentUser.username.isNotEmpty ? currentUser.username[0].toUpperCase() : 'U',
-                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black),
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -158,43 +182,69 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
                     children: [
                       Text(
                         currentUser.username,
-                        style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                        style: GoogleFonts.outfit(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                       ),
                       Text(
                         currentUser.email,
-                        style: const TextStyle(color: Colors.white54, fontSize: 13),
+                        style: GoogleFonts.outfit(color: Colors.white54, fontSize: 13),
                       ),
+                      if (currentUser.preferredLanguages.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            'Languages: ${currentUser.preferredLanguages.join(", ")}',
+                            style: GoogleFonts.outfit(color: const Color(0xFF1DB954), fontSize: 11),
+                          ),
+                        ),
                     ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const OnboardingScreen()),
+                );
+              },
+              icon: const Icon(Icons.tune_rounded, color: Color(0xFF1DB954), size: 18),
+              label: Text('Edit Music Taste (Languages & Artists)', style: GoogleFonts.outfit(color: Colors.white)),
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: const Color(0xFF1DB954).withOpacity(0.4)),
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+            ),
+            const SizedBox(height: 10),
             ElevatedButton.icon(
               onPressed: () async {
                 await AuthManager.logout();
                 if (mounted) Navigator.pop(context);
               },
               icon: const Icon(Icons.logout, color: Colors.white70, size: 18),
-              label: const Text('Sign Out', style: TextStyle(color: Colors.white)),
+              label: Text('Sign Out', style: GoogleFonts.outfit(color: Colors.white)),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.redAccent.withOpacity(0.2),
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                elevation: 0,
               ),
             ),
           ] else ...[
             // Brand Logo & Heading
             Center(
               child: Container(
-                width: 58,
-                height: 58,
+                width: 54,
+                height: 54,
                 margin: const EdgeInsets.only(bottom: 8),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF6366F1).withOpacity(0.3),
+                      color: const Color(0xFF1DB954).withOpacity(0.25),
                       blurRadius: 14,
                       offset: const Offset(0, 4),
                     ),
@@ -206,11 +256,47 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
                 ),
               ),
             ),
-            const Center(
+            Center(
               child: Text(
                 'Paatu Padava',
-                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                style: GoogleFonts.outfit(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
               ),
+            ),
+            Center(
+              child: Text(
+                'Sync playlists, favorites & personalized recommendations',
+                style: GoogleFonts.outfit(color: Colors.white54, fontSize: 12),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Google Sign In Button
+            OutlinedButton.icon(
+              onPressed: _isLoading ? null : _handleGoogleSignIn,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: BorderSide(color: Colors.white.withOpacity(0.15)),
+                backgroundColor: const Color(0xFF0A0E1A),
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+              icon: const Icon(Icons.g_mobiledata_rounded, color: Colors.white, size: 26),
+              label: Text(
+                'Continue with Google',
+                style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w600),
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            Row(
+              children: [
+                Expanded(child: Divider(color: Colors.white.withOpacity(0.08))),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Text('OR', style: GoogleFonts.outfit(color: Colors.white38, fontSize: 11)),
+                ),
+                Expanded(child: Divider(color: Colors.white.withOpacity(0.08))),
+              ],
             ),
             const SizedBox(height: 14),
 
@@ -223,11 +309,12 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
               child: TabBar(
                 controller: _tabController,
                 indicator: BoxDecoration(
-                  color: const Color(0xFF6366F1),
+                  color: const Color(0xFF1DB954),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                labelColor: Colors.white,
+                labelColor: Colors.black,
                 unselectedLabelColor: Colors.white54,
+                labelStyle: GoogleFonts.outfit(fontWeight: FontWeight.bold),
                 tabs: const [
                   Tab(text: 'Sign In'),
                   Tab(text: 'Create Account'),
@@ -246,7 +333,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
                 ),
                 child: Text(
                   _errorMessage!,
-                  style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                  style: GoogleFonts.outfit(color: Colors.redAccent, fontSize: 12),
                   textAlign: TextAlign.center,
                 ),
               ),
@@ -269,12 +356,13 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
                         child: ElevatedButton(
                           onPressed: _isLoading ? null : _handleLogin,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF6366F1),
+                            backgroundColor: const Color(0xFF1DB954),
+                            foregroundColor: Colors.black,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                           ),
                           child: _isLoading
-                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                              : const Text('Sign In', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2))
+                              : Text('Sign In', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15)),
                         ),
                       ),
                     ],
@@ -295,12 +383,13 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
                         child: ElevatedButton(
                           onPressed: _isLoading ? null : _handleRegister,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF6366F1),
+                            backgroundColor: const Color(0xFF1DB954),
+                            foregroundColor: Colors.black,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                           ),
                           child: _isLoading
-                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                              : const Text('Create Account', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2))
+                              : Text('Create Account', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15)),
                         ),
                       ),
                     ],
@@ -316,9 +405,9 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
                   await AuthManager.loginAsGuest();
                   if (mounted) Navigator.pop(context);
                 },
-                child: const Text(
+                child: Text(
                   'Continue in Guest Mode',
-                  style: TextStyle(color: Colors.white38, fontSize: 13),
+                  style: GoogleFonts.outfit(color: Colors.white38, fontSize: 13),
                 ),
               ),
             ),
@@ -339,11 +428,11 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
       child: TextField(
         controller: controller,
         obscureText: isPassword,
-        style: const TextStyle(color: Colors.white, fontSize: 14),
+        style: GoogleFonts.outfit(color: Colors.white, fontSize: 14),
         decoration: InputDecoration(
           prefixIcon: Icon(icon, color: Colors.white38, size: 20),
           hintText: hint,
-          hintStyle: const TextStyle(color: Colors.white30, fontSize: 13),
+          hintStyle: GoogleFonts.outfit(color: Colors.white30, fontSize: 13),
           border: InputBorder.none,
           contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         ),

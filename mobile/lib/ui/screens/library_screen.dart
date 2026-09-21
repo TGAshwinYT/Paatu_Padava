@@ -1,20 +1,23 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/song.dart';
 import '../../services/favorites_manager.dart';
 import '../../services/download_manager.dart';
 import '../../services/playlist_manager.dart';
 import '../../services/player_handler.dart';
+import '../../services/history_manager.dart';
 import '../../services/auth_manager.dart';
 import '../widgets/auth_dialog.dart';
 import '../widgets/spotify_import_dialog.dart';
 import '../widgets/add_to_playlist_dialog.dart';
 import 'playlist_screen.dart';
 import 'settings_screen.dart';
+import 'liked_songs_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
-  const LibraryScreen({Key? key}) : super(key: key);
+  const LibraryScreen({super.key});
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
@@ -26,7 +29,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -41,19 +44,19 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     showDialog(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text(
+        backgroundColor: const Color(0xFF131B2E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text(
           'Create New Playlist',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         content: TextField(
           controller: textController,
           autofocus: true,
-          style: const TextStyle(color: Colors.white),
+          style: GoogleFonts.outfit(color: Colors.white),
           decoration: InputDecoration(
             hintText: 'Playlist Name',
-            hintStyle: const TextStyle(color: Colors.white38),
+            hintStyle: GoogleFonts.outfit(color: Colors.white38),
             filled: true,
             fillColor: const Color(0xFF0A0E1A),
             border: OutlineInputBorder(
@@ -62,19 +65,19 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFF6366F1), width: 1.5),
+              borderSide: const BorderSide(color: Color(0xFF1DB954), width: 1.5),
             ),
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogCtx),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
+            child: Text('Cancel', style: GoogleFonts.outfit(color: Colors.white60)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF6366F1),
-              foregroundColor: Colors.white,
+              backgroundColor: const Color(0xFF1DB954),
+              foregroundColor: Colors.black,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
             onPressed: () async {
@@ -92,9 +95,72 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                 }
               }
             },
-            child: const Text('Create'),
+            child: Text('Create', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showSongContextMenu(Song song) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF131B2E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.playlist_play_rounded, color: Color(0xFF6366F1)),
+              title: const Text('Play Next', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                audioHandler.insertNext(song);
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Playing "${song.title}" next')),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.queue_music_rounded, color: Colors.white70),
+              title: const Text('Add to Queue', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                audioHandler.addToQueue(song);
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Added "${song.title}" to queue')),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.playlist_add_rounded, color: Color(0xFF818CF8)),
+              title: const Text('Add to Playlist', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                AddToPlaylistDialog.show(context, song);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.download_rounded, color: Color(0xFF10B981)),
+              title: const Text('Download Offline', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                DownloadManager.downloadSong(song);
+                Navigator.pop(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.favorite_border_rounded, color: Color(0xFFEC4899)),
+              title: const Text('Like / Favorite', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                FavoritesManager.toggleFavorite(song);
+                Navigator.pop(context);
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -112,9 +178,9 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
+                  Text(
                     'Your Library',
-                    style: TextStyle(
+                    style: GoogleFonts.outfit(
                       color: Colors.white,
                       fontSize: 24,
                       fontWeight: FontWeight.w800,
@@ -143,18 +209,18 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                             onPressed: () => AuthDialog.show(context),
                             style: OutlinedButton.styleFrom(
                               foregroundColor: Colors.white,
-                              side: BorderSide(color: isUser ? const Color(0xFF6366F1) : Colors.white24),
+                              side: BorderSide(color: isUser ? const Color(0xFF1DB954) : Colors.white24),
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                             ),
                             icon: Icon(
                               isUser ? Icons.person_rounded : Icons.login_rounded,
                               size: 16,
-                              color: isUser ? const Color(0xFF6366F1) : Colors.white70,
+                              color: isUser ? const Color(0xFF1DB954) : Colors.white70,
                             ),
                             label: Text(
                               (user != null && !user.isGuest) ? user.username : 'Sign In',
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                              style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.bold),
                             ),
                           );
                         },
@@ -189,17 +255,17 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                         child: const Icon(Icons.album_rounded, color: Color(0xFF1DB954), size: 20),
                       ),
                       const SizedBox(width: 12),
-                      const Expanded(
+                      Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
                               'Import Spotify Playlist',
-                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
                             ),
                             Text(
                               'Save Spotify playlists or play in 320kbps Lossless',
-                              style: TextStyle(color: Colors.white54, fontSize: 11),
+                              style: GoogleFonts.outfit(color: Colors.white54, fontSize: 11),
                             ),
                           ],
                         ),
@@ -211,7 +277,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
               ),
             ),
 
-            // Tab Bar: 3 Tabs (Playlists, Liked Songs, Downloads)
+            // Tab Bar: 4 Tabs (Playlists, Liked, History, Offline)
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
               decoration: BoxDecoration(
@@ -221,13 +287,13 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
               child: TabBar(
                 controller: _tabController,
                 indicator: BoxDecoration(
-                  color: const Color(0xFF6366F1),
+                  color: const Color(0xFF1DB954),
                   borderRadius: BorderRadius.circular(14),
                 ),
                 indicatorSize: TabBarIndicatorSize.tab,
-                labelColor: Colors.white,
+                labelColor: Colors.black,
                 unselectedLabelColor: const Color(0xFF94A3B8),
-                labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                labelStyle: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 12),
                 dividerColor: Colors.transparent,
                 tabs: const [
                   Tab(
@@ -237,6 +303,10 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                   Tab(
                     icon: Icon(Icons.favorite_rounded, size: 17),
                     text: 'Liked',
+                  ),
+                  Tab(
+                    icon: Icon(Icons.history_rounded, size: 17),
+                    text: 'History',
                   ),
                   Tab(
                     icon: Icon(Icons.download_done_rounded, size: 17),
@@ -253,6 +323,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                 children: [
                   _buildPlaylistsTab(),
                   _buildLikedSongsTab(),
+                  _buildHistoryTab(),
                   _buildDownloadsTab(),
                 ],
               ),
@@ -274,7 +345,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
             // Create Playlist Banner Button
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
                 child: InkWell(
                   onTap: _showCreatePlaylistDialog,
                   borderRadius: BorderRadius.circular(16),
@@ -283,34 +354,34 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
-                          const Color(0xFF6366F1).withOpacity(0.25),
+                          const Color(0xFF1DB954).withOpacity(0.18),
                           const Color(0xFF131B2E),
                         ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.4)),
+                      border: Border.all(color: const Color(0xFF1DB954).withOpacity(0.35)),
                     ),
-                    child: const Row(
+                    child: Row(
                       children: [
-                        CircleAvatar(
+                        const CircleAvatar(
                           radius: 18,
-                          backgroundColor: Color(0xFF6366F1),
-                          child: Icon(Icons.add_rounded, color: Colors.white, size: 22),
+                          backgroundColor: Color(0xFF1DB954),
+                          child: Icon(Icons.add_rounded, color: Colors.black, size: 22),
                         ),
-                        SizedBox(width: 14),
+                        const SizedBox(width: 14),
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
                               'Create New Playlist',
-                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
                             ),
-                            SizedBox(height: 2),
+                            const SizedBox(height: 2),
                             Text(
                               'Custom collections saved locally & synced to cloud',
-                              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                              style: GoogleFonts.outfit(color: const Color(0xFF94A3B8), fontSize: 11),
                             ),
                           ],
                         ),
@@ -321,28 +392,79 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
               ),
             ),
 
-            if (playlists.isEmpty)
-              const SliverFillRemaining(
-                child: Center(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 32.0),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.queue_music_rounded, size: 48, color: Color(0xFF64748B)),
-                        SizedBox(height: 14),
-                        Text(
-                          'No Custom Playlists Yet',
-                          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+            // Pinned Spotify-style "Liked Songs" Playlist Row
+            SliverToBoxAdapter(
+              child: ValueListenableBuilder<List<Song>>(
+                valueListenable: FavoritesManager.favoritesNotifier,
+                builder: (context, favs, _) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                    child: ListTile(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const LikedSongsScreen()),
+                        );
+                      },
+                      contentPadding: EdgeInsets.zero,
+                      leading: Container(
+                        width: 52,
+                        height: 52,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        SizedBox(height: 6),
-                        Text(
-                          'Tap "Create New Playlist" above or import playlists from Spotify!',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
-                        ),
-                      ],
+                        child: const Icon(Icons.favorite_rounded, color: Colors.white, size: 26),
+                      ),
+                      title: Text(
+                        'Liked Songs',
+                        style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                      ),
+                      subtitle: Text(
+                        '${favs.length} ${favs.length == 1 ? "song" : "songs"} • Auto playlist',
+                        style: GoogleFonts.outfit(color: const Color(0xFF94A3B8), fontSize: 12),
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (favs.isNotEmpty)
+                            IconButton(
+                              icon: const Icon(Icons.play_circle_filled_rounded, color: Color(0xFF1DB954), size: 28),
+                              onPressed: () => audioHandler.playSong(favs.first, queue: favs),
+                            ),
+                          const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white30, size: 14),
+                        ],
+                      ),
                     ),
+                  );
+                },
+              ),
+            ),
+
+            if (playlists.isEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 40),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.queue_music_rounded, size: 48, color: Color(0xFF64748B)),
+                      const SizedBox(height: 14),
+                      Text(
+                        'No Custom Playlists Yet',
+                        style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Tap "Create New Playlist" above or import playlists from Spotify!',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.outfit(color: const Color(0xFF94A3B8), fontSize: 13),
+                      ),
+                    ],
                   ),
                 ),
               )
@@ -381,18 +503,18 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                         playlist.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                        style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
                       ),
                       subtitle: Text(
                         '$trackCount ${trackCount == 1 ? "track" : "tracks"}',
-                        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                        style: GoogleFonts.outfit(color: const Color(0xFF94A3B8), fontSize: 12),
                       ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           if (trackCount > 0)
                             IconButton(
-                              icon: const Icon(Icons.play_circle_filled_rounded, color: Color(0xFF6366F1), size: 28),
+                              icon: const Icon(Icons.play_circle_filled_rounded, color: Color(0xFF1DB954), size: 28),
                               onPressed: () => audioHandler.playSong(playlist.tracks.first, queue: playlist.tracks),
                             ),
                           const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white30, size: 14),
@@ -431,23 +553,23 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
       valueListenable: FavoritesManager.favoritesNotifier,
       builder: (context, favorites, _) {
         if (favorites.isEmpty) {
-          return const Center(
+          return Center(
             child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 32.0),
+              padding: const EdgeInsets.symmetric(horizontal: 32.0),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.favorite_border_rounded, size: 48, color: Color(0xFF64748B)),
-                  SizedBox(height: 14),
+                  const Icon(Icons.favorite_border_rounded, size: 48, color: Color(0xFF64748B)),
+                  const SizedBox(height: 14),
                   Text(
                     'No Liked Songs Yet',
-                    style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                    style: GoogleFonts.outfit(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
                   ),
-                  SizedBox(height: 6),
+                  const SizedBox(height: 6),
                   Text(
                     'Heart songs while listening to save them to your personal favorites library!',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                    style: GoogleFonts.outfit(color: const Color(0xFF94A3B8), fontSize: 13),
                   ),
                 ],
               ),
@@ -457,21 +579,61 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
 
         return CustomScrollView(
           slivers: [
+            // Prominent Full-Screen Link
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 6),
+                child: InkWell(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const LikedSongsScreen()),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.open_in_full_rounded, color: Colors.white, size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Open Full Liked Songs Experience',
+                            style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                          ),
+                        ),
+                        const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white70, size: 14),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
             // Play All & Shuffle Actions
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 child: Row(
                   children: [
                     ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF6366F1),
-                        foregroundColor: Colors.white,
+                        backgroundColor: const Color(0xFF1DB954),
+                        foregroundColor: Colors.black,
                         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                       ),
                       icon: const Icon(Icons.play_arrow_rounded, size: 22),
-                      label: Text('Play All (${favorites.length})', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      label: Text('Play All (${favorites.length})', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
                       onPressed: () => audioHandler.playSong(favorites.first, queue: favorites),
                     ),
                     const SizedBox(width: 12),
@@ -483,7 +645,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                       ),
                       icon: const Icon(Icons.shuffle_rounded, size: 18),
-                      label: const Text('Shuffle'),
+                      label: Text('Shuffle', style: GoogleFonts.outfit()),
                       onPressed: () {
                         final shuffled = List<Song>.from(favorites)..shuffle();
                         audioHandler.playSong(shuffled.first, queue: shuffled);
@@ -518,13 +680,13 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                       song.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                      style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
                     ),
                     subtitle: Text(
                       song.artist,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                      style: GoogleFonts.outfit(color: const Color(0xFF94A3B8), fontSize: 12),
                     ),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -535,8 +697,8 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                           onPressed: () => AddToPlaylistDialog.show(context, song),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.download_for_offline_outlined, color: Color(0xFF64748B), size: 22),
-                          onPressed: () => DownloadManager.downloadSong(song),
+                          icon: const Icon(Icons.more_vert_rounded, color: Color(0xFF64748B), size: 20),
+                          onPressed: () => _showSongContextMenu(song),
                         ),
                       ],
                     ),
@@ -553,30 +715,145 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     );
   }
 
-  // ================= 3. Downloads Tab ================= //
+  // ================= 3. History Tab ================= //
+
+  Widget _buildHistoryTab() {
+    return ValueListenableBuilder<List<Song>>(
+      valueListenable: HistoryManager.historyNotifier,
+      builder: (context, history, _) {
+        if (history.isEmpty) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.history_rounded, size: 48, color: Color(0xFF64748B)),
+                  const SizedBox(height: 14),
+                  Text(
+                    'No Listening History Yet',
+                    style: GoogleFonts.outfit(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Songs you stream or play offline will automatically appear here.',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.outfit(color: const Color(0xFF94A3B8), fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1DB954),
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      ),
+                      icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                      label: Text('Play All (${history.length})', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
+                      onPressed: () => audioHandler.playSong(history.first, queue: history),
+                    ),
+                    TextButton.icon(
+                      icon: const Icon(Icons.clear_all_rounded, size: 18, color: Color(0xFF64748B)),
+                      label: Text('Clear', style: GoogleFonts.outfit(color: const Color(0xFF64748B))),
+                      onPressed: () => HistoryManager.clear(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final song = history[index];
+                  return ListTile(
+                    onTap: () => audioHandler.playSong(song, queue: history),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+                    leading: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: SizedBox(
+                        width: 50,
+                        height: 50,
+                        child: CachedNetworkImage(
+                          imageUrl: song.coverUrl,
+                          fit: BoxFit.cover,
+                          errorWidget: (_, __, ___) => Container(color: const Color(0xFF1E293B)),
+                        ),
+                      ),
+                    ),
+                    title: Text(
+                      song.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                    ),
+                    subtitle: Text(
+                      song.artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.outfit(color: const Color(0xFF94A3B8), fontSize: 12),
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.playlist_add_rounded, color: Color(0xFF818CF8), size: 22),
+                          onPressed: () => AddToPlaylistDialog.show(context, song),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.more_vert_rounded, color: Color(0xFF64748B), size: 20),
+                          onPressed: () => _showSongContextMenu(song),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+                childCount: history.length,
+              ),
+            ),
+            const SliverToBoxAdapter(child: SizedBox(height: 120)),
+          ],
+        );
+      },
+    );
+  }
+
+  // ================= 4. Downloads Tab ================= //
 
   Widget _buildDownloadsTab() {
     return ValueListenableBuilder<List<Song>>(
       valueListenable: DownloadManager.downloadedSongsNotifier,
       builder: (context, downloadedSongs, _) {
         if (downloadedSongs.isEmpty) {
-          return const Center(
+          return Center(
             child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 32.0),
+              padding: const EdgeInsets.symmetric(horizontal: 32.0),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.offline_pin_outlined, size: 48, color: Color(0xFF64748B)),
-                  SizedBox(height: 14),
+                  const Icon(Icons.offline_pin_outlined, size: 48, color: Color(0xFF64748B)),
+                  const SizedBox(height: 14),
                   Text(
                     'No Offline Songs',
-                    style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                    style: GoogleFonts.outfit(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
                   ),
-                  SizedBox(height: 6),
+                  const SizedBox(height: 6),
                   Text(
                     'Download any track to enjoy seamless 320kbps offline playback with zero internet!',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                    style: GoogleFonts.outfit(color: const Color(0xFF94A3B8), fontSize: 13),
                   ),
                 ],
               ),
@@ -611,14 +888,14 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                                 const SizedBox(width: 6),
                                 Text(
                                   '${downloadedSongs.length} Tracks Offline',
-                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                                  style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
                                 ),
                               ],
                             ),
                             const SizedBox(height: 4),
                             Text(
                               'Storage: $totalSizeStr on device',
-                              style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                              style: GoogleFonts.outfit(color: const Color(0xFF94A3B8), fontSize: 12),
                             ),
                           ],
                         ),
@@ -631,7 +908,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
                         icon: const Icon(Icons.play_arrow_rounded, size: 20),
-                        label: const Text('Play Offline', style: TextStyle(fontWeight: FontWeight.bold)),
+                        label: Text('Play Offline', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
                         onPressed: () => audioHandler.playSong(downloadedSongs.first, queue: downloadedSongs),
                       ),
                     ],
@@ -680,7 +957,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                         song.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                        style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
                       ),
                       subtitle: Row(
                         children: [
@@ -691,7 +968,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                               song.artist,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                              style: GoogleFonts.outfit(color: const Color(0xFF94A3B8), fontSize: 12),
                             ),
                           ),
                         ],

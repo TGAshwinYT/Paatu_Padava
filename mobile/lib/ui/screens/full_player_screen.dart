@@ -8,6 +8,7 @@ import '../../services/player_handler.dart';
 import '../../services/download_manager.dart';
 import '../../services/favorites_manager.dart';
 import '../widgets/queue_sheet.dart';
+import '../widgets/add_to_playlist_dialog.dart';
 
 class FullPlayerScreen extends StatefulWidget {
   const FullPlayerScreen({Key? key}) : super(key: key);
@@ -299,6 +300,11 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                       },
                                     );
                                   },
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.playlist_add_rounded, color: Color(0xFF818CF8), size: 28),
+                                  tooltip: 'Add to Playlist',
+                                  onPressed: () => AddToPlaylistDialog.show(context, song),
                                 ),
                                 _DownloadActionButton(song: song),
                               ],

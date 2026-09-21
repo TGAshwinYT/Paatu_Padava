@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../services/api_client.dart';
 import '../../services/player_handler.dart';
+import '../../services/playlist_manager.dart';
 
 class SpotifyImportDialog extends StatefulWidget {
   const SpotifyImportDialog({super.key});
@@ -77,7 +78,7 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
     }
   }
 
-  Future<void> _handleImport({bool playImmediately = true}) async {
+  Future<void> _handleImport({bool playImmediately = true, bool saveAsPlaylist = false}) async {
     final url = _urlController.text.trim();
     if (url.isEmpty) return;
 
@@ -99,6 +100,20 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
         const SnackBar(
           content: Text('Failed to import tracks. Check your internet connection or URL.'),
           backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    final title = _previewData?['title']?.toString() ?? 'Spotify Import';
+
+    if (saveAsPlaylist) {
+      await PlaylistManager.createPlaylist(title, initialTracks: songs);
+      if (mounted) Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Saved "$title" with ${songs.length} tracks to your Playlists!'),
+          backgroundColor: const Color(0xFF6366F1),
         ),
       );
       return;
@@ -314,6 +329,20 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
             const SizedBox(height: 18),
 
             // Action Buttons
+            ElevatedButton.icon(
+              onPressed: () => _handleImport(saveAsPlaylist: true),
+              icon: const Icon(Icons.playlist_add_rounded, color: Colors.white, size: 20),
+              label: const Text(
+                'Save as Playlist',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF6366F1),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+            ),
+            const SizedBox(height: 10),
             Row(
               children: [
                 Expanded(
@@ -380,6 +409,20 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 10),
+            ElevatedButton.icon(
+              onPressed: () => _handleImport(saveAsPlaylist: true),
+              icon: const Icon(Icons.playlist_add_rounded, color: Colors.white, size: 20),
+              label: const Text(
+                'Import & Save as Playlist',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF6366F1),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
             ),
           ],
           const SizedBox(height: 10),

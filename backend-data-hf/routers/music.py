@@ -107,14 +107,33 @@ def is_title_match(target_title: str, candidate_title: str) -> bool:
     c_clean = clean_song_title(candidate_title)
     if not t_clean or not c_clean:
         return False
-    if t_clean == c_clean or t_clean in c_clean or c_clean in t_clean:
+    if t_clean == c_clean:
         return True
-    if difflib.SequenceMatcher(None, t_clean, c_clean).ratio() >= 0.70:
+    
+    t_words = t_clean.split()
+    c_words = c_clean.split()
+    
+    # Prefix match with whole word boundary (e.g. "naan un" matches "naan un azhaginile")
+    if c_clean.startswith(t_clean) or t_clean.startswith(c_clean):
+        longer = c_clean if len(c_clean) >= len(t_clean) else t_clean
+        shorter = t_clean if len(c_clean) >= len(t_clean) else c_clean
+        if len(shorter) >= 4 and (len(longer) == len(shorter) or longer[len(shorter)] == ' '):
+            return True
+
+    # High SequenceMatcher ratio (0.75+)
+    ratio = difflib.SequenceMatcher(None, t_clean, c_clean).ratio()
+    if ratio >= 0.75:
         return True
-    t_words = set(t_clean.split())
-    c_words = set(c_clean.split())
-    if t_words and c_words and len(t_words & c_words) / max(len(t_words), 1) >= 0.7:
-        return True
+
+    # Overlapping token ratio
+    t_set = set(t_words)
+    c_set = set(c_words)
+    if t_set and c_set:
+        intersection = t_set & c_set
+        overlap_ratio = len(intersection) / max(len(t_set), len(c_set))
+        if overlap_ratio >= 0.65:
+            return True
+
     return False
 
 

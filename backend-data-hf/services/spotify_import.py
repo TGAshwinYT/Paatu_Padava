@@ -65,44 +65,75 @@ async def fetch_spotify_playlist_metadata(playlist_id: str, raw_url: Optional[st
             logger.error(f"[SpotifyImport] Failed to fetch embed page: status {response.status_code}")
             raise ValueError("Could not load Spotify playlist. Please ensure the playlist is public.")
 
+        # 1. Try __NEXT_DATA__
         match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', response.text, re.DOTALL)
-        if not match:
-            logger.error("[SpotifyImport] __NEXT_DATA__ script tag not found in embed HTML")
-            raise ValueError("Could not parse Spotify playlist data. The playlist may be private or deleted.")
+        data = None
+        if match:
+            try:
+                data = json.loads(match.group(1))
+            except Exception as e:
+                logger.debug(f"[SpotifyImport] Failed to parse __NEXT_DATA__: {e}")
 
-        try:
-            data = json.loads(match.group(1))
-        except Exception as e:
-            logger.error(f"[SpotifyImport] Failed to parse JSON: {e}")
-            raise ValueError("Invalid playlist response structure from Spotify.")
+        # 2. Fallback to initial-state
+        if not data:
+            match_init = re.search(r'<script id="initial-state" type="text/plain">(.*?)</script>', response.text, re.DOTALL)
+            if match_init:
+                try:
+                    import base64
+                    raw_text = match_init.group(1).strip()
+                    try:
+                        decoded = base64.b64decode(raw_text).decode('utf-8')
+                        data = json.loads(decoded)
+                    except Exception:
+                        data = json.loads(raw_text)
+                except Exception as e:
+                    logger.debug(f"[SpotifyImport] Failed to parse initial-state: {e}")
 
-        entity = data.get('props', {}).get('pageProps', {}).get('state', {}).get('data', {}).get('entity', {})
-        if not entity:
-            raise ValueError("Spotify playlist entity is empty or unavailable.")
+        entity = None
+        if data:
+            entity = (
+                data.get('props', {}).get('pageProps', {}).get('state', {}).get('data', {}).get('entity', {})
+                or data.get('entity', {})
+                or data.get('data', {}).get('entity', {})
+            )
 
-        title = entity.get('name') or entity.get('title') or "Imported Spotify Playlist"
-        description = entity.get('subtitle') or entity.get('description') or ""
+        title = (entity.get('name') if entity else None) or (entity.get('title') if entity else None) or "Imported Spotify Playlist"
+        description = (entity.get('subtitle') if entity else None) or (entity.get('description') if entity else None) or ""
         
         # Extract cover image
         cover_url = ""
-        sources = entity.get('coverArt', {}).get('sources', [])
-        if sources:
-            # Pick highest resolution image
-            cover_url = sources[-1].get('url') or sources[0].get('url') or ""
+        if entity:
+            sources = entity.get('coverArt', {}).get('sources', [])
+            if sources:
+                cover_url = sources[-1].get('url') or sources[0].get('url') or ""
 
-        track_list_raw = entity.get('trackList', [])
+        track_list_raw = (entity.get('trackList', []) if entity else [])
         extracted_tracks: List[Dict[str, Any]] = []
         for t in track_list_raw:
             track_title = t.get('title') or ""
             track_artist = t.get('subtitle') or ""
+            track_album = t.get('album') or (title if entity_type == "album" else "")
             duration_ms = t.get('duration') or 0
             if track_title:
                 extracted_tracks.append({
                     "title": track_title,
                     "artist": track_artist,
+                    "album": track_album,
                     "duration": int(duration_ms) // 1000 if duration_ms else 0,
                     "uri": t.get('uri', '')
                 })
+
+        # 3. Fallback: Parse meta tags if script extraction yielded no tracks
+        if not extracted_tracks:
+            meta_title = re.search(r'<meta property="og:title" content="([^"]+)"', response.text)
+            meta_image = re.search(r'<meta property="og:image" content="([^"]+)"', response.text)
+            meta_desc = re.search(r'<meta property="og:description" content="([^"]+)"', response.text)
+            if meta_title:
+                title = meta_title.group(1)
+            if meta_image:
+                cover_url = meta_image.group(1)
+            if meta_desc:
+                description = meta_desc.group(1)
 
         return {
             "spotify_id": playlist_id,
@@ -116,17 +147,36 @@ async def fetch_spotify_playlist_metadata(playlist_id: str, raw_url: Optional[st
 
 async def _resolve_single_track(track: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
-    Resolves a single Spotify track metadata (title + artist) to a Paatu Padava track.
+    Resolves a single Spotify track metadata (title + album + artist) to a Paatu Padava track.
+    Includes album/movie name for strict matching (e.g. 'Naan Un Azhaginile 24 A.R. Rahman').
     """
-    query = f"{track['title']} {track['artist']}".strip()
+    title = track.get('title', '').strip()
+    artist = track.get('artist', '').strip()
+    album = track.get('album', '').strip()
+
+    # Query with Title + Album + Artist for movie precision
+    if album and album.lower() not in title.lower():
+        query = f"{title} {album} {artist}".strip()
+    else:
+        query = f"{title} {artist}".strip()
+
     try:
-        results = await youtube.search_youtube(query, limit=1)
+        results = await youtube.search_youtube(query, limit=3)
         if results and len(results) > 0:
             top_match = results[0]
+            # Try to find candidate with matching title
+            clean_t = re.sub(r'[^a-zA-Z0-9]', '', title).lower()
+            for r in results:
+                r_title = re.sub(r'[^a-zA-Z0-9]', '', r.get('title', '')).lower()
+                if clean_t in r_title:
+                    top_match = r
+                    break
+
             return {
                 "yt_video_id": top_match.get("id"),
-                "title": track['title'],
-                "artist": track['artist'] or top_match.get("artist", ""),
+                "title": title,
+                "artist": artist or top_match.get("artist", ""),
+                "album": album or top_match.get("album", ""),
                 "cover_url": top_match.get("cover_url") or top_match.get("coverUrl", ""),
                 "duration": top_match.get("duration") or track.get("duration", 0)
             }

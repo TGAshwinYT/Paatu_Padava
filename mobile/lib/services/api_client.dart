@@ -39,6 +39,36 @@ class ApiClient {
     } catch (_) {}
   }
 
+  /// Fetches the user's recent listening history ("Jump Back In")
+  static Future<List<Song>> fetchListenHistory() async {
+    try {
+      final uri = Uri.parse('$baseUrl/api/history/listen');
+      final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 5));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data is List) {
+          final List<Song> list = [];
+          for (final item in data) {
+            if (item is Map) {
+              list.add(Song(
+                id: item['yt_video_id']?.toString() ?? item['id']?.toString() ?? '',
+                title: item['title']?.toString() ?? 'Track',
+                artist: item['artist']?.toString() ?? 'Artist',
+                album: '',
+                duration: 0,
+                coverUrl: item['cover_url']?.toString() ?? '',
+                streamUrl: item['audio_url']?.toString(),
+                source: 'history',
+              ));
+            }
+          }
+          return list;
+        }
+      }
+    } catch (_) {}
+    return [];
+  }
+
   /// Fetches personalized queue learned from collaborative filtering (Item-Item graph)
   static Future<List<Song>> fetchForYou() async {
     try {

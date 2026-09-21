@@ -11,9 +11,11 @@ class DownloadManager {
   static const String boxName = 'offline_songs';
   static final Dio _dio = Dio();
   static final ValueNotifier<Map<String, double>> activeDownloads = ValueNotifier({});
+  static final ValueNotifier<List<Song>> downloadedSongsNotifier = ValueNotifier<List<Song>>([]);
 
   static Future<void> init() async {
     await Hive.openBox(boxName);
+    downloadedSongsNotifier.value = getDownloadedSongs();
   }
 
   static Box get _box => Hive.box(boxName);
@@ -97,6 +99,7 @@ class DownloadManager {
       );
 
       await _box.put(song.id, downloadedSong.toMap());
+      downloadedSongsNotifier.value = getDownloadedSongs();
 
       // Clean up progress
       final updated = Map<String, double>.from(activeDownloads.value);
@@ -124,6 +127,7 @@ class DownloadManager {
       }
     }
     await _box.delete(songId);
+    downloadedSongsNotifier.value = getDownloadedSongs();
   }
 
   static String getFormattedTotalSize() {

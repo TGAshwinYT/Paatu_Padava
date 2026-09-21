@@ -7,11 +7,14 @@ import '../../services/player_handler.dart';
 import '../../services/download_manager.dart';
 import '../../services/favorites_manager.dart';
 import '../../services/auth_manager.dart';
+import '../../services/history_manager.dart';
 import '../widgets/spotify_import_dialog.dart';
 import '../widgets/auth_dialog.dart';
 import 'artist_screen.dart';
 import 'album_screen.dart';
 import 'settings_screen.dart';
+import 'liked_songs_screen.dart';
+import 'onboarding_screen.dart';
 import '../widgets/add_to_playlist_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -289,7 +292,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
 
-              // Quick Shortcuts 2x2 Grid (Bloomee & Spotify style)
+              // Quick Shortcuts 2x3 Grid (Spotify style)
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -304,14 +307,10 @@ class _HomeScreenState extends State<HomeScreen> {
                               iconColor: const Color(0xFFEC4899),
                               gradient: const [Color(0xFF4F46E5), Color(0xFF7C3AED)],
                               onTap: () {
-                                final favs = FavoritesManager.getFavorites();
-                                if (favs.isNotEmpty) {
-                                  audioHandler.playSong(favs.first, queue: favs);
-                                } else {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('No liked songs yet! Add favorites to play.')),
-                                  );
-                                }
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => const LikedSongsScreen()),
+                                );
                               },
                             ),
                           ),
@@ -325,6 +324,10 @@ class _HomeScreenState extends State<HomeScreen> {
                               onTap: () {
                                 if (_forYouSongs.isNotEmpty) {
                                   audioHandler.playSong(_forYouSongs.first, queue: _forYouSongs);
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Building your recommendation mix...')),
+                                  );
                                 }
                               },
                             ),
@@ -346,6 +349,51 @@ class _HomeScreenState extends State<HomeScreen> {
                           const SizedBox(width: 10),
                           Expanded(
                             child: _buildShortcutTile(
+                              title: 'Tune Taste',
+                              icon: Icons.tune_rounded,
+                              iconColor: const Color(0xFF38BDF8),
+                              gradient: const [Color(0xFF0F766E), Color(0xFF0E7490)],
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => OnboardingScreen(
+                                      onCompleted: () {
+                                        Navigator.pop(context);
+                                        _loadHomeData();
+                                      },
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildShortcutTile(
+                              title: 'Recently Played',
+                              icon: Icons.history_rounded,
+                              iconColor: const Color(0xFF818CF8),
+                              gradient: const [Color(0xFF312E81), Color(0xFF4338CA)],
+                              onTap: () {
+                                final recents = HistoryManager.getRecentSongs();
+                                if (recents.isNotEmpty) {
+                                  audioHandler.playSong(recents.first, queue: recents);
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('No recently played songs yet')),
+                                  );
+                                }
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _buildShortcutTile(
                               title: _activeMode == 'studio' ? 'YouTube Hits' : 'Studio 320k',
                               icon: _activeMode == 'studio' ? Icons.play_circle_filled_rounded : Icons.diamond_rounded,
                               iconColor: Colors.white,
@@ -362,50 +410,59 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
 
-              // "Jump Back In" (Listen History)
-              if (_recentHistory.isNotEmpty) ...[
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              // "Jump Back In" (Listen History - dynamically reactive)
+              ValueListenableBuilder<List<Song>>(
+                valueListenable: HistoryManager.historyNotifier,
+                builder: (context, recentSongs, _) {
+                  final displayHistory = recentSongs.isNotEmpty ? recentSongs : _recentHistory;
+                  if (displayHistory.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+
+                  return SliverToBoxAdapter(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Row(
-                          children: [
-                            Icon(Icons.history_rounded, color: Color(0xFF818CF8), size: 18),
-                            SizedBox(width: 6),
-                            Text(
-                              'Jump Back In',
-                              style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
-                            ),
-                          ],
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: const [
+                                  Icon(Icons.history_rounded, color: Color(0xFF818CF8), size: 18),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'Jump Back In',
+                                    style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                              TextButton(
+                                child: const Text('Play All', style: TextStyle(color: Color(0xFF6366F1), fontWeight: FontWeight.bold)),
+                                onPressed: () => audioHandler.playSong(displayHistory.first, queue: displayHistory),
+                              ),
+                            ],
+                          ),
                         ),
-                        TextButton(
-                          child: const Text('Play All', style: TextStyle(color: Color(0xFF6366F1), fontWeight: FontWeight.bold)),
-                          onPressed: () => audioHandler.playSong(_recentHistory.first, queue: _recentHistory),
+                        SizedBox(
+                          height: 185,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            scrollDirection: Axis.horizontal,
+                            itemCount: displayHistory.length,
+                            itemBuilder: (context, index) {
+                              final song = displayHistory[index];
+                              return _SongCard(
+                                song: song,
+                                onTap: () => audioHandler.playSong(song, queue: displayHistory),
+                              );
+                            },
+                          ),
                         ),
                       ],
                     ),
-                  ),
-                ),
-                SliverToBoxAdapter(
-                  child: SizedBox(
-                    height: 185,
-                    child: ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      scrollDirection: Axis.horizontal,
-                      itemCount: _recentHistory.length,
-                      itemBuilder: (context, index) {
-                        final song = _recentHistory[index];
-                        return _SongCard(
-                          song: song,
-                          onTap: () => audioHandler.playSong(song, queue: _recentHistory),
-                        );
-                      },
-                    ),
-                  ),
-                ),
-              ],
+                  );
+                },
+              ),
 
               // Studio vs YouTube Music Pill Switcher
               SliverToBoxAdapter(
@@ -870,6 +927,69 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+void _showSongContextMenu(BuildContext context, Song song) {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: const Color(0xFF131B2E),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (context) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.playlist_play_rounded, color: Color(0xFF6366F1)),
+            title: const Text('Play Next', style: TextStyle(color: Colors.white)),
+            onTap: () {
+              audioHandler.insertNext(song);
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Playing "${song.title}" next')),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.queue_music_rounded, color: Colors.white70),
+            title: const Text('Add to Queue', style: TextStyle(color: Colors.white)),
+            onTap: () {
+              audioHandler.addToQueue(song);
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Added "${song.title}" to queue')),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.playlist_add_rounded, color: Color(0xFF818CF8)),
+            title: const Text('Add to Playlist', style: TextStyle(color: Colors.white)),
+            onTap: () {
+              Navigator.pop(context);
+              AddToPlaylistDialog.show(context, song);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.download_rounded, color: Color(0xFF10B981)),
+            title: const Text('Download Offline', style: TextStyle(color: Colors.white)),
+            onTap: () {
+              DownloadManager.downloadSong(song);
+              Navigator.pop(context);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.favorite_border_rounded, color: Color(0xFFEC4899)),
+            title: const Text('Like / Favorite', style: TextStyle(color: Colors.white)),
+            onTap: () {
+              FavoritesManager.toggleFavorite(song);
+              Navigator.pop(context);
+            },
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 class _SongCard extends StatelessWidget {
   final Song song;
   final VoidCallback onTap;
@@ -880,6 +1000,7 @@ class _SongCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
+      onLongPress: () => _showSongContextMenu(context, song),
       child: Container(
         width: 135,
         margin: const EdgeInsets.symmetric(horizontal: 6),
@@ -940,69 +1061,6 @@ class _SongTile extends StatelessWidget {
 
   const _SongTile({required this.song, required this.onTap});
 
-  void _showContextMenu(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF131B2E),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.playlist_play_rounded, color: Color(0xFF6366F1)),
-              title: const Text('Play Next', style: TextStyle(color: Colors.white)),
-              onTap: () {
-                audioHandler.insertNext(song);
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Playing "${song.title}" next')),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.queue_music_rounded, color: Colors.white70),
-              title: const Text('Add to Queue', style: TextStyle(color: Colors.white)),
-              onTap: () {
-                audioHandler.addToQueue(song);
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Added "${song.title}" to queue')),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.playlist_add_rounded, color: Color(0xFF818CF8)),
-              title: const Text('Add to Playlist', style: TextStyle(color: Colors.white)),
-              onTap: () {
-                Navigator.pop(context);
-                AddToPlaylistDialog.show(context, song);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.download_rounded, color: Color(0xFF10B981)),
-              title: const Text('Download Offline', style: TextStyle(color: Colors.white)),
-              onTap: () {
-                DownloadManager.downloadSong(song);
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.favorite_border_rounded, color: Color(0xFFEC4899)),
-              title: const Text('Like / Favorite', style: TextStyle(color: Colors.white)),
-              onTap: () {
-                FavoritesManager.toggleFavorite(song);
-                Navigator.pop(context);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<Song?>(
@@ -1058,7 +1116,7 @@ class _SongTile extends StatelessWidget {
           ),
           trailing: IconButton(
             icon: const Icon(Icons.more_vert_rounded, color: Color(0xFF64748B)),
-            onPressed: () => _showContextMenu(context),
+            onPressed: () => _showSongContextMenu(context, song),
           ),
         );
       },

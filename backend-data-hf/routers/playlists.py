@@ -4,7 +4,7 @@ from sqlalchemy.future import select
 from sqlalchemy import delete
 from connection import get_db
 from models import Playlist, PlaylistTrack, User
-from auth_utils import get_current_user
+from auth_utils import get_current_user, get_current_user_optional
 from typing import List, Optional
 from pydantic import BaseModel
 import uuid
@@ -253,12 +253,13 @@ async def get_playlist_tracks(
 @router.post("/preview-spotify")
 async def preview_spotify_playlist(
     data: SpotifyPreviewRequest,
-    user: User = Depends(get_current_user)
+    user: Optional[User] = Depends(get_current_user_optional)
 ):
     """
     Extracts metadata, cover image, and track count from a Spotify playlist link.
+    Works for both logged in users and guests.
     """
-    spotify_id = parse_spotify_playlist_id(data.url)
+    spotify_id = await parse_spotify_playlist_id(data.url)
     if not spotify_id:
         raise HTTPException(status_code=400, detail="Invalid Spotify link. Format: https://open.spotify.com/playlist/{id} or /album/{id}")
 
@@ -269,8 +270,11 @@ async def preview_spotify_playlist(
             "title": metadata["title"],
             "description": metadata["description"],
             "cover_url": metadata["cover_url"],
+            "thumbnail": metadata["cover_url"],
             "total_tracks": metadata["total_tracks"],
-            "sample_tracks": metadata["tracks"][:6]
+            "track_count": metadata["total_tracks"],
+            "sample_tracks": metadata["tracks"][:6],
+            "tracks": metadata["tracks"]
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -281,17 +285,17 @@ async def preview_spotify_playlist(
 @router.post("/import-spotify")
 async def import_spotify_playlist(
     data: SpotifyImportRequest,
-    user: User = Depends(get_current_user),
+    user: Optional[User] = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Imports a Spotify playlist directly into the user's Paatu Padava library:
-    1. Extracts playlist metadata & track list from Spotify embed
-    2. Resolves each track to Paatu Padava catalog (via YouTube/Saavn)
-    3. Creates playlist with identical name, cover art, and description
-    4. Attaches resolved tracks
+    1. Extracts playlist metadata & track list from Spotify
+    2. Resolves each track to Paatu Padava catalog (via Saavn/YouTube)
+    3. Creates playlist in database if user is authenticated
+    4. Returns complete list of resolved playable tracks for immediate client playback
     """
-    spotify_id = parse_spotify_playlist_id(data.url)
+    spotify_id = await parse_spotify_playlist_id(data.url)
     if not spotify_id:
         raise HTTPException(status_code=400, detail="Invalid Spotify playlist or album link")
 
@@ -301,45 +305,48 @@ async def import_spotify_playlist(
         if not tracks_to_import:
             raise HTTPException(status_code=400, detail="The Spotify playlist contains no tracks.")
 
-        # Create the new Playlist in user's library
-        playlist_title = (data.custom_title or metadata.get("title") or "Imported Spotify Playlist").strip()
-        new_playlist = Playlist(
-            user_id=user.id,
-            title=playlist_title,
-            description=metadata.get("description") or f"Imported from Spotify ({metadata.get('total_tracks')} tracks)",
-            cover_url=metadata.get("cover_url"),
-            is_public=False
-        )
-        db.add(new_playlist)
-        await db.commit()
-        await db.refresh(new_playlist)
-
-        # Asynchronously resolve tracks and associate with playlist
-        # Resolve up to 75 tracks in parallel
+        # Asynchronously resolve tracks
         resolved_tracks = await resolve_spotify_tracks_batch(tracks_to_import, max_tracks=75)
-        
-        added_count = 0
-        for item in resolved_tracks:
-            track_record = PlaylistTrack(
-                playlist_id=new_playlist.id,
-                yt_video_id=item["yt_video_id"],
-                title=item["title"],
-                artist=item["artist"],
-                cover_url=item["cover_url"],
-                duration=item.get("duration", 0)
-            )
-            db.add(track_record)
-            added_count += 1
 
-        await db.commit()
+        playlist_id_str = ""
+        playlist_title = (data.custom_title or metadata.get("title") or "Imported Spotify Playlist").strip()
+
+        # If user is authenticated, save playlist in DB
+        if user:
+            new_playlist = Playlist(
+                user_id=user.id,
+                title=playlist_title,
+                description=metadata.get("description") or f"Imported from Spotify ({metadata.get('total_tracks')} tracks)",
+                cover_url=metadata.get("cover_url"),
+                is_public=False
+            )
+            db.add(new_playlist)
+            await db.commit()
+            await db.refresh(new_playlist)
+            playlist_id_str = str(new_playlist.id)
+
+            for item in resolved_tracks:
+                track_record = PlaylistTrack(
+                    playlist_id=new_playlist.id,
+                    yt_video_id=item.get("yt_video_id") or item.get("id", ""),
+                    title=item.get("title"),
+                    artist=item.get("artist"),
+                    cover_url=item.get("cover_url"),
+                    duration=item.get("duration", 0)
+                )
+                db.add(track_record)
+
+            await db.commit()
 
         return {
             "success": True,
-            "playlist_id": str(new_playlist.id),
-            "title": new_playlist.title,
-            "cover_url": new_playlist.cover_url,
-            "imported_count": added_count,
-            "total_spotify_tracks": metadata.get("total_tracks", 0)
+            "playlist_id": playlist_id_str,
+            "title": playlist_title,
+            "cover_url": metadata.get("cover_url"),
+            "imported_count": len(resolved_tracks),
+            "total_spotify_tracks": metadata.get("total_tracks", 0),
+            "tracks": resolved_tracks,
+            "songs": resolved_tracks
         }
 
     except HTTPException:
@@ -347,5 +354,6 @@ async def import_spotify_playlist(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        await db.rollback()
+        if user:
+            await db.rollback()
         raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")

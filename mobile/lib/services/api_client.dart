@@ -3,6 +3,21 @@ import 'package:http/http.dart' as http;
 import '../models/song.dart';
 import 'auth_manager.dart';
 import 'youtube_client.dart';
+import 'saavn_client.dart';
+
+class SearchResultBundle {
+  final Map<String, dynamic>? topResult;
+  final List<Song> songs;
+  final List<Map<String, dynamic>> artists;
+  final List<Map<String, dynamic>> albums;
+
+  SearchResultBundle({
+    this.topResult,
+    required this.songs,
+    required this.artists,
+    required this.albums,
+  });
+}
 
 class ApiClient {
   static const String baseUrl = 'https://tgashwinyt-paatu-padava.hf.space';
@@ -21,8 +36,6 @@ class ApiClient {
 
   // ================= 1. Machine Learning & Listen History ================= //
 
-  /// Records that the user listened to a track.
-  /// Trains the backend recommendation graph and personal_recommender!
   static Future<void> addListenHistory(Song song) async {
     try {
       final uri = Uri.parse('$baseUrl/api/history/listen');
@@ -39,7 +52,6 @@ class ApiClient {
     } catch (_) {}
   }
 
-  /// Fetches the user's recent listening history ("Jump Back In")
   static Future<List<Song>> fetchListenHistory() async {
     try {
       final uri = Uri.parse('$baseUrl/api/history/listen');
@@ -69,7 +81,6 @@ class ApiClient {
     return [];
   }
 
-  /// Fetches personalized queue learned from collaborative filtering (Item-Item graph)
   static Future<List<Song>> fetchForYou() async {
     try {
       final uri = Uri.parse('$baseUrl/api/music/for-you');
@@ -83,7 +94,6 @@ class ApiClient {
     return [];
   }
 
-  /// AI Recommendations / Radio Mix for a specific song
   static Future<List<Song>> fetchRecommendations(String songId, {String? artist, String? language}) async {
     try {
       final uri = Uri.parse('$baseUrl/api/music/recommendations/$songId').replace(queryParameters: {
@@ -104,7 +114,84 @@ class ApiClient {
     return [];
   }
 
-  // ================= 2. Smart Shuffle (Graph + On-Device Markov Chain) ================= //
+  // ================= 2. Spotify-Grade Search Engine ================= //
+
+  static Future<SearchResultBundle?> searchGlobal(String query) async {
+    final clean = query.trim();
+    if (clean.isEmpty) return null;
+
+    try {
+      final uri = Uri.parse('$baseUrl/api/music/search').replace(queryParameters: {'query': clean});
+      final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 6));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final matches = data['global_matches'] as Map<String, dynamic>? ?? {};
+
+        final topResult = matches['top_result'] as Map<String, dynamic>?;
+        final rawSongs = matches['songs'] as List<dynamic>? ?? [];
+        final rawArtists = matches['artists'] as List<dynamic>? ?? [];
+        final rawAlbums = matches['albums'] as List<dynamic>? ?? [];
+
+        return SearchResultBundle(
+          topResult: topResult,
+          songs: _mapSongs(rawSongs),
+          artists: rawArtists.map((e) => Map<String, dynamic>.from(e as Map)).toList(),
+          albums: rawAlbums.map((e) => Map<String, dynamic>.from(e as Map)).toList(),
+        );
+      }
+    } catch (_) {}
+
+    // Graceful offline/direct fallback
+    try {
+      final saavnSongs = await SaavnClient.search(clean, limit: 15);
+      final albums = await SaavnClient.searchAlbums(clean, limit: 6);
+      final artists = await SaavnClient.searchArtists(clean, limit: 6);
+
+      Map<String, dynamic>? top;
+      if (saavnSongs.isNotEmpty) {
+        final s = saavnSongs.first;
+        top = {
+          'type': 'song',
+          'id': s.id,
+          'title': s.title,
+          'artist': s.artist,
+          'cover_url': s.coverUrl,
+          'duration': s.duration,
+        };
+      }
+
+      return SearchResultBundle(
+        topResult: top,
+        songs: saavnSongs,
+        artists: artists,
+        albums: albums,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<List<String>> searchSuggestions(String query) async {
+    final clean = query.trim();
+    if (clean.isEmpty) return [];
+
+    try {
+      final uri = Uri.parse('$baseUrl/api/music/search/suggestions').replace(queryParameters: {'query': clean});
+      final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 3));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data is List) {
+          return data.map((e) => e.toString()).toList();
+        } else if (data['suggestions'] is List) {
+          return (data['suggestions'] as List).map((e) => e.toString()).toList();
+        }
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  // ================= 3. Smart Shuffle (Graph + On-Device Markov Chain) ================= //
 
   static Future<List<String>> fetchSmartShuffle(List<Song> queue, Song? currentSong) async {
     final queueIds = queue.map((s) => s.id).toList();
@@ -141,28 +228,23 @@ class ApiClient {
     remaining.removeWhere((s) => s.id == active.id);
 
     while (remaining.isNotEmpty) {
-      // Score candidates based on metadata & artist similarity
       Song? bestCandidate;
       double bestScore = -1.0;
 
       for (final candidate in remaining) {
         double score = 0.0;
-        // Same artist bonus
         if (candidate.artist.toLowerCase() == active.artist.toLowerCase()) {
           score += 4.0;
         } else if (candidate.artist.toLowerCase().contains(active.artist.toLowerCase()) ||
             active.artist.toLowerCase().contains(candidate.artist.toLowerCase())) {
           score += 2.0;
         }
-        // Same album bonus
         if (candidate.album.isNotEmpty && candidate.album == active.album) {
           score += 3.0;
         }
-        // Duration similarity (within 30s)
         final diff = (candidate.duration - active.duration).abs();
         if (diff < 30) score += 1.5;
 
-        // Slight randomness to keep transitions organic
         score += (DateTime.now().microsecond % 100) / 100.0;
 
         if (score > bestScore) {
@@ -180,15 +262,18 @@ class ApiClient {
     return orderedIds;
   }
 
-  // ================= 3. Multi-Source Bulletproof Lyrics ================= //
+  // ================= 4. Multi-Source Bulletproof Lyrics ================= //
 
   static Future<String?> fetchLyrics(Song song) async {
+    final cleanedTitle = YouTubeClient.cleanTitle(song.title);
+    final cleanedArtist = song.artist.replaceAll(RegExp(r'\b(topic|vevo)\b', caseSensitive: false), '').trim();
+
     // 1. Try Backend LRCLIB synced endpoint
     try {
       final uri = Uri.parse('$baseUrl/api/music/lyrics').replace(queryParameters: {
-        'title': song.title,
-        'artist': song.artist,
-        'duration': song.duration.toString(),
+        'title': cleanedTitle,
+        'artist': cleanedArtist,
+        if (song.duration > 0) 'duration': song.duration.toString(),
       });
 
       final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 4));
@@ -204,8 +289,8 @@ class ApiClient {
     // 2. Try Direct LRCLIB Public API
     try {
       final uri = Uri.parse('https://lrclib.net/api/get').replace(queryParameters: {
-        'track_name': song.title,
-        'artist_name': song.artist,
+        'track_name': cleanedTitle,
+        'artist_name': cleanedArtist,
         if (song.duration > 0) 'duration': song.duration.toString(),
       });
 
@@ -243,9 +328,10 @@ class ApiClient {
     return null;
   }
 
-  // ================= 4. Spotify Playlist Import ================= //
+  // ================= 5. Bulletproof Spotify Playlist Import ================= //
 
   static Future<Map<String, dynamic>?> previewSpotifyPlaylist(String url) async {
+    // 1. Try Backend Resolver
     try {
       final uri = Uri.parse('$baseUrl/api/playlists/preview-spotify');
       final response = await http.post(
@@ -258,10 +344,58 @@ class ApiClient {
         return json.decode(response.body) as Map<String, dynamic>;
       }
     } catch (_) {}
+
+    // 2. Client-side resilient Jina Reader fallback
+    try {
+      final jinaUri = Uri.parse('https://r.jina.ai/${url.trim()}');
+      final res = await http.get(jinaUri).timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200 && res.body.isNotEmpty) {
+        final text = res.body;
+
+        String title = 'Spotify Playlist';
+        final tm = RegExp(r'Title:\s*([^|\n]+)').firstMatch(text);
+        if (tm != null && tm.group(1) != null) {
+          title = tm.group(1)!.trim();
+        }
+
+        String coverUrl = '';
+        final cm = RegExp(r'!\[.*?\]\((https://i\.scdn\.co/image/[^\)]+)\)').firstMatch(text);
+        if (cm != null && cm.group(1) != null) {
+          coverUrl = cm.group(1)!;
+        }
+
+        final tracksPattern = RegExp(
+          r'\[([^\]]+)\]\(https://open\.spotify\.com/track/[^\)]+\)\s*\n\s*\[([^\]]+)\]\(https://open\.spotify\.com/artist/[^\)]+\)',
+        );
+        final List<Map<String, dynamic>> extracted = [];
+        for (final m in tracksPattern.allMatches(text)) {
+          final tTitle = m.group(1)?.trim() ?? '';
+          final tArtist = m.group(2)?.trim() ?? '';
+          if (tTitle.isNotEmpty) {
+            extracted.add({
+              'title': tTitle,
+              'artist': tArtist,
+            });
+          }
+        }
+
+        return {
+          'title': title,
+          'thumbnail': coverUrl,
+          'cover_url': coverUrl,
+          'total_tracks': extracted.length,
+          'track_count': extracted.length,
+          'sample_tracks': extracted.take(6).toList(),
+          'tracks': extracted,
+        };
+      }
+    } catch (_) {}
+
     return null;
   }
 
   static Future<List<Song>> importSpotifyPlaylist(String url, {String? customTitle}) async {
+    // 1. Try Backend Import
     try {
       final uri = Uri.parse('$baseUrl/api/playlists/import-spotify');
       final response = await http.post(
@@ -269,22 +403,51 @@ class ApiClient {
         headers: _headers,
         body: json.encode({
           'url': url.trim(),
-          if (customTitle != null) 'title': customTitle,
+          if (customTitle != null) 'custom_title': customTitle,
         }),
       ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final tracks = data['tracks'] ?? data['songs'] ?? [];
-        if (tracks is List) {
+        if (tracks is List && tracks.isNotEmpty) {
           return _mapSongs(tracks);
         }
       }
     } catch (_) {}
+
+    // 2. Client-side direct track match fallback
+    try {
+      final preview = await previewSpotifyPlaylist(url);
+      final rawTracks = preview?['tracks'] as List<dynamic>? ?? [];
+      if (rawTracks.isNotEmpty) {
+        final List<Song> resolvedSongs = [];
+        for (final item in rawTracks.take(30)) {
+          final title = item['title']?.toString() ?? '';
+          final artist = item['artist']?.toString() ?? '';
+          if (title.isNotEmpty) {
+            final query = '$title $artist'.trim();
+            // Search Saavn first for 320kbps
+            final saavnRes = await SaavnClient.search(query, limit: 1);
+            if (saavnRes.isNotEmpty) {
+              resolvedSongs.add(saavnRes.first);
+            } else {
+              // Fallback to YouTube
+              final ytRes = await YouTubeClient.search(query, limit: 1);
+              if (ytRes.isNotEmpty) {
+                resolvedSongs.add(ytRes.first);
+              }
+            }
+          }
+        }
+        return resolvedSongs;
+      }
+    } catch (_) {}
+
     return [];
   }
 
-  // ================= 5. YouTube Music Top Charts & Trending ================= //
+  // ================= 6. YouTube Music Top Charts & Trending ================= //
 
   static Future<List<Song>> fetchYouTubeTrending() async {
     try {

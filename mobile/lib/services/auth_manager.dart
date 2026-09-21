@@ -7,12 +7,18 @@ class AuthUser {
   final String id;
   final String username;
   final String email;
+  final String avatarUrl;
+  final List<String> preferredLanguages;
+  final List<String> favoriteArtists;
   final bool isGuest;
 
   AuthUser({
     required this.id,
     required this.username,
     required this.email,
+    this.avatarUrl = '',
+    this.preferredLanguages = const ['tamil', 'english'],
+    this.favoriteArtists = const [],
     this.isGuest = false,
   });
 
@@ -20,15 +26,36 @@ class AuthUser {
     'id': id,
     'username': username,
     'email': email,
+    'avatar_url': avatarUrl,
+    'preferred_languages': preferredLanguages,
+    'favorite_artists': favoriteArtists,
     'is_guest': isGuest,
   };
 
-  factory AuthUser.fromJson(Map<dynamic, dynamic> json) => AuthUser(
-    id: json['id']?.toString() ?? '',
-    username: json['username']?.toString() ?? json['name']?.toString() ?? 'Listener',
-    email: json['email']?.toString() ?? '',
-    isGuest: json['is_guest'] == true,
-  );
+  factory AuthUser.fromJson(Map<dynamic, dynamic> json) {
+    List<String> parseList(dynamic val) {
+      if (val is List) return val.map((e) => e.toString()).toList();
+      if (val is String && val.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(val);
+          if (decoded is List) return decoded.map((e) => e.toString()).toList();
+        } catch (_) {}
+      }
+      return [];
+    }
+
+    return AuthUser(
+      id: json['id']?.toString() ?? '',
+      username: json['username']?.toString() ?? json['name']?.toString() ?? 'Listener',
+      email: json['email']?.toString() ?? '',
+      avatarUrl: json['avatar_url']?.toString() ?? json['avatar']?.toString() ?? '',
+      preferredLanguages: parseList(json['preferred_languages'] ?? json['preferredLanguages']).isNotEmpty
+          ? parseList(json['preferred_languages'] ?? json['preferredLanguages'])
+          : ['tamil', 'english'],
+      favoriteArtists: parseList(json['favorite_artists'] ?? json['favoriteArtists']),
+      isGuest: json['is_guest'] == true,
+    );
+  }
 
   factory AuthUser.guest() => AuthUser(
     id: 'guest',
@@ -62,8 +89,14 @@ class AuthManager {
       if (savedUser is Map) {
         authNotifier.value = AuthUser.fromJson(savedUser);
       }
-      // Refresh in background
       fetchCurrentUser();
+    } else {
+      // Default to guest session so user can immediately browse
+      if (_box.get('user_profile') == null) {
+        await loginAsGuest();
+      } else if (savedUser is Map) {
+        authNotifier.value = AuthUser.fromJson(savedUser);
+      }
     }
   }
 
@@ -83,6 +116,33 @@ class AuthManager {
           final userJson = data['user'] is Map ? data['user'] : {'email': email, 'name': email.split('@').first};
           final user = AuthUser.fromJson(userJson);
           await _saveSession(jwt.toString(), user);
+          fetchCurrentUser();
+          return true;
+        }
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static Future<bool> loginWithGoogle(String credential) async {
+    try {
+      final uri = Uri.parse('$baseUrl/api/auth/google');
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'credential': credential.trim()}),
+      ).timeout(const Duration(seconds: 8));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final jwt = data['access_token'] ?? data['token'];
+        if (jwt != null) {
+          final userJson = data['user'] is Map ? data['user'] : {'name': 'Google Listener'};
+          final user = AuthUser.fromJson(userJson);
+          await _saveSession(jwt.toString(), user);
+          fetchCurrentUser();
           return true;
         }
       }
@@ -99,21 +159,15 @@ class AuthManager {
         uri,
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
-          'name': username.trim(),
+          'username': username.trim(),
           'email': email.trim(),
           'password': password,
         }),
       ).timeout(const Duration(seconds: 6));
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        final data = json.decode(response.body);
-        final jwt = data['access_token'] ?? data['token'];
-        if (jwt != null) {
-          final userJson = data['user'] is Map ? data['user'] : {'name': username, 'email': email};
-          final user = AuthUser.fromJson(userJson);
-          await _saveSession(jwt.toString(), user);
-          return true;
-        }
+        // Auto-login after registration
+        return await login(email, password);
       }
       return false;
     } catch (e) {
@@ -150,6 +204,75 @@ class AuthManager {
     } catch (_) {}
   }
 
+  static Future<bool> updateLanguagePreferences(List<String> languages) async {
+    try {
+      // Update local state immediately
+      final current = currentUser;
+      if (current != null) {
+        final updated = AuthUser(
+          id: current.id,
+          username: current.username,
+          email: current.email,
+          avatarUrl: current.avatarUrl,
+          preferredLanguages: languages,
+          favoriteArtists: current.favoriteArtists,
+          isGuest: current.isGuest,
+        );
+        authNotifier.value = updated;
+        await _box.put('user_profile', updated.toJson());
+      }
+
+      if (isLoggedIn) {
+        final uri = Uri.parse('$baseUrl/api/auth/language-preferences');
+        await http.patch(
+          uri,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: json.encode(languages),
+        ).timeout(const Duration(seconds: 5));
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<bool> updateArtistPreferences(List<String> artists) async {
+    try {
+      final current = currentUser;
+      if (current != null) {
+        final updated = AuthUser(
+          id: current.id,
+          username: current.username,
+          email: current.email,
+          avatarUrl: current.avatarUrl,
+          preferredLanguages: current.preferredLanguages,
+          favoriteArtists: artists,
+          isGuest: current.isGuest,
+        );
+        authNotifier.value = updated;
+        await _box.put('user_profile', updated.toJson());
+      }
+
+      if (isLoggedIn) {
+        final uri = Uri.parse('$baseUrl/api/auth/preferences');
+        await http.patch(
+          uri,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: json.encode(artists),
+        ).timeout(const Duration(seconds: 5));
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<void> _saveSession(String jwt, AuthUser user) async {
     await _box.put('jwt_token', jwt);
     await _box.put('user_profile', user.toJson());
@@ -161,6 +284,6 @@ class AuthManager {
     await _box.delete('jwt_token');
     await _box.delete('user_profile');
     tokenNotifier.value = null;
-    authNotifier.value = null;
+    await loginAsGuest();
   }
 }

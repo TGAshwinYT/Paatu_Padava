@@ -3,9 +3,11 @@ import 'dart:io';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/song.dart';
 import 'api_client.dart';
 import 'download_manager.dart';
+import 'history_manager.dart';
 import 'saavn_client.dart';
 import 'settings_manager.dart';
 import 'youtube_client.dart';
@@ -28,6 +30,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   int _currentIndex = -1;
   Timer? _sleepTimer;
   Timer? _countdownTicker;
+
+  // Anti-repetition: tracks recently played song IDs to guarantee diversity
+  final List<String> _recentPlayedIds = [];
 
   AudioPlayer get player => _player;
   List<Song> get playlist => _playlist;
@@ -124,14 +129,24 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       currentSongNotifier.value = song;
       currentLyricsNotifier.value = (song.lyrics != null && song.lyrics!.isNotEmpty) ? song.lyrics : null;
 
-      // 1. Fetch multi-source lyrics asynchronously in background
+      // 1. Immediately record to local & cloud Recently Played history
+      HistoryManager.addSong(song);
+
+      // Track anti-repetition
+      _recentPlayedIds.remove(song.id);
+      _recentPlayedIds.insert(0, song.id);
+      if (_recentPlayedIds.length > 20) {
+        _recentPlayedIds.removeLast();
+      }
+
+      // 2. Fetch multi-source lyrics asynchronously in background
       ApiClient.fetchLyrics(song).then((lyrics) {
         if (currentSong?.id == song.id && lyrics != null && lyrics.isNotEmpty) {
           currentLyricsNotifier.value = lyrics;
         }
       });
 
-      // 2. Play from local storage if downloaded
+      // 3. Play from local storage if downloaded or cached
       if (song.localFilePath != null && File(song.localFilePath!).existsSync()) {
         await _player.setAudioSource(AudioSource.file(song.localFilePath!));
       } else if (DownloadManager.isDownloaded(song.id)) {
@@ -146,7 +161,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         await _resolveRemoteAndPlay(song);
       }
 
-      // 3. Update Android lock-screen and notification controls
+      // 4. Update Android lock-screen and notification controls
       mediaItem.add(MediaItem(
         id: song.id,
         album: song.album,
@@ -159,22 +174,36 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       await _player.play();
       _broadcastState();
     } catch (e) {
-      // If primary playback fails, attempt YouTube fallback before giving up
+      // If primary playback fails, attempt smart multi-layer fallback
+      bool recovered = false;
       try {
-        final ytResults = await YouTubeClient.search('${song.title} ${song.artist}', limit: 1);
-        if (ytResults.isNotEmpty) {
-          final streamUrl = await YouTubeClient.getAudioStreamUrl(ytResults.first.id);
-          if (streamUrl != null) {
-            await _player.setAudioSource(AudioSource.uri(Uri.parse(streamUrl)));
-            await _player.play();
-            _broadcastState();
-            return;
-          }
+        // Fallback: Search JioSaavn first for 320kbps
+        final saavnMatches = await SaavnClient.search('${song.title} ${song.artist}', limit: 1);
+        if (saavnMatches.isNotEmpty && saavnMatches.first.streamUrl != null) {
+          await _player.setAudioSource(AudioSource.uri(Uri.parse(saavnMatches.first.streamUrl!)));
+          await _player.play();
+          _broadcastState();
+          recovered = true;
         }
       } catch (_) {}
-      
-      // If both fail, advance to next track
-      skipToNext();
+
+      if (!recovered) {
+        try {
+          // Fallback: YouTube direct stream
+          final ytUrl = await YouTubeClient.getAudioStreamUrl(song.id, title: song.title, artist: song.artist);
+          if (ytUrl != null && ytUrl.isNotEmpty) {
+            await _player.setAudioSource(AudioSource.uri(Uri.parse(ytUrl)));
+            await _player.play();
+            _broadcastState();
+            recovered = true;
+          }
+        } catch (_) {}
+      }
+
+      if (!recovered) {
+        // Advance to next track only if all fallbacks fail
+        skipToNext();
+      }
     }
   }
 
@@ -182,19 +211,19 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     String? streamUrl = song.streamUrl;
 
     if (song.source == 'youtube' || song.id.length == 11) {
-      // 1. First attempt direct YouTube audio stream extraction
+      // 1. First attempt: Search JioSaavn in high fidelity 320kbps for pristine native stream
       try {
-        streamUrl = await YouTubeClient.getAudioStreamUrl(song.id);
+        final query = YouTubeClient.cleanTitle('${song.title} ${song.artist}');
+        final saavnMatches = await SaavnClient.search(query, limit: 1);
+        if (saavnMatches.isNotEmpty && saavnMatches.first.streamUrl != null) {
+          streamUrl = saavnMatches.first.streamUrl;
+        }
       } catch (_) {}
 
-      // 2. Fallback: Search JioSaavn in high fidelity 320kbps for pristine native stream
+      // 2. If no Saavn match, extract directly via multi-tier YouTubeClient
       if (streamUrl == null || streamUrl.isEmpty) {
         try {
-          final query = '${song.title} ${song.artist}'.replaceAll(RegExp(r'[\(\[\{].*?[\)\]\}]'), '').trim();
-          final saavnMatches = await SaavnClient.search(query, limit: 1);
-          if (saavnMatches.isNotEmpty && saavnMatches.first.streamUrl != null) {
-            streamUrl = saavnMatches.first.streamUrl;
-          }
+          streamUrl = await YouTubeClient.getAudioStreamUrl(song.id, title: song.title, artist: song.artist);
         } catch (_) {}
       }
     } else {
@@ -220,15 +249,45 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     }
 
     if (streamUrl != null && streamUrl.isNotEmpty) {
-      // Set audio source with standard headers
-      await _player.setAudioSource(
-        AudioSource.uri(
-          Uri.parse(streamUrl),
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko)',
-          },
-        ),
-      );
+      // Audio Caching: Cache stream to disk concurrently using LockCachingAudioSource
+      try {
+        final tempDir = await getTemporaryDirectory();
+        final sanitizedId = song.id.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+        final cacheFile = File('${tempDir.path}/audio_$sanitizedId.mp4');
+
+        if (cacheFile.existsSync() && cacheFile.lengthSync() > 100000) {
+          // Play directly from instantaneous disk cache!
+          await _player.setAudioSource(AudioSource.file(cacheFile.path));
+        } else {
+          // Stream and cache simultaneously
+          final isGoogleVideo = streamUrl.contains('googlevideo.com');
+          await _player.setAudioSource(
+            // ignore: experimental_member_use
+            LockCachingAudioSource(
+              Uri.parse(streamUrl),
+              cacheFile: cacheFile,
+              headers: isGoogleVideo
+                  ? null
+                  : {
+                      'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko)',
+                    },
+            ),
+          );
+        }
+      } catch (cacheError) {
+        // Fallback to standard URI audio source if cache system has permission issue
+        final isGoogleVideo = streamUrl.contains('googlevideo.com');
+        await _player.setAudioSource(
+          AudioSource.uri(
+            Uri.parse(streamUrl),
+            headers: isGoogleVideo
+                ? null
+                : {
+                    'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko)',
+                  },
+          ),
+        );
+      }
     } else {
       throw Exception("Could not resolve valid audio stream URL");
     }
@@ -253,7 +312,6 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   void removeAt(int index) {
     if (index < 0 || index >= _playlist.length) return;
     if (index == _currentIndex) {
-      // If removing current song, skip to next then remove
       skipToNext();
     }
     _playlist.removeAt(index);
@@ -270,7 +328,6 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     final item = _playlist.removeAt(oldIndex);
     _playlist.insert(newIndex, item);
 
-    // Track active playing index
     if (oldIndex == _currentIndex) {
       _currentIndex = newIndex;
     } else if (oldIndex < _currentIndex && newIndex >= _currentIndex) {
@@ -308,11 +365,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
     if (nextState) {
       if (currentSong != null) {
-        // Keep songs up to and including _currentIndex intact
         final pastAndCurrent = _playlist.sublist(0, _currentIndex + 1);
         final upcoming = _playlist.sublist(_currentIndex + 1);
 
-        // If upcoming has few songs, automatically append fresh radio mix recommendations!
         if (upcoming.length < 5) {
           try {
             final recommendations = await ApiClient.fetchRecommendations(
@@ -320,7 +375,8 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
               artist: currentSong!.artist,
             );
             final existingIds = _playlist.map((s) => s.id).toSet();
-            final fresh = recommendations.where((s) => !existingIds.contains(s.id)).toList();
+            final recentIds = _recentPlayedIds.toSet();
+            final fresh = recommendations.where((s) => !existingIds.contains(s.id) && !recentIds.contains(s.id)).toList();
             upcoming.addAll(fresh);
           } catch (_) {}
         }
@@ -341,12 +397,10 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
           }
 
           _playlist = [...pastAndCurrent, ...reorderedUpcoming];
-          // Keep _currentIndex unchanged to prevent UI flickers!
           _syncQueueState();
         }
       }
     } else {
-      // Restore standard playlist
       if (_originalPlaylist.isNotEmpty && currentSong != null) {
         final pastAndCurrent = _playlist.sublist(0, _currentIndex + 1);
         final originalUpcoming = _originalPlaylist.where((s) => !pastAndCurrent.any((p) => p.id == s.id)).toList();
@@ -364,12 +418,14 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     );
 
     if (recommendations.isNotEmpty) {
-      // Filter out songs already in the queue
       final existingIds = _playlist.map((s) => s.id).toSet();
-      final fresh = recommendations.where((s) => !existingIds.contains(s.id)).toList();
-      _playlist.addAll(fresh);
+      final recentIds = _recentPlayedIds.toSet();
+      // Anti-repetition: filter out recent plays and existing queue
+      final fresh = recommendations.where((s) => !existingIds.contains(s.id) && !recentIds.contains(s.id)).toList();
+      final toAdd = fresh.isNotEmpty ? fresh : recommendations.where((s) => !existingIds.contains(s.id)).toList();
+      _playlist.addAll(toAdd);
       _syncQueueState();
-      return fresh.length;
+      return toAdd.length;
     }
     return 0;
   }
@@ -452,7 +508,6 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       _syncQueueState();
       await _loadAndPlay(_playlist[_currentIndex]);
     } else {
-      // End of playlist: automatically try to load more radio recommendations!
       final added = await addRadioMix();
       if (added > 0 && _currentIndex + 1 < _playlist.length) {
         _currentIndex++;

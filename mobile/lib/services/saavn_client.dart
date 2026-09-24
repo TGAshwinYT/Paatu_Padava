@@ -21,27 +21,29 @@ class SaavnClient {
     final more = item['more_info'] ?? {};
     final encUrl = more['encrypted_media_url']?.toString() ?? '';
     final audioUrl = decryptSaavnMediaUrl(encUrl);
+    final rawLang = item['language']?.toString() ?? more['language']?.toString();
 
     return Song(
       id: item['id']?.toString() ?? '',
-      title: item['title']?.toString() ?? item['name']?.toString() ?? 'Unknown Title',
-      artist: more['music']?.toString() ?? more['singers']?.toString() ?? item['subtitle']?.toString() ?? 'Various Artists',
-      album: more['album']?.toString() ?? 'Unknown Album',
+      title: Song.sanitize(item['title'] ?? item['name'], fallback: 'Unknown Title'),
+      artist: Song.sanitize(more['music'] ?? more['singers'] ?? item['subtitle'], fallback: 'Various Artists'),
+      album: Song.sanitize(more['album'], fallback: 'Unknown Album'),
       albumId: more['album_id']?.toString() ?? item['albumid']?.toString(),
       artistId: more['artistMap']?['primary_artists']?[0]?['id']?.toString() ?? item['artist_id']?.toString(),
       coverUrl: _extractHighResImage(item['image']?.toString()),
       streamUrl: audioUrl.isNotEmpty ? audioUrl : null,
       duration: int.tryParse(more['duration']?.toString() ?? '0') ?? 0,
       source: 'saavn',
+      language: rawLang?.toLowerCase().trim(),
     );
   }
 
-  static Future<List<Song>> search(String query, {int limit = 20}) async {
+  static Future<List<Song>> search(String query, {int limit = 20, String? language}) async {
     final clean = query.trim();
     if (clean.isEmpty) return [];
 
     try {
-      final uri = Uri.parse(baseUrl).replace(queryParameters: {
+      final queryParams = {
         '__call': 'search.getResults',
         '_format': 'json',
         '_marker': '0',
@@ -50,8 +52,9 @@ class SaavnClient {
         'p': '1',
         'n': limit.toString(),
         'q': clean,
-      });
+      };
 
+      final uri = Uri.parse(baseUrl).replace(queryParameters: queryParams);
       final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 6));
       if (response.statusCode != 200) return [];
 
@@ -66,6 +69,22 @@ class SaavnClient {
           songs.add(_parseSongItem(Map<String, dynamic>.from(item)));
         }
       }
+
+      // Strict regional filtering: if language is specified and the user query
+      // does not explicitly ask for another language, prioritize or filter matching tracks
+      if (language != null && language.isNotEmpty) {
+        final targetLang = language.toLowerCase().trim();
+        final bool queryMentionsOtherLang = ['hindi', 'english', 'telugu', 'tamil', 'malayalam', 'kannada', 'punjabi']
+            .any((l) => l != targetLang && clean.toLowerCase().contains(l));
+
+        if (!queryMentionsOtherLang) {
+          final matched = songs.where((s) => s.language == null || s.language!.isEmpty || s.language == targetLang).toList();
+          if (matched.isNotEmpty) {
+            return matched;
+          }
+        }
+      }
+
       return songs;
     } catch (e) {
       return [];
@@ -99,8 +118,8 @@ class SaavnClient {
         final more = item['more_info'] ?? {};
         return {
           'id': item['id']?.toString() ?? '',
-          'title': item['title']?.toString() ?? 'Unknown Album',
-          'artist': more['music']?.toString() ?? item['subtitle']?.toString() ?? 'Various Artists',
+          'title': Song.sanitize(item['title'], fallback: 'Unknown Album'),
+          'artist': Song.sanitize(more['music'] ?? item['subtitle'], fallback: 'Various Artists'),
           'image': _extractHighResImage(item['image']?.toString()),
           'year': item['year']?.toString() ?? more['year']?.toString() ?? '',
         };
@@ -132,7 +151,7 @@ class SaavnClient {
       return results.map((item) {
         return {
           'id': item['id']?.toString() ?? '',
-          'name': item['name']?.toString() ?? item['title']?.toString() ?? 'Unknown Artist',
+          'name': Song.sanitize(item['name'] ?? item['title'], fallback: 'Unknown Artist'),
           'image': _extractHighResImage(item['image']?.toString()),
           'role': item['role']?.toString() ?? 'Artist',
         };
@@ -165,8 +184,8 @@ class SaavnClient {
 
       return {
         'id': data['id']?.toString() ?? albumId,
-        'title': data['title']?.toString() ?? data['name']?.toString() ?? 'Unknown Album',
-        'artist': data['primary_artists']?.toString() ?? 'Various Artists',
+        'title': Song.sanitize(data['title'] ?? data['name'], fallback: 'Unknown Album'),
+        'artist': Song.sanitize(data['primary_artists'], fallback: 'Various Artists'),
         'image': _extractHighResImage(data['image']?.toString()),
         'year': data['year']?.toString() ?? '',
         'songs': songs,
@@ -199,12 +218,44 @@ class SaavnClient {
 
       return {
         'id': data['artistId']?.toString() ?? artistId,
-        'name': data['name']?.toString() ?? 'Artist',
+        'name': Song.sanitize(data['name'], fallback: 'Artist'),
         'image': _extractHighResImage(data['image']?.toString()),
         'songs': songs,
       };
     } catch (e) {
       return null;
+    }
+  }
+
+  /// Fetch related recommendation tracks from JioSaavn (`reco.getreco`)
+  static Future<List<Song>> getRelatedSongs(String songId, {String? language}) async {
+    try {
+      final uri = Uri.parse(baseUrl).replace(queryParameters: {
+        '__call': 'reco.getreco',
+        '_format': 'json',
+        '_marker': '0',
+        'api_version': '4',
+        'ctx': 'web6dot0',
+        'pid': songId,
+        if (language != null && language.isNotEmpty) 'language': language.toLowerCase(),
+      });
+
+      final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 6));
+      if (response.statusCode != 200) return [];
+
+      final data = json.decode(response.body);
+      final list = (data is List) ? data : (data['songs'] ?? data['data'] ?? []);
+      final List<Song> songs = [];
+      for (final item in list) {
+        final parsed = _parseSongItem(Map<String, dynamic>.from(item));
+        if (language != null && language.isNotEmpty && parsed.language != null) {
+          if (parsed.language!.toLowerCase() != language.toLowerCase()) continue;
+        }
+        songs.add(parsed);
+      }
+      return songs;
+    } catch (_) {
+      return [];
     }
   }
 }

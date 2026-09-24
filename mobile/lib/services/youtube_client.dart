@@ -8,13 +8,13 @@ class YouTubeClient {
   static const String _baseUrl = 'https://tgashwinyt-paatu-padava.hf.space';
 
   static String cleanTitle(String title) {
-    var cleaned = title;
+    var cleaned = Song.sanitize(title);
     // Remove bracketed info like [Official Video], (4K), | Lyrical
     cleaned = cleaned.replaceAll(RegExp(r'[\(\[\{].*?[\)\]\}]'), ' ');
     cleaned = cleaned.replaceAll(RegExp(r'\b(official|video|audio|lyric|lyrical|hd|4k|full video|song|teaser|trailer)\b', caseSensitive: false), ' ');
     cleaned = cleaned.replaceAll(RegExp(r'\|.*$'), ' ');
     cleaned = cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
-    return cleaned.isNotEmpty ? cleaned : title;
+    return cleaned.isNotEmpty ? cleaned : Song.sanitize(title);
   }
 
   static Future<List<Song>> search(String query, {int limit = 15}) async {
@@ -29,7 +29,7 @@ class YouTubeClient {
         songs.add(Song(
           id: video.id.value,
           title: cleanTitle(video.title),
-          artist: video.author,
+          artist: Song.sanitize(video.author),
           album: 'YouTube Music',
           coverUrl: video.thumbnails.highResUrl,
           duration: video.duration?.inSeconds ?? 0,

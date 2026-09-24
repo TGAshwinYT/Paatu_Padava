@@ -2,8 +2,10 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/song.dart';
 import 'auth_manager.dart';
+import 'settings_manager.dart';
 import 'youtube_client.dart';
 import 'saavn_client.dart';
+import 'spotify_import_service.dart';
 
 class SearchResultBundle {
   final Map<String, dynamic>? topResult;
@@ -45,7 +47,7 @@ class ApiClient {
         'artist': song.artist,
         'cover_url': song.coverUrl,
         'audio_url': song.streamUrl ?? '',
-        'language': '',
+        'language': song.language ?? '',
       });
 
       await http.post(uri, headers: _headers, body: body).timeout(const Duration(seconds: 4));
@@ -64,13 +66,14 @@ class ApiClient {
             if (item is Map) {
               list.add(Song(
                 id: item['yt_video_id']?.toString() ?? item['id']?.toString() ?? '',
-                title: item['title']?.toString() ?? 'Track',
-                artist: item['artist']?.toString() ?? 'Artist',
+                title: Song.sanitize(item['title'], fallback: 'Track'),
+                artist: Song.sanitize(item['artist'], fallback: 'Artist'),
                 album: '',
                 duration: 0,
                 coverUrl: item['cover_url']?.toString() ?? '',
                 streamUrl: item['audio_url']?.toString(),
                 source: 'history',
+                language: item['language']?.toString(),
               ));
             }
           }
@@ -81,24 +84,42 @@ class ApiClient {
     return [];
   }
 
-  static Future<List<Song>> fetchForYou() async {
+  static Future<List<Song>> fetchForYou({String? language}) async {
+    final targetLang = language ?? (SettingsManager.preferredLanguages.isNotEmpty ? SettingsManager.preferredLanguages.first : 'Tamil');
     try {
-      final uri = Uri.parse('$baseUrl/api/music/for-you');
+      final uri = Uri.parse('$baseUrl/api/music/for-you').replace(queryParameters: {
+        'language': targetLang.toLowerCase(),
+      });
       final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final queue = data['queue'] as List<dynamic>? ?? [];
-        return _mapSongs(queue);
+        final mapped = _mapSongs(queue);
+
+        // Strict post-fetch filtering: prevent injecting random foreign tracks when language preference is set
+        final prefLangs = SettingsManager.preferredLanguages.map((l) => l.toLowerCase()).toSet();
+        if (prefLangs.isNotEmpty) {
+          final strictlyFiltered = mapped.where((s) {
+            if (s.language == null || s.language!.isEmpty) return true;
+            return prefLangs.contains(s.language!.toLowerCase());
+          }).toList();
+          return strictlyFiltered.isNotEmpty ? strictlyFiltered : mapped;
+        }
+        return mapped;
       }
     } catch (_) {}
     return [];
   }
 
   static Future<List<Song>> fetchRecommendations(String songId, {String? artist, String? language}) async {
+    final targetLang = (language != null && language.isNotEmpty)
+        ? language
+        : (SettingsManager.preferredLanguages.isNotEmpty ? SettingsManager.preferredLanguages.first : 'Tamil');
     try {
       final uri = Uri.parse('$baseUrl/api/music/recommendations/$songId').replace(queryParameters: {
         if (artist != null && artist.isNotEmpty) 'artist': artist,
-        if (language != null && language.isNotEmpty) 'lang': language,
+        'lang': targetLang.toLowerCase(),
+        'language': targetLang.toLowerCase(),
         'limit': '25',
       });
 
@@ -107,7 +128,16 @@ class ApiClient {
         final data = json.decode(response.body);
         final list = (data is List) ? data : (data['recommendations'] ?? data['data'] ?? []);
         if (list is List) {
-          return _mapSongs(list);
+          final mapped = _mapSongs(list);
+          final prefLangs = SettingsManager.preferredLanguages.map((l) => l.toLowerCase()).toSet();
+          if (prefLangs.isNotEmpty) {
+            final strictlyFiltered = mapped.where((s) {
+              if (s.language == null || s.language!.isEmpty) return true;
+              return prefLangs.contains(s.language!.toLowerCase());
+            }).toList();
+            return strictlyFiltered.isNotEmpty ? strictlyFiltered : mapped;
+          }
+          return mapped;
         }
       }
     } catch (_) {}
@@ -116,12 +146,17 @@ class ApiClient {
 
   // ================= 2. Spotify-Grade Search Engine ================= //
 
-  static Future<SearchResultBundle?> searchGlobal(String query) async {
+  static Future<SearchResultBundle?> searchGlobal(String query, {String? language}) async {
     final clean = query.trim();
     if (clean.isEmpty) return null;
 
+    final targetLang = language ?? (SettingsManager.preferredLanguages.isNotEmpty ? SettingsManager.preferredLanguages.first : 'Tamil');
+
     try {
-      final uri = Uri.parse('$baseUrl/api/music/search').replace(queryParameters: {'query': clean});
+      final uri = Uri.parse('$baseUrl/api/music/search').replace(queryParameters: {
+        'query': clean,
+        'language': targetLang.toLowerCase(),
+      });
       final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 6));
 
       if (response.statusCode == 200) {
@@ -134,17 +169,27 @@ class ApiClient {
         final rawAlbums = matches['albums'] as List<dynamic>? ?? [];
 
         return SearchResultBundle(
-          topResult: topResult,
+          topResult: topResult != null
+              ? {
+                  ...topResult,
+                  'title': Song.sanitize(topResult['title']),
+                  'artist': Song.sanitize(topResult['artist']),
+                }
+              : null,
           songs: _mapSongs(rawSongs),
-          artists: rawArtists.map((e) => Map<String, dynamic>.from(e as Map)).toList(),
-          albums: rawAlbums.map((e) => Map<String, dynamic>.from(e as Map)).toList(),
+          artists: rawArtists.map((e) => Map<String, dynamic>.from(e as Map).map(
+                (k, v) => MapEntry(k, (k == 'name' || k == 'title') ? Song.sanitize(v) : v),
+              )).toList(),
+          albums: rawAlbums.map((e) => Map<String, dynamic>.from(e as Map).map(
+                (k, v) => MapEntry(k, (k == 'title' || k == 'artist') ? Song.sanitize(v) : v),
+              )).toList(),
         );
       }
     } catch (_) {}
 
-    // Graceful offline/direct fallback
+    // Graceful offline/direct fallback with language filter
     try {
-      final saavnSongs = await SaavnClient.search(clean, limit: 15);
+      final saavnSongs = await SaavnClient.search(clean, limit: 15, language: targetLang);
       final albums = await SaavnClient.searchAlbums(clean, limit: 6);
       final artists = await SaavnClient.searchArtists(clean, limit: 6);
 
@@ -268,12 +313,37 @@ class ApiClient {
     final cleanedTitle = YouTubeClient.cleanTitle(song.title);
     final cleanedArtist = song.artist.replaceAll(RegExp(r'\b(topic|vevo)\b', caseSensitive: false), '').trim();
 
-    // 1. Try Backend LRCLIB synced endpoint
+    // 1. Try Direct JioSaavn Lyrics API FIRST for regional tracks to guarantee language match!
+    if (song.source != 'youtube' && song.id.isNotEmpty && song.id.length != 11) {
+      try {
+        final uri = Uri.parse('https://www.jiosaavn.com/api.php').replace(queryParameters: {
+          '__call': 'lyrics.getLyrics',
+          '_format': 'json',
+          '_marker': '0',
+          'api_version': '4',
+          'ctx': 'web6dot0',
+          'lyrics_id': song.id,
+        });
+
+        final response = await http.get(uri).timeout(const Duration(seconds: 4));
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body);
+          final lyrics = data['lyrics']?.toString();
+          if (lyrics != null && lyrics.trim().isNotEmpty) {
+            final formatted = lyrics.replaceAll('<br>', '\n').replaceAll('<br/>', '\n').trim();
+            return Song.sanitize(formatted);
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 2. Try Backend LRCLIB synced endpoint passing original track language
     try {
       final uri = Uri.parse('$baseUrl/api/music/lyrics').replace(queryParameters: {
         'title': cleanedTitle,
         'artist': cleanedArtist,
         if (song.duration > 0) 'duration': song.duration.toString(),
+        if (song.language != null && song.language!.isNotEmpty) 'language': song.language!,
       });
 
       final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 4));
@@ -281,12 +351,12 @@ class ApiClient {
         final data = json.decode(response.body);
         final lyrics = data['syncedLyrics'] ?? data['plainLyrics'] ?? data['lyrics'];
         if (lyrics != null && lyrics.toString().trim().isNotEmpty) {
-          return lyrics.toString().trim();
+          return Song.sanitize(lyrics.toString().trim());
         }
       }
     } catch (_) {}
 
-    // 2. Try Direct LRCLIB Public API
+    // 3. Try Direct LRCLIB Public API
     try {
       final uri = Uri.parse('https://lrclib.net/api/get').replace(queryParameters: {
         'track_name': cleanedTitle,
@@ -299,28 +369,7 @@ class ApiClient {
         final data = json.decode(response.body);
         final lyrics = data['syncedLyrics'] ?? data['plainLyrics'];
         if (lyrics != null && lyrics.toString().trim().isNotEmpty) {
-          return lyrics.toString().trim();
-        }
-      }
-    } catch (_) {}
-
-    // 3. Try Direct JioSaavn Lyrics API
-    try {
-      final uri = Uri.parse('https://www.jiosaavn.com/api.php').replace(queryParameters: {
-        '__call': 'lyrics.getLyrics',
-        '_format': 'json',
-        '_marker': '0',
-        'api_version': '4',
-        'ctx': 'web6dot0',
-        'lyrics_id': song.id,
-      });
-
-      final response = await http.get(uri).timeout(const Duration(seconds: 4));
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final lyrics = data['lyrics']?.toString();
-        if (lyrics != null && lyrics.trim().isNotEmpty) {
-          return lyrics.replaceAll('<br>', '\n').replaceAll('<br/>', '\n').trim();
+          return Song.sanitize(lyrics.toString().trim());
         }
       }
     } catch (_) {}
@@ -331,7 +380,23 @@ class ApiClient {
   // ================= 5. Bulletproof Spotify Playlist Import ================= //
 
   static Future<Map<String, dynamic>?> previewSpotifyPlaylist(String url) async {
-    // 1. Try Backend Resolver
+    // 1. Client-Side Spotify Service with recursive pagination & anonymous token
+    try {
+      final meta = await SpotifyImportService.fetchSpotifyMetadata(url);
+      if (meta != null) {
+        return {
+          'title': meta.title,
+          'thumbnail': meta.coverUrl,
+          'cover_url': meta.coverUrl,
+          'total_tracks': meta.totalTracks,
+          'track_count': meta.totalTracks,
+          'sample_tracks': meta.tracks.take(6).map((t) => {'title': t.title, 'artist': t.artist}).toList(),
+          'tracks': meta.tracks.map((t) => {'title': t.title, 'artist': t.artist, 'duration': t.durationSeconds}).toList(),
+        };
+      }
+    } catch (_) {}
+
+    // 2. Try Backend Resolver
     try {
       final uri = Uri.parse('$baseUrl/api/playlists/preview-spotify');
       final response = await http.post(
@@ -345,57 +410,25 @@ class ApiClient {
       }
     } catch (_) {}
 
-    // 2. Client-side resilient Jina Reader fallback
-    try {
-      final jinaUri = Uri.parse('https://r.jina.ai/${url.trim()}');
-      final res = await http.get(jinaUri).timeout(const Duration(seconds: 10));
-      if (res.statusCode == 200 && res.body.isNotEmpty) {
-        final text = res.body;
-
-        String title = 'Spotify Playlist';
-        final tm = RegExp(r'Title:\s*([^|\n]+)').firstMatch(text);
-        if (tm != null && tm.group(1) != null) {
-          title = tm.group(1)!.trim();
-        }
-
-        String coverUrl = '';
-        final cm = RegExp(r'!\[.*?\]\((https://i\.scdn\.co/image/[^\)]+)\)').firstMatch(text);
-        if (cm != null && cm.group(1) != null) {
-          coverUrl = cm.group(1)!;
-        }
-
-        final tracksPattern = RegExp(
-          r'\[([^\]]+)\]\(https://open\.spotify\.com/track/[^\)]+\)\s*\n\s*\[([^\]]+)\]\(https://open\.spotify\.com/artist/[^\)]+\)',
-        );
-        final List<Map<String, dynamic>> extracted = [];
-        for (final m in tracksPattern.allMatches(text)) {
-          final tTitle = m.group(1)?.trim() ?? '';
-          final tArtist = m.group(2)?.trim() ?? '';
-          if (tTitle.isNotEmpty) {
-            extracted.add({
-              'title': tTitle,
-              'artist': tArtist,
-            });
-          }
-        }
-
-        return {
-          'title': title,
-          'thumbnail': coverUrl,
-          'cover_url': coverUrl,
-          'total_tracks': extracted.length,
-          'track_count': extracted.length,
-          'sample_tracks': extracted.take(6).toList(),
-          'tracks': extracted,
-        };
-      }
-    } catch (_) {}
-
     return null;
   }
 
   static Future<List<Song>> importSpotifyPlaylist(String url, {String? customTitle}) async {
-    // 1. Try Backend Import
+    // 1. Client-Side Spotify Import Service with Bloomee Two-Tier matching & duration tolerance
+    try {
+      final meta = await SpotifyImportService.fetchSpotifyMetadata(url);
+      if (meta != null && meta.tracks.isNotEmpty) {
+        final result = await SpotifyImportService.importPlaylistWithProgress(
+          metadata: meta,
+          onProgress: (_, __, ___, ____, _____) {},
+        );
+        if (result.importedSongs.isNotEmpty) {
+          return result.importedSongs;
+        }
+      }
+    } catch (_) {}
+
+    // 2. Backend Fallback
     try {
       final uri = Uri.parse('$baseUrl/api/playlists/import-spotify');
       final response = await http.post(
@@ -416,42 +449,15 @@ class ApiClient {
       }
     } catch (_) {}
 
-    // 2. Client-side direct track match fallback
-    try {
-      final preview = await previewSpotifyPlaylist(url);
-      final rawTracks = preview?['tracks'] as List<dynamic>? ?? [];
-      if (rawTracks.isNotEmpty) {
-        final List<Song> resolvedSongs = [];
-        for (final item in rawTracks.take(30)) {
-          final title = item['title']?.toString() ?? '';
-          final artist = item['artist']?.toString() ?? '';
-          if (title.isNotEmpty) {
-            final query = '$title $artist'.trim();
-            // Search Saavn first for 320kbps
-            final saavnRes = await SaavnClient.search(query, limit: 1);
-            if (saavnRes.isNotEmpty) {
-              resolvedSongs.add(saavnRes.first);
-            } else {
-              // Fallback to YouTube
-              final ytRes = await YouTubeClient.search(query, limit: 1);
-              if (ytRes.isNotEmpty) {
-                resolvedSongs.add(ytRes.first);
-              }
-            }
-          }
-        }
-        return resolvedSongs;
-      }
-    } catch (_) {}
-
     return [];
   }
 
   // ================= 6. YouTube Music Top Charts & Trending ================= //
 
-  static Future<List<Song>> fetchYouTubeTrending() async {
+  static Future<List<Song>> fetchYouTubeTrending({String? language}) async {
+    final lang = language ?? (SettingsManager.preferredLanguages.isNotEmpty ? SettingsManager.preferredLanguages.first : 'Tamil');
     try {
-      return await YouTubeClient.search('Trending Tamil Hindi English Songs', limit: 20);
+      return await YouTubeClient.search('Trending $lang Hit Songs', limit: 20);
     } catch (_) {
       return [];
     }
@@ -465,17 +471,19 @@ class ApiClient {
       if (item is Map) {
         final stream = item['audio_url'] ?? item['audioUrl'] ?? item['stream_url'] ?? item['streamUrl'];
         final cover = item['cover_url'] ?? item['coverUrl'] ?? item['image'] ?? '';
+        final lang = item['language']?.toString() ?? item['lang']?.toString();
         songs.add(Song(
           id: item['id']?.toString() ?? '',
-          title: item['title']?.toString() ?? item['name']?.toString() ?? 'Unknown Title',
-          artist: item['artist']?.toString() ?? item['primaryArtists']?.toString() ?? 'Unknown Artist',
-          album: item['album']?.toString() ?? 'Unknown Album',
+          title: Song.sanitize(item['title'] ?? item['name'], fallback: 'Unknown Title'),
+          artist: Song.sanitize(item['artist'] ?? item['primaryArtists'] ?? item['singers'], fallback: 'Unknown Artist'),
+          album: Song.sanitize(item['album'], fallback: 'Unknown Album'),
           albumId: item['album_id']?.toString() ?? item['albumId']?.toString(),
           artistId: item['artist_id']?.toString() ?? item['artistId']?.toString(),
           coverUrl: cover.toString(),
           streamUrl: stream?.toString(),
           duration: int.tryParse(item['duration']?.toString() ?? '0') ?? 0,
           source: (item['source']?.toString() == 'youtube' || (item['id']?.toString().length == 11)) ? 'youtube' : 'saavn',
+          language: lang?.toLowerCase().trim(),
         ));
       }
     }

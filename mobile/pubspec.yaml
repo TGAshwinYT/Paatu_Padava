@@ -30,6 +30,15 @@ dependencies:
   # DES Decryption for JioSaavn 320kbps media URLs
   dart_des: ^1.0.2
 
+  # HTML Entity Unescape
+  html_unescape: ^2.0.0
+
+  # Fuzzy search matching
+  fuzzywuzzy: ^1.1.5
+
+  # Synchronized Lyrics
+  flutter_lyric: ^2.0.4+1
+
   # UI / UX Utilities
   cached_network_image: ^3.3.1
   flutter_cache_manager: ^3.3.1

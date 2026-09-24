@@ -1,49 +1,84 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:path_provider/path_provider.dart';
+import '../logic/audio_queue_handler.dart';
+import '../logic/smart_shuffle_controller.dart';
 import '../models/song.dart';
 import 'api_client.dart';
-import 'download_manager.dart';
 import 'history_manager.dart';
-import 'saavn_client.dart';
-import 'settings_manager.dart';
-import 'youtube_client.dart';
 
 late PaatuAudioHandler audioHandler;
 
 class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   final AudioPlayer _player = AudioPlayer();
 
-  // Reactive State Notifiers for UI binding
-  final ValueNotifier<Song?> currentSongNotifier = ValueNotifier<Song?>(null);
-  final ValueNotifier<List<Song>> playlistNotifier = ValueNotifier<List<Song>>([]);
-  final ValueNotifier<int> currentIndexNotifier = ValueNotifier<int>(-1);
-  final ValueNotifier<bool> isSmartShuffleNotifier = ValueNotifier<bool>(false);
-  final ValueNotifier<String?> currentLyricsNotifier = ValueNotifier<String?>(null);
-  final ValueNotifier<Duration?> sleepTimerRemainingNotifier = ValueNotifier<Duration?>(null);
+  late final AudioQueueHandler _queueHandler;
+  late final SmartShuffleController _smartShuffleController;
 
-  List<Song> _playlist = [];
-  List<Song> _originalPlaylist = [];
-  int _currentIndex = -1;
+  // Reactive State Notifiers for UI binding
+  final ValueNotifier<String?> currentLyricsNotifier = ValueNotifier<String?>(null);
+  final ValueNotifier<int> lyricsOffsetMsNotifier = ValueNotifier<int>(0);
+  final ValueNotifier<Duration?> sleepTimerRemainingNotifier = ValueNotifier<Duration?>(null);
+  final ValueNotifier<bool> isSmartShuffleNotifier = ValueNotifier<bool>(false);
+
   Timer? _sleepTimer;
   Timer? _countdownTicker;
-
-  // Anti-repetition: tracks recently played song IDs to guarantee diversity
-  final List<String> _recentPlayedIds = [];
+  bool _hasRecordedListen = false;
 
   AudioPlayer get player => _player;
-  List<Song> get playlist => _playlist;
-  int get currentIndex => _currentIndex;
-  Song? get currentSong => (_currentIndex >= 0 && _currentIndex < _playlist.length) ? _playlist[_currentIndex] : null;
+  AudioQueueHandler get queueHandler => _queueHandler;
+  SmartShuffleController get smartShuffleController => _smartShuffleController;
+
+  ValueNotifier<Song?> get currentSongNotifier => _queueHandler.currentSongNotifier;
+  ValueNotifier<List<Song>> get playlistNotifier => _queueHandler.queueNotifier;
+  ValueNotifier<int> get currentIndexNotifier => _queueHandler.currentIndexNotifier;
+  ValueNotifier<SmartShuffleMode> get shuffleModeNotifier => _smartShuffleController.modeNotifier;
+
+  List<Song> get playlist => _queueHandler.queue;
+  int get currentIndex => _queueHandler.currentIndex;
+  Song? get currentSong => _queueHandler.currentSong;
 
   PaatuAudioHandler() {
+    _queueHandler = AudioQueueHandler(
+      player: _player,
+      onSongChanged: (song) => _onActiveTrackChanged(song),
+      onPlayStateChanged: (_) => _broadcastState(),
+      onQueueProgress: (idx, total) => _broadcastState(),
+    );
+
+    _smartShuffleController = SmartShuffleController(queueHandler: _queueHandler);
+
+    // Keep legacy boolean notifier in sync with Smart mode
+    _smartShuffleController.modeNotifier.addListener(() {
+      isSmartShuffleNotifier.value = _smartShuffleController.isSmartActive;
+    });
+
     _initStreams();
   }
 
-  bool _hasRecordedListen = false;
+  void _onActiveTrackChanged(Song song) {
+    // Synchronously update system notification metadata
+    mediaItem.add(song.toMediaItem());
+
+    // Record to history & anti-repetition cache
+    HistoryManager.addSong(song);
+    _smartShuffleController.recordRecentlyPlayed(song.id);
+
+    // Reset listen history & lyrics offset
+    _hasRecordedListen = false;
+    lyricsOffsetMsNotifier.value = 0;
+
+    // Load lyrics
+    currentLyricsNotifier.value = (song.lyrics != null && song.lyrics!.isNotEmpty) ? song.lyrics : null;
+    ApiClient.fetchLyrics(song).then((lyrics) {
+      if (currentSong?.id == song.id && lyrics != null && lyrics.isNotEmpty) {
+        currentLyricsNotifier.value = lyrics;
+      }
+    });
+
+    _broadcastState();
+  }
 
   void _broadcastState() {
     final playing = _player.playing;
@@ -73,7 +108,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       updatePosition: _player.position,
       bufferedPosition: _player.bufferedPosition,
       speed: _player.speed,
-      queueIndex: _currentIndex,
+      queueIndex: _queueHandler.currentIndex,
     ));
   }
 
@@ -83,11 +118,13 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _player.playerStateStream.listen((state) {
       _broadcastState();
       if (state.processingState == ProcessingState.completed) {
-        skipToNext();
+        if (_queueHandler.hasNext) {
+          _queueHandler.skipToNext();
+        }
       }
     });
 
-    // 15-second listen tracker: trains backend item-item collaborative filtering ML graph!
+    // 15-second listen tracker: trains backend item-item collaborative filtering ML graph
     _player.positionStream.listen((pos) {
       if (!_hasRecordedListen && pos.inSeconds >= 15 && currentSong != null) {
         _hasRecordedListen = true;
@@ -96,338 +133,54 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     });
   }
 
-  void _syncQueueState() {
-    playlistNotifier.value = List.from(_playlist);
-    currentIndexNotifier.value = _currentIndex;
-    final song = currentSong;
-    currentSongNotifier.value = song;
-  }
-
+  /// Load and play a song with gapless ConcatenatingAudioSource preloading
   Future<void> playSong(Song song, {List<Song>? queue}) async {
-    if (queue != null && queue.isNotEmpty) {
-      _playlist = List.from(queue);
-      _originalPlaylist = List.from(queue);
-      _currentIndex = _playlist.indexWhere((s) => s.id == song.id);
-      if (_currentIndex == -1) {
-        _playlist.insert(0, song);
-        _currentIndex = 0;
-      }
-    } else {
-      _playlist = [song];
-      _originalPlaylist = [song];
-      _currentIndex = 0;
-    }
+    final initialIndex = queue != null ? queue.indexWhere((s) => s.id == song.id) : 0;
+    final targetIndex = initialIndex != -1 ? initialIndex : 0;
 
-    _syncQueueState();
-    await _loadAndPlay(song);
-  }
-
-  Future<void> _loadAndPlay(Song song) async {
-    try {
-      await _player.stop(); // Stop previous stream immediately to prevent leaking previous audio
-      _hasRecordedListen = false;
-      currentSongNotifier.value = song;
-      currentLyricsNotifier.value = (song.lyrics != null && song.lyrics!.isNotEmpty) ? song.lyrics : null;
-
-      // 1. Immediately record to local & cloud Recently Played history
-      HistoryManager.addSong(song);
-
-      // Track anti-repetition
-      _recentPlayedIds.remove(song.id);
-      _recentPlayedIds.insert(0, song.id);
-      if (_recentPlayedIds.length > 20) {
-        _recentPlayedIds.removeLast();
-      }
-
-      // 2. Fetch multi-source lyrics asynchronously in background
-      ApiClient.fetchLyrics(song).then((lyrics) {
-        if (currentSong?.id == song.id && lyrics != null && lyrics.isNotEmpty) {
-          currentLyricsNotifier.value = lyrics;
-        }
-      });
-
-      // 3. Play from local storage if downloaded or cached
-      if (song.localFilePath != null && File(song.localFilePath!).existsSync()) {
-        await _player.setAudioSource(AudioSource.file(song.localFilePath!));
-      } else if (DownloadManager.isDownloaded(song.id)) {
-        final downloadedSongs = DownloadManager.getDownloadedSongs();
-        final match = downloadedSongs.firstWhere((s) => s.id == song.id, orElse: () => song);
-        if (match.localFilePath != null && File(match.localFilePath!).existsSync()) {
-          await _player.setAudioSource(AudioSource.file(match.localFilePath!));
-        } else {
-          await _resolveRemoteAndPlay(song);
-        }
-      } else {
-        await _resolveRemoteAndPlay(song);
-      }
-
-      // 4. Update Android lock-screen and notification controls
-      mediaItem.add(MediaItem(
-        id: song.id,
-        album: song.album,
-        title: song.title,
-        artist: song.artist,
-        duration: Duration(seconds: song.duration),
-        artUri: Uri.tryParse(song.coverUrl),
-      ));
-
-      await _player.play();
-      _broadcastState();
-    } catch (e) {
-      // If primary playback fails, attempt smart multi-layer fallback
-      bool recovered = false;
-      try {
-        // Fallback: Search JioSaavn first for 320kbps
-        final saavnMatches = await SaavnClient.search('${song.title} ${song.artist}', limit: 1);
-        if (saavnMatches.isNotEmpty && saavnMatches.first.streamUrl != null) {
-          await _player.setAudioSource(AudioSource.uri(Uri.parse(saavnMatches.first.streamUrl!)));
-          await _player.play();
-          _broadcastState();
-          recovered = true;
-        }
-      } catch (_) {}
-
-      if (!recovered) {
-        try {
-          // Fallback: YouTube direct stream
-          final ytUrl = await YouTubeClient.getAudioStreamUrl(song.id, title: song.title, artist: song.artist);
-          if (ytUrl != null && ytUrl.isNotEmpty) {
-            await _player.setAudioSource(AudioSource.uri(Uri.parse(ytUrl)));
-            await _player.play();
-            _broadcastState();
-            recovered = true;
-          }
-        } catch (_) {}
-      }
-
-      if (!recovered) {
-        // Advance to next track only if all fallbacks fail
-        skipToNext();
-      }
-    }
-  }
-
-  Future<void> _resolveRemoteAndPlay(Song song) async {
-    String? streamUrl = song.streamUrl;
-
-    if (song.source == 'youtube' || song.id.length == 11) {
-      // 1. First attempt: Search JioSaavn in high fidelity 320kbps for pristine native stream
-      try {
-        final query = YouTubeClient.cleanTitle('${song.title} ${song.artist}');
-        final saavnMatches = await SaavnClient.search(query, limit: 1);
-        if (saavnMatches.isNotEmpty && saavnMatches.first.streamUrl != null) {
-          streamUrl = saavnMatches.first.streamUrl;
-        }
-      } catch (_) {}
-
-      // 2. If no Saavn match, extract directly via multi-tier YouTubeClient
-      if (streamUrl == null || streamUrl.isEmpty) {
-        try {
-          streamUrl = await YouTubeClient.getAudioStreamUrl(song.id, title: song.title, artist: song.artist);
-        } catch (_) {}
-      }
-    } else {
-      // JioSaavn Source
-      if (streamUrl == null || streamUrl.isEmpty) {
-        final matches = await SaavnClient.search('${song.title} ${song.artist}', limit: 1);
-        if (matches.isNotEmpty && matches.first.streamUrl != null) {
-          streamUrl = matches.first.streamUrl;
-        }
-      }
-    }
-
-    // Apply audio quality setting to JioSaavn streams
-    if (streamUrl != null && (streamUrl.contains('jiosaavn') || streamUrl.contains('.mp4'))) {
-      final q = SettingsManager.streamingQuality;
-      if (q == '96kbps') {
-        streamUrl = streamUrl.replaceAll('_320.mp4', '_96.mp4').replaceAll('_160.mp4', '_96.mp4');
-      } else if (q == '160kbps') {
-        streamUrl = streamUrl.replaceAll('_320.mp4', '_160.mp4').replaceAll('_96.mp4', '_160.mp4');
-      } else {
-        streamUrl = streamUrl.replaceAll('_96.mp4', '_320.mp4').replaceAll('_160.mp4', '_320.mp4');
-      }
-    }
-
-    if (streamUrl != null && streamUrl.isNotEmpty) {
-      // Audio Caching: Cache stream to disk concurrently using LockCachingAudioSource
-      try {
-        final tempDir = await getTemporaryDirectory();
-        final sanitizedId = song.id.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
-        final cacheFile = File('${tempDir.path}/audio_$sanitizedId.mp4');
-
-        if (cacheFile.existsSync() && cacheFile.lengthSync() > 100000) {
-          // Play directly from instantaneous disk cache!
-          await _player.setAudioSource(AudioSource.file(cacheFile.path));
-        } else {
-          // Stream and cache simultaneously
-          final isGoogleVideo = streamUrl.contains('googlevideo.com');
-          await _player.setAudioSource(
-            // ignore: experimental_member_use
-            LockCachingAudioSource(
-              Uri.parse(streamUrl),
-              cacheFile: cacheFile,
-              headers: isGoogleVideo
-                  ? null
-                  : {
-                      'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko)',
-                    },
-            ),
-          );
-        }
-      } catch (cacheError) {
-        // Fallback to standard URI audio source if cache system has permission issue
-        final isGoogleVideo = streamUrl.contains('googlevideo.com');
-        await _player.setAudioSource(
-          AudioSource.uri(
-            Uri.parse(streamUrl),
-            headers: isGoogleVideo
-                ? null
-                : {
-                    'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko)',
-                  },
-          ),
-        );
-      }
-    } else {
-      throw Exception("Could not resolve valid audio stream URL");
-    }
+    await _queueHandler.loadQueue(
+      queue ?? [song],
+      initialIndex: targetIndex,
+      autoPlay: true,
+    );
   }
 
   // ================= Queue Management ================= //
 
   void insertNext(Song song) {
-    if (_currentIndex >= 0 && _currentIndex < _playlist.length) {
-      _playlist.insert(_currentIndex + 1, song);
-    } else {
-      _playlist.add(song);
-    }
-    _syncQueueState();
+    _queueHandler.insertNext(song);
   }
 
   void addToQueue(Song song) {
-    _playlist.add(song);
-    _syncQueueState();
+    _queueHandler.addToQueue(song);
   }
 
   void removeAt(int index) {
-    if (index < 0 || index >= _playlist.length) return;
-    if (index == _currentIndex) {
-      skipToNext();
-    }
-    _playlist.removeAt(index);
-    if (index < _currentIndex) {
-      _currentIndex--;
-    }
-    _syncQueueState();
+    _queueHandler.removeAt(index);
   }
 
   void reorderQueue(int oldIndex, int newIndex) {
-    if (oldIndex < newIndex) {
-      newIndex -= 1;
-    }
-    final item = _playlist.removeAt(oldIndex);
-    _playlist.insert(newIndex, item);
-
-    if (oldIndex == _currentIndex) {
-      _currentIndex = newIndex;
-    } else if (oldIndex < _currentIndex && newIndex >= _currentIndex) {
-      _currentIndex--;
-    } else if (oldIndex > _currentIndex && newIndex <= _currentIndex) {
-      _currentIndex++;
-    }
-    _syncQueueState();
+    _queueHandler.reorder(oldIndex, newIndex);
   }
 
   Future<void> jumpToIndex(int index) async {
-    if (index >= 0 && index < _playlist.length) {
-      _currentIndex = index;
-      _syncQueueState();
-      await _loadAndPlay(_playlist[_currentIndex]);
-    }
+    await _queueHandler.jumpToIndex(index);
   }
 
   void clearQueue() {
-    if (currentSong != null) {
-      _playlist = [currentSong!];
-      _currentIndex = 0;
-    } else {
-      _playlist.clear();
-      _currentIndex = -1;
-    }
-    _syncQueueState();
+    _queueHandler.clear();
   }
 
   // ================= Smart Shuffle & Recommendations ================= //
 
-  Future<void> toggleSmartShuffle() async {
-    final nextState = !isSmartShuffleNotifier.value;
-    isSmartShuffleNotifier.value = nextState;
-
-    if (nextState) {
-      if (currentSong != null) {
-        final pastAndCurrent = _playlist.sublist(0, _currentIndex + 1);
-        final upcoming = _playlist.sublist(_currentIndex + 1);
-
-        if (upcoming.length < 5) {
-          try {
-            final recommendations = await ApiClient.fetchRecommendations(
-              currentSong!.id,
-              artist: currentSong!.artist,
-            );
-            final existingIds = _playlist.map((s) => s.id).toSet();
-            final recentIds = _recentPlayedIds.toSet();
-            final fresh = recommendations.where((s) => !existingIds.contains(s.id) && !recentIds.contains(s.id)).toList();
-            upcoming.addAll(fresh);
-          } catch (_) {}
-        }
-
-        if (upcoming.isNotEmpty) {
-          final orderedUpcomingIds = await ApiClient.fetchSmartShuffle(upcoming, currentSong);
-          final Map<String, Song> upcomingMap = {for (final s in upcoming) s.id: s};
-          final List<Song> reorderedUpcoming = [];
-          for (final id in orderedUpcomingIds) {
-            if (upcomingMap.containsKey(id)) {
-              reorderedUpcoming.add(upcomingMap[id]!);
-            }
-          }
-          for (final s in upcoming) {
-            if (!reorderedUpcoming.any((r) => r.id == s.id)) {
-              reorderedUpcoming.add(s);
-            }
-          }
-
-          _playlist = [...pastAndCurrent, ...reorderedUpcoming];
-          _syncQueueState();
-        }
-      }
-    } else {
-      if (_originalPlaylist.isNotEmpty && currentSong != null) {
-        final pastAndCurrent = _playlist.sublist(0, _currentIndex + 1);
-        final originalUpcoming = _originalPlaylist.where((s) => !pastAndCurrent.any((p) => p.id == s.id)).toList();
-        _playlist = [...pastAndCurrent, ...originalUpcoming];
-        _syncQueueState();
-      }
-    }
+  void toggleSmartShuffle() {
+    _smartShuffleController.cycleMode();
   }
 
   Future<int> addRadioMix() async {
-    if (currentSong == null) return 0;
-    final recommendations = await ApiClient.fetchRecommendations(
-      currentSong!.id,
-      artist: currentSong!.artist,
-    );
-
-    if (recommendations.isNotEmpty) {
-      final existingIds = _playlist.map((s) => s.id).toSet();
-      final recentIds = _recentPlayedIds.toSet();
-      // Anti-repetition: filter out recent plays and existing queue
-      final fresh = recommendations.where((s) => !existingIds.contains(s.id) && !recentIds.contains(s.id)).toList();
-      final toAdd = fresh.isNotEmpty ? fresh : recommendations.where((s) => !existingIds.contains(s.id)).toList();
-      _playlist.addAll(toAdd);
-      _syncQueueState();
-      return toAdd.length;
-    }
-    return 0;
+    final beforeCount = _queueHandler.queue.length;
+    await _smartShuffleController.ingestSmartRecommendations();
+    return _queueHandler.queue.length - beforeCount;
   }
 
   // ================= Sleep Timer ================= //
@@ -483,7 +236,6 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   @override
   Future<void> stop() async {
-    currentSongNotifier.value = null;
     await _player.stop();
     _broadcastState();
     await super.stop();
@@ -502,32 +254,11 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   @override
   Future<void> skipToNext() async {
-    if (_playlist.isEmpty) return;
-    if (_currentIndex + 1 < _playlist.length) {
-      _currentIndex++;
-      _syncQueueState();
-      await _loadAndPlay(_playlist[_currentIndex]);
-    } else {
-      final added = await addRadioMix();
-      if (added > 0 && _currentIndex + 1 < _playlist.length) {
-        _currentIndex++;
-        _syncQueueState();
-        await _loadAndPlay(_playlist[_currentIndex]);
-      } else {
-        await _player.stop();
-      }
-    }
+    await _queueHandler.skipToNext();
   }
 
   @override
   Future<void> skipToPrevious() async {
-    if (_playlist.isEmpty) return;
-    if (_currentIndex > 0) {
-      _currentIndex--;
-      _syncQueueState();
-      await _loadAndPlay(_playlist[_currentIndex]);
-    } else {
-      await _player.seek(Duration.zero);
-    }
+    await _queueHandler.skipToPrevious();
   }
 }

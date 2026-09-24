@@ -1,6 +1,22 @@
 import 'dart:convert';
+import 'package:audio_service/audio_service.dart';
+import 'package:html_unescape/html_unescape.dart';
 
 class Song {
+  static final HtmlUnescape _unescape = HtmlUnescape();
+
+  /// Robust helper to unescape HTML entities like &quot;, &#039;, &amp;, etc.
+  static String sanitize(dynamic text, {String fallback = ''}) {
+    if (text == null) return fallback;
+    final str = text.toString();
+    if (str.isEmpty) return fallback;
+    try {
+      return _unescape.convert(str);
+    } catch (_) {
+      return str;
+    }
+  }
+
   final String id;
   final String title;
   final String artist;
@@ -15,6 +31,8 @@ class Song {
   int? downloadedAt;
   final String source; // 'saavn', 'youtube', 'offline'
   String? lyrics;
+  final String? language;
+  final bool isSmartRecommended;
 
   Song({
     required this.id,
@@ -31,6 +49,8 @@ class Song {
     this.downloadedAt,
     this.source = 'saavn',
     this.lyrics,
+    this.language,
+    this.isSmartRecommended = false,
   });
 
   Map<String, dynamic> toMap() {
@@ -49,15 +69,17 @@ class Song {
       'downloadedAt': downloadedAt,
       'source': source,
       'lyrics': lyrics,
+      'language': language,
+      'isSmartRecommended': isSmartRecommended,
     };
   }
 
   factory Song.fromMap(Map<dynamic, dynamic> map) {
     return Song(
       id: map['id']?.toString() ?? '',
-      title: map['title']?.toString() ?? 'Unknown Title',
-      artist: map['artist']?.toString() ?? 'Unknown Artist',
-      album: map['album']?.toString() ?? 'Unknown Album',
+      title: sanitize(map['title'], fallback: 'Unknown Title'),
+      artist: sanitize(map['artist'], fallback: 'Unknown Artist'),
+      album: sanitize(map['album'], fallback: 'Unknown Album'),
       albumId: map['albumId']?.toString(),
       artistId: map['artistId']?.toString(),
       coverUrl: map['coverUrl']?.toString() ?? '',
@@ -67,13 +89,32 @@ class Song {
       localFilePath: map['localFilePath']?.toString(),
       downloadedAt: int.tryParse(map['downloadedAt']?.toString() ?? '0'),
       source: map['source']?.toString() ?? 'saavn',
-      lyrics: map['lyrics']?.toString(),
+      lyrics: map['lyrics'] != null ? sanitize(map['lyrics']) : null,
+      language: map['language']?.toString(),
+      isSmartRecommended: map['isSmartRecommended'] == true,
     );
   }
 
   String toJson() => json.encode(toMap());
 
   factory Song.fromJson(String source) => Song.fromMap(json.decode(source));
+
+  MediaItem toMediaItem() {
+    return MediaItem(
+      id: id,
+      album: album,
+      title: title,
+      artist: artist,
+      duration: Duration(seconds: duration),
+      artUri: Uri.tryParse(coverUrl),
+      extras: {
+        'source': source,
+        'streamUrl': streamUrl,
+        'isSmartRecommended': isSmartRecommended,
+        'language': language,
+      },
+    );
+  }
 
   Song copyWith({
     String? id,
@@ -90,6 +131,8 @@ class Song {
     int? downloadedAt,
     String? source,
     String? lyrics,
+    String? language,
+    bool? isSmartRecommended,
   }) {
     return Song(
       id: id ?? this.id,
@@ -106,6 +149,8 @@ class Song {
       downloadedAt: downloadedAt ?? this.downloadedAt,
       source: source ?? this.source,
       lyrics: lyrics ?? this.lyrics,
+      language: language ?? this.language,
+      isSmartRecommended: isSmartRecommended ?? this.isSmartRecommended,
     );
   }
 }

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:audio_service/audio_service.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'services/auth_manager.dart';
 import 'services/download_manager.dart';
@@ -11,6 +10,7 @@ import 'services/settings_manager.dart';
 import 'services/playlist_manager.dart';
 import 'services/player_handler.dart';
 import 'services/history_manager.dart';
+import 'presentation/theme/app_theme.dart';
 import 'ui/screens/main_navigation.dart';
 
 Future<void> main() async {
@@ -62,31 +62,16 @@ Future<void> main() async {
 class PaatuPadavaApp extends StatelessWidget {
   const PaatuPadavaApp({Key? key}) : super(key: key);
 
+  static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey,
       title: 'Paatu Padava',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,
-      darkTheme: ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF0A0E1A),
-        primaryColor: const Color(0xFF6366F1),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF6366F1),
-          secondary: Color(0xFFEC4899),
-          surface: Color(0xFF131B2E),
-        ),
-        textTheme: GoogleFonts.outfitTextTheme(
-          ThemeData(brightness: Brightness.dark).textTheme,
-        ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          systemOverlayStyle: SystemUiOverlayStyle.light,
-        ),
-        useMaterial3: true,
-      ),
+      darkTheme: AppTheme.darkTheme,
       home: const MainNavigation(),
     );
   }

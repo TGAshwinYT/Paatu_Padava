@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -9,6 +11,7 @@ import '../../services/download_manager.dart';
 import '../../services/favorites_manager.dart';
 import '../widgets/queue_sheet.dart';
 import '../widgets/add_to_playlist_dialog.dart';
+import 'lyrics_screen.dart';
 
 class FullPlayerScreen extends StatefulWidget {
   const FullPlayerScreen({Key? key}) : super(key: key);
@@ -19,19 +22,12 @@ class FullPlayerScreen extends StatefulWidget {
 
 class _FullPlayerScreenState extends State<FullPlayerScreen> {
   bool _showLyrics = false;
-  final ScrollController _lyricsScrollController = ScrollController();
 
   String _formatDuration(Duration duration) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
     final minutes = twoDigits(duration.inMinutes.remainder(60));
     final seconds = twoDigits(duration.inSeconds.remainder(60));
     return '$minutes:$seconds';
-  }
-
-  @override
-  void dispose() {
-    _lyricsScrollController.dispose();
-    super.dispose();
   }
 
   void _openSleepTimerDialog() {
@@ -578,109 +574,32 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
     return ValueListenableBuilder<String?>(
       valueListenable: audioHandler.currentLyricsNotifier,
       builder: (context, lyrics, _) {
-        if (lyrics == null) {
+        if (lyrics == null || lyrics.trim().isEmpty) {
           return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: const [
-                Icon(Icons.lyrics_rounded, size: 48, color: Color(0xFF64748B)),
-                SizedBox(height: 12),
-                Text(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.05),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.lyrics_rounded, size: 42, color: Color(0xFF64748B)),
+                ),
+                const SizedBox(height: 14),
+                const Text(
                   'No lyrics found for this track',
-                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
+                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14, fontWeight: FontWeight.w500),
                 ),
               ],
             ),
           );
         }
 
-        // Parse LRC format if available
-        final lrcRegex = RegExp(r'^\[(\d+):(\d+(?:\.\d+)?)\](.*)');
-        final rawLines = lyrics.split('\n');
-        final bool isLrc = rawLines.any((l) => lrcRegex.hasMatch(l.trim()));
-
-        if (!isLrc) {
-          // Render plain text lyrics
-          return Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: const Color(0xFF131B2E).withOpacity(0.9),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Colors.white.withOpacity(0.06)),
-            ),
-            child: SingleChildScrollView(
-              child: Text(
-                lyrics,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  height: 1.8,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          );
-        }
-
-        // Parse synchronized LRC lines
-        final List<_LrcLine> parsedLines = [];
-        for (final line in rawLines) {
-          final match = lrcRegex.firstMatch(line.trim());
-          if (match != null) {
-            final min = int.tryParse(match.group(1)!) ?? 0;
-            final sec = double.tryParse(match.group(2)!) ?? 0.0;
-            final text = match.group(3)?.trim() ?? '';
-            if (text.isNotEmpty) {
-              parsedLines.add(_LrcLine(
-                timestamp: Duration(milliseconds: ((min * 60 + sec) * 1000).toInt()),
-                text: text,
-              ));
-            }
-          }
-        }
-
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: const Color(0xFF131B2E).withOpacity(0.9),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.white.withOpacity(0.06)),
-          ),
-          child: StreamBuilder<Duration>(
-            stream: audioHandler.player.positionStream,
-            builder: (context, snapshot) {
-              final pos = snapshot.data ?? Duration.zero;
-              int activeIdx = parsedLines.lastIndexWhere((l) => l.timestamp <= pos);
-              if (activeIdx == -1 && parsedLines.isNotEmpty) activeIdx = 0;
-
-              return ListView.builder(
-                controller: _lyricsScrollController,
-                itemCount: parsedLines.length,
-                itemBuilder: (context, idx) {
-                  final line = parsedLines[idx];
-                  final isActive = idx == activeIdx;
-
-                  return GestureDetector(
-                    onTap: () => audioHandler.seek(line.timestamp),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8.0),
-                      child: Text(
-                        line.text,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: isActive ? Colors.white : Colors.white38,
-                          fontSize: isActive ? 18 : 14,
-                          fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
-                          height: 1.4,
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              );
-            },
-          ),
+        return _SyncedLyricsView(
+          lyrics: lyrics,
+          song: song,
         );
       },
     );
@@ -699,10 +618,415 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
   }
 }
 
+class _SyncedLyricsView extends StatefulWidget {
+  final String lyrics;
+  final Song song;
+
+  const _SyncedLyricsView({
+    Key? key,
+    required this.lyrics,
+    required this.song,
+  }) : super(key: key);
+
+  @override
+  State<_SyncedLyricsView> createState() => _SyncedLyricsViewState();
+}
+
+class _SyncedLyricsViewState extends State<_SyncedLyricsView> {
+  final ScrollController _scrollController = ScrollController();
+  final List<_LrcLine> _lines = [];
+  final List<GlobalKey> _lineKeys = [];
+  StreamSubscription<Duration>? _posSub;
+  int _activeIndex = -1;
+  bool _isUserScrolling = false;
+  Timer? _userScrollResumeTimer;
+  bool _isLrc = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _parseLyrics();
+    _subscribePosition();
+    audioHandler.lyricsOffsetMsNotifier.addListener(_onOffsetChanged);
+  }
+
+  void _onOffsetChanged() {
+    if (mounted && _isLrc && _lines.isNotEmpty) {
+      final pos = audioHandler.player.position;
+      final manualOffsetMs = audioHandler.lyricsOffsetMsNotifier.value;
+      final effectivePosition = pos + Duration(milliseconds: manualOffsetMs);
+      int idx = _lines.lastIndexWhere((l) => l.timestamp <= effectivePosition);
+      if (idx == -1) idx = 0;
+      if (idx != _activeIndex) {
+        setState(() => _activeIndex = idx);
+        _scrollToActive(idx);
+      }
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _SyncedLyricsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.lyrics != widget.lyrics) {
+      _parseLyrics();
+    }
+  }
+
+  @override
+  void dispose() {
+    audioHandler.lyricsOffsetMsNotifier.removeListener(_onOffsetChanged);
+    _posSub?.cancel();
+    _userScrollResumeTimer?.cancel();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _parseLyrics() {
+    _lines.clear();
+    _lineKeys.clear();
+
+    final lrcRegex = RegExp(r'^\[(\d+):(\d+(?:\.\d+)?)\](.*)');
+    final rawLines = widget.lyrics.split('\n');
+    _isLrc = rawLines.any((l) => lrcRegex.hasMatch(l.trim()));
+
+    if (!_isLrc) return;
+
+    final List<_LrcLine> parsed = [];
+    for (final line in rawLines) {
+      final match = lrcRegex.firstMatch(line.trim());
+      if (match != null) {
+        final min = int.tryParse(match.group(1)!) ?? 0;
+        final sec = double.tryParse(match.group(2)!) ?? 0.0;
+        final rawText = match.group(3)?.trim() ?? '';
+        final text = Song.sanitize(rawText);
+        if (text.isNotEmpty) {
+          parsed.add(_LrcLine(
+            timestamp: Duration(milliseconds: ((min * 60 + sec) * 1000).toInt()),
+            text: text,
+            isBgm: false,
+          ));
+        }
+      }
+    }
+
+    parsed.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+    // Detect BGM / Instrumental pauses > 6 seconds
+    if (parsed.isNotEmpty) {
+      // 1. Intro instrumental pause > 6s
+      if (parsed.first.timestamp > const Duration(seconds: 6)) {
+        _lines.add(_LrcLine(
+          timestamp: Duration.zero,
+          endTimestamp: parsed.first.timestamp,
+          text: '• • • ♪',
+          isBgm: true,
+        ));
+      }
+
+      for (int i = 0; i < parsed.length; i++) {
+        _lines.add(parsed[i]);
+
+        if (i < parsed.length - 1) {
+          final current = parsed[i];
+          final next = parsed[i + 1];
+          final gap = next.timestamp - current.timestamp;
+
+          if (gap > const Duration(seconds: 6)) {
+            // Estimate vocal duration for current line (e.g. up to 2.5s or 1/3 gap)
+            final vocalMs = math.min(2500, (gap.inMilliseconds ~/ 3));
+            final bgmStart = current.timestamp + Duration(milliseconds: vocalMs);
+            _lines.add(_LrcLine(
+              timestamp: bgmStart,
+              endTimestamp: next.timestamp,
+              text: '• • • ♪',
+              isBgm: true,
+            ));
+          }
+        }
+      }
+    }
+
+    for (int i = 0; i < _lines.length; i++) {
+      _lineKeys.add(GlobalKey());
+    }
+  }
+
+  void _subscribePosition() {
+    _posSub = audioHandler.player.positionStream.listen((pos) {
+      if (!mounted || !_isLrc || _lines.isEmpty) return;
+
+      final manualOffsetMs = audioHandler.lyricsOffsetMsNotifier.value;
+      final effectivePosition = pos + Duration(milliseconds: manualOffsetMs);
+      int idx = _lines.lastIndexWhere((l) => l.timestamp <= effectivePosition);
+      if (idx == -1) idx = 0;
+
+      if (idx != _activeIndex) {
+        setState(() => _activeIndex = idx);
+        _scrollToActive(idx);
+      }
+    });
+  }
+
+  void _scrollToActive(int idx) {
+    if (_isUserScrolling) return;
+    if (idx < 0 || idx >= _lineKeys.length) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final keyContext = _lineKeys[idx].currentContext;
+      if (keyContext != null) {
+        Scrollable.ensureVisible(
+          keyContext,
+          alignment: 0.5, // Automatically centers active line in viewport!
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    });
+  }
+
+  void _onUserScroll() {
+    _isUserScrolling = true;
+    _userScrollResumeTimer?.cancel();
+    _userScrollResumeTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) {
+        setState(() => _isUserScrolling = false);
+        _scrollToActive(_activeIndex);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_isLrc) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+        decoration: BoxDecoration(
+          color: const Color(0xFF131B2E).withOpacity(0.9),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.white.withOpacity(0.06)),
+        ),
+        child: SingleChildScrollView(
+          child: Text(
+            Song.sanitize(widget.lyrics),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              height: 1.9,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF131B2E).withOpacity(0.92),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
+      ),
+      child: Stack(
+        children: [
+          NotificationListener<ScrollNotification>(
+            onNotification: (notification) {
+              if (notification is UserScrollNotification) {
+                _onUserScroll();
+              }
+              return false;
+            },
+            child: ListView.builder(
+              controller: _scrollController,
+              padding: EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: MediaQuery.of(context).size.height * 0.22,
+              ),
+              itemCount: _lines.length,
+              itemBuilder: (context, idx) {
+                final line = _lines[idx];
+                final isActive = idx == _activeIndex;
+
+                return Center(
+                  key: _lineKeys[idx],
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      final manualOffsetMs = audioHandler.lyricsOffsetMsNotifier.value;
+                      final targetSeek = line.timestamp - Duration(milliseconds: manualOffsetMs);
+                      audioHandler.seek(targetSeek < Duration.zero ? Duration.zero : targetSeek);
+                      _isUserScrolling = false;
+                      _scrollToActive(idx);
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10.0),
+                      child: line.isBgm
+                          ? _BgmPulseIndicator(isActive: isActive)
+                          : AnimatedDefaultTextStyle(
+                              duration: const Duration(milliseconds: 250),
+                              curve: Curves.easeOut,
+                              style: TextStyle(
+                                color: isActive ? Colors.white : Colors.white.withOpacity(0.35),
+                                fontSize: isActive ? 20 : 15,
+                                fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                                height: 1.45,
+                                shadows: isActive
+                                    ? [
+                                        BoxShadow(
+                                          color: const Color(0xFF1DB954).withOpacity(0.45),
+                                          blurRadius: 14,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ]
+                                    : null,
+                              ),
+                              textAlign: TextAlign.center,
+                              child: Text(line.text),
+                            ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: IconButton(
+              icon: const Icon(Icons.fullscreen_rounded, color: Colors.white70, size: 24),
+              tooltip: 'Expand Bloomee Lyrics Page',
+              onPressed: () => LyricsScreen.open(context, song: widget.song),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BgmPulseIndicator extends StatefulWidget {
+  final bool isActive;
+  const _BgmPulseIndicator({Key? key, required this.isActive}) : super(key: key);
+
+  @override
+  State<_BgmPulseIndicator> createState() => _BgmPulseIndicatorState();
+}
+
+class _BgmPulseIndicatorState extends State<_BgmPulseIndicator>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.isActive) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: const [
+          Text(
+            '• • • ♪',
+            style: TextStyle(
+              color: Colors.white24,
+              fontSize: 16,
+              letterSpacing: 4,
+            ),
+          ),
+        ],
+      );
+    }
+
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final val = _controller.value;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1DB954).withOpacity(0.12),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFF1DB954).withOpacity(0.3)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _buildDot(0, val),
+              const SizedBox(width: 6),
+              _buildDot(1, val),
+              const SizedBox(width: 6),
+              _buildDot(2, val),
+              const SizedBox(width: 10),
+              Transform.scale(
+                scale: 1.0 + (0.15 * math.sin(val * 2 * math.pi)),
+                child: const Icon(
+                  Icons.music_note_rounded,
+                  color: Color(0xFF1DB954),
+                  size: 20,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDot(int index, double animValue) {
+    final phase = (animValue - (index * 0.2)) % 1.0;
+    final scale = 0.75 + 0.45 * (math.sin(phase * 2 * math.pi).abs());
+    final opacity = 0.35 + 0.65 * (math.sin(phase * 2 * math.pi).abs());
+
+    return Opacity(
+      opacity: opacity.clamp(0.2, 1.0),
+      child: Transform.scale(
+        scale: scale,
+        child: Container(
+          width: 7,
+          height: 7,
+          decoration: const BoxDecoration(
+            color: Color(0xFF1DB954),
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Color(0x991DB954),
+                blurRadius: 5,
+                spreadRadius: 1,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _LrcLine {
   final Duration timestamp;
+  final Duration? endTimestamp;
   final String text;
-  _LrcLine({required this.timestamp, required this.text});
+  final bool isBgm;
+
+  _LrcLine({
+    required this.timestamp,
+    this.endTimestamp,
+    required this.text,
+    this.isBgm = false,
+  });
 }
 
 class _DownloadActionButton extends StatelessWidget {

@@ -59,7 +59,7 @@ class MiniPlayer extends StatelessWidget {
                   children: [
                     // Top Tiny Playback Progress Line
                     StreamBuilder<Duration>(
-                      stream: audioHandler.player.positionStream,
+                      stream: audioHandler.throttledPositionStream,
                       builder: (context, snapshot) {
                         final pos = snapshot.data?.inMilliseconds.toDouble() ?? 0.0;
                         final total = audioHandler.player.duration?.inMilliseconds.toDouble() ?? 

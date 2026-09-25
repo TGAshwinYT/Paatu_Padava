@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:audio_service/audio_service.dart';
+import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/song.dart';
@@ -33,10 +34,12 @@ class AudioQueueHandler {
   final void Function(Song song)? onSongChanged;
   final void Function(int currentIndex, int totalQueue)? onQueueProgress;
   final void Function(bool isPlaying)? onPlayStateChanged;
+  final VoidCallback? onIdleRelease;
 
   StreamSubscription<int?>? _currentIndexSub;
   StreamSubscription<PlayerState>? _playerStateSub;
   StreamSubscription<SequenceState?>? _sequenceStateSub;
+  Timer? _idleTimeoutTimer;
 
   int _sessionToken = 0;
   bool _isLoading = false;
@@ -46,8 +49,46 @@ class AudioQueueHandler {
     this.onSongChanged,
     this.onQueueProgress,
     this.onPlayStateChanged,
+    this.onIdleRelease,
   }) {
     _initStreamListeners();
+  }
+
+  Timer? get idleTimeoutTimer => _idleTimeoutTimer;
+  bool get isIdleTimeoutActive => _idleTimeoutTimer != null && _idleTimeoutTimer!.isActive;
+
+  /// Starts the 5-minute idle timeout timer when playback is paused, completed, or idle
+  void startIdleTimer({Duration timeout = const Duration(minutes: 5)}) {
+    cancelIdleTimer();
+    _idleTimeoutTimer = Timer(timeout, () {
+      handleIdleRelease();
+    });
+    debugPrint('[AudioQueueHandler] Started 5-minute idle timeout countdown');
+  }
+
+  /// Cancels any active idle timeout countdown
+  void cancelIdleTimer() {
+    if (_idleTimeoutTimer != null) {
+      _idleTimeoutTimer?.cancel();
+      _idleTimeoutTimer = null;
+      debugPrint('[AudioQueueHandler] Cancelled idle timeout countdown');
+    }
+  }
+
+  /// Downgrades foreground service notification and releases native CPU WakeLocks
+  Future<void> handleIdleRelease() async {
+    debugPrint('[AudioQueueHandler] 5-minute idle timeout reached. Downgrading notification & releasing WakeLocks.');
+    // 1. Close idle YouTube client sockets
+    YouTubeClient.closeIdleClient();
+
+    // 2. Deactivate AudioSession to release native CPU wake locks & audio focus
+    try {
+      final session = await AudioSession.instance;
+      await session.setActive(false);
+    } catch (_) {}
+
+    // 3. Callback to PaatuAudioHandler to downgrade notification (remove ongoing flag)
+    onIdleRelease?.call();
   }
 
   List<Song> get queue => List.unmodifiable(_queue);
@@ -100,9 +141,20 @@ class AudioQueueHandler {
     _playerStateSub = player.playerStateStream.listen((state) {
       onPlayStateChanged?.call(state.playing);
 
+      if (state.playing) {
+        cancelIdleTimer();
+      } else {
+        // Paused, completed, or idle: clean up idle YouTube sockets and begin 5-minute countdown
+        YouTubeClient.closeIdleClient();
+        startIdleTimer();
+      }
+
       if (state.processingState == ProcessingState.completed) {
+        YouTubeClient.closeIdleClient();
         if (hasNext) {
           skipToNext();
+        } else {
+          startIdleTimer();
         }
       }
     });
@@ -120,6 +172,7 @@ class AudioQueueHandler {
     int initialIndex = 0,
     bool autoPlay = true,
   }) async {
+    cancelIdleTimer();
     final token = ++_sessionToken;
     _isLoading = true;
 
@@ -394,6 +447,8 @@ class AudioQueueHandler {
 
   /// Clear queue
   Future<void> clear() async {
+    cancelIdleTimer();
+    YouTubeClient.closeIdleClient();
     _sessionToken++;
     try {
       await player.stop();
@@ -488,6 +543,7 @@ class AudioQueueHandler {
   }
 
   void dispose() {
+    cancelIdleTimer();
     _sequenceStateSub?.cancel();
     _currentIndexSub?.cancel();
     _playerStateSub?.cancel();

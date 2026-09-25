@@ -4,7 +4,24 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../models/song.dart';
 
 class YouTubeClient {
-  static final YoutubeExplode _yt = YoutubeExplode();
+  static YoutubeExplode? _ytInstance;
+
+  /// Lazy instance: creates on demand and re-connects only when explicitly requested
+  static YoutubeExplode get _yt {
+    _ytInstance ??= YoutubeExplode();
+    return _ytInstance!;
+  }
+
+  /// Closes any idle YouTube HTTP sockets immediately to eliminate background battery drain
+  static void closeIdleClient() {
+    if (_ytInstance != null) {
+      try {
+        _ytInstance!.close();
+      } catch (_) {}
+      _ytInstance = null;
+    }
+  }
+
   static const String _baseUrl = 'https://tgashwinyt-paatu-padava.hf.space';
 
   static String cleanTitle(String title) {

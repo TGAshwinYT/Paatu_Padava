@@ -17,16 +17,122 @@ class SaavnClient {
     return img.replaceAll('50x50', '500x500').replaceAll('150x150', '500x500');
   }
 
+  static const Set<String> _excludedArtistKeywords = {
+    'gospel',
+    'chuchutv',
+    'rhymes',
+    'nursery',
+    'lullaby',
+    'devotional',
+    'dialogue',
+    'comedy',
+    'scenes',
+    'trailer',
+    'teaser',
+    'remix',
+    'bgm',
+    'instrumental',
+    'soundtrack',
+    'records',
+    'music company',
+    'official',
+    'channel',
+    'kids',
+    'stories',
+    'poems',
+  };
+
+  static const Set<String> _nonMusicActors = {
+    'prakash raj',
+    'nasser',
+    'radha ravi',
+    'brahmanandam',
+    'goundamani',
+    'senthil',
+    'manivannan',
+    'ms bhaskar',
+    'kota srinivasa rao',
+    'ashish vidyarthi',
+  };
+
+  static bool isActorOrCast(String name) {
+    final lower = name.toLowerCase().trim();
+    for (final actor in _nonMusicActors) {
+      if (lower == actor || lower.contains(actor)) return true;
+    }
+    return false;
+  }
+
+  static bool isGenuineMusicArtist(Map<dynamic, dynamic> item) {
+    final rawName = (item['name'] ?? item['title'] ?? '').toString().toLowerCase().trim();
+    if (rawName.isEmpty) return false;
+
+    // 1. Exclude generic non-artist tags (e.g. "Tamil Gospel", "ChuChuTV")
+    for (final kw in _excludedArtistKeywords) {
+      if (rawName.contains(kw)) return false;
+    }
+
+    // 2. Exclude known non-singer actors (e.g. Prakash Raj)
+    if (isActorOrCast(rawName)) return false;
+
+    // 3. Filter candidate artists by checking for 'music' or 'singers' roles
+    final role = (item['role'] ?? item['extra'] ?? item['subtitle'] ?? '').toString().toLowerCase().trim();
+    if (role.isNotEmpty) {
+      final isActor = role.contains('actor') || role.contains('starring') || role.contains('cast');
+      final isMusician = role.contains('music') ||
+          role.contains('singer') ||
+          role.contains('composer') ||
+          role.contains('director') ||
+          role.contains('lyricist') ||
+          role.contains('vocalist') ||
+          role.contains('artist');
+      if (isActor && !isMusician) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   static Song _parseSongItem(Map<String, dynamic> item) {
     final more = item['more_info'] ?? {};
     final encUrl = more['encrypted_media_url']?.toString() ?? '';
     final audioUrl = decryptSaavnMediaUrl(encUrl);
     final rawLang = item['language']?.toString() ?? more['language']?.toString();
 
+    // Do NOT treat actors or cast members (e.g. Prakash Raj) as music artists.
+    // Check primary_artists, music_directors, or singers roles first.
+    String? resolvedArtist;
+    final artistMap = more['artistMap'];
+    if (artistMap is Map) {
+      final primary = artistMap['primary_artists'] as List<dynamic>? ?? [];
+      final singers = artistMap['singers'] as List<dynamic>? ?? [];
+      final musicDirs = artistMap['music_directors'] as List<dynamic>? ?? [];
+
+      final valid = primary.isNotEmpty ? primary : (singers.isNotEmpty ? singers : musicDirs);
+      if (valid.isNotEmpty) {
+        final names = valid
+            .map((a) => a['name']?.toString() ?? '')
+            .where((n) => n.isNotEmpty && !isActorOrCast(n))
+            .toList();
+        if (names.isNotEmpty) {
+          resolvedArtist = names.join(', ');
+        }
+      }
+    }
+
+    resolvedArtist ??= more['music']?.toString() ?? more['singers']?.toString();
+    if (resolvedArtist == null || resolvedArtist.isEmpty) {
+      final subtitle = item['subtitle']?.toString() ?? '';
+      if (!isActorOrCast(subtitle)) {
+        resolvedArtist = subtitle;
+      }
+    }
+
     return Song(
       id: item['id']?.toString() ?? '',
       title: Song.sanitize(item['title'] ?? item['name'], fallback: 'Unknown Title'),
-      artist: Song.sanitize(more['music'] ?? more['singers'] ?? item['subtitle'], fallback: 'Various Artists'),
+      artist: Song.sanitize(resolvedArtist, fallback: 'Various Artists'),
       album: Song.sanitize(more['album'], fallback: 'Unknown Album'),
       albumId: more['album_id']?.toString() ?? item['albumid']?.toString(),
       artistId: more['artistMap']?['primary_artists']?[0]?['id']?.toString() ?? item['artist_id']?.toString(),
@@ -148,12 +254,19 @@ class SaavnClient {
       final data = json.decode(response.body);
       final results = data['results'] as List<dynamic>? ?? [];
 
-      return results.map((item) {
+      final validArtists = results.where((item) {
+        if (item is Map) {
+          return isGenuineMusicArtist(item);
+        }
+        return false;
+      }).toList();
+
+      return validArtists.map((item) {
         return {
           'id': item['id']?.toString() ?? '',
           'name': Song.sanitize(item['name'] ?? item['title'], fallback: 'Unknown Artist'),
           'image': _extractHighResImage(item['image']?.toString()),
-          'role': item['role']?.toString() ?? 'Artist',
+          'role': item['role']?.toString() ?? item['extra']?.toString() ?? 'Artist',
         };
       }).toList();
     } catch (e) {

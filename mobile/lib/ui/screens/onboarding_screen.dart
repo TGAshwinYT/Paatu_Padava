@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../services/auth_manager.dart';
 import '../../services/api_client.dart';
+import '../../presentation/screens/onboarding_artists_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
   final VoidCallback? onCompleted;
@@ -380,7 +381,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             height: 52,
             child: ElevatedButton(
               onPressed: _selectedLanguages.isNotEmpty
-                  ? () => setState(() => _step = 2)
+                  ? () async {
+                      await AuthManager.updateLanguagePreferences(_selectedLanguages.toList());
+                      if (!mounted) return;
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => OnboardingArtistsScreen(
+                            onCompleted: widget.onCompleted,
+                          ),
+                        ),
+                      );
+                    }
                   : null,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF1DB954),

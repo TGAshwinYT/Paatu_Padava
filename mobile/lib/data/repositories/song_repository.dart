@@ -175,7 +175,65 @@ class SongRepository {
       candidates.addAll(fallback);
     }
 
-    return deduplicateSongs(candidates);
+    final deduplicated = deduplicateSongs(candidates);
+    return ensureDistinctCovers(deduplicated);
+  }
+
+  /// Ensures all tracks in "Made For You" have distinct covers.
+  /// If multiple consecutive or repeated tracks share the exact same artwork URL
+  /// (e.g. repeated "100% Melodies" compilation album covers), falls back to the
+  /// singer/artist avatar or high-res YouTube video thumbnail so every card has a distinct cover.
+  static List<Song> ensureDistinctCovers(List<Song> songs) {
+    if (songs.isEmpty) return songs;
+
+    final Set<String> seenArtworkUrls = {};
+    final List<Song> distinct = [];
+
+    for (final song in songs) {
+      String finalCover = song.coverUrl;
+
+      // If artwork is a duplicate or empty
+      if (seenArtworkUrls.contains(finalCover) || finalCover.isEmpty) {
+        final normArtist = normalizeArtist(song.artist);
+        String? artistAvatar = _verifiedArtistAvatars[normArtist];
+
+        // If composite artist (e.g. "Anirudh Ravichander, Jonita Gandhi"), try first artist
+        if (artistAvatar == null && song.artist.contains(',')) {
+          final firstArtist = normalizeArtist(song.artist.split(',').first);
+          artistAvatar = _verifiedArtistAvatars[firstArtist];
+        }
+
+        if (artistAvatar != null && !seenArtworkUrls.contains(artistAvatar)) {
+          finalCover = artistAvatar;
+        } else if (song.source == 'youtube' || song.id.length == 11) {
+          final ytCover = 'https://img.youtube.com/vi/${song.id}/hqdefault.jpg';
+          if (!seenArtworkUrls.contains(ytCover)) {
+            finalCover = ytCover;
+          }
+        }
+      }
+
+      seenArtworkUrls.add(finalCover);
+
+      distinct.add(Song(
+        id: song.id,
+        title: song.title,
+        artist: song.artist,
+        album: song.album,
+        albumId: song.albumId,
+        artistId: song.artistId,
+        coverUrl: finalCover,
+        streamUrl: song.streamUrl,
+        duration: song.duration,
+        source: song.source,
+        language: song.language,
+        localFilePath: song.localFilePath,
+        lyrics: song.lyrics,
+        isSmartRecommended: song.isSmartRecommended,
+      ));
+    }
+
+    return distinct;
   }
 
   /// Fetches and interleaves Trending tracks across JioSaavn (320kbps) & YouTube Music.
@@ -220,15 +278,24 @@ class SongRepository {
     'd. imman': 'https://c.saavncdn.com/artists/D__Imman_500x500.jpg',
     'shreya ghoshal': 'https://c.saavncdn.com/artists/Shreya_Ghoshal_004_20221118121516_500x500.jpg',
     'jonita gandhi': 'https://c.saavncdn.com/artists/Jonita_Gandhi_500x500.jpg',
+    'dhee': 'https://c.saavncdn.com/artists/Dhee_500x500.jpg',
+    'kaushik krish': 'https://c.saavncdn.com/artists/Kaushik_Krish_500x500.jpg',
+    'karthik': 'https://c.saavncdn.com/artists/Karthik_500x500.jpg',
+    'haricharan': 'https://c.saavncdn.com/artists/Haricharan_500x500.jpg',
+    'chinmayi': 'https://c.saavncdn.com/artists/Chinmayi_Sripada_500x500.jpg',
+    'swetha mohan': 'https://c.saavncdn.com/artists/Shweta_Mohan_500x500.jpg',
+    's.p. balasubrahmanyam': 'https://c.saavncdn.com/artists/S_P__Balasubrahmanyam_500x500.jpg',
+    'k.s. chithra': 'https://c.saavncdn.com/artists/K_S__Chithra_500x500.jpg',
   };
 
   /// Fetches Popular Artists with high-res avatars, replacing low-res or generic placeholder icons.
   static Future<List<Map<String, dynamic>>> getPopularArtists({required String language}) async {
     try {
-      final rawArtists = await SaavnClient.searchArtists('Top $language Artists', limit: 12);
+      final rawArtists = await SaavnClient.searchArtists('Top $language Artists', limit: 16);
       final List<Map<String, dynamic>> enriched = [];
 
       for (final artist in rawArtists) {
+        if (!SaavnClient.isGenuineMusicArtist(artist)) continue;
         final name = Song.sanitize(artist['name']?.toString() ?? 'Artist');
         final norm = normalizeArtist(name);
         String img = artist['image']?.toString() ?? '';

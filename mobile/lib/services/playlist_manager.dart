@@ -1,10 +1,8 @@
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import '../models/song.dart';
-import 'auth_manager.dart';
+import 'playlist_sync_service.dart';
 
 class UserPlaylist {
   String id;
@@ -48,7 +46,8 @@ class PlaylistManager {
   static Future<void> init() async {
     await Hive.openBox(boxName);
     _refreshList();
-    syncWithBackend();
+    // Bidirectional Supabase cloud playlist sync on app launch
+    PlaylistSyncService.syncOnLaunch();
   }
 
   static void _refreshList() {
@@ -63,6 +62,8 @@ class PlaylistManager {
     playlistsNotifier.value = list;
   }
 
+  static void refreshList() => _refreshList();
+
   static List<UserPlaylist> getPlaylists() => playlistsNotifier.value;
 
   static UserPlaylist? getPlaylist(String id) {
@@ -73,184 +74,40 @@ class PlaylistManager {
     return null;
   }
 
-  static Future<UserPlaylist> createPlaylist(String title, {List<Song>? initialTracks}) async {
-    final cleanTitle = title.trim().isEmpty ? 'My Playlist' : title.trim();
-    final id = const Uuid().v4();
-    final playlist = UserPlaylist(
-      id: id,
-      title: cleanTitle,
-      createdAt: DateTime.now().millisecondsSinceEpoch,
-      tracks: initialTracks != null ? List<Song>.from(initialTracks) : [],
-    );
-
-    await _box.put(id, playlist.toMap());
+  /// Directly saves a playlist in local Hive cache
+  static Future<void> savePlaylistDirectly(UserPlaylist playlist) async {
+    await _box.put(playlist.id, playlist.toMap());
     _refreshList();
-
-    // Cloud sync if authenticated
-    if (AuthManager.isLoggedIn) {
-      _syncCreateToBackend(playlist);
-    }
-
-    return playlist;
   }
 
-  static Future<bool> addSongToPlaylist(String playlistId, Song song) async {
-    final playlist = getPlaylist(playlistId);
-    if (playlist == null) return false;
-
-    // Check duplicate
-    if (playlist.tracks.any((t) => t.id == song.id)) return true;
-
-    playlist.tracks.add(song);
-    await _box.put(playlistId, playlist.toMap());
-    _refreshList();
-
-    if (AuthManager.isLoggedIn) {
-      _syncAddTrackToBackend(playlistId, song);
-    }
-
-    return true;
-  }
-
-  static Future<void> removeSongFromPlaylist(String playlistId, String songId) async {
-    final playlist = getPlaylist(playlistId);
-    if (playlist == null) return;
-
-    playlist.tracks.removeWhere((t) => t.id == songId);
-    await _box.put(playlistId, playlist.toMap());
-    _refreshList();
-
-    if (AuthManager.isLoggedIn) {
-      try {
-        final token = AuthManager.token;
-        if (token != null) {
-          final uri = Uri.parse('${AuthManager.baseUrl}/api/playlists/$playlistId/songs/$songId');
-          http.delete(uri, headers: {'Authorization': 'Bearer $token'}).timeout(const Duration(seconds: 4));
-        }
-      } catch (_) {}
-    }
-  }
-
-  static Future<void> deletePlaylist(String playlistId) async {
+  /// Directly deletes a playlist from local Hive cache
+  static Future<void> deletePlaylistDirectly(String playlistId) async {
     await _box.delete(playlistId);
     _refreshList();
-
-    if (AuthManager.isLoggedIn) {
-      try {
-        final token = AuthManager.token;
-        if (token != null) {
-          final uri = Uri.parse('${AuthManager.baseUrl}/api/playlists/$playlistId');
-          http.delete(uri, headers: {'Authorization': 'Bearer $token'}).timeout(const Duration(seconds: 4));
-        }
-      } catch (_) {}
-    }
   }
 
-  static Future<void> syncWithBackend() async {
-    if (!AuthManager.isLoggedIn) return;
-    final token = AuthManager.token;
-    if (token == null) return;
-
-    try {
-      final uri = Uri.parse('${AuthManager.baseUrl}/api/playlists');
-      final res = await http.get(uri, headers: {'Authorization': 'Bearer $token'}).timeout(const Duration(seconds: 5));
-      if (res.statusCode == 200) {
-        final data = json.decode(res.body);
-        if (data is List) {
-          for (final item in data) {
-            if (item is Map) {
-              final id = item['id']?.toString() ?? '';
-              final title = item['title']?.toString() ?? 'Playlist';
-              if (id.isNotEmpty) {
-                if (!_box.containsKey(id)) {
-                  // Fetch tracks for this playlist
-                  final tracksRes = await http.get(
-                    Uri.parse('${AuthManager.baseUrl}/api/playlists/$id'),
-                    headers: {'Authorization': 'Bearer $token'},
-                  ).timeout(const Duration(seconds: 4));
-
-                  List<Song> fetchedTracks = [];
-                  if (tracksRes.statusCode == 200) {
-                    final detail = json.decode(tracksRes.body);
-                    final raw = detail['tracks'] as List<dynamic>? ?? [];
-                    fetchedTracks = raw.map((t) => Song(
-                      id: t['id']?.toString() ?? '',
-                      title: t['title']?.toString() ?? 'Track',
-                      artist: t['artist']?.toString() ?? 'Artist',
-                      album: '',
-                      duration: int.tryParse(t['duration']?.toString() ?? '0') ?? 0,
-                      coverUrl: t['cover_url']?.toString() ?? t['coverUrl']?.toString() ?? '',
-                      source: 'youtube',
-                    )).toList();
-                  }
-
-                  final pl = UserPlaylist(
-                    id: id,
-                    title: title,
-                    createdAt: DateTime.now().millisecondsSinceEpoch,
-                    tracks: fetchedTracks,
-                  );
-                  await _box.put(id, pl.toMap());
-                }
-              }
-            }
-          }
-          _refreshList();
-        }
-      }
-    } catch (_) {}
+  /// Creates a new playlist with immediate local persistence and Supabase cloud sync
+  static Future<UserPlaylist> createPlaylist(String title, {List<Song>? initialTracks}) async {
+    return await PlaylistSyncService.createPlaylist(title, initialTracks: initialTracks);
   }
 
-  static void _syncCreateToBackend(UserPlaylist playlist) async {
-    try {
-      final token = AuthManager.token;
-      if (token == null) return;
-      final uri = Uri.parse('${AuthManager.baseUrl}/api/playlists');
-      final res = await http.post(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: json.encode({
-          'title': playlist.title,
-          'is_public': false,
-        }),
-      ).timeout(const Duration(seconds: 5));
-
-      if (res.statusCode == 200 || res.statusCode == 201) {
-        final data = json.decode(res.body);
-        final backendId = data['id']?.toString();
-        if (backendId != null && backendId.isNotEmpty && backendId != playlist.id) {
-          // Re-key in Hive with backend UUID
-          await _box.delete(playlist.id);
-          playlist.id = backendId;
-          await _box.put(backendId, playlist.toMap());
-          _refreshList();
-        }
-      }
-    } catch (_) {}
+  /// Adds a song to a playlist with immediate local persistence and Supabase cloud sync
+  static Future<bool> addSongToPlaylist(String playlistId, Song song) async {
+    return await PlaylistSyncService.addSongToPlaylist(playlistId, song);
   }
 
-  static void _syncAddTrackToBackend(String playlistId, Song song) async {
-    try {
-      final token = AuthManager.token;
-      if (token == null) return;
-      final uri = Uri.parse('${AuthManager.baseUrl}/api/playlists/$playlistId/songs');
-      await http.post(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: json.encode({
-          'yt_video_id': song.id,
-          'title': song.title,
-          'artist': song.artist,
-          'cover_url': song.coverUrl,
-          'duration': song.duration,
-        }),
-      ).timeout(const Duration(seconds: 4));
-    } catch (_) {}
+  /// Removes a song from a playlist with immediate local persistence and Supabase cloud sync
+  static Future<void> removeSongFromPlaylist(String playlistId, String songId) async {
+    await PlaylistSyncService.removeSongFromPlaylist(playlistId, songId);
+  }
+
+  /// Deletes a playlist with immediate local removal and Supabase cloud cascade deletion
+  static Future<void> deletePlaylist(String playlistId) async {
+    await PlaylistSyncService.deletePlaylist(playlistId);
+  }
+
+  /// Renames a playlist in local storage and Supabase cloud
+  static Future<void> renamePlaylist(String playlistId, String newTitle) async {
+    await PlaylistSyncService.renamePlaylist(playlistId, newTitle);
   }
 }

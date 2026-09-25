@@ -13,6 +13,7 @@ import '../../services/favorites_manager.dart';
 import '../../services/search_history_manager.dart';
 import '../../services/settings_manager.dart';
 import '../../services/fuzzy_search_service.dart';
+import '../../services/search_service.dart';
 import '../../data/repositories/song_repository.dart';
 import '../../presentation/theme/app_theme.dart';
 import '../widgets/spotify_import_dialog.dart';
@@ -198,73 +199,39 @@ class _SearchScreenState extends State<SearchScreen> {
 
     try {
       if (tab == 'All') {
-        final bundle = await ApiClient.searchGlobal(clean, language: prefLang);
-        if (bundle != null && mounted) {
-          final reRankedSongs = FuzzySearchService.reRankSongs(clean, bundle.songs);
-          final deduplicated = SongRepository.deduplicateSongs(reRankedSongs);
+        final unified = await SearchService.searchUnified(clean, language: prefLang, limit: 25);
+        if (mounted) {
           _resultsNotifier.value = SearchResultsState(
-            topResult: bundle.topResult,
-            songs: deduplicated,
-            artists: bundle.artists,
-            albums: bundle.albums,
+            topResult: unified.topResult,
+            songs: unified.songs,
+            ytSongs: unified.ytSongs,
+            albums: unified.albums,
+            artists: unified.artists,
           );
           _isSearchingNotifier.value = false;
-          FuzzySearchService.registerSongs(deduplicated);
           return;
         }
-
-        // Direct fallback with regional preference
-        final results = await Future.wait([
-          SaavnClient.search(clean, limit: 20, language: prefLang),
-          SaavnClient.searchAlbums(clean, limit: 8),
-          SaavnClient.searchArtists(clean, limit: 8),
-        ]);
-        if (mounted) {
-          final s = SongRepository.deduplicateSongs(
-            FuzzySearchService.reRankSongs(clean, results[0] as List<Song>),
-          );
-          _resultsNotifier.value = SearchResultsState(
-            topResult: s.isNotEmpty
-                ? {
-                    'type': 'song',
-                    'id': s.first.id,
-                    'title': s.first.title,
-                    'artist': s.first.artist,
-                    'cover_url': s.first.coverUrl,
-                    'duration': s.first.duration,
-                  }
-                : null,
-            songs: s,
-            albums: results[1] as List<Map<String, dynamic>>,
-            artists: results[2] as List<Map<String, dynamic>>,
-          );
-          _isSearchingNotifier.value = false;
-          FuzzySearchService.registerSongs(s);
-        }
       } else if (tab == 'Songs') {
-        final songs = await SaavnClient.search(clean, limit: 30, language: prefLang);
+        final unified = await SearchService.searchUnified(clean, language: prefLang, limit: 25);
         if (mounted) {
-          final reRanked = SongRepository.deduplicateSongs(
-            FuzzySearchService.reRankSongs(clean, songs),
-          );
-          _resultsNotifier.value = SearchResultsState(songs: reRanked);
+          _resultsNotifier.value = SearchResultsState(songs: unified.songs);
           _isSearchingNotifier.value = false;
-          FuzzySearchService.registerSongs(reRanked);
         }
       } else if (tab == 'Albums') {
-        final albums = await SaavnClient.searchAlbums(clean, limit: 20);
+        final albums = await SaavnClient.searchAlbums(clean, limit: 25);
         if (mounted) {
           _resultsNotifier.value = SearchResultsState(albums: albums);
           _isSearchingNotifier.value = false;
         }
       } else if (tab == 'Artists') {
-        final artists = await SaavnClient.searchArtists(clean, limit: 20);
+        final artists = await SaavnClient.searchArtists(clean, limit: 25);
         if (mounted) {
           _resultsNotifier.value = SearchResultsState(artists: artists);
           _isSearchingNotifier.value = false;
         }
       } else if (tab == 'YouTube') {
-        final yt = await YouTubeClient.search(clean, limit: 25);
+        final biasedQuery = SearchService.buildLanguageBiasedQuery(clean, language: prefLang);
+        final yt = await YouTubeClient.search(biasedQuery, limit: 25);
         if (mounted) {
           final cleanYt = SongRepository.deduplicateSongs(yt);
           _resultsNotifier.value = SearchResultsState(ytSongs: cleanYt);

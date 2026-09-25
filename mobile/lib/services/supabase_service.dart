@@ -183,6 +183,33 @@ class SupabaseService {
     return [];
   }
 
+  /// Save user favorite artists directly to Supabase table `user_favorite_artists`
+  static Future<void> saveUserFavoriteArtists({
+    required String userId,
+    required List<Map<String, String>> artists,
+  }) async {
+    final c = client;
+    if (c == null || userId.isEmpty || userId == 'guest') return;
+
+    try {
+      final rows = artists.map((a) => {
+        'user_id': userId,
+        'artist_name': a['name'] ?? '',
+        'artist_image_url': a['image'] ?? '',
+      }).where((r) => (r['artist_name'] as String).isNotEmpty).toList();
+
+      if (rows.isNotEmpty) {
+        // Upsert into user_favorite_artists with onConflict: user_id, artist_name
+        await c.from('user_favorite_artists').upsert(
+          rows,
+          onConflict: 'user_id, artist_name',
+        );
+      }
+    } catch (e) {
+      debugPrint('[SupabaseService] saveUserFavoriteArtists error: $e');
+    }
+  }
+
   /// Save / Upsert user music preferences and favorite artists
   static Future<void> saveUserTaste({
     required String userId,
@@ -193,22 +220,21 @@ class SupabaseService {
     if (c == null || userId.isEmpty || userId == 'guest') return;
 
     try {
-      // 1. Upsert user preferences
-      await c.from('user_preferences').upsert({
-        'user_id': userId,
+      // 1. Upsert profile preferences
+      await c.from('profiles').upsert({
+        'id': userId,
+        'email': currentUser?.email ?? '',
         'preferred_languages': languages,
-        'updated_at': DateTime.now().toIso8601String(),
       });
 
-      // 2. Insert favorite artists
+      // 2. Insert favorite artists into user_favorite_artists
       if (artistNames.isNotEmpty) {
         final artistRows = artistNames.map((name) => {
           'user_id': userId,
           'artist_name': name,
-          'created_at': DateTime.now().toIso8601String(),
         }).toList();
 
-        await c.from('favorite_artists').upsert(
+        await c.from('user_favorite_artists').upsert(
           artistRows,
           onConflict: 'user_id, artist_name',
         );

@@ -506,7 +506,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
 
                             // Seek Bar & Timers
                             StreamBuilder<Duration>(
-                              stream: audioHandler.player.positionStream,
+                              stream: audioHandler.throttledPositionStream,
                               builder: (context, snapshot) {
                                 final position = snapshot.data ?? Duration.zero;
                                 final totalDuration = audioHandler.player.duration ?? Duration(seconds: song.duration);
@@ -837,6 +837,8 @@ class _SyncedLyricsViewState extends State<_SyncedLyricsView> {
   final List<_LrcLine> _lines = [];
   final List<GlobalKey> _lineKeys = [];
   StreamSubscription<Duration>? _posSub;
+  StreamSubscription<bool>? _playingSub;
+  int _lastPositionUpdateMs = 0;
   int _activeIndex = -1;
   bool _isUserScrolling = false;
   Timer? _userScrollResumeTimer;
@@ -874,6 +876,7 @@ class _SyncedLyricsViewState extends State<_SyncedLyricsView> {
 
   @override
   void dispose() {
+    _playingSub?.cancel();
     audioHandler.lyricsOffsetMsNotifier.removeListener(_onOffsetChanged);
     _posSub?.cancel();
     _userScrollResumeTimer?.cancel();
@@ -952,8 +955,14 @@ class _SyncedLyricsViewState extends State<_SyncedLyricsView> {
   }
 
   void _subscribePosition() {
-    _posSub = audioHandler.player.positionStream.listen((pos) {
+    _posSub?.cancel();
+    _lastPositionUpdateMs = 0;
+    _posSub = audioHandler.throttledPositionStream.listen((pos) {
       if (!mounted || !_isLrc || _lines.isEmpty) return;
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - _lastPositionUpdateMs < 500) return;
+      _lastPositionUpdateMs = now;
 
       final manualOffsetMs = audioHandler.lyricsOffsetMsNotifier.value;
       final effectivePosition = pos + Duration(milliseconds: manualOffsetMs);
@@ -963,6 +972,21 @@ class _SyncedLyricsViewState extends State<_SyncedLyricsView> {
       if (idx != _activeIndex) {
         setState(() => _activeIndex = idx);
         _scrollToActive(idx);
+      }
+    });
+
+    // Pause/resume position listener based on playback state to eliminate background battery drain
+    _playingSub?.cancel();
+    _playingSub = audioHandler.player.playingStream.listen((isPlaying) {
+      if (!mounted) return;
+      if (isPlaying) {
+        if (_posSub?.isPaused == true) {
+          _posSub?.resume();
+        }
+      } else {
+        if (_posSub != null && !_posSub!.isPaused) {
+          _posSub?.pause();
+        }
       }
     });
   }

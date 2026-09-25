@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:audio_service/audio_service.dart';
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import '../logic/audio_queue_handler.dart';
@@ -10,6 +11,7 @@ import 'history_manager.dart';
 import 'equalizer_service.dart';
 import 'supabase_service.dart';
 import 'auth_manager.dart';
+import 'youtube_client.dart';
 
 late PaatuAudioHandler audioHandler;
 
@@ -28,6 +30,10 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   Timer? _sleepTimer;
   Timer? _countdownTicker;
   bool _hasRecordedListen = false;
+  bool _isForegroundDowngraded = false;
+  StreamSubscription? _becomingNoisySub;
+  StreamSubscription<PlayerState>? _playerStateSub;
+  Stream<Duration>? _throttledPositionStream;
 
   AudioPlayer get player => _player;
   AudioQueueHandler get queueHandler => _queueHandler;
@@ -42,12 +48,35 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   int get currentIndex => _queueHandler.currentIndex;
   Song? get currentSong => _queueHandler.currentSong;
 
+  /// Throttled position stream that updates no faster than once every 500ms
+  /// Eliminates rapid continuous wakeups to preserve Android Doze mode and battery.
+  Stream<Duration> get throttledPositionStream {
+    _throttledPositionStream ??= Stream<Duration>.multi((controller) {
+      int lastEmitMs = 0;
+      final sub = _player.positionStream.listen(
+        (pos) {
+          final now = DateTime.now().millisecondsSinceEpoch;
+          // Emit at most once per 500ms during active playback, or immediately on seek / pause
+          if (now - lastEmitMs >= 500 || !_player.playing) {
+            lastEmitMs = now;
+            controller.add(pos);
+          }
+        },
+        onError: controller.addError,
+        onDone: controller.close,
+      );
+      controller.onCancel = () => sub.cancel();
+    }).asBroadcastStream();
+    return _throttledPositionStream!;
+  }
+
   PaatuAudioHandler() {
     _queueHandler = AudioQueueHandler(
       player: _player,
       onSongChanged: (song) => _onActiveTrackChanged(song),
       onPlayStateChanged: (_) => _broadcastState(),
       onQueueProgress: (idx, total) => _broadcastState(),
+      onIdleRelease: () => _handleIdleRelease(),
     );
 
     _smartShuffleController = SmartShuffleController(queueHandler: _queueHandler);
@@ -60,7 +89,28 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     // Connect 5-band equalizer directly to native audio session ID
     EqualizerService.bindToPlayerSession(_player.androidAudioSessionIdStream);
 
+    _initAudioSession();
     _initStreams();
+  }
+
+  Future<void> _initAudioSession() async {
+    try {
+      final session = await AudioSession.instance;
+      await session.configure(const AudioSessionConfiguration.music());
+      // Handle onAudioBecomingNoisy (e.g. Bluetooth headphones disconnected / unplugged)
+      _becomingNoisySub = session.becomingNoisyEventStream.listen((_) {
+        debugPrint('[PaatuAudioHandler] Audio becoming noisy (headset/BT unplugged) -> auto-pausing & starting idle countdown');
+        pause();
+      });
+    } catch (e) {
+      debugPrint('[PaatuAudioHandler] AudioSession setup error: $e');
+    }
+  }
+
+  void _handleIdleRelease() {
+    debugPrint('[PaatuAudioHandler] Downgrading foreground service notification after 5-minute timeout');
+    _isForegroundDowngraded = true;
+    _broadcastState(downgradeNotification: true);
   }
 
   void _onActiveTrackChanged(Song song) {
@@ -87,15 +137,20 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _broadcastState();
   }
 
-  void _broadcastState() {
+  void _broadcastState({bool downgradeNotification = false}) {
     final playing = _player.playing;
-    final processingState = const {
-      ProcessingState.idle: AudioProcessingState.idle,
-      ProcessingState.loading: AudioProcessingState.loading,
-      ProcessingState.buffering: AudioProcessingState.buffering,
-      ProcessingState.ready: AudioProcessingState.ready,
-      ProcessingState.completed: AudioProcessingState.completed,
-    }[_player.processingState] ?? AudioProcessingState.idle;
+    final AudioProcessingState processingState;
+    if (downgradeNotification || _isForegroundDowngraded) {
+      processingState = AudioProcessingState.idle;
+    } else {
+      processingState = const {
+        ProcessingState.idle: AudioProcessingState.idle,
+        ProcessingState.loading: AudioProcessingState.loading,
+        ProcessingState.buffering: AudioProcessingState.buffering,
+        ProcessingState.ready: AudioProcessingState.ready,
+        ProcessingState.completed: AudioProcessingState.completed,
+      }[_player.processingState] ?? AudioProcessingState.idle;
+    }
 
     playbackState.add(playbackState.value.copyWith(
       controls: [
@@ -122,7 +177,10 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   void _initStreams() {
     _player.playbackEventStream.listen((event) => _broadcastState());
 
-    _player.playerStateStream.listen((state) {
+    _playerStateSub = _player.playerStateStream.listen((state) {
+      if (state.playing) {
+        _isForegroundDowngraded = false;
+      }
       _broadcastState();
       if (state.processingState == ProcessingState.completed) {
         if (_queueHandler.hasNext) {
@@ -132,7 +190,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     });
 
     // 15-second listen tracker: trains backend item-item collaborative filtering ML graph
-    _player.positionStream.listen((pos) {
+    throttledPositionStream.listen((pos) {
       if (!_hasRecordedListen && pos.inSeconds >= 15 && currentSong != null) {
         _hasRecordedListen = true;
         ApiClient.addListenHistory(currentSong!);
@@ -142,6 +200,13 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   /// Load and play a song with gapless ConcatenatingAudioSource preloading
   Future<void> playSong(Song song, {List<Song>? queue}) async {
+    try {
+      final session = await AudioSession.instance;
+      await session.setActive(true);
+    } catch (_) {}
+    _isForegroundDowngraded = false;
+    _queueHandler.cancelIdleTimer();
+
     final initialIndex = queue != null ? queue.indexWhere((s) => s.id == song.id) : 0;
     final targetIndex = initialIndex != -1 ? initialIndex : 0;
 
@@ -225,6 +290,12 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   @override
   Future<void> play() async {
+    try {
+      final session = await AudioSession.instance;
+      await session.setActive(true);
+    } catch (_) {}
+    _isForegroundDowngraded = false;
+    _queueHandler.cancelIdleTimer();
     await _player.play();
     _broadcastState();
   }
@@ -232,6 +303,8 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   @override
   Future<void> pause() async {
     await _player.pause();
+    YouTubeClient.closeIdleClient();
+    _queueHandler.startIdleTimer();
     _broadcastState();
   }
 
@@ -243,9 +316,24 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   @override
   Future<void> stop() async {
+    _becomingNoisySub?.cancel();
+    _playerStateSub?.cancel();
+    _queueHandler.cancelIdleTimer();
+    YouTubeClient.closeIdleClient();
+    try {
+      final session = await AudioSession.instance;
+      await session.setActive(false);
+    } catch (_) {}
     await _player.stop();
-    _broadcastState();
+    _isForegroundDowngraded = true;
+    _broadcastState(downgradeNotification: true);
     await super.stop();
+  }
+
+  Future<void> dispose() async {
+    _becomingNoisySub?.cancel();
+    _playerStateSub?.cancel();
+    _queueHandler.dispose();
   }
 
   Future<void> toggleLoopMode() async {

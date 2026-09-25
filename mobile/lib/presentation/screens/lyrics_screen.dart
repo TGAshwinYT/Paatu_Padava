@@ -63,6 +63,8 @@ class _LyricsScreenState extends State<LyricsScreen> {
   bool _showOffsetPill = true;
   bool _isFullscreen = false;
   int _manualOffsetMs = 0;
+  StreamSubscription<bool>? _playingSub;
+  int _lastPositionUpdateMs = 0;
 
   @override
   void initState() {
@@ -82,6 +84,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
 
   @override
   void dispose() {
+    _playingSub?.cancel();
     _posSub?.cancel();
     _userScrollResumeTimer?.cancel();
     _scrollController.dispose();
@@ -184,9 +187,29 @@ class _LyricsScreenState extends State<LyricsScreen> {
   }
 
   void _subscribePosition() {
-    _posSub = audioHandler.player.positionStream.listen((currentPos) {
+    _posSub?.cancel();
+    _lastPositionUpdateMs = 0;
+    _posSub = audioHandler.throttledPositionStream.listen((currentPos) {
       if (!mounted || !_isLrc || _lines.isEmpty) return;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - _lastPositionUpdateMs < 500) return;
+      _lastPositionUpdateMs = now;
       _updateActiveIndexForPosition(currentPos);
+    });
+
+    // Pause/resume position listener based on playback state to eliminate background battery drain
+    _playingSub?.cancel();
+    _playingSub = audioHandler.player.playingStream.listen((isPlaying) {
+      if (!mounted) return;
+      if (isPlaying) {
+        if (_posSub?.isPaused == true) {
+          _posSub?.resume();
+        }
+      } else {
+        if (_posSub != null && !_posSub!.isPaused) {
+          _posSub?.pause();
+        }
+      }
     });
   }
 
@@ -685,7 +708,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
             children: [
               // Mini Seek Progress Bar
               StreamBuilder<Duration>(
-                stream: audioHandler.player.positionStream,
+                stream: audioHandler.throttledPositionStream,
                 builder: (context, snapshot) {
                   final position = snapshot.data ?? Duration.zero;
                   final totalDuration = audioHandler.player.duration ?? Duration(seconds: song?.duration ?? 0);

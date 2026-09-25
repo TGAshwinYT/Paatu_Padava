@@ -53,6 +53,9 @@ class Song {
     this.isSmartRecommended = false,
   });
 
+  /// Canonical deduplication key: normalizes title and artist to match tracks across sources
+  String get deduplicationKey => '${title.trim().toLowerCase()}_${artist.trim().toLowerCase()}';
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,

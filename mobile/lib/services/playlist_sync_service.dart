@@ -4,101 +4,17 @@ import 'package:uuid/uuid.dart';
 import '../models/song.dart';
 import 'playlist_manager.dart';
 import 'supabase_service.dart';
+import 'sync_manager.dart';
 
 class PlaylistSyncService {
   static const Uuid _uuid = Uuid();
-  static bool _isSyncing = false;
 
   /// Triggered on app launch or post-login: performs bidirectional sync
   /// between Supabase cloud tables and local Hive offline cache.
   static Future<void> syncOnLaunch() async {
-    if (_isSyncing) return;
-    _isSyncing = true;
-
-    try {
-      final supaUser = SupabaseService.currentUser;
-      if (supaUser == null) {
-        _isSyncing = false;
-        return;
-      }
-
-      final c = SupabaseService.client;
-      if (c == null) {
-        _isSyncing = false;
-        return;
-      }
-
-      debugPrint('[PlaylistSyncService] Starting bidirectional cloud playlist sync...');
-
-      // 1. Fetch cloud playlists for this user
-      final List<dynamic> cloudPlaylists = await c
-          .from('user_playlists')
-          .select('id, title, thumbnail_url, created_at')
-          .eq('user_id', supaUser.id)
-          .order('created_at', ascending: false);
-
-      final Map<String, UserPlaylist> cloudMap = {};
-
-      for (final pl in cloudPlaylists) {
-        final plId = pl['id']?.toString() ?? '';
-        final plTitle = pl['title']?.toString() ?? 'Untitled Playlist';
-        final createdAtStr = pl['created_at']?.toString();
-        final createdAtMs = createdAtStr != null
-            ? (DateTime.tryParse(createdAtStr)?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch)
-            : DateTime.now().millisecondsSinceEpoch;
-
-        // Fetch tracks for this cloud playlist
-        final List<dynamic> tracksData = await c
-            .from('playlist_tracks')
-            .select('track_id, title, artist, artwork_url, stream_url, source_type, added_at')
-            .eq('playlist_id', plId)
-            .order('added_at', ascending: true);
-
-        final List<Song> tracks = tracksData.map((t) {
-          return Song(
-            id: t['track_id']?.toString() ?? '',
-            title: Song.sanitize(t['title']?.toString() ?? 'Unknown Track'),
-            artist: Song.sanitize(t['artist']?.toString() ?? 'Various Artists'),
-            album: '',
-            duration: 0,
-            coverUrl: t['artwork_url']?.toString() ?? '',
-            streamUrl: t['stream_url']?.toString(),
-            source: t['source_type']?.toString() ?? 'saavn',
-          );
-        }).toList();
-
-        cloudMap[plId] = UserPlaylist(
-          id: plId,
-          title: plTitle,
-          createdAt: createdAtMs,
-          tracks: tracks,
-        );
-      }
-
-      // 2. Fetch local playlists from Hive
-      final localPlaylists = PlaylistManager.getPlaylists();
-
-      // Push local-only playlists (created offline) up to Supabase cloud
-      for (final local in localPlaylists) {
-        if (!cloudMap.containsKey(local.id)) {
-          await _pushPlaylistToCloud(local, supaUser.id);
-          cloudMap[local.id] = local;
-        }
-      }
-
-      // 3. Write unified cloud state down into local Hive cache
-      for (final pl in cloudMap.values) {
-        await PlaylistManager.savePlaylistDirectly(pl);
-      }
-
-      PlaylistManager.refreshList();
-      debugPrint('[PlaylistSyncService] Successfully synced ${cloudMap.length} playlists with Supabase');
-    } catch (e) {
-      debugPrint('[PlaylistSyncService] Sync error: $e');
-    } finally {
-      _isSyncing = false;
-    }
+    await SyncManager.syncAll();
   }
+
 
   /// Pushes a complete playlist and its tracks to Supabase
   static Future<void> _pushPlaylistToCloud(UserPlaylist pl, String userId) async {

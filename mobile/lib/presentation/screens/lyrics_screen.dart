@@ -61,6 +61,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
   bool _isUserScrolling = false;
   bool _isLrc = false;
   bool _showOffsetPill = true;
+  bool _isFullscreen = false;
   int _manualOffsetMs = 0;
 
   @override
@@ -271,61 +272,94 @@ class _LyricsScreenState extends State<LyricsScreen> {
                 child: _buildLyricsBody(currentSong),
               ),
 
-              // 3. Top Navigation & Action Header
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: _buildTopBar(currentSong),
-              ),
+              // 3. Top Navigation & Action Header (Hidden in Fullscreen)
+              if (!_isFullscreen)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: _buildTopBar(currentSong),
+                ),
 
               // 4. Floating LyricsOffsetPill Stacked Above Bottom Playback Controls
-              Positioned(
-                bottom: 125,
-                left: 0,
-                right: 0,
-                child: AnimatedSlide(
-                  duration: const Duration(milliseconds: 260),
-                  curve: Curves.easeOutCubic,
-                  offset: _showOffsetPill ? Offset.zero : const Offset(0, 1.4),
-                  child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 220),
-                    opacity: _showOffsetPill ? 1.0 : 0.0,
-                    child: Center(
-                      child: LyricsOffsetPill(
-                        offsetMs: _manualOffsetMs,
-                        onOffsetChanged: (newMs) {
-                          setState(() {
-                            _manualOffsetMs = newMs;
-                          });
-                          audioHandler.lyricsOffsetMsNotifier.value = newMs;
-                          _updateActiveIndexForPosition(audioHandler.player.position);
-                        },
-                        onClose: () {
-                          setState(() {
-                            _showOffsetPill = false;
-                          });
-                        },
-                        onReset: () {
-                          setState(() {
-                            _manualOffsetMs = 0;
-                          });
-                          audioHandler.lyricsOffsetMsNotifier.value = 0;
-                          _updateActiveIndexForPosition(audioHandler.player.position);
-                        },
+              // ONLY visible when the track has synced LRC and NOT in fullscreen mode
+              if (_isLrc && !_isFullscreen)
+                Positioned(
+                  bottom: 125,
+                  left: 0,
+                  right: 0,
+                  child: AnimatedSlide(
+                    duration: const Duration(milliseconds: 260),
+                    curve: Curves.easeOutCubic,
+                    offset: _showOffsetPill ? Offset.zero : const Offset(0, 1.4),
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 220),
+                      opacity: _showOffsetPill ? 1.0 : 0.0,
+                      child: Center(
+                        child: LyricsOffsetPill(
+                          offsetMs: _manualOffsetMs,
+                          onOffsetChanged: (newMs) {
+                            setState(() {
+                              _manualOffsetMs = newMs;
+                            });
+                            audioHandler.lyricsOffsetMsNotifier.value = newMs;
+                            _updateActiveIndexForPosition(audioHandler.player.position);
+                          },
+                          onClose: () {
+                            setState(() {
+                              _showOffsetPill = false;
+                            });
+                          },
+                          onReset: () {
+                            setState(() {
+                              _manualOffsetMs = 0;
+                            });
+                            audioHandler.lyricsOffsetMsNotifier.value = 0;
+                            _updateActiveIndexForPosition(audioHandler.player.position);
+                          },
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
 
-              // 5. Glassmorphic Bottom Playback Controls
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                child: _buildBottomPlaybackBar(currentSong),
-              ),
+              // 5. Glassmorphic Bottom Playback Controls (Hidden in Fullscreen)
+              if (!_isFullscreen)
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: _buildBottomPlaybackBar(currentSong),
+                ),
+
+              // 6. Floating Exit-Fullscreen Button (Only when _isFullscreen is true)
+              if (_isFullscreen)
+                Positioned(
+                  top: MediaQuery.of(context).padding.top + 10,
+                  right: 16,
+                  child: SafeArea(
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () => setState(() => _isFullscreen = false),
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0F172A).withOpacity(0.7),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white.withOpacity(0.15)),
+                          ),
+                          child: const Icon(
+                            Icons.fullscreen_exit_rounded,
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         );
@@ -433,52 +467,70 @@ class _LyricsScreenState extends State<LyricsScreen> {
                 ),
               ),
 
-              // Button to reopen or toggle the Floating LyricsOffsetPill
-              Tooltip(
-                message: _showOffsetPill ? 'Hide Offset Pill' : 'Show Sync Offset Pill',
-                child: InkWell(
-                  onTap: () {
-                    setState(() {
-                      _showOffsetPill = !_showOffsetPill;
-                    });
-                  },
-                  borderRadius: BorderRadius.circular(20),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: isOffsetActive
-                          ? const Color(0xFF1DB954).withOpacity(0.2)
-                          : (_showOffsetPill ? Colors.white.withOpacity(0.12) : Colors.transparent),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
+              // Button to reopen or toggle the Floating LyricsOffsetPill (ONLY for synced LRC)
+              if (_isLrc) ...[
+                Tooltip(
+                  message: _showOffsetPill ? 'Hide Offset Pill' : 'Show Sync Offset Pill',
+                  child: InkWell(
+                    onTap: () {
+                      setState(() {
+                        _showOffsetPill = !_showOffsetPill;
+                      });
+                    },
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
                         color: isOffsetActive
-                            ? const Color(0xFF1DB954).withOpacity(0.4)
-                            : Colors.white.withOpacity(0.12),
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.tune_rounded,
-                          size: 16,
-                          color: isOffsetActive ? const Color(0xFF1DB954) : Colors.white70,
+                            ? const Color(0xFF9333EA).withOpacity(0.25)
+                            : (_showOffsetPill ? Colors.white.withOpacity(0.12) : Colors.transparent),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: isOffsetActive
+                              ? const Color(0xFF9333EA).withOpacity(0.5)
+                              : Colors.white.withOpacity(0.12),
                         ),
-                        if (isOffsetActive) ...[
-                          const SizedBox(width: 4),
-                          Text(
-                            _manualOffsetMs > 0 ? '+${_manualOffsetMs}ms' : '${_manualOffsetMs}ms',
-                            style: const TextStyle(
-                              color: Color(0xFF1DB954),
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                            ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.tune_rounded,
+                            size: 16,
+                            color: isOffsetActive ? const Color(0xFF06B6D4) : Colors.white70,
                           ),
+                          if (isOffsetActive) ...[
+                            const SizedBox(width: 4),
+                            Text(
+                              _manualOffsetMs > 0 ? '+${_manualOffsetMs}ms' : '${_manualOffsetMs}ms',
+                              style: const TextStyle(
+                                color: Color(0xFF06B6D4),
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
                   ),
                 ),
+                const SizedBox(width: 4),
+              ],
+
+              // Always-visible Fullscreen Toggle (⛶)
+              IconButton(
+                icon: Icon(
+                  _isFullscreen ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
+                  color: Colors.white,
+                  size: 26,
+                ),
+                tooltip: _isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen',
+                onPressed: () {
+                  setState(() {
+                    _isFullscreen = !_isFullscreen;
+                  });
+                },
               ),
               const SizedBox(width: 4),
             ],
@@ -520,26 +572,31 @@ class _LyricsScreenState extends State<LyricsScreen> {
     }
 
     if (!_isLrc) {
-      // Plain text unsynced lyrics
+      // Plain text unsynced lyrics (e.g. 'Hukum')
       return NotificationListener<ScrollNotification>(
         onNotification: (_) => false,
         child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
           padding: EdgeInsets.fromLTRB(
             28,
-            MediaQuery.of(context).size.height * 0.16,
+            _isFullscreen ? (MediaQuery.of(context).padding.top + 40) : (MediaQuery.of(context).size.height * 0.14),
             28,
-            MediaQuery.of(context).size.height * 0.25,
+            _isFullscreen ? 60 : (MediaQuery.of(context).size.height * 0.22),
           ),
-          child: Text(
-            Song.sanitize(lyrics),
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              height: 2.0,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 0.2,
-            ),
+          child: Column(
+            children: [
+              Text(
+                Song.sanitize(lyrics),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  height: 2.1,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: 0.25,
+                ),
+              ),
+            ],
           ),
         ),
       );
@@ -588,8 +645,8 @@ class _LyricsScreenState extends State<LyricsScreen> {
                           shadows: isActive
                               ? [
                                   BoxShadow(
-                                    color: const Color(0xFF1DB954).withOpacity(0.4),
-                                    blurRadius: 18,
+                                    color: const Color(0xFF9333EA).withOpacity(0.55),
+                                    blurRadius: 20,
                                     offset: const Offset(0, 2),
                                   ),
                                 ]
@@ -648,7 +705,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
                             trackHeight: 3,
                             thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
                             overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-                            activeTrackColor: const Color(0xFF1DB954),
+                            activeTrackColor: const Color(0xFF06B6D4),
                             inactiveTrackColor: Colors.white12,
                             thumbColor: Colors.white,
                           ),
@@ -683,7 +740,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
                         icon: Icon(
                           Icons.auto_awesome_rounded,
                           size: 22,
-                          color: isSmart ? const Color(0xFF6366F1) : Colors.white38,
+                          color: isSmart ? const Color(0xFF9333EA) : Colors.white38,
                         ),
                         onPressed: () => audioHandler.toggleSmartShuffle(),
                       );
@@ -712,7 +769,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
                             child: SizedBox(
                               width: 24,
                               height: 24,
-                              child: CircularProgressIndicator(color: Color(0xFF1DB954), strokeWidth: 2.5),
+                              child: CircularProgressIndicator(color: Color(0xFF06B6D4), strokeWidth: 2.5),
                             ),
                           ),
                         );
@@ -726,18 +783,18 @@ class _LyricsScreenState extends State<LyricsScreen> {
                           height: 50,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: const Color(0xFF1DB954),
+                            color: const Color(0xFF9333EA),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFF1DB954).withOpacity(0.35),
-                                blurRadius: 14,
+                                color: const Color(0xFF9333EA).withOpacity(0.4),
+                                blurRadius: 16,
                                 offset: const Offset(0, 4),
                               ),
                             ],
                           ),
                           child: Icon(
                             playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                            color: Colors.black,
+                            color: Colors.white,
                             size: 30,
                           ),
                         ),
@@ -761,7 +818,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
                         icon: Icon(
                           loop == LoopMode.one ? Icons.repeat_one_rounded : Icons.repeat_rounded,
                           size: 22,
-                          color: isLooping ? const Color(0xFF1DB954) : Colors.white38,
+                          color: isLooping ? const Color(0xFF06B6D4) : Colors.white38,
                         ),
                         onPressed: () => audioHandler.toggleLoopMode(),
                       );
@@ -822,7 +879,7 @@ class _BgmPulseIndicatorState extends State<_BgmPulseIndicator> with SingleTicke
                 Icon(
                   Icons.music_note_rounded,
                   size: 18,
-                  color: widget.isActive ? const Color(0xFF1DB954) : Colors.white38,
+                  color: widget.isActive ? const Color(0xFF06B6D4) : Colors.white38,
                 ),
               ],
             ),
@@ -838,7 +895,7 @@ class _BgmPulseIndicatorState extends State<_BgmPulseIndicator> with SingleTicke
       height: 7,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: widget.isActive ? const Color(0xFF1DB954) : Colors.white38,
+        color: widget.isActive ? const Color(0xFF06B6D4) : Colors.white38,
       ),
     );
   }

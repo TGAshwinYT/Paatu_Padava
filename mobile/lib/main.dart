@@ -10,6 +10,8 @@ import 'services/settings_manager.dart';
 import 'services/playlist_manager.dart';
 import 'services/player_handler.dart';
 import 'services/history_manager.dart';
+import 'services/supabase_service.dart';
+import 'services/cache_manager.dart';
 import 'presentation/theme/app_theme.dart';
 import 'ui/screens/main_navigation.dart';
 
@@ -25,6 +27,12 @@ Future<void> main() async {
       systemNavigationBarIconBrightness: Brightness.light,
     ),
   );
+
+  // Initialize Supabase client for cloud auth & user taste sync
+  await SupabaseService.init();
+
+  // Run automatic cache cleaner in background (>400MB or >7 days old) without blocking UI
+  CacheManager.autoEvictOldCache();
 
   // Initialize offline Hive storage for songs, favorites, auth session, history, and search history
   try {

@@ -4,6 +4,7 @@ import '../../models/song.dart';
 import '../../services/saavn_client.dart';
 import '../../services/api_client.dart';
 import '../../services/history_manager.dart';
+import '../../services/supabase_service.dart';
 
 /// Centralized repository for fetching, merging, and strictly deduplicating music feeds.
 class SongRepository {
@@ -109,13 +110,29 @@ class SongRepository {
     return result;
   }
 
-  /// Fetches User Taste Mix ("Made For You") based on most frequently played artists in History.
+  /// Fetches User Taste Mix ("Made For You") based on Supabase favorite artists and most frequently played artists in History.
   static Future<List<Song>> getMadeForYou({required String language}) async {
-    final history = HistoryManager.getHistory();
     final List<Song> candidates = [];
+    final List<String> topArtists = [];
 
+    // 1. Prioritize user-selected artists from Supabase
+    try {
+      final supaUser = SupabaseService.currentUser;
+      if (supaUser != null) {
+        final favArtists = await SupabaseService.fetchFavoriteArtists(supaUser.id);
+        for (final fa in favArtists) {
+          final faName = fa['artist_name']?.toString() ?? '';
+          final norm = normalizeArtist(faName);
+          if (norm.isNotEmpty && !topArtists.contains(norm)) {
+            topArtists.add(norm);
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 2. Supplement with top played artists from local History
+    final history = HistoryManager.getHistory();
     if (history.isNotEmpty) {
-      // Find top 3 most frequently played artists
       final Map<String, int> artistCounts = {};
       for (final s in history) {
         final norm = normalizeArtist(s.artist);
@@ -124,13 +141,19 @@ class SongRepository {
         }
       }
 
-      final sortedArtists = artistCounts.keys.toList()
+      final sortedHistoryArtists = artistCounts.keys.toList()
         ..sort((a, b) => (artistCounts[b] ?? 0).compareTo(artistCounts[a] ?? 0));
 
-      final topArtists = sortedArtists.take(3).toList();
+      for (final ha in sortedHistoryArtists) {
+        if (!topArtists.contains(ha) && topArtists.length < 5) {
+          topArtists.add(ha);
+        }
+      }
+    }
 
-      // Fetch tracks for these top artists in parallel
-      final artistFutures = topArtists.map((artistName) {
+    // 3. Fetch tracks for top artists in parallel
+    if (topArtists.isNotEmpty) {
+      final artistFutures = topArtists.take(4).map((artistName) {
         return SaavnClient.search('$artistName $language', limit: 8, language: language);
       });
 
@@ -223,6 +246,29 @@ class SongRepository {
           'image': img,
         });
       }
+
+      // Prioritize user's favorite artists from Supabase
+      try {
+        final supaUser = SupabaseService.currentUser;
+        if (supaUser != null) {
+          final favArtists = await SupabaseService.fetchFavoriteArtists(supaUser.id);
+          for (final fa in favArtists.reversed) {
+            final faName = fa['artist_name']?.toString() ?? '';
+            final norm = normalizeArtist(faName);
+            final customImg = fa['artist_image']?.toString();
+            final avatar = (customImg != null && customImg.isNotEmpty)
+                ? customImg
+                : (_verifiedArtistAvatars[norm] ?? '');
+            if (!enriched.any((a) => normalizeArtist(a['name']?.toString() ?? '') == norm)) {
+              enriched.insert(0, {
+                'id': 'fav_$norm',
+                'name': faName,
+                'image': avatar.isNotEmpty ? avatar : (_verifiedArtistAvatars.values.firstOrNull ?? ''),
+              });
+            }
+          }
+        }
+      } catch (_) {}
 
       if (enriched.isNotEmpty) {
         return enriched;

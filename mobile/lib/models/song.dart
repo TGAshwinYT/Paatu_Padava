@@ -116,6 +116,21 @@ class Song {
     );
   }
 
+  factory Song.fromMediaItem(MediaItem item) {
+    return Song(
+      id: item.id,
+      title: item.title,
+      artist: item.artist ?? '',
+      album: item.album ?? '',
+      coverUrl: item.artUri?.toString() ?? '',
+      duration: item.duration?.inSeconds ?? 0,
+      streamUrl: item.extras?['streamUrl']?.toString(),
+      source: item.extras?['source']?.toString() ?? 'saavn',
+      language: item.extras?['language']?.toString(),
+      isSmartRecommended: item.extras?['isSmartRecommended'] == true,
+    );
+  }
+
   Song copyWith({
     String? id,
     String? title,

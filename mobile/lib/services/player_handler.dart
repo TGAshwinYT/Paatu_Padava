@@ -7,6 +7,9 @@ import '../logic/smart_shuffle_controller.dart';
 import '../models/song.dart';
 import 'api_client.dart';
 import 'history_manager.dart';
+import 'equalizer_service.dart';
+import 'supabase_service.dart';
+import 'auth_manager.dart';
 
 late PaatuAudioHandler audioHandler;
 
@@ -54,6 +57,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       isSmartShuffleNotifier.value = _smartShuffleController.isSmartActive;
     });
 
+    // Connect 5-band equalizer directly to native audio session ID
+    EqualizerService.bindToPlayerSession(_player.androidAudioSessionIdStream);
+
     _initStreams();
   }
 
@@ -61,8 +67,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     // Synchronously update system notification metadata
     mediaItem.add(song.toMediaItem());
 
-    // Record to history & anti-repetition cache
+    // Record to local & Supabase listen history & anti-repetition cache
     HistoryManager.addSong(song);
+    SupabaseService.recordUserHistory(AuthManager.currentUser?.id ?? '', song);
     _smartShuffleController.recordRecentlyPlayed(song.id);
 
     // Reset listen history & lyrics offset

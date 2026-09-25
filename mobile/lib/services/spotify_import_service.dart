@@ -107,6 +107,22 @@ class SpotifyImportService {
     if (rawTitle.isEmpty) return '';
     var clean = _unescape.convert(Song.sanitize(rawTitle));
 
+    // 0. Handle slash separation in dual-language titles (e.g. "Puthu Mazha / പുതുമഴ")
+    if (clean.contains('/')) {
+      final parts = clean.split('/');
+      final latinPart = parts.firstWhere(
+        (p) => RegExp(r'[a-zA-Z]').hasMatch(p),
+        orElse: () => parts.first,
+      );
+      clean = latinPart.trim();
+    }
+
+    // 0b. Remove Indian regional scripts in parentheses/brackets e.g. (പുതുമഴ), [புதுமழை]
+    clean = clean.replaceAll(
+      RegExp(r'\s*[\(\[][^\)\]]*[\u0D00-\u0D7F\u0B80-\u0BFF\u0900-\u097F\u0C00-\u0C7F\u0C80-\u0CFF][^\)\]]*[\)\]]'),
+      '',
+    );
+
     // 1. Remove: (From "Movie") or [From "Movie"] with all quote characters
     clean = clean.replaceAll(
       RegExp(r'\s*[\(\[][Ff]rom\s+["\u201c\u201d\u2018\u2019]?[^)\u201d\]]+["\u201c\u201d\u2018\u2019]?[\)\]]', caseSensitive: false),
@@ -145,6 +161,11 @@ class SpotifyImportService {
 
     // 7. Suffix: " - Live" or " - Single" or " - Remastered"
     clean = clean.replaceAll(RegExp(r'\s*-\s*(?:live|single|stereo|mono|edit|remaster(?:ed)?(?:\s*\d{4})?)$', caseSensitive: false), '');
+
+    // 8. If Latin title exists alongside standalone regional script, strip the regional script
+    if (RegExp(r'[a-zA-Z]').hasMatch(clean)) {
+      clean = clean.replaceAll(RegExp(r'[\u0D00-\u0D7F\u0B80-\u0BFF\u0900-\u097F\u0C00-\u0C7F\u0C80-\u0CFF]+'), '');
+    }
 
     clean = clean.replaceAll(RegExp(r'\s+'), ' ').trim();
     return clean.isNotEmpty ? clean : Song.sanitize(rawTitle);
@@ -553,6 +574,11 @@ class SpotifyImportService {
       }
 
       if (bestSaavn != null && bestSaavnScore >= 70) {
+        if ((bestSaavn.coverUrl.isEmpty || bestSaavn.coverUrl.contains('default')) &&
+            track.coverUrl != null &&
+            track.coverUrl!.isNotEmpty) {
+          bestSaavn = bestSaavn.copyWith(coverUrl: track.coverUrl);
+        }
         return bestSaavn;
       }
     } catch (_) {}
@@ -601,6 +627,9 @@ class SpotifyImportService {
       }
 
       if (bestYt != null && bestYtScore >= 65) {
+        if (track.coverUrl != null && track.coverUrl!.isNotEmpty) {
+          bestYt = bestYt.copyWith(coverUrl: track.coverUrl);
+        }
         return bestYt;
       }
     } catch (_) {}

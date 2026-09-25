@@ -44,7 +44,7 @@ class LyricsOffsetPill extends StatelessWidget {
             borderRadius: BorderRadius.circular(32),
             border: Border.all(
               color: isOffsetActive
-                  ? const Color(0xFF1DB954).withOpacity(0.35)
+                  ? const Color(0xFF06B6D4).withOpacity(0.5)
                   : Colors.white.withOpacity(0.12),
               width: 1.2,
             ),
@@ -56,7 +56,7 @@ class LyricsOffsetPill extends StatelessWidget {
               ),
               if (isOffsetActive)
                 BoxShadow(
-                  color: const Color(0xFF1DB954).withOpacity(0.25),
+                  color: const Color(0xFF9333EA).withOpacity(0.35),
                   blurRadius: 18,
                   spreadRadius: 1,
                 ),
@@ -95,7 +95,7 @@ class LyricsOffsetPill extends StatelessWidget {
                           duration: const Duration(milliseconds: 200),
                           curve: Curves.easeOut,
                           style: TextStyle(
-                            color: isOffsetActive ? const Color(0xFF1DB954) : Colors.white,
+                            color: isOffsetActive ? const Color(0xFF06B6D4) : Colors.white,
                             fontSize: 15,
                             fontWeight: FontWeight.bold,
                             letterSpacing: 0.4,
@@ -107,7 +107,7 @@ class LyricsOffsetPill extends StatelessWidget {
                           'TAP TO RESET',
                           style: TextStyle(
                             color: isOffsetActive
-                                ? const Color(0xFF1DB954).withOpacity(0.85)
+                                ? const Color(0xFF06B6D4).withOpacity(0.85)
                                 : Colors.white38,
                             fontSize: 8.5,
                             fontWeight: FontWeight.w700,

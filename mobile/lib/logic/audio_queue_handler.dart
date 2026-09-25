@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/song.dart';
@@ -35,6 +36,7 @@ class AudioQueueHandler {
 
   StreamSubscription<int?>? _currentIndexSub;
   StreamSubscription<PlayerState>? _playerStateSub;
+  StreamSubscription<SequenceState?>? _sequenceStateSub;
 
   int _sessionToken = 0;
   bool _isLoading = false;
@@ -58,6 +60,28 @@ class AudioQueueHandler {
   bool get isLoading => _isLoading;
 
   void _initStreamListeners() {
+    // Synchronous sequenceState listener: guarantees title, artist, and artwork are driven directly
+    // and synchronously by player.sequenceStateStream.currentSource.tag so it never flashes previous track
+    _sequenceStateSub = player.sequenceStateStream.listen((sequenceState) {
+      if (sequenceState == null) return;
+      final currentSource = sequenceState.currentSource;
+      if (currentSource != null && currentSource.tag != null) {
+        final tag = currentSource.tag;
+        Song? activeSong;
+        if (tag is Song) {
+          activeSong = tag;
+        } else if (tag is MediaItem) {
+          activeSong = Song.fromMediaItem(tag);
+        }
+        if (activeSong != null && activeSong.id != currentSongNotifier.value?.id) {
+          _currentIndex = sequenceState.currentIndex;
+          currentSongNotifier.value = activeSong;
+          onSongChanged?.call(activeSong);
+          onQueueProgress?.call(_currentIndex, _queue.length);
+        }
+      }
+    });
+
     // Atomic synchronization on track transition: updates UI & notification instantly
     _currentIndexSub = player.currentIndexStream.listen((index) {
       if (index != null && index >= 0 && index < _queue.length && index != _currentIndex) {
@@ -464,6 +488,7 @@ class AudioQueueHandler {
   }
 
   void dispose() {
+    _sequenceStateSub?.cancel();
     _currentIndexSub?.cancel();
     _playerStateSub?.cancel();
   }

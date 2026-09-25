@@ -1,9 +1,10 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart' hide CacheManager;
+import 'package:package_info_plus/package_info_plus.dart';
 import '../../services/settings_manager.dart';
 import '../../services/auth_manager.dart';
+import '../../services/equalizer_service.dart';
+import '../../services/cache_manager.dart';
 import '../widgets/mini_player.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -16,6 +17,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   String _cacheSizeStr = 'Calculating...';
   bool _isClearing = false;
+  String _appVersion = 'Version 2.0.0 (Release)';
 
   final List<String> _allLanguages = [
     'Tamil',
@@ -31,24 +33,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    _loadPackageInfo();
     _calculateCacheSize();
+  }
+
+  Future<void> _loadPackageInfo() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (mounted) {
+        setState(() {
+          _appVersion = 'Version ${info.version} (Build ${info.buildNumber})';
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _appVersion = 'Version 2.0.0 (Release)';
+        });
+      }
+    }
   }
 
   Future<void> _calculateCacheSize() async {
     try {
-      final tempDir = await getTemporaryDirectory();
-      int totalBytes = 0;
-      if (tempDir.existsSync()) {
-        tempDir.listSync(recursive: true, followLinks: false).forEach((entity) {
-          if (entity is File) {
-            totalBytes += entity.lengthSync();
-          }
-        });
-      }
-      final mb = totalBytes / (1024 * 1024);
+      final sizeStr = await CacheManager.getCacheSizeString();
       if (mounted) {
         setState(() {
-          _cacheSizeStr = '${mb.toStringAsFixed(1)} MB';
+          _cacheSizeStr = sizeStr;
         });
       }
     } catch (_) {
@@ -64,14 +75,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _isClearing = true);
     try {
       await DefaultCacheManager().emptyCache();
-      final tempDir = await getTemporaryDirectory();
-      if (tempDir.existsSync()) {
-        tempDir.listSync().forEach((entity) {
-          try {
-            entity.deleteSync(recursive: true);
-          } catch (_) {}
-        });
-      }
+      await CacheManager.clearAllCache();
       await _calculateCacheSize();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -397,6 +401,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               max: 10.0,
                               onChanged: (val) {
                                 SettingsManager.setEqBand(index, val);
+                                EqualizerService.setBandLevel(index, val);
                               },
                             ),
                           ),
@@ -412,6 +417,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 }),
               );
             },
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                EqualizerService.isBound
+                    ? 'Native DSP: Active (Session #${EqualizerService.activeSessionId})'
+                    : 'Native DSP: Connected',
+                style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+              ),
+              TextButton.icon(
+                icon: const Icon(Icons.settings_voice_rounded, size: 16, color: Color(0xFF6366F1)),
+                label: const Text('System Equalizer', style: TextStyle(color: Color(0xFF6366F1), fontSize: 12)),
+                onPressed: () => EqualizerService.openSystemEqualizer(),
+              ),
+            ],
           ),
         ],
       ),
@@ -433,7 +455,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
         ),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        onSelected: (_) => SettingsManager.setEqPreset(presetKey),
+        onSelected: (_) {
+          SettingsManager.setEqPreset(presetKey);
+          EqualizerService.applyCurrentBands();
+        },
       ),
     );
   }
@@ -537,11 +562,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.white.withOpacity(0.06)),
       ),
-      child: const Column(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            children: [
+            children: const [
               Icon(Icons.music_note_rounded, color: Color(0xFF6366F1), size: 24),
               SizedBox(width: 10),
               Text(
@@ -550,10 +575,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ],
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           Text(
-            'Version 1.0.0 (Release)\nComplete Web App Parity • Smart AI Shuffle • Lossless Audio Streaming & Offline Downloads.',
-            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12, height: 1.5),
+            '$_appVersion\nComplete Web App Parity • Smart AI Shuffle • Lossless Audio Streaming & Offline Downloads.',
+            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12, height: 1.5),
           ),
         ],
       ),

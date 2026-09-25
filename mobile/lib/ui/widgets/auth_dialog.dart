@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../services/auth_manager.dart';
 import '../../services/supabase_service.dart';
+import '../../services/playlist_sync_service.dart';
 import '../screens/onboarding_screen.dart';
 
 class AuthDialog extends StatefulWidget {
@@ -75,6 +76,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
     setState(() => _isLoading = false);
 
     if (success) {
+      PlaylistSyncService.syncOnLaunch();
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -110,8 +112,9 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
       );
 
       if (supaRes?.user != null) {
-        // Sync with local AuthManager
+        // Sync with local AuthManager and trigger cloud playlist sync
         await AuthManager.register(username, email, pass);
+        PlaylistSyncService.syncOnLaunch();
         if (!mounted) return;
         setState(() => _isLoading = false);
         Navigator.pop(context);
@@ -174,6 +177,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
       if (supaAuth?.session != null) {
         final token = supaAuth!.session?.accessToken ?? 'google_oauth_token';
         await AuthManager.loginWithGoogle(token);
+        PlaylistSyncService.syncOnLaunch();
         if (!mounted) return;
         setState(() => _isLoading = false);
         Navigator.pop(context);

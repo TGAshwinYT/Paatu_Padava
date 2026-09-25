@@ -83,7 +83,7 @@ class MainActivity: AudioServiceActivity() {
                 "release" -> {
                     try {
                         equalizer?.release()
-                    } catch (_) {}
+                    } catch (e: Exception) {}
                     equalizer = null
                     currentSessionId = 0
                     result.success(true)
@@ -96,7 +96,7 @@ class MainActivity: AudioServiceActivity() {
     override fun onDestroy() {
         try {
             equalizer?.release()
-        } catch (_) {}
+        } catch (e: Exception) {}
         equalizer = null
         super.onDestroy()
     }

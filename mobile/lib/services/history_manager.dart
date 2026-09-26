@@ -30,17 +30,22 @@ class HistoryManager {
   }
 
   static void _refreshList() {
-    final List<Song> list = [];
+    final List<MapEntry<int, Song>> entries = [];
+    int fallbackIndex = 0;
     for (final key in _box.keys) {
       final data = _box.get(key);
       if (data != null && data is Map) {
         try {
-          list.add(Song.fromMap(data));
+          final timestamp = (data['played_at'] is num)
+              ? (data['played_at'] as num).toInt()
+              : fallbackIndex++;
+          entries.add(MapEntry(timestamp, Song.fromMap(data)));
         } catch (_) {}
       }
     }
-    // Most recent first
-    historyNotifier.value = list.reversed.toList();
+    // Highest timestamp (most recent play) first
+    entries.sort((a, b) => b.key.compareTo(a.key));
+    historyNotifier.value = entries.map((e) => e.value).toList();
   }
 
   static List<Song> getHistory() => historyNotifier.value;
@@ -72,9 +77,12 @@ class HistoryManager {
         await _box.delete(firstKey);
       }
 
-      // Store new timestamped entry
-      final key = 'h_${DateTime.now().millisecondsSinceEpoch}_${song.id}';
-      await _box.put(key, song.toMap());
+      // Store new timestamped entry with explicit played_at epoch ms
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final key = 'h_${now}_${song.id}';
+      final songMap = Map<String, dynamic>.from(song.toMap());
+      songMap['played_at'] = now;
+      await _box.put(key, songMap);
       _refreshList();
 
       // 2. Coordinated Cloud Persistence
@@ -156,8 +164,14 @@ class HistoryManager {
             coverUrl: row['cover_url']?.toString() ?? '',
             source: row['source']?.toString() ?? 'saavn',
           );
-          final key = 'h_${DateTime.now().millisecondsSinceEpoch}_$songId';
-          await _box.put(key, song.toMap());
+          final playedAtStr = row['played_at']?.toString();
+          final epochMs = playedAtStr != null
+              ? (DateTime.tryParse(playedAtStr)?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch)
+              : DateTime.now().millisecondsSinceEpoch;
+          final key = 'h_${epochMs}_$songId';
+          final map = Map<String, dynamic>.from(song.toMap());
+          map['played_at'] = epochMs;
+          await _box.put(key, map);
           localIds.add(songId);
         }
       }

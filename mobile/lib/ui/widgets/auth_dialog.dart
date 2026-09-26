@@ -165,9 +165,12 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
       }
     } catch (e) {
       if (!mounted) return;
+      final msg = e.toString().replaceAll('Exception:', '').trim();
       setState(() {
         _isLoading = false;
-        _errorMessage = 'Google Sign-In failed: $e';
+        _errorMessage = msg.isNotEmpty
+            ? msg
+            : 'Google Sign-In is unavailable right now. Please sign in with email and password.';
       });
     }
   }

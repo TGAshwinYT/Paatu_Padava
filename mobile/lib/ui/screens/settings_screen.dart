@@ -5,6 +5,7 @@ import '../../services/settings_manager.dart';
 import '../../services/auth_manager.dart';
 import '../../services/equalizer_service.dart';
 import '../../services/cache_manager.dart';
+import '../../services/supabase_service.dart';
 import '../widgets/mini_player.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -555,6 +556,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildAboutCard() {
+    final isConfigured = SupabaseService.isConfigured;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -577,8 +579,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            '$_appVersion\nComplete Web App Parity • Smart AI Shuffle • Lossless Audio Streaming & Offline Downloads.',
+            '$_appVersion • Build: 2026-09-26\nComplete Web App Parity • Smart AI Shuffle • Lossless Audio Streaming & Offline Downloads.',
             style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12, height: 1.5),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: isConfigured ? const Color(0xFF10B981).withOpacity(0.12) : const Color(0xFFEF4444).withOpacity(0.12),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: isConfigured ? const Color(0xFF10B981).withOpacity(0.3) : const Color(0xFFEF4444).withOpacity(0.3),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  isConfigured ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
+                  size: 14,
+                  color: isConfigured ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    isConfigured
+                        ? 'Cloud Sync: Active (${SupabaseService.supabaseUrl.contains('bdolimatfkyqibiedlqp') ? 'Production' : 'Connected'})'
+                        : 'Cloud Sync: Offline (Secrets not baked into this APK)',
+                    style: TextStyle(
+                      color: isConfigured ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),

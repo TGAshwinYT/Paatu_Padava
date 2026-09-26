@@ -126,26 +126,32 @@ class SupabaseService {
     }
   }
 
+  static const String googleWebClientId = String.fromEnvironment(
+    'GOOGLE_WEB_CLIENT_ID',
+    defaultValue: '651588945329-odttbp9ilg38qf0ji42978l8mkto9f5u.apps.googleusercontent.com',
+  );
+
   /// Native Google Sign-In with Supabase OAuth Token Exchange
   static Future<AuthResponse?> signInWithGoogle() async {
     if (!isConfigured || client == null) {
-      throw 'Google Sign-In is unavailable. Supabase credentials are not configured on this build.';
+      throw 'Cloud sync is offline: Supabase credentials are not configured on this build.';
     }
     final c = client!;
 
     try {
       final googleSignIn = GoogleSignIn(
+        serverClientId: googleWebClientId.isNotEmpty ? googleWebClientId : null,
         scopes: ['email', 'profile'],
       );
       final googleUser = await googleSignIn.signIn();
-      if (googleUser == null) return null; // User cancelled
+      if (googleUser == null) return null; // User cancelled cleanly
 
       final googleAuth = await googleUser.authentication;
       final accessToken = googleAuth.accessToken;
       final idToken = googleAuth.idToken;
 
-      if (idToken == null) {
-        throw 'Missing Google ID Token';
+      if (idToken == null || idToken.isEmpty) {
+        throw 'Google Sign-In did not return a valid authentication token. Please use email and password sign-in.';
       }
 
       final res = await c.auth.signInWithIdToken(
@@ -154,9 +160,18 @@ class SupabaseService {
         accessToken: accessToken,
       );
       return res;
+    } on AuthException catch (e) {
+      throw e.message;
     } catch (e) {
       debugPrint('[SupabaseService] Google Sign-In error: $e');
-      rethrow;
+      final errStr = e.toString();
+      if (errStr.contains('ApiException: 10') ||
+          errStr.contains('sign_in_failed') ||
+          errStr.contains('DEVELOPER_ERROR') ||
+          errStr.contains('PlatformException')) {
+        throw 'Google Sign-In is not enabled on this APK or the SHA-1 fingerprint is still registering in Google Cloud. Please sign in with email and password.';
+      }
+      throw 'Google Sign-In was cancelled or failed. Please try again or use email sign-in.';
     }
   }
 

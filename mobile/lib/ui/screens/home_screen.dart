@@ -19,6 +19,7 @@ import 'album_screen.dart';
 import 'settings_screen.dart';
 import 'liked_songs_screen.dart';
 import 'history_screen.dart';
+import '../widgets/account_bar_button.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -203,36 +204,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 },
                               ),
                               const SizedBox(width: 4),
-                              ValueListenableBuilder<AuthUser?>(
-                                valueListenable: AuthManager.authNotifier,
-                                builder: (context, user, _) {
-                                  final isUser = user != null && !user.isGuest;
-                                  return InkWell(
-                                    onTap: () => AuthDialog.show(context),
-                                    borderRadius: BorderRadius.circular(24),
-                                    child: Container(
-                                      padding: const EdgeInsets.all(2),
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: isUser ? AppColors.neonViolet : Colors.white24,
-                                          width: 1.5,
-                                        ),
-                                      ),
-                                      child: CircleAvatar(
-                                        radius: 16,
-                                        backgroundColor: isUser ? AppColors.neonViolet : AppColors.surfaceElevated,
-                                        child: isUser
-                                            ? Text(
-                                                user.username.isNotEmpty ? user.username[0].toUpperCase() : 'U',
-                                                style: const TextStyle(fontSize: 13, color: Colors.white, fontWeight: FontWeight.bold),
-                                              )
-                                            : const Icon(Icons.person_outline_rounded, size: 18, color: Colors.white70),
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
+                              const AccountBarButton(),
                             ],
                           ),
                         ],

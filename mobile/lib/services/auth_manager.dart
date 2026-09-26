@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:http/http.dart' as http;
+import 'package:supabase_flutter/supabase_flutter.dart' as supa;
+import 'supabase_service.dart';
+import 'sync_manager.dart';
 
 class AuthUser {
   final String id;
@@ -57,6 +60,25 @@ class AuthUser {
     );
   }
 
+  factory AuthUser.fromSupabase(supa.User user, {List<String>? languages, List<String>? artists}) {
+    final meta = user.userMetadata ?? {};
+    final username = meta['username']?.toString() ??
+        meta['full_name']?.toString() ??
+        meta['name']?.toString() ??
+        (user.email != null && user.email!.contains('@') ? user.email!.split('@').first : 'Listener');
+    final avatar = meta['avatar_url']?.toString() ?? meta['picture']?.toString() ?? '';
+
+    return AuthUser(
+      id: user.id,
+      username: username,
+      email: user.email ?? '',
+      avatarUrl: avatar,
+      preferredLanguages: languages ?? ['tamil', 'english'],
+      favoriteArtists: artists ?? [],
+      isGuest: false,
+    );
+  }
+
   factory AuthUser.guest() => AuthUser(
     id: 'guest',
     username: 'Guest Listener',
@@ -65,9 +87,10 @@ class AuthUser {
   );
 }
 
+/// Unified Identity Manager driven strictly by Supabase Auth.
+/// Completely eliminates dual-backend desynchronization and silent sync failures.
 class AuthManager {
   static const String boxName = 'auth_box';
-  static const String baseUrl = 'https://tgashwinyt-paatu-padava.hf.space';
 
   static final ValueNotifier<String?> tokenNotifier = ValueNotifier<String?>(null);
   static final ValueNotifier<AuthUser?> authNotifier = ValueNotifier<AuthUser?>(null);
@@ -75,215 +98,164 @@ class AuthManager {
   static AuthUser? get currentUser => authNotifier.value;
   static AuthUser? get user => currentUser;
   static String? get token => tokenNotifier.value;
-  static bool get isLoggedIn => token != null && token!.isNotEmpty && !(currentUser?.isGuest ?? true);
+  static bool get isLoggedIn => SupabaseService.currentUser != null && !(currentUser?.isGuest ?? true);
 
   static Box get _box => Hive.box(boxName);
+  static StreamSubscription? _authSub;
 
   static Future<void> init() async {
     await Hive.openBox(boxName);
-    final savedToken = _box.get('jwt_token') as String?;
-    final savedUser = _box.get('user_profile');
 
-    if (savedToken != null && savedToken.isNotEmpty) {
-      tokenNotifier.value = savedToken;
-      if (savedUser is Map) {
-        authNotifier.value = AuthUser.fromJson(savedUser);
-      }
-      fetchCurrentUser();
+    // 1. Initial State from Supabase Client
+    final supaUser = SupabaseService.currentUser;
+    if (supaUser != null) {
+      final sessionToken = SupabaseService.client?.auth.currentSession?.accessToken;
+      tokenNotifier.value = sessionToken;
+      await _loadCachedUserOrSupabase(supaUser);
     } else {
-      // Default to guest session so user can immediately browse
-      if (_box.get('user_profile') == null) {
-        await loginAsGuest();
-      } else if (savedUser is Map) {
+      final savedUser = _box.get('user_profile');
+      if (savedUser is Map && savedUser['is_guest'] == true) {
         authNotifier.value = AuthUser.fromJson(savedUser);
+      } else {
+        await loginAsGuest();
       }
     }
+
+    // 2. Listen to Supabase Auth state stream
+    _authSub?.cancel();
+    _authSub = SupabaseService.authStateChanges?.listen((data) async {
+      final user = data.session?.user ?? SupabaseService.currentUser;
+      if (user != null) {
+        tokenNotifier.value = data.session?.accessToken;
+        await _loadCachedUserOrSupabase(user);
+        // Automatically sync cloud library on sign in / session refresh
+        SyncManager.syncAll();
+      } else if (data.event == supa.AuthChangeEvent.signedOut) {
+        tokenNotifier.value = null;
+        await loginAsGuest();
+      }
+    });
+  }
+
+  static Future<void> _loadCachedUserOrSupabase(supa.User supaUser) async {
+    final savedUser = _box.get('user_profile');
+    List<String> langs = ['tamil', 'english'];
+    List<String> artists = [];
+
+    if (savedUser is Map && savedUser['id'] == supaUser.id) {
+      final cached = AuthUser.fromJson(savedUser);
+      langs = cached.preferredLanguages;
+      artists = cached.favoriteArtists;
+    }
+
+    // Load preferences from Supabase profiles
+    try {
+      final remoteLangs = await SupabaseService.fetchUserPreferences(supaUser.id);
+      if (remoteLangs.isNotEmpty) langs = remoteLangs;
+    } catch (_) {}
+
+    final authUser = AuthUser.fromSupabase(supaUser, languages: langs, artists: artists);
+    authNotifier.value = authUser;
+    await _box.put('user_profile', authUser.toJson());
   }
 
   static Future<bool> login(String email, String password) async {
-    try {
-      final uri = Uri.parse('$baseUrl/api/auth/login');
-      final response = await http.post(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'email': email.trim(), 'password': password}),
-      ).timeout(const Duration(seconds: 6));
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final jwt = data['access_token'] ?? data['token'];
-        if (jwt != null) {
-          final userJson = data['user'] is Map ? data['user'] : {'email': email, 'name': email.split('@').first};
-          final user = AuthUser.fromJson(userJson);
-          await _saveSession(jwt.toString(), user);
-          fetchCurrentUser();
-          return true;
-        }
-      }
-      return false;
-    } catch (e) {
-      return false;
+    final res = await SupabaseService.signIn(email: email, password: password);
+    if (res?.user != null) {
+      tokenNotifier.value = res?.session?.accessToken;
+      await _loadCachedUserOrSupabase(res!.user!);
+      SyncManager.syncAll();
+      return true;
     }
-  }
-
-  static Future<bool> loginWithGoogle(String credential) async {
-    try {
-      final uri = Uri.parse('$baseUrl/api/auth/google');
-      final response = await http.post(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'credential': credential.trim()}),
-      ).timeout(const Duration(seconds: 8));
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final jwt = data['access_token'] ?? data['token'];
-        if (jwt != null) {
-          final userJson = data['user'] is Map ? data['user'] : {'name': 'Google Listener'};
-          final user = AuthUser.fromJson(userJson);
-          await _saveSession(jwt.toString(), user);
-          fetchCurrentUser();
-          return true;
-        }
-      }
-      return false;
-    } catch (e) {
-      return false;
-    }
+    return false;
   }
 
   static Future<bool> register(String username, String email, String password) async {
-    try {
-      final uri = Uri.parse('$baseUrl/api/auth/register');
-      final response = await http.post(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'username': username.trim(),
-          'email': email.trim(),
-          'password': password,
-        }),
-      ).timeout(const Duration(seconds: 6));
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        // Auto-login after registration
-        return await login(email, password);
-      }
-      return false;
-    } catch (e) {
-      return false;
+    final res = await SupabaseService.signUp(
+      email: email,
+      password: password,
+      username: username,
+    );
+    if (res?.user != null) {
+      tokenNotifier.value = res?.session?.accessToken;
+      await _loadCachedUserOrSupabase(res!.user!);
+      SyncManager.syncAll();
+      return true;
     }
+    return false;
+  }
+
+  static Future<bool> loginWithGoogle([String? idToken]) async {
+    final res = await SupabaseService.signInWithGoogle();
+    if (res?.user != null) {
+      tokenNotifier.value = res?.session?.accessToken;
+      await _loadCachedUserOrSupabase(res!.user!);
+      SyncManager.syncAll();
+      return true;
+    }
+    return false;
   }
 
   static Future<void> loginAsGuest() async {
     final guest = AuthUser.guest();
     authNotifier.value = guest;
+    tokenNotifier.value = null;
     await _box.put('user_profile', guest.toJson());
   }
 
-  static Future<void> fetchCurrentUser() async {
-    if (!isLoggedIn) return;
-    try {
-      final uri = Uri.parse('$baseUrl/api/auth/me');
-      final response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      ).timeout(const Duration(seconds: 4));
-
-      if (response.statusCode == 200) {
-        final userJson = json.decode(response.body);
-        if (userJson is Map) {
-          final user = AuthUser.fromJson(userJson);
-          authNotifier.value = user;
-          await _box.put('user_profile', user.toJson());
-        }
-      }
-    } catch (_) {}
+  static Future<void> logout() async {
+    await SupabaseService.signOut();
+    tokenNotifier.value = null;
+    await loginAsGuest();
   }
 
   static Future<bool> updateLanguagePreferences(List<String> languages) async {
-    try {
-      // Update local state immediately
-      final current = currentUser;
-      if (current != null) {
-        final updated = AuthUser(
-          id: current.id,
-          username: current.username,
-          email: current.email,
-          avatarUrl: current.avatarUrl,
-          preferredLanguages: languages,
-          favoriteArtists: current.favoriteArtists,
-          isGuest: current.isGuest,
-        );
-        authNotifier.value = updated;
-        await _box.put('user_profile', updated.toJson());
-      }
+    final current = currentUser;
+    if (current != null) {
+      final updated = AuthUser(
+        id: current.id,
+        username: current.username,
+        email: current.email,
+        avatarUrl: current.avatarUrl,
+        preferredLanguages: languages,
+        favoriteArtists: current.favoriteArtists,
+        isGuest: current.isGuest,
+      );
+      authNotifier.value = updated;
+      await _box.put('user_profile', updated.toJson());
 
       if (isLoggedIn) {
-        final uri = Uri.parse('$baseUrl/api/auth/language-preferences');
-        await http.patch(
-          uri,
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $token',
-          },
-          body: json.encode(languages),
-        ).timeout(const Duration(seconds: 5));
+        await SupabaseService.saveUserTaste(
+          languages: languages,
+          artistNames: current.favoriteArtists,
+        );
       }
-      return true;
-    } catch (_) {
-      return false;
     }
+    return true;
   }
 
   static Future<bool> updateArtistPreferences(List<String> artists) async {
-    try {
-      final current = currentUser;
-      if (current != null) {
-        final updated = AuthUser(
-          id: current.id,
-          username: current.username,
-          email: current.email,
-          avatarUrl: current.avatarUrl,
-          preferredLanguages: current.preferredLanguages,
-          favoriteArtists: artists,
-          isGuest: current.isGuest,
-        );
-        authNotifier.value = updated;
-        await _box.put('user_profile', updated.toJson());
-      }
+    final current = currentUser;
+    if (current != null) {
+      final updated = AuthUser(
+        id: current.id,
+        username: current.username,
+        email: current.email,
+        avatarUrl: current.avatarUrl,
+        preferredLanguages: current.preferredLanguages,
+        favoriteArtists: artists,
+        isGuest: current.isGuest,
+      );
+      authNotifier.value = updated;
+      await _box.put('user_profile', updated.toJson());
 
       if (isLoggedIn) {
-        final uri = Uri.parse('$baseUrl/api/auth/preferences');
-        await http.patch(
-          uri,
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $token',
-          },
-          body: json.encode(artists),
-        ).timeout(const Duration(seconds: 5));
+        await SupabaseService.saveUserTaste(
+          languages: current.preferredLanguages,
+          artistNames: artists,
+        );
       }
-      return true;
-    } catch (_) {
-      return false;
     }
-  }
-
-  static Future<void> _saveSession(String jwt, AuthUser user) async {
-    await _box.put('jwt_token', jwt);
-    await _box.put('user_profile', user.toJson());
-    tokenNotifier.value = jwt;
-    authNotifier.value = user;
-  }
-
-  static Future<void> logout() async {
-    await _box.delete('jwt_token');
-    await _box.delete('user_profile');
-    tokenNotifier.value = null;
-    await loginAsGuest();
+    return true;
   }
 }

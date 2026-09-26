@@ -12,7 +12,7 @@ import 'services/player_handler.dart';
 import 'services/history_manager.dart';
 import 'services/supabase_service.dart';
 import 'services/cache_manager.dart';
-import 'presentation/theme/app_theme.dart';
+import 'ui/theme/app_theme.dart';
 import 'ui/screens/main_navigation.dart';
 
 Future<void> main() async {

@@ -4,14 +4,14 @@ import 'package:google_sign_in/google_sign_in.dart';
 import '../models/song.dart';
 
 class SupabaseService {
-  // Configurable Supabase credentials
+  // Configurable Supabase credentials injected via --dart-define in CI/CD
   static const String supabaseUrl = String.fromEnvironment(
     'SUPABASE_URL',
-    defaultValue: 'https://pqqrklvvdzsfuxaocvvi.supabase.co',
+    defaultValue: 'https://placeholder.supabase.co',
   );
   static const String supabaseAnonKey = String.fromEnvironment(
     'SUPABASE_ANON_KEY',
-    defaultValue: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.placeholder_anon_key',
+    defaultValue: 'placeholder-anon-key',
   );
 
   static bool _isInitialized = false;
@@ -28,6 +28,9 @@ class SupabaseService {
 
   /// Current authenticated Supabase user
   static User? get currentUser => client?.auth.currentUser;
+
+  /// Stream of Supabase authentication state changes
+  static Stream<AuthState>? get authStateChanges => client?.auth.onAuthStateChange;
 
   static Future<void> init() async {
     try {
@@ -140,16 +143,19 @@ class SupabaseService {
     } catch (_) {}
   }
 
-  /// Fetch user preferences (e.g. preferred languages) from table `user_preferences`
-  static Future<List<String>> fetchUserPreferences(String userId) async {
+  /// Fetch user preferences (e.g. preferred languages) from table `profiles`
+  static Future<List<String>> fetchUserPreferences([String? userId]) async {
     final c = client;
-    if (c == null || userId.isEmpty || userId == 'guest') return [];
+    final user = currentUser;
+    if (c == null || user == null) return [];
+
+    final targetId = (userId != null && userId.isNotEmpty && userId != 'guest') ? userId : user.id;
 
     try {
       final data = await c
-          .from('user_preferences')
+          .from('profiles')
           .select('preferred_languages')
-          .eq('user_id', userId)
+          .eq('id', targetId)
           .maybeSingle();
 
       if (data != null && data['preferred_languages'] != null) {
@@ -164,16 +170,19 @@ class SupabaseService {
     return [];
   }
 
-  /// Fetch favorite artists from table `favorite_artists`
-  static Future<List<Map<String, dynamic>>> fetchFavoriteArtists(String userId) async {
+  /// Fetch favorite artists from table `user_favorite_artists`
+  static Future<List<Map<String, dynamic>>> fetchFavoriteArtists([String? userId]) async {
     final c = client;
-    if (c == null || userId.isEmpty || userId == 'guest') return [];
+    final user = currentUser;
+    if (c == null || user == null) return [];
+
+    final targetId = (userId != null && userId.isNotEmpty && userId != 'guest') ? userId : user.id;
 
     try {
       final List<dynamic> data = await c
-          .from('favorite_artists')
-          .select('artist_name, artist_image, genres')
-          .eq('user_id', userId)
+          .from('user_favorite_artists')
+          .select('artist_name, artist_image_url')
+          .eq('user_id', targetId)
           .order('created_at', ascending: false);
 
       return data.map((item) => Map<String, dynamic>.from(item as Map)).toList();
@@ -185,21 +194,23 @@ class SupabaseService {
 
   /// Save user favorite artists directly to Supabase table `user_favorite_artists`
   static Future<void> saveUserFavoriteArtists({
-    required String userId,
+    String? userId,
     required List<Map<String, String>> artists,
   }) async {
     final c = client;
-    if (c == null || userId.isEmpty || userId == 'guest') return;
+    final user = currentUser;
+    if (c == null || user == null) return;
+
+    final targetId = (userId != null && userId.isNotEmpty && userId != 'guest') ? userId : user.id;
 
     try {
       final rows = artists.map((a) => {
-        'user_id': userId,
+        'user_id': targetId,
         'artist_name': a['name'] ?? '',
         'artist_image_url': a['image'] ?? '',
       }).where((r) => (r['artist_name'] as String).isNotEmpty).toList();
 
       if (rows.isNotEmpty) {
-        // Upsert into user_favorite_artists with onConflict: user_id, artist_name
         await c.from('user_favorite_artists').upsert(
           rows,
           onConflict: 'user_id, artist_name',
@@ -212,25 +223,28 @@ class SupabaseService {
 
   /// Save / Upsert user music preferences and favorite artists
   static Future<void> saveUserTaste({
-    required String userId,
+    String? userId,
     required List<String> languages,
     required List<String> artistNames,
   }) async {
     final c = client;
-    if (c == null || userId.isEmpty || userId == 'guest') return;
+    final user = currentUser;
+    if (c == null || user == null) return;
+
+    final targetId = (userId != null && userId.isNotEmpty && userId != 'guest') ? userId : user.id;
 
     try {
       // 1. Upsert profile preferences
       await c.from('profiles').upsert({
-        'id': userId,
-        'email': currentUser?.email ?? '',
+        'id': targetId,
+        'email': user.email ?? '',
         'preferred_languages': languages,
       });
 
       // 2. Insert favorite artists into user_favorite_artists
       if (artistNames.isNotEmpty) {
         final artistRows = artistNames.map((name) => {
-          'user_id': userId,
+          'user_id': targetId,
           'artist_name': name,
         }).toList();
 
@@ -244,14 +258,17 @@ class SupabaseService {
     }
   }
 
-  /// Record playback event to table `user_history`
-  static Future<void> recordUserHistory(String userId, Song song) async {
+  /// Record playback event to table `user_history` (strictly requiring authenticated Supabase session)
+  static Future<void> recordUserHistory(String? userId, Song song) async {
     final c = client;
-    if (c == null || userId.isEmpty || userId == 'guest') return;
+    final user = currentUser;
+    if (c == null || user == null) return;
+
+    final targetId = (userId != null && userId.isNotEmpty && userId != 'guest') ? userId : user.id;
 
     try {
       await c.from('user_history').insert({
-        'user_id': userId,
+        'user_id': targetId,
         'song_id': song.id,
         'title': song.title,
         'artist': song.artist,

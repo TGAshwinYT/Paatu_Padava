@@ -64,11 +64,6 @@ class HistoryManager {
       final key = 'h_${DateTime.now().millisecondsSinceEpoch}';
       await _box.put(key, song.toMap());
       _refreshList();
-
-      // Cloud listen log
-      if (AuthManager.isLoggedIn) {
-        ApiClient.addListenHistory(song);
-      }
     } catch (_) {}
   }
 

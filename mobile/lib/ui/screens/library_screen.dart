@@ -12,6 +12,7 @@ import '../../services/auth_manager.dart';
 import '../widgets/auth_dialog.dart';
 import '../widgets/spotify_import_dialog.dart';
 import '../widgets/add_to_playlist_dialog.dart';
+import '../widgets/sync_status_indicator.dart';
 import 'playlist_screen.dart';
 import 'settings_screen.dart';
 import 'liked_songs_screen.dart';
@@ -190,6 +191,8 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      const SyncStatusIndicator(showLabel: true),
+                      const SizedBox(width: 6),
                       IconButton(
                         icon: const Icon(Icons.settings_outlined, color: Colors.white, size: 22),
                         tooltip: 'Settings & Equalizer',

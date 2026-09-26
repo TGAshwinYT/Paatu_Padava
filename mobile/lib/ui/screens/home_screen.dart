@@ -9,10 +9,11 @@ import '../../services/favorites_manager.dart';
 import '../../services/auth_manager.dart';
 import '../../services/history_manager.dart';
 import '../../logic/home_feed_provider.dart';
-import '../../presentation/theme/app_theme.dart';
+import '../theme/app_theme.dart';
 import '../widgets/spotify_import_dialog.dart';
 import '../widgets/auth_dialog.dart';
 import '../widgets/add_to_playlist_dialog.dart';
+import '../widgets/sync_status_indicator.dart';
 import 'artist_screen.dart';
 import 'album_screen.dart';
 import 'settings_screen.dart';
@@ -182,10 +183,12 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ],
                           ),
-                          // Action icons: Settings + Account Profile
+                          // Action icons: Cloud Sync + Settings + Account Profile
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              const SyncStatusIndicator(),
+                              const SizedBox(width: 4),
                               IconButton(
                                 icon: const Icon(Icons.settings_outlined, color: Colors.white, size: 22),
                                 tooltip: 'Settings & Equalizer',

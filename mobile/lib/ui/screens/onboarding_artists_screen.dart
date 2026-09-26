@@ -5,7 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../services/auth_manager.dart';
 import '../../services/supabase_service.dart';
 import '../../services/saavn_client.dart';
-import '../../presentation/theme/app_theme.dart';
+import '../theme/app_theme.dart';
 
 class OnboardingArtistsScreen extends StatefulWidget {
   final VoidCallback? onCompleted;

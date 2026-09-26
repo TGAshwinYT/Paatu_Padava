@@ -4,7 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../services/auth_manager.dart';
 import '../../services/api_client.dart';
-import '../../presentation/screens/onboarding_artists_screen.dart';
+import 'onboarding_artists_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
   final VoidCallback? onCompleted;

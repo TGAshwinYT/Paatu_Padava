@@ -15,7 +15,7 @@ import '../../services/settings_manager.dart';
 import '../../services/fuzzy_search_service.dart';
 import '../../services/search_service.dart';
 import '../../data/repositories/song_repository.dart';
-import '../../presentation/theme/app_theme.dart';
+import '../theme/app_theme.dart';
 import '../widgets/spotify_import_dialog.dart';
 import '../widgets/add_to_playlist_dialog.dart';
 import 'artist_screen.dart';

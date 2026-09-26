@@ -10,7 +10,6 @@ import 'api_client.dart';
 import 'history_manager.dart';
 import 'equalizer_service.dart';
 import 'supabase_service.dart';
-import 'auth_manager.dart';
 import 'youtube_client.dart';
 
 late PaatuAudioHandler audioHandler;
@@ -117,9 +116,12 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     // Synchronously update system notification metadata
     mediaItem.add(song.toMediaItem());
 
-    // Record to local & Supabase listen history & anti-repetition cache
+    // Record to local Hive & Supabase listen history (if authenticated) & anti-repetition cache
     HistoryManager.addSong(song);
-    SupabaseService.recordUserHistory(AuthManager.currentUser?.id ?? '', song);
+    final supaUser = SupabaseService.currentUser;
+    if (supaUser != null) {
+      SupabaseService.recordUserHistory(supaUser.id, song);
+    }
     _smartShuffleController.recordRecentlyPlayed(song.id);
 
     // Reset listen history & lyrics offset
@@ -189,11 +191,10 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       }
     });
 
-    // 15-second listen tracker: trains backend item-item collaborative filtering ML graph
+    // 15-second listen tracker
     throttledPositionStream.listen((pos) {
       if (!_hasRecordedListen && pos.inSeconds >= 15 && currentSong != null) {
         _hasRecordedListen = true;
-        ApiClient.addListenHistory(currentSong!);
       }
     });
   }

@@ -12,12 +12,13 @@ class TrackEntity {
   /// Centralized robust string sanitization via HtmlUnescape
   static String sanitize(dynamic text, {String fallback = ''}) {
     if (text == null) return fallback;
-    final str = text.toString();
+    final str = text.toString().trim();
     if (str.isEmpty) return fallback;
     try {
-      return _unescape.convert(str).trim();
+      final unescaped = _unescape.convert(str).trim();
+      return unescaped.isEmpty ? fallback : unescaped;
     } catch (_) {
-      return str.trim();
+      return str.isEmpty ? fallback : str;
     }
   }
 

@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../models/song.dart';
-import 'playlist_sync_service.dart';
+import 'sync_manager.dart';
 
 class UserPlaylist {
   String id;
@@ -46,8 +46,8 @@ class PlaylistManager {
   static Future<void> init() async {
     await Hive.openBox(boxName);
     _refreshList();
-    // Bidirectional Supabase cloud playlist sync on app launch
-    PlaylistSyncService.syncOnLaunch();
+    // Unified Supabase cloud playlist sync on app launch
+    SyncManager.syncAll();
   }
 
   static void _refreshList() {
@@ -88,26 +88,26 @@ class PlaylistManager {
 
   /// Creates a new playlist with immediate local persistence and Supabase cloud sync
   static Future<UserPlaylist> createPlaylist(String title, {List<Song>? initialTracks}) async {
-    return await PlaylistSyncService.createPlaylist(title, initialTracks: initialTracks);
+    return await SyncManager.createPlaylist(title, initialTracks: initialTracks);
   }
 
   /// Adds a song to a playlist with immediate local persistence and Supabase cloud sync
   static Future<bool> addSongToPlaylist(String playlistId, Song song) async {
-    return await PlaylistSyncService.addSongToPlaylist(playlistId, song);
+    return await SyncManager.addSongToPlaylist(playlistId, song);
   }
 
   /// Removes a song from a playlist with immediate local persistence and Supabase cloud sync
   static Future<void> removeSongFromPlaylist(String playlistId, String songId) async {
-    await PlaylistSyncService.removeSongFromPlaylist(playlistId, songId);
+    await SyncManager.removeSongFromPlaylist(playlistId, songId);
   }
 
   /// Deletes a playlist with immediate local removal and Supabase cloud cascade deletion
   static Future<void> deletePlaylist(String playlistId) async {
-    await PlaylistSyncService.deletePlaylist(playlistId);
+    await SyncManager.deletePlaylist(playlistId);
   }
 
   /// Renames a playlist in local storage and Supabase cloud
   static Future<void> renamePlaylist(String playlistId, String newTitle) async {
-    await PlaylistSyncService.renamePlaylist(playlistId, newTitle);
+    await SyncManager.renamePlaylist(playlistId, newTitle);
   }
 }

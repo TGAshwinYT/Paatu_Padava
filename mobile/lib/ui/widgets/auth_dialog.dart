@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../services/auth_manager.dart';
-import '../../services/supabase_service.dart';
-import '../../services/playlist_sync_service.dart';
 import '../screens/onboarding_screen.dart';
 
 class AuthDialog extends StatefulWidget {
@@ -67,25 +65,28 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
     });
 
     try {
-      await SupabaseService.signIn(email: email, password: pass);
-    } catch (_) {}
+      final success = await AuthManager.login(email, pass);
+      if (!mounted) return;
 
-    final success = await AuthManager.login(email, pass);
-    if (!mounted) return;
+      setState(() => _isLoading = false);
 
-    setState(() => _isLoading = false);
-
-    if (success) {
-      PlaylistSyncService.syncOnLaunch();
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Welcome back, ${AuthManager.currentUser?.username ?? 'Listener'}!'),
-          backgroundColor: const Color(0xFF9333EA),
-        ),
-      );
-    } else {
-      setState(() => _errorMessage = 'Invalid email or password. Please try again.');
+      if (success) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Welcome back, ${AuthManager.currentUser?.username ?? 'Listener'}!'),
+            backgroundColor: const Color(0xFF9333EA),
+          ),
+        );
+      } else {
+        setState(() => _errorMessage = 'Invalid email or password. Please try again.');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _errorMessage = e.toString().replaceAll('Exception:', '').trim();
+      });
     }
   }
 
@@ -103,40 +104,31 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
       _errorMessage = null;
     });
 
-    // 1. Attempt Supabase registration with collision detection
     try {
-      final supaRes = await SupabaseService.signUp(
-        email: email,
-        password: pass,
-        username: username,
-      );
+      final success = await AuthManager.register(username, email, pass);
+      if (!mounted) return;
+      setState(() => _isLoading = false);
 
-      if (supaRes?.user != null) {
-        // Sync with local AuthManager and trigger cloud playlist sync
-        await AuthManager.register(username, email, pass);
-        PlaylistSyncService.syncOnLaunch();
-        if (!mounted) return;
-        setState(() => _isLoading = false);
+      if (success) {
         Navigator.pop(context);
         Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const OnboardingScreen()),
         );
-        return;
+      } else {
+        setState(() => _errorMessage = 'Registration failed. Email might already be registered.');
       }
     } catch (e) {
       final errStr = e.toString().toLowerCase();
+      if (!mounted) return;
       if (errStr.contains('already registered') || errStr.contains('already exists') || errStr.contains('user already')) {
-        if (!mounted) return;
         setState(() {
           _isLoading = false;
           _errorMessage = null;
         });
-        // Auto-toggle to Sign In state and pre-populate credentials
         _tabController.animateTo(0);
         _loginEmailCtrl.text = email;
         _loginPassCtrl.text = pass;
-
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Email is already registered! Switched to Sign In.'),
@@ -144,24 +136,12 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
             duration: Duration(seconds: 3),
           ),
         );
-        return;
+      } else {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = e.toString().replaceAll('Exception:', '').trim();
+        });
       }
-    }
-
-    // 2. Fallback local backend registration
-    final success = await AuthManager.register(username, email, pass);
-    if (!mounted) return;
-
-    setState(() => _isLoading = false);
-
-    if (success) {
-      Navigator.pop(context);
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const OnboardingScreen()),
-      );
-    } else {
-      setState(() => _errorMessage = 'Registration failed. Email might already be registered.');
     }
   }
 
@@ -171,40 +151,24 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
       _errorMessage = null;
     });
 
-    // 1. Try Native Google Sign-In via Supabase OAuth
     try {
-      final supaAuth = await SupabaseService.signInWithGoogle();
-      if (supaAuth?.session != null) {
-        final token = supaAuth!.session?.accessToken ?? 'google_oauth_token';
-        await AuthManager.loginWithGoogle(token);
-        PlaylistSyncService.syncOnLaunch();
-        if (!mounted) return;
-        setState(() => _isLoading = false);
+      final success = await AuthManager.loginWithGoogle();
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+
+      if (success) {
         Navigator.pop(context);
         Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const OnboardingScreen()),
         );
-        return;
       }
     } catch (e) {
-      debugPrint('Google Sign-In fallback: $e');
-    }
-
-    // 2. Fallback to AuthManager flow
-    final success = await AuthManager.loginWithGoogle('demo_google_token');
-    if (!mounted) return;
-
-    setState(() => _isLoading = false);
-
-    if (success) {
-      Navigator.pop(context);
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const OnboardingScreen()),
-      );
-    } else {
-      setState(() => _errorMessage = 'Google Sign-In unavailable right now. Try email login.');
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Google Sign-In failed: $e';
+      });
     }
   }
 

@@ -29,7 +29,6 @@ class User(Base):
     preferred_languages = Column(String, default="[]") # JSON string of language names
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
-    playlists = relationship("Playlist", back_populates="user")
     followed_artists = relationship("Artist", secondary=user_followed_artists, back_populates="followers")
     history = relationship("ListeningHistory", back_populates="user")
     liked_songs = relationship("LikedSong", back_populates="user")
@@ -44,33 +43,6 @@ class Artist(Base):
     image_url = Column(String)
 
     followers = relationship("User", secondary=user_followed_artists, back_populates="followed_artists")
-
-class Playlist(Base):
-    __tablename__ = "playlists"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    title = Column(String(100), nullable=False)
-    description = Column(String, nullable=True)
-    cover_url = Column(String, nullable=True)
-    is_public = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    user = relationship("User", back_populates="playlists")
-    tracks = relationship("PlaylistTrack", back_populates="playlist")
-
-class PlaylistTrack(Base):
-    __tablename__ = "playlist_tracks"
-
-    playlist_id = Column(UUID(as_uuid=True), ForeignKey("playlists.id"), primary_key=True)
-    yt_video_id = Column(String(100), primary_key=True)
-    title = Column(String(255), nullable=True)
-    artist = Column(String(255), nullable=True)
-    cover_url = Column(String, nullable=True)
-    duration = Column(Integer, nullable=True)
-    added_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    playlist = relationship("Playlist", back_populates="tracks")
 
 class ListeningHistory(Base):
     __tablename__ = "listening_history"

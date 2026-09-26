@@ -4,7 +4,7 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from connection import get_db
 import models
-from models import User, LikedSong, Playlist, PlaylistTrack
+from models import User, LikedSong
 from auth_utils import get_current_user
 import json
 from typing import List
@@ -17,14 +17,13 @@ router = APIRouter(prefix="/api/users", tags=["users"])
 @router.get("/export")
 async def export_data(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """
-    Exports all user data (Liked Songs and Playlists) as a JSON object.
+    Exports user data (Liked Songs) as a JSON object.
     """
     # Load user with relationships
     result = await db.execute(
         select(User)
         .options(
             selectinload(User.liked_songs),
-            selectinload(User.playlists).selectinload(Playlist.tracks)
         )
         .where(User.id == user.id)
     )
@@ -84,30 +83,6 @@ async def import_data(file: UploadFile = File(...), user: User = Depends(get_cur
                 db.add(new_liked)
                 existing_ids.add(song_id)
                 imported_count += 1
-
-    # 2. Import Playlists
-    if "playlists" in data:
-        for p_data in data["playlists"]:
-            # Check if playlist with same title already exists
-            result = await db.execute(
-                select(Playlist).where(Playlist.user_id == user.id, Playlist.title == p_data["title"])
-            )
-            if not result.scalars().first():
-                new_playlist = Playlist(
-                    user_id=user.id,
-                    title=p_data["title"],
-                    is_public=p_data.get("is_public", False)
-                )
-                db.add(new_playlist)
-                await db.flush() # Get the new playlist ID
-
-                if "tracks" in p_data:
-                    for song_id in p_data["tracks"]:
-                        new_track = PlaylistTrack(
-                            playlist_id=new_playlist.id,
-                            yt_video_id=song_id
-                        )
-                        db.add(new_track)
 
     await db.commit()
     return {"message": f"Successfully imported {imported_count} missing items."}

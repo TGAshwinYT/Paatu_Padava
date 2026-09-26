@@ -37,6 +37,10 @@ jobs:
         working-directory: mobile
         run: flutter analyze 2>&1 | tee analyze.txt
 
+      - name: Run Unit Tests
+        working-directory: mobile
+        run: flutter test
+
       - name: Upload Analysis Log
         if: always()
         uses: actions/upload-artifact@v4
@@ -46,7 +50,7 @@ jobs:
 
       - name: Build Release APK
         working-directory: mobile
-        run: flutter build apk --release --android-skip-build-dependency-validation
+        run: flutter build apk --release --android-skip-build-dependency-validation --dart-define=SUPABASE_URL="${{ secrets.SUPABASE_URL }}" --dart-define=SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

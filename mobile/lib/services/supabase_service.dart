@@ -4,15 +4,33 @@ import 'package:google_sign_in/google_sign_in.dart';
 import '../models/song.dart';
 
 class SupabaseService {
-  // Configurable Supabase credentials injected via --dart-define in CI/CD
-  static const String supabaseUrl = String.fromEnvironment(
-    'SUPABASE_URL',
-    defaultValue: 'https://placeholder.supabase.co',
-  );
-  static const String supabaseAnonKey = String.fromEnvironment(
-    'SUPABASE_ANON_KEY',
-    defaultValue: 'placeholder-anon-key',
-  );
+  // Raw credentials injected via --dart-define in CI/CD or local runs
+  static const String _envUrl = String.fromEnvironment('SUPABASE_URL');
+  static const String _envAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+
+  static String get supabaseUrl {
+    final trimmed = _envUrl.trim();
+    if (trimmed.isNotEmpty) return trimmed;
+    return 'https://placeholder.supabase.co';
+  }
+
+  static String get supabaseAnonKey {
+    final trimmed = _envAnonKey.trim();
+    if (trimmed.isNotEmpty) return trimmed;
+    return 'placeholder-anon-key';
+  }
+
+  /// Whether valid live Supabase credentials were provided
+  static bool get isConfigured {
+    final uri = Uri.tryParse(supabaseUrl);
+    final hasValidHost = uri != null &&
+        uri.hasScheme &&
+        uri.host.isNotEmpty &&
+        !supabaseUrl.contains('placeholder');
+    final hasValidKey = supabaseAnonKey.isNotEmpty &&
+        !supabaseAnonKey.contains('placeholder');
+    return hasValidHost && hasValidKey;
+  }
 
   static bool _isInitialized = false;
   static bool get isInitialized => _isInitialized;
@@ -33,6 +51,12 @@ class SupabaseService {
   static Stream<AuthState>? get authStateChanges => client?.auth.onAuthStateChange;
 
   static Future<void> init() async {
+    if (!isConfigured) {
+      debugPrint('[SupabaseService] Offline Mode: Supabase credentials not configured ($supabaseUrl).');
+      _isInitialized = false;
+      return;
+    }
+
     try {
       await Supabase.initialize(
         url: supabaseUrl,
@@ -40,9 +64,10 @@ class SupabaseService {
         debug: kDebugMode,
       );
       _isInitialized = true;
-      debugPrint('[SupabaseService] Initialized successfully');
+      debugPrint('[SupabaseService] Initialized successfully with $supabaseUrl');
     } catch (e) {
       debugPrint('[SupabaseService] Init notice (running in offline/resilient mode): $e');
+      _isInitialized = false;
     }
   }
 
@@ -53,8 +78,10 @@ class SupabaseService {
     required String password,
     String? username,
   }) async {
-    final c = client;
-    if (c == null) return null;
+    if (!isConfigured || client == null) {
+      throw 'Cloud sync is offline. Supabase credentials are not configured on this build.';
+    }
+    final c = client!;
 
     try {
       final res = await c.auth.signUp(
@@ -83,8 +110,10 @@ class SupabaseService {
     required String email,
     required String password,
   }) async {
-    final c = client;
-    if (c == null) return null;
+    if (!isConfigured || client == null) {
+      throw 'Cloud sync is offline. Supabase credentials are not configured on this build.';
+    }
+    final c = client!;
 
     try {
       final res = await c.auth.signInWithPassword(
@@ -99,8 +128,10 @@ class SupabaseService {
 
   /// Native Google Sign-In with Supabase OAuth Token Exchange
   static Future<AuthResponse?> signInWithGoogle() async {
-    final c = client;
-    if (c == null) return null;
+    if (!isConfigured || client == null) {
+      throw 'Google Sign-In is unavailable. Supabase credentials are not configured on this build.';
+    }
+    final c = client!;
 
     try {
       final googleSignIn = GoogleSignIn(

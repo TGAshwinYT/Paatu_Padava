@@ -174,36 +174,45 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final mediaQuery = MediaQuery.of(context);
+    final bottomInset = mediaQuery.viewInsets.bottom;
+    final maxSheetHeight = mediaQuery.size.height * 0.90;
     final currentUser = AuthManager.currentUser;
 
     return Container(
-      margin: EdgeInsets.only(bottom: bottomInset),
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       decoration: BoxDecoration(
         color: const Color(0xFF131B2E),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
         border: Border(top: BorderSide(color: const Color(0xFF9333EA).withOpacity(0.4), width: 1.5)),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Drag handle
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.white24,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxSheetHeight),
+        child: SingleChildScrollView(
+          padding: EdgeInsets.only(
+            left: 24,
+            right: 24,
+            top: 20,
+            bottom: bottomInset + 24,
           ),
-          const SizedBox(height: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Drag handle
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
 
-          // If already logged in, show User Profile Card
-          if (currentUser != null && !currentUser.isGuest) ...[
+              // If already logged in, show User Profile Card
+              if (currentUser != null && !currentUser.isGuest) ...[
             Row(
               children: [
                 CircleAvatar(
@@ -308,6 +317,29 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
               ),
             ),
             const SizedBox(height: 16),
+
+            if (currentUser != null && currentUser.isGuest) ...[
+              Container(
+                margin: const EdgeInsets.only(bottom: 14),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.06),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.person_outline_rounded, color: Colors.white70, size: 16),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Currently in Guest Mode (Offline Playlists)',
+                      style: GoogleFonts.outfit(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+            ],
 
             // Google Sign In Button
             OutlinedButton.icon(
@@ -442,69 +474,14 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
                 ),
               ),
 
-            SizedBox(
-              height: 230,
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  // Sign In Form
-                  Column(
-                    children: [
-                      _buildTextField(_loginEmailCtrl, 'Email Address', Icons.email_outlined),
-                      const SizedBox(height: 12),
-                      _buildTextField(_loginPassCtrl, 'Password', Icons.lock_outline, isPassword: true),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 48,
-                        child: ElevatedButton(
-                          onPressed: _isLoading ? null : _handleLogin,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF9333EA),
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                            shadowColor: const Color(0xFF9333EA).withOpacity(0.4),
-                            elevation: 4,
-                          ),
-                          child: _isLoading
-                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                              : Text('Sign In', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15)),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  // Create Account Form
-                  Column(
-                    children: [
-                      _buildTextField(_regUsernameCtrl, 'Username', Icons.person_outline),
-                      const SizedBox(height: 8),
-                      _buildTextField(_regEmailCtrl, 'Email Address', Icons.email_outlined),
-                      const SizedBox(height: 8),
-                      _buildTextField(_regPassCtrl, 'Password', Icons.lock_outline, isPassword: true),
-                      const SizedBox(height: 14),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 48,
-                        child: ElevatedButton(
-                          onPressed: _isLoading ? null : _handleRegister,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF9333EA),
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                            shadowColor: const Color(0xFF9333EA).withOpacity(0.4),
-                            elevation: 4,
-                          ),
-                          child: _isLoading
-                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                              : Text('Create Account', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: _tabController.index == 0
+                  ? _buildSignInForm()
+                  : _buildSignUpForm(),
             ),
+
+            const SizedBox(height: 12),
 
             // Continue as Guest Option
             Center(
@@ -523,6 +500,70 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
           const SizedBox(height: 8),
         ],
       ),
+    ),
+  ),
+);
+  }
+
+  Widget _buildSignInForm() {
+    return Column(
+      key: const ValueKey('signin_form'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildTextField(_loginEmailCtrl, 'Email Address', Icons.email_outlined),
+        const SizedBox(height: 12),
+        _buildTextField(_loginPassCtrl, 'Password', Icons.lock_outline, isPassword: true),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: ElevatedButton(
+            onPressed: _isLoading ? null : _handleLogin,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF9333EA),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              shadowColor: const Color(0xFF9333EA).withOpacity(0.4),
+              elevation: 4,
+            ),
+            child: _isLoading
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                : Text('Sign In', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSignUpForm() {
+    return Column(
+      key: const ValueKey('signup_form'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildTextField(_regUsernameCtrl, 'Username', Icons.person_outline),
+        const SizedBox(height: 8),
+        _buildTextField(_regEmailCtrl, 'Email Address', Icons.email_outlined),
+        const SizedBox(height: 8),
+        _buildTextField(_regPassCtrl, 'Password', Icons.lock_outline, isPassword: true),
+        const SizedBox(height: 14),
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: ElevatedButton(
+            onPressed: _isLoading ? null : _handleRegister,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF9333EA),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              shadowColor: const Color(0xFF9333EA).withOpacity(0.4),
+              elevation: 4,
+            ),
+            child: _isLoading
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                : Text('Create Account', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15)),
+          ),
+        ),
+      ],
     );
   }
 

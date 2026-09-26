@@ -106,6 +106,9 @@ class _HomeScreenState extends State<HomeScreen> {
             final feedProvider = HomeFeedProvider.instance;
             final feedState = feedProvider.state;
             final currentLang = feedProvider.currentLanguage;
+            final screenWidth = MediaQuery.of(context).size.width;
+            final cardWidth = (screenWidth * 0.36).clamp(130.0, 180.0);
+            final carouselHeight = cardWidth + 58.0;
 
             return RefreshIndicator(
               color: AppColors.neonViolet,
@@ -219,12 +222,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                       child: CircleAvatar(
                                         radius: 16,
                                         backgroundColor: isUser ? AppColors.neonViolet : AppColors.surfaceElevated,
-                                        child: Text(
-                                          (user != null && !user.isGuest && user.username.isNotEmpty)
-                                              ? user.username[0].toUpperCase()
-                                              : '👤',
-                                          style: const TextStyle(fontSize: 13, color: Colors.white, fontWeight: FontWeight.bold),
-                                        ),
+                                        child: isUser
+                                            ? Text(
+                                                user.username.isNotEmpty ? user.username[0].toUpperCase() : 'U',
+                                                style: const TextStyle(fontSize: 13, color: Colors.white, fontWeight: FontWeight.bold),
+                                              )
+                                            : const Icon(Icons.person_outline_rounded, size: 18, color: Colors.white70),
                                       ),
                                     ),
                                   );
@@ -234,6 +237,19 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ],
                       ),
+                    ),
+                  ),
+
+                  // Persistent Guest Mode Banner for Home Screen
+                  SliverToBoxAdapter(
+                    child: ValueListenableBuilder<AuthUser?>(
+                      valueListenable: AuthManager.authNotifier,
+                      builder: (context, user, _) {
+                        if (user == null || user.isGuest) {
+                          return const _GuestModeBanner();
+                        }
+                        return const SizedBox.shrink();
+                      },
                     ),
                   ),
 
@@ -423,7 +439,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                               ),
                               SizedBox(
-                                height: 190,
+                                height: carouselHeight,
                                 child: ListView.builder(
                                   padding: const EdgeInsets.symmetric(horizontal: 16),
                                   scrollDirection: Axis.horizontal,
@@ -432,6 +448,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     final song = displayHistory[index];
                                     return _SongCard(
                                       song: song,
+                                      width: cardWidth,
                                       onTap: () => audioHandler.playSong(song, queue: displayHistory),
                                     );
                                   },
@@ -471,7 +488,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       SliverToBoxAdapter(
                         child: SizedBox(
-                          height: 190,
+                          height: carouselHeight,
                           child: ListView.builder(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             scrollDirection: Axis.horizontal,
@@ -480,6 +497,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               final song = feedState.madeForYou[index];
                               return _SongCard(
                                 song: song,
+                                width: cardWidth,
                                 onTap: () => audioHandler.playSong(song, queue: feedState.madeForYou),
                               );
                             },
@@ -516,7 +534,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       SliverToBoxAdapter(
                         child: SizedBox(
-                          height: 190,
+                          height: carouselHeight,
                           child: ListView.builder(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             scrollDirection: Axis.horizontal,
@@ -525,6 +543,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               final song = feedState.trendingMerged[index];
                               return _SongCard(
                                 song: song,
+                                width: cardWidth,
                                 onTap: () => audioHandler.playSong(song, queue: feedState.trendingMerged),
                               );
                             },
@@ -636,7 +655,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       SliverToBoxAdapter(
                         child: SizedBox(
-                          height: 190,
+                          height: carouselHeight,
                           child: ListView.builder(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             scrollDirection: Axis.horizontal,
@@ -645,6 +664,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               final song = feedState.newReleases[index];
                               return _SongCard(
                                 song: song,
+                                width: cardWidth,
                                 onTap: () => audioHandler.playSong(song, queue: feedState.newReleases),
                               );
                             },
@@ -666,7 +686,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       SliverToBoxAdapter(
                         child: SizedBox(
-                          height: 180,
+                          height: carouselHeight,
                           child: ListView.builder(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             scrollDirection: Axis.horizontal,
@@ -692,7 +712,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   );
                                 },
                                 child: Container(
-                                  width: 130,
+                                  width: cardWidth,
                                   margin: const EdgeInsets.symmetric(horizontal: 6),
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -700,8 +720,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                       ClipRRect(
                                         borderRadius: BorderRadius.circular(16),
                                         child: SizedBox(
-                                          width: 130,
-                                          height: 130,
+                                          width: cardWidth,
+                                          height: cardWidth,
                                           child: CachedNetworkImage(
                                             imageUrl: img,
                                             fit: BoxFit.cover,
@@ -838,20 +858,22 @@ void _showSongContextMenu(BuildContext context, Song song) {
 class _SongCard extends StatelessWidget {
   final Song song;
   final VoidCallback onTap;
+  final double? width;
   static final HtmlUnescape _unescape = HtmlUnescape();
 
-  const _SongCard({required this.song, required this.onTap});
+  const _SongCard({required this.song, required this.onTap, this.width});
 
   @override
   Widget build(BuildContext context) {
     final cleanTitle = _unescape.convert(Song.sanitize(song.title));
     final cleanArtist = _unescape.convert(Song.sanitize(song.artist));
+    final cardWidth = width ?? (MediaQuery.of(context).size.width * 0.36).clamp(130.0, 180.0);
 
     return GestureDetector(
       onTap: onTap,
       onLongPress: () => _showSongContextMenu(context, song),
       child: Container(
-        width: 135,
+        width: cardWidth,
         margin: const EdgeInsets.symmetric(horizontal: 6),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -861,8 +883,8 @@ class _SongCard extends StatelessWidget {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(16),
                   child: SizedBox(
-                    width: 135,
-                    height: 135,
+                    width: cardWidth,
+                    height: cardWidth,
                     child: CachedNetworkImage(
                       imageUrl: song.coverUrl,
                       fit: BoxFit.cover,
@@ -1007,3 +1029,68 @@ class _SongTile extends StatelessWidget {
     );
   }
 }
+
+class _GuestModeBanner extends StatelessWidget {
+  const _GuestModeBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceElevated,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: AppColors.neonViolet.withOpacity(0.35),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: AppColors.neonViolet.withOpacity(0.15),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.cloud_off_rounded, color: AppColors.neonViolet, size: 16),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Guest Mode (Offline)',
+                  style: GoogleFonts.outfit(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  'Sign in to sync your playlists and favorites across devices',
+                  style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          ElevatedButton(
+            onPressed: () => AuthDialog.show(context),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.neonViolet,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              elevation: 0,
+            ),
+            child: Text(
+              'Sign In',
+              style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+

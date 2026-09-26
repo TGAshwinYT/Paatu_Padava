@@ -48,6 +48,15 @@ jobs:
           name: flutter-analyze-output
           path: mobile/analyze.txt
 
+      - name: Validate Supabase Secrets
+        run: |
+          if [ -z "${{ secrets.SUPABASE_URL }}" ]; then
+            echo "::warning::SUPABASE_URL is not set in GitHub repository secrets! Mobile cloud sync will run in offline mode."
+          fi
+          if [ -z "${{ secrets.SUPABASE_ANON_KEY }}" ]; then
+            echo "::warning::SUPABASE_ANON_KEY is not set in GitHub repository secrets! Mobile cloud sync will run in offline mode."
+          fi
+
       - name: Build Release APK
         working-directory: mobile
         run: flutter build apk --release --android-skip-build-dependency-validation --dart-define=SUPABASE_URL="${{ secrets.SUPABASE_URL }}" --dart-define=SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"

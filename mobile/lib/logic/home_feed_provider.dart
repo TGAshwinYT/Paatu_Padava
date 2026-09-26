@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../models/song.dart';
+import '../services/auth_manager.dart';
 import '../services/settings_manager.dart';
 import '../services/history_manager.dart';
 import '../services/saavn_client.dart';
@@ -63,11 +64,34 @@ class HomeFeedProvider extends ChangeNotifier {
   String get currentLanguage => _currentLanguage;
 
   Future<void> init() async {
+    _resolveCurrentLanguage();
+    // Dynamically react whenever user finishes onboarding or changes preferences
+    AuthManager.authNotifier.addListener(_onPreferencesChanged);
+    SettingsManager.languagesNotifier.addListener(_onPreferencesChanged);
+    await loadFeed();
+  }
+
+  void _resolveCurrentLanguage() {
+    final userLangs = AuthManager.currentUser?.preferredLanguages;
+    if (userLangs != null && userLangs.isNotEmpty) {
+      _currentLanguage = userLangs.first;
+      return;
+    }
     final prefLangs = SettingsManager.preferredLanguages;
     if (prefLangs.isNotEmpty) {
       _currentLanguage = prefLangs.first;
     }
-    await loadFeed();
+  }
+
+  void _onPreferencesChanged() {
+    final userLangs = AuthManager.currentUser?.preferredLanguages;
+    final topLang = (userLangs != null && userLangs.isNotEmpty)
+        ? userLangs.first
+        : (SettingsManager.preferredLanguages.isNotEmpty ? SettingsManager.preferredLanguages.first : null);
+    if (topLang != null && topLang.isNotEmpty && topLang != _currentLanguage) {
+      _currentLanguage = topLang;
+      loadFeed();
+    }
   }
 
   void setLanguage(String lang) {

@@ -7,7 +7,6 @@ import 'package:html_unescape/html_unescape.dart';
 import '../models/song.dart';
 import 'saavn_client.dart';
 import 'youtube_client.dart';
-import 'settings_manager.dart';
 
 /// Single Spotify Track representation extracted from Spotify Web API or Embed
 class SpotifyTrackItem {
@@ -526,14 +525,13 @@ class SpotifyImportService {
     final cleanTitle = cleanTrackTitle(track.title);
     final primaryArtist = cleanArtistName(track.artist);
     final targetDuration = track.durationSeconds;
-    final lang = preferredLanguage ?? SettingsManager.preferredLanguages.firstOrNull ?? 'tamil';
 
-    // ── Tier 1: Search JioSaavn for pristine 320kbps Lossless Stream ──
+    // ── Tier 1: Search JioSaavn across all languages for pristine 320kbps Stream ──
+    // Do not constrain to a single blanket language filter so multi-lingual playlists match accurately.
     try {
       final saavnResults = await SaavnClient.search(
         '$cleanTitle $primaryArtist',
-        limit: 6,
-        language: lang,
+        limit: 8,
       );
 
       Song? bestSaavn;
@@ -565,6 +563,11 @@ class SpotifyImportService {
           } else if (diff > 60) {
             score -= 60;
           }
+        }
+
+        // Slight tie-breaker bonus for user's preferred language (never exclusionary)
+        if (preferredLanguage != null && candidate.language == preferredLanguage.toLowerCase().trim()) {
+          score += 5;
         }
 
         if (score > bestSaavnScore) {

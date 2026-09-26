@@ -234,6 +234,46 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
               ),
             ),
 
+            // Persistent Guest Mode Banner for Library
+            ValueListenableBuilder<AuthUser?>(
+              valueListenable: AuthManager.authNotifier,
+              builder: (context, user, _) {
+                if (user == null || user.isGuest) {
+                  return Container(
+                    margin: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF131B2E),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFF9333EA).withOpacity(0.35)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.cloud_off_rounded, color: Color(0xFF9333EA), size: 18),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Guest Mode: Playlists are saved to this device only. Sign in to backup and sync across devices.',
+                            style: GoogleFonts.outfit(color: Colors.white70, fontSize: 11.5),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        TextButton(
+                          onPressed: () => AuthDialog.show(context),
+                          style: TextButton.styleFrom(
+                            foregroundColor: const Color(0xFF9333EA),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          ),
+                          child: Text('Sign In', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 12)),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+
             // Spotify Quick Import Banner in Library
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),

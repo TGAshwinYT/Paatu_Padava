@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'auth_manager.dart';
 
 class SettingsManager {
   static const String boxName = 'settings_box';
@@ -8,13 +9,23 @@ class SettingsManager {
   static final ValueNotifier<String> downloadQualityNotifier = ValueNotifier<String>('320kbps');
   static final ValueNotifier<String> eqPresetNotifier = ValueNotifier<String>('flat');
   static final ValueNotifier<List<double>> eqBandsNotifier = ValueNotifier<List<double>>([0.0, 0.0, 0.0, 0.0, 0.0]);
-  static final ValueNotifier<List<String>> languagesNotifier = ValueNotifier<List<String>>(['Tamil', 'Hindi', 'English', 'Telugu']);
+  static final ValueNotifier<List<String>> languagesNotifier = ValueNotifier<List<String>>(['Tamil', 'English']);
 
   static String get streamingQuality => streamingQualityNotifier.value;
   static String get downloadQuality => downloadQualityNotifier.value;
   static String get eqPreset => eqPresetNotifier.value;
   static List<double> get eqBands => eqBandsNotifier.value;
-  static List<String> get preferredLanguages => languagesNotifier.value;
+
+  /// Single coordinated preferred languages accessor:
+  /// Uses AuthManager profile preferences as the source of truth,
+  /// seamlessly falling back to local settings if unauthenticated.
+  static List<String> get preferredLanguages {
+    final userLangs = AuthManager.currentUser?.preferredLanguages;
+    if (userLangs != null && userLangs.isNotEmpty) {
+      return userLangs;
+    }
+    return languagesNotifier.value;
+  }
 
   static Box get _box => Hive.box(boxName);
 
@@ -81,5 +92,7 @@ class SettingsManager {
   static Future<void> setPreferredLanguages(List<String> langs) async {
     languagesNotifier.value = List<String>.from(langs);
     await _box.put('languages', langs);
+    // Coordinated sync to AuthManager and Supabase
+    await AuthManager.updateLanguagePreferences(langs);
   }
 }

@@ -5,6 +5,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supa;
 import 'supabase_service.dart';
 import 'sync_manager.dart';
+import 'settings_manager.dart';
 
 class AuthUser {
   final String id;
@@ -223,6 +224,14 @@ class AuthManager {
       );
       authNotifier.value = updated;
       await _box.put('user_profile', updated.toJson());
+
+      // Keep SettingsManager notifier and storage in complete sync
+      SettingsManager.languagesNotifier.value = List<String>.from(languages);
+      try {
+        if (Hive.isBoxOpen(SettingsManager.boxName)) {
+          await Hive.box(SettingsManager.boxName).put('languages', languages);
+        }
+      } catch (_) {}
 
       if (isLoggedIn) {
         await SupabaseService.saveUserTaste(

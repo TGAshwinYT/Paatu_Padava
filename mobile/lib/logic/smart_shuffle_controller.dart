@@ -2,16 +2,23 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../models/song.dart';
 import '../services/api_client.dart';
+import '../services/history_manager.dart';
 import '../services/saavn_client.dart';
 import '../services/settings_manager.dart';
 import 'audio_queue_handler.dart';
 
 enum SmartShuffleMode {
   off,        // Sequential playback
-  standard,   // Shuffles only user's added songs
-  smart,      // User queue + automatic recommendation interleaving
+  standard,   // Intelligent nearest-neighbor reordering of user queue
+  smart,      // User queue + persistent AI recommendation interleaving
 }
 
+/// Spotify-grade Smart Shuffle & Intelligent Queue Reordering Controller.
+/// Features:
+/// 1. Persistent anti-repetition memory (backed by HistoryManager Hive store across sessions).
+/// 2. Multi-tier recommendation sourcing (Backend ML Recommender + Contextual Related + Artist hits).
+/// 3. Soft language matching with scoring weights instead of shallow hard exclusions.
+/// 4. Nearest-neighbor queue reordering via /api/music/shuffle-order & Markov transition chains.
 class SmartShuffleController {
   final AudioQueueHandler queueHandler;
   final ValueNotifier<SmartShuffleMode> modeNotifier = ValueNotifier(SmartShuffleMode.off);
@@ -21,7 +28,7 @@ class SmartShuffleController {
   bool get isStandardActive => mode == SmartShuffleMode.standard;
 
   bool _isIngesting = false;
-  final List<String> _recentHistoryIds = [];
+  final List<String> _sessionPlayedIds = [];
 
   SmartShuffleController({required this.queueHandler}) {
     // Listen to queue changes & index updates to trigger Smart recommendation ingestion
@@ -30,11 +37,23 @@ class SmartShuffleController {
   }
 
   void recordRecentlyPlayed(String songId) {
-    _recentHistoryIds.remove(songId);
-    _recentHistoryIds.insert(0, songId);
-    if (_recentHistoryIds.length > 25) {
-      _recentHistoryIds.removeLast();
+    _sessionPlayedIds.remove(songId);
+    _sessionPlayedIds.insert(0, songId);
+    if (_sessionPlayedIds.length > 50) {
+      _sessionPlayedIds.removeLast();
     }
+  }
+
+  /// Comprehensive anti-repeat exclusion set combining:
+  /// - Current playing and upcoming queue tracks
+  /// - Current session play history
+  /// - Persistent Hive history across app restarts (up to 100 items)
+  Set<String> _getExclusionIds() {
+    final exclusions = <String>{};
+    exclusions.addAll(queueHandler.queue.map((s) => s.id));
+    exclusions.addAll(_sessionPlayedIds);
+    exclusions.addAll(HistoryManager.getHistory().map((s) => s.id));
+    return exclusions;
   }
 
   void _onQueueProgress() {
@@ -59,30 +78,34 @@ class SmartShuffleController {
   }
 
   /// Explicitly set the shuffle mode
-  void setMode(SmartShuffleMode newMode) {
+  Future<void> setMode(SmartShuffleMode newMode) async {
     if (modeNotifier.value == newMode) return;
     modeNotifier.value = newMode;
 
     final currentIndex = queueHandler.currentIndex;
     if (currentIndex < 0 || currentIndex >= queueHandler.queue.length) return;
+    final currentSong = queueHandler.currentSong;
 
     if (newMode == SmartShuffleMode.standard) {
-      // 1. Standard Shuffle: Shuffles only the user's added songs (purging smart tracks)
+      // 1. Standard Shuffle: Intelligent nearest-neighbor reordering of user songs
       final upcoming = queueHandler.queue
           .sublist(currentIndex + 1)
           .where((s) => !s.isSmartRecommended)
-          .toList()
-        ..shuffle();
-      queueHandler.replaceUpcomingQueue(upcoming);
+          .toList();
+
+      if (upcoming.isNotEmpty) {
+        final orderedIds = await ApiClient.fetchSmartShuffle(upcoming, currentSong);
+        final orderedUpcoming = _reorderQueueByIds(upcoming, orderedIds);
+        queueHandler.replaceUpcomingQueue(orderedUpcoming);
+      }
     } else if (newMode == SmartShuffleMode.smart) {
       // 2. Smart Shuffle: Immediately check and interleave recommendations
       if (queueHandler.upcomingCount < 3) {
-        ingestSmartRecommendations();
+        await ingestSmartRecommendations();
       }
     } else {
       // 3. Off: Restore sequential order and purge smart injected songs
       final originalList = queueHandler.originalQueue;
-      final currentSong = queueHandler.currentSong;
       final originalIdx = originalList.indexWhere((s) => s.id == currentSong?.id);
 
       List<Song> restoredUpcoming;
@@ -98,7 +121,9 @@ class SmartShuffleController {
     }
   }
 
-  /// Smart Ingestion Engine: Fetches related tracks and interleaves 1 track every 2-3 tracks
+  /// Multi-tier Smart Ingestion Engine:
+  /// Concurrently fetches recommendations across multiple sources, ranks them with scoring weights,
+  /// deduplicates against persistent history, and interleaves them using nearest-neighbor similarity.
   Future<void> ingestSmartRecommendations() async {
     if (_isIngesting || !isSmartActive) return;
     if (queueHandler.upcomingCount >= 4) return;
@@ -107,41 +132,73 @@ class SmartShuffleController {
     if (currentSong == null) return;
 
     _isIngesting = true;
-    final prefLang = SettingsManager.preferredLanguages.firstOrNull ?? 'tamil';
+    final prefLangs = SettingsManager.preferredLanguages;
+    final primaryLang = prefLangs.firstOrNull ?? 'tamil';
 
     try {
-      // 1. Fetch recommendations from JioSaavn or Backend recommendation graph
-      List<Song> candidates = await SaavnClient.getRelatedSongs(currentSong.id, language: prefLang);
-      if (candidates.isEmpty) {
-        candidates = await ApiClient.fetchRecommendations(
+      // 1. Multi-Tier Concurrent Recommendation Retrieval
+      final List<Future<List<Song>>> candidateFutures = [
+        // Tier 1: Machine Learning Personal Recommender from Backend
+        ApiClient.fetchRecommendations(
           currentSong.id,
           artist: currentSong.artist,
-          language: prefLang,
-        );
-      }
-      if (candidates.isEmpty) {
-        candidates = await SaavnClient.search('${currentSong.artist} hits', limit: 10, language: prefLang);
-      }
+          language: primaryLang,
+        ),
+        // Tier 2: Contextual Related Songs from JioSaavn
+        SaavnClient.getRelatedSongs(currentSong.id, language: primaryLang),
+        // Tier 3: Contextual Artist Hits
+        SaavnClient.search('${currentSong.artist} hits', limit: 12, language: primaryLang),
+      ];
 
-      // 2. Strict language filter & deduplication against queue and recent history
-      final currentQueueIds = queueHandler.queue.map((s) => s.id).toSet();
-      final filtered = candidates.where((candidate) {
-        if (currentQueueIds.contains(candidate.id)) return false;
-        if (_recentHistoryIds.contains(candidate.id)) return false;
+      final results = await Future.wait(candidateFutures);
+      final List<Song> allCandidates = results.expand((x) => x).toList();
 
-        // Strict language adherence
-        if (candidate.language != null && candidate.language!.isNotEmpty) {
-          if (candidate.language!.toLowerCase() != prefLang.toLowerCase()) return false;
+      // 2. Soft Language Scoring & Anti-Repeat Filtering
+      final exclusionIds = _getExclusionIds();
+      final Set<String> seenIds = <String>{};
+      final List<MapEntry<double, Song>> scored = [];
+
+      for (final c in allCandidates) {
+        if (exclusionIds.contains(c.id) || seenIds.contains(c.id)) continue;
+        seenIds.add(c.id);
+
+        double score = 10.0;
+
+        // Language affinity scoring bonus (soft filter, not hard exclusion)
+        if (c.language != null && c.language!.isNotEmpty) {
+          final cLang = c.language!.toLowerCase();
+          if (prefLangs.any((l) => l.toLowerCase() == cLang)) {
+            score += 8.0;
+          }
+        } else {
+          score += 4.0; // Unlabeled tracks get neutral boost
         }
-        return true;
-      }).toList();
+
+        // Artist affinity bonus
+        if (c.artist.toLowerCase() == currentSong.artist.toLowerCase()) {
+          score += 5.0;
+        } else if (c.artist.toLowerCase().contains(currentSong.artist.toLowerCase()) ||
+            currentSong.artist.toLowerCase().contains(c.artist.toLowerCase())) {
+          score += 2.5;
+        }
+
+        // Duration sanity bonus (2 - 7 minutes)
+        if (c.duration >= 120 && c.duration <= 420) {
+          score += 1.0;
+        }
+
+        scored.add(MapEntry(score, c));
+      }
+
+      scored.sort((a, b) => b.key.compareTo(a.key));
+      final filtered = scored.map((e) => e.value).toList();
 
       if (filtered.isEmpty) {
         _isIngesting = false;
         return;
       }
 
-      // 3. Interleave 1 recommended track every 2-3 tracks into upcoming queue
+      // 3. Interleave recommendations into upcoming queue
       final currentUpcoming = queueHandler.queue.sublist(queueHandler.currentIndex + 1).toList();
       final List<Song> interleaved = [];
       int recoIdx = 0;
@@ -160,12 +217,31 @@ class SmartShuffleController {
         recoIdx++;
       }
 
-      queueHandler.replaceUpcomingQueue(interleaved);
+      // 4. Apply Intelligent Shuffle Reordering to preserve acoustic flow
+      if (interleaved.length > 2) {
+        final orderedIds = await ApiClient.fetchSmartShuffle(interleaved, currentSong);
+        final orderedInterleaved = _reorderQueueByIds(interleaved, orderedIds);
+        queueHandler.replaceUpcomingQueue(orderedInterleaved);
+      } else {
+        queueHandler.replaceUpcomingQueue(interleaved);
+      }
     } catch (e) {
       debugPrint('[SmartShuffleController] Ingestion error: $e');
     } finally {
       _isIngesting = false;
     }
+  }
+
+  /// Reorders queue according to ordered ID list while preserving any unmatched songs
+  List<Song> _reorderQueueByIds(List<Song> queue, List<String> orderedIds) {
+    final map = {for (final s in queue) s.id: s};
+    final List<Song> result = [];
+    for (final id in orderedIds) {
+      final song = map.remove(id);
+      if (song != null) result.add(song);
+    }
+    result.addAll(map.values);
+    return result;
   }
 
   void dispose() {

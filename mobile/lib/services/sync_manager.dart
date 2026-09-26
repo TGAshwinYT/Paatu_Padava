@@ -4,6 +4,8 @@ import 'package:uuid/uuid.dart';
 import '../domain/models/track_entity.dart';
 import '../models/song.dart';
 import 'auth_manager.dart';
+import 'favorites_manager.dart';
+import 'history_manager.dart';
 import 'playlist_manager.dart';
 import 'supabase_service.dart';
 
@@ -130,8 +132,23 @@ class SyncManager {
       }
 
       PlaylistManager.refreshList();
+
+      // ================= 3. Sync Liked Songs / Favorites ================= //
+      try {
+        await FavoritesManager.syncWithCloud();
+      } catch (e) {
+        debugPrint('[SyncManager] Favorites sync notice: $e');
+      }
+
+      // ================= 4. Sync Listening History ================= //
+      try {
+        await HistoryManager.syncCloudHistory();
+      } catch (e) {
+        debugPrint('[SyncManager] History sync notice: $e');
+      }
+
       syncStatusNotifier.value = SyncStatus.synced;
-      debugPrint('[SyncManager] Joined sync finished: ${reconciledMap.length} playlists synchronized.');
+      debugPrint('[SyncManager] Joined sync finished: ${reconciledMap.length} playlists, favorites, and history synchronized.');
     } catch (e) {
       debugPrint('[SyncManager] Sync failed: $e');
       syncErrorNotifier.value = e.toString();

@@ -40,7 +40,8 @@ def create_reset_password_token(email: str):
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-from fastapi import Depends, HTTPException, status
+import uuid
+from fastapi import Depends, HTTPException, status, Header
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -50,41 +51,104 @@ from models import User
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
+async def _resolve_user_from_token_or_headers(
+    token: Optional[str],
+    x_user_id: Optional[str],
+    x_user_email: Optional[str],
+    db: AsyncSession
+) -> Optional[User]:
+    """
+    Unified user resolution supporting:
+    1. Local custom JWT (FastAPI web client signed with JWT_SECRET)
+    2. Supabase Auth JWT (Mobile client token containing sub & email)
+    3. Explicit X-User-ID / X-User-Email service headers
+    """
+    sub = None
+    email = None
+
+    if token:
+        # Try local JWT secret verification
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            email = payload.get("sub")
+        except JWTError:
+            # Fallback: Parse Supabase JWT claims
+            try:
+                claims = jwt.get_unverified_claims(token)
+                email = claims.get("email")
+                sub = claims.get("sub")
+            except Exception:
+                pass
+
+    if not email and x_user_email:
+        email = x_user_email
+    if not sub and x_user_id:
+        sub = x_user_id
+
+    # 1. Lookup by Email
+    if email:
+        result = await db.execute(select(User).where(User.email == email))
+        user = result.scalars().first()
+        if user:
+            return user
+
+    # 2. Lookup by UUID / sub
+    if sub:
+        try:
+            u_uuid = uuid.UUID(sub)
+            result = await db.execute(select(User).where(User.id == u_uuid))
+            user = result.scalars().first()
+            if user:
+                return user
+        except Exception:
+            pass
+
+    # 3. Auto-provision in public.users if authenticated via Supabase
+    if email or sub:
+        try:
+            user_id = uuid.UUID(sub) if sub else uuid.uuid4()
+            user_email = email or f"user_{str(user_id)[:8]}@supabase.user"
+            username = email.split('@')[0] if email else f"user_{str(user_id)[:8]}"
+            new_user = User(
+                id=user_id,
+                email=user_email,
+                username=username,
+                is_verified=True,
+            )
+            db.add(new_user)
+            await db.commit()
+            await db.refresh(new_user)
+            return new_user
+        except Exception:
+            await db.rollback()
+
+    return None
+
+async def get_current_user(
+    token: Optional[str] = Depends(oauth2_scheme),
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    db: AsyncSession = Depends(get_db)
+) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None:
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
-        
-    result = await db.execute(select(User).where(User.email == email))
-    user = result.scalars().first()
+    user = await _resolve_user_from_token_or_headers(token, x_user_id, x_user_email, db)
     if user is None:
         raise credentials_exception
     return user
 
-async def get_current_user_optional(token: str = Depends(oauth2_scheme_optional), db: AsyncSession = Depends(get_db)):
+async def get_current_user_optional(
+    token: Optional[str] = Depends(oauth2_scheme_optional),
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    db: AsyncSession = Depends(get_db)
+) -> Optional[User]:
     """
-    Optional authentication: returns the User object if a valid token is present, 
-    otherwise returns None without raising an 401 error.
+    Optional authentication: returns the User object if a valid token or user identity is present, 
+    otherwise returns None without raising a 401 error.
     """
-    if not token:
-        return None
-        
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None:
-            return None
-    except JWTError:
-        return None
-        
-    result = await db.execute(select(User).where(User.email == email))
-    return result.scalars().first()
+    return await _resolve_user_from_token_or_headers(token, x_user_id, x_user_email, db)
+

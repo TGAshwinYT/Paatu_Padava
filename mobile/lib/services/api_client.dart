@@ -33,6 +33,11 @@ class ApiClient {
     if (token != null && token.isNotEmpty) {
       map['Authorization'] = 'Bearer $token';
     }
+    final user = AuthManager.currentUser;
+    if (user != null && !user.isGuest) {
+      map['X-User-ID'] = user.id;
+      map['X-User-Email'] = user.email;
+    }
     return map;
   }
 

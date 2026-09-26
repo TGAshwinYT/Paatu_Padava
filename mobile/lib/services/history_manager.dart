@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../domain/models/track_entity.dart';
 import '../models/song.dart';
+import 'api_client.dart';
 import 'auth_manager.dart';
 import 'supabase_service.dart';
 
@@ -109,6 +110,11 @@ class HistoryManager {
           await _pendingBox?.put(song.id, song.toMap());
         } catch (_) {}
       }
+
+      // Feed backend ML recommendation engine
+      try {
+        await ApiClient.addListenHistory(song);
+      } catch (_) {}
     });
   }
 

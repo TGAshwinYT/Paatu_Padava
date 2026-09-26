@@ -13,6 +13,7 @@ import '../widgets/auth_dialog.dart';
 import '../widgets/spotify_import_dialog.dart';
 import '../widgets/add_to_playlist_dialog.dart';
 import '../widgets/sync_status_indicator.dart';
+import '../widgets/account_bar_button.dart';
 import 'playlist_screen.dart';
 import 'settings_screen.dart';
 import 'liked_songs_screen.dart';
@@ -204,30 +205,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                         },
                       ),
                       const SizedBox(width: 4),
-                      ValueListenableBuilder<AuthUser?>(
-                        valueListenable: AuthManager.authNotifier,
-                        builder: (context, user, _) {
-                          final isUser = user != null && !user.isGuest;
-                          return OutlinedButton.icon(
-                            onPressed: () => AuthDialog.show(context),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.white,
-                              side: BorderSide(color: isUser ? const Color(0xFF1DB954) : Colors.white24),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                            ),
-                            icon: Icon(
-                              isUser ? Icons.person_rounded : Icons.login_rounded,
-                              size: 16,
-                              color: isUser ? const Color(0xFF1DB954) : Colors.white70,
-                            ),
-                            label: Text(
-                              (user != null && !user.isGuest) ? user.username : 'Sign In',
-                              style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.bold),
-                            ),
-                          );
-                        },
-                      ),
+                      const AccountBarButton(),
                     ],
                   ),
                 ],

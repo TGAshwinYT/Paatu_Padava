@@ -229,7 +229,9 @@ void main() {
       final songB = Song(id: 'song_b', title: 'Song Beta', artist: 'Artist 2', album: 'Album B', duration: 200, coverUrl: '');
 
       await HistoryManager.recordPlay(songA);
+      await Future.delayed(const Duration(milliseconds: 10));
       await HistoryManager.recordPlay(songB);
+      await Future.delayed(const Duration(milliseconds: 10));
 
       var history = HistoryManager.getHistory();
       expect(history.length, equals(2));

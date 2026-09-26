@@ -9,7 +9,6 @@ import '../models/song.dart';
 import 'api_client.dart';
 import 'history_manager.dart';
 import 'equalizer_service.dart';
-import 'supabase_service.dart';
 import 'youtube_client.dart';
 
 late PaatuAudioHandler audioHandler;
@@ -116,12 +115,8 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     // Synchronously update system notification metadata
     mediaItem.add(song.toMediaItem());
 
-    // Record to local Hive & Supabase listen history (if authenticated) & anti-repetition cache
-    HistoryManager.addSong(song);
-    final supaUser = SupabaseService.currentUser;
-    if (supaUser != null) {
-      SupabaseService.recordUserHistory(supaUser.id, song);
-    }
+    // Coordinated play recording: atomic local Hive + cloud Supabase with retry
+    HistoryManager.recordPlay(song);
     _smartShuffleController.recordRecentlyPlayed(song.id);
 
     // Reset listen history & lyrics offset

@@ -1,0 +1,148 @@
+{
+  "version": "2.0.0",
+  "project": "Paatu Padava",
+  "orchestrator": {
+    "role": "Lead Systems Architect & Autonomous Meta-Orchestrator",
+    "description": "Oversees end-to-end multi-agent execution, cross-layer dependency ordering, and architectural coherence across database, backend, web, and mobile."
+  },
+  "agents": [
+    {
+      "id": "db_architect",
+      "name": "Database Architect",
+      "scope": {
+        "allowed_paths": [
+          "backend-data-hf/models.py",
+          "backend-data-hf/connection.py",
+          "backend-data-hf/base.py",
+          "backend-data-hf/migrations/**",
+          "plans/**",
+          ".antigravity/skills/db-guidelines/**"
+        ],
+        "denied_paths": [
+          "frontend-react/**",
+          "mobile/**",
+          "backend-data-hf/routers/**"
+        ]
+      },
+      "responsibilities": [
+        "Relational schema modeling and constraints (SQLAlchemy 2.0 & PostgreSQL)",
+        "PostgreSQL Row Level Security (RLS) policies for Supabase",
+        "Migration script authoring and execution verification",
+        "Connection pool tuning (asyncpg, pool_size, max_overflow, pool_recycle, pool_pre_ping)",
+        "Query indexing strategies, composite indices, and uniqueness enforcement"
+      ],
+      "tools": [
+        "view_file",
+        "replace_file_content",
+        "multi_replace_file_content",
+        "write_to_file",
+        "run_command",
+        "grep_search",
+        "list_dir"
+      ],
+      "skill_ref": ".antigravity/skills/db-guidelines/SKILL.md"
+    },
+    {
+      "id": "backend_engineer",
+      "name": "Backend Engineer",
+      "scope": {
+        "allowed_paths": [
+          "backend-data-hf/**",
+          "mcp_server.py",
+          "plans/**",
+          ".antigravity/skills/backend-guidelines/**"
+        ],
+        "denied_paths": [
+          "frontend-react/**",
+          "mobile/**"
+        ]
+      },
+      "responsibilities": [
+        "FastAPI REST endpoints and APIRouter modular routing",
+        "Pydantic v2 request/response schemas and payload validation",
+        "Authentication mechanisms (JWT, Argon2, Google OAuth, OTP security)",
+        "Recommendation graph engine (co-occurrence & collaborative filtering)",
+        "Prefix Trie autocomplete and search suggestion algorithms",
+        "SlowAPI rate limiting, GZip middleware, CORS configuration",
+        "Unit and integration test suites execution and pass guarantees"
+      ],
+      "tools": [
+        "view_file",
+        "replace_file_content",
+        "multi_replace_file_content",
+        "write_to_file",
+        "run_command",
+        "grep_search",
+        "list_dir"
+      ],
+      "skill_ref": ".antigravity/skills/backend-guidelines/SKILL.md"
+    },
+    {
+      "id": "web_engineer",
+      "name": "Web Engineer",
+      "scope": {
+        "allowed_paths": [
+          "frontend-react/**",
+          "plans/**"
+        ],
+        "denied_paths": [
+          "backend-data-hf/**",
+          "mobile/**"
+        ]
+      },
+      "responsibilities": [
+        "React 19 + TypeScript + Vite modern web application components",
+        "Web Audio API 10-band parametric equalizer and canvas visualizer",
+        "State management via React Contexts (AudioContext, AuthContext, ThemeContext)",
+        "Backend API client consumption and type alignment",
+        "HTML5 CacheStorage offline audio blob caching and storage quota meter",
+        "Responsive desktop and tablet layouts with TailwindCSS",
+        "Zero TypeScript compiler errors (`tsc --noEmit` pass)"
+      ],
+      "tools": [
+        "view_file",
+        "replace_file_content",
+        "multi_replace_file_content",
+        "write_to_file",
+        "run_command",
+        "grep_search",
+        "list_dir"
+      ]
+    },
+    {
+      "id": "mobile_engineer",
+      "name": "Mobile Engineer",
+      "scope": {
+        "allowed_paths": [
+          "mobile/**",
+          "plans/**",
+          ".antigravity/skills/mobile-guidelines/**"
+        ],
+        "denied_paths": [
+          "backend-data-hf/**",
+          "frontend-react/**"
+        ]
+      },
+      "responsibilities": [
+        "Flutter 3.x native Android application (SDK 36, Java 17)",
+        "Clean Architecture domain layers (TrackEntity, CatalogRepository, SyncManager)",
+        "Background audio engine integration (just_audio + audio_service)",
+        "5-Minute battery wakelock guard and AudioSession lifecycle teardown",
+        "Local offline storage with Hive boxes and automatic cache eviction",
+        "Synchronized LRC lyrics renderer with millisecond offset controls",
+        "Native Android 5-band equalizer bound to audio session ID",
+        "Full Flutter test suite execution and pass guarantees"
+      ],
+      "tools": [
+        "view_file",
+        "replace_file_content",
+        "multi_replace_file_content",
+        "write_to_file",
+        "run_command",
+        "grep_search",
+        "list_dir"
+      ],
+      "skill_ref": ".antigravity/skills/mobile-guidelines/SKILL.md"
+    }
+  ]
+}

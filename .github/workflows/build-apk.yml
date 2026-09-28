@@ -50,16 +50,67 @@ jobs:
 
       - name: Validate Supabase Secrets
         run: |
-          if [ -z "${{ secrets.SUPABASE_URL }}" ]; then
-            echo "::warning::SUPABASE_URL is not set in GitHub repository secrets! Mobile cloud sync will run in offline mode."
+          URL="${{ secrets.SUPABASE_URL }}"
+          KEY="${{ secrets.SUPABASE_ANON_KEY }}"
+
+          FAILED=0
+
+          echo "== Validating Supabase Secrets =="
+
+          if [ -z "$URL" ]; then
+            echo "::error::SUPABASE_URL secret is missing in GitHub repository secrets!"
+            FAILED=1
+          else
+            if echo "$URL" | grep -q "[ '\" ]"; then
+              echo "::error::SUPABASE_URL contains quotes or spaces. Ensure it is a clean URL like: https://<project-ref>.supabase.co"
+              FAILED=1
+            fi
+
+            if ! echo "$URL" | grep -Eq "^https://[a-zA-Z0-9-]+\.supabase\.co/?$"; then
+              echo "::error::SUPABASE_URL must look like https://<project-ref>.supabase.co with no trailing path or query parameters. Got: $URL"
+              FAILED=1
+            fi
           fi
-          if [ -z "${{ secrets.SUPABASE_ANON_KEY }}" ]; then
-            echo "::warning::SUPABASE_ANON_KEY is not set in GitHub repository secrets! Mobile cloud sync will run in offline mode."
+
+          if [ -z "$KEY" ]; then
+            echo "::error::SUPABASE_ANON_KEY secret is missing in GitHub repository secrets!"
+            FAILED=1
+          else
+            if echo "$KEY" | grep -q "[ '\" ]"; then
+              echo "::error::SUPABASE_ANON_KEY contains quotes or spaces. It must be the raw token without quotes or spaces."
+              FAILED=1
+            fi
+
+            if ! echo "$KEY" | grep -Eq "^eyJ"; then
+              echo "::error::SUPABASE_ANON_KEY should be the public 'anon' JWT starting with 'eyJ...'. Please ensure you did not copy the service-role key or an invalid string."
+              FAILED=1
+            fi
           fi
+
+          if [ $FAILED -ne 0 ]; then
+            echo "::error::Build aborted. Valid Supabase secrets are required to produce a functional release APK."
+            exit 1
+          fi
+
+          echo "✅ All Supabase secrets verified and ready for injection."
 
       - name: Build Release APK
         working-directory: mobile
-        run: flutter build apk --release --android-skip-build-dependency-validation --dart-define=SUPABASE_URL="${{ secrets.SUPABASE_URL }}" --dart-define=SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
+        run: |
+          GIT_SHA="${{ github.sha }}"
+          SHORT_SHA="${GIT_SHA:0:7}"
+          BUILD_TIME=$(date -u +'%Y-%m-%d %H:%M UTC')
+
+          RAW_URL="${{ secrets.SUPABASE_URL }}"
+          CLEAN_URL="${RAW_URL%/}"
+          CLEAN_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
+
+          flutter build apk --release \
+            --android-skip-build-dependency-validation \
+            --dart-define=SUPABASE_URL="$CLEAN_URL" \
+            --dart-define=SUPABASE_ANON_KEY="$CLEAN_KEY" \
+            --dart-define=GIT_COMMIT="$SHORT_SHA" \
+            --dart-define=BUILD_TIME="$BUILD_TIME"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

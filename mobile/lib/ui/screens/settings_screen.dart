@@ -7,6 +7,7 @@ import '../../services/equalizer_service.dart';
 import '../../services/cache_manager.dart';
 import '../../services/supabase_service.dart';
 import '../widgets/mini_player.dart';
+import '../widgets/auth_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -19,6 +20,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _cacheSizeStr = 'Calculating...';
   bool _isClearing = false;
   String _appVersion = 'Version 2.0.0 (Release)';
+
+  static const String _gitCommit = String.fromEnvironment('GIT_COMMIT', defaultValue: '');
+  static const String _buildTime = String.fromEnvironment('BUILD_TIME', defaultValue: '');
 
   final List<String> _allLanguages = [
     'Tamil',
@@ -223,6 +227,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (mounted) setState(() {});
               },
               child: const Text('Logout', style: TextStyle(color: Colors.redAccent)),
+            )
+          else
+            TextButton(
+              onPressed: () async {
+                await AuthDialog.show(context);
+                if (mounted) setState(() {});
+              },
+              child: const Text(
+                'Sign In',
+                style: TextStyle(color: Color(0xFF818CF8), fontWeight: FontWeight.bold),
+              ),
             ),
         ],
       ),
@@ -555,8 +570,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  String get _buildDetailsText {
+    final commit = _gitCommit.trim();
+    final time = _buildTime.trim();
+    if (commit.isNotEmpty && time.isNotEmpty) {
+      return '$_appVersion • Git: $commit • $time';
+    } else if (commit.isNotEmpty) {
+      return '$_appVersion • Git: $commit';
+    } else if (time.isNotEmpty) {
+      return '$_appVersion • Build: $time';
+    }
+    return '$_appVersion • Local Dev';
+  }
+
   Widget _buildAboutCard() {
     final isConfigured = SupabaseService.isConfigured;
+    final isInitialized = SupabaseService.isInitialized;
+    final isHealthy = isConfigured && isInitialized;
+
+    String pillText;
+    if (!isConfigured) {
+      pillText = 'Cloud Sync: Offline (Secrets not baked into this APK)';
+    } else if (!isInitialized) {
+      final err = SupabaseService.initError;
+      pillText = (err != null && err.isNotEmpty)
+          ? 'Cloud Sync: Offline (Failed to start: $err)'
+          : 'Cloud Sync: Offline (Supabase failed to start)';
+    } else {
+      final url = SupabaseService.supabaseUrl;
+      final isProd = url.contains('bdolimatfkyqibiedlqp');
+      pillText = 'Cloud Sync: Active (${isProd ? 'Production' : 'Connected'})';
+    }
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -579,35 +624,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            '$_appVersion • Build: 2026-09-26\nComplete Web App Parity • Smart AI Shuffle • Lossless Audio Streaming & Offline Downloads.',
+            '$_buildDetailsText\nComplete Web App Parity • Smart AI Shuffle • Lossless Audio Streaming & Offline Downloads.',
             style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12, height: 1.5),
           ),
           const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
-              color: isConfigured ? const Color(0xFF10B981).withOpacity(0.12) : const Color(0xFFEF4444).withOpacity(0.12),
+              color: isHealthy ? const Color(0xFF10B981).withOpacity(0.12) : const Color(0xFFEF4444).withOpacity(0.12),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: isConfigured ? const Color(0xFF10B981).withOpacity(0.3) : const Color(0xFFEF4444).withOpacity(0.3),
+                color: isHealthy ? const Color(0xFF10B981).withOpacity(0.3) : const Color(0xFFEF4444).withOpacity(0.3),
               ),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
-                  isConfigured ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
+                  isHealthy ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
                   size: 14,
-                  color: isConfigured ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                  color: isHealthy ? const Color(0xFF10B981) : const Color(0xFFEF4444),
                 ),
                 const SizedBox(width: 6),
                 Flexible(
                   child: Text(
-                    isConfigured
-                        ? 'Cloud Sync: Active (${SupabaseService.supabaseUrl.contains('bdolimatfkyqibiedlqp') ? 'Production' : 'Connected'})'
-                        : 'Cloud Sync: Offline (Secrets not baked into this APK)',
+                    pillText,
                     style: TextStyle(
-                      color: isConfigured ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                      color: isHealthy ? const Color(0xFF10B981) : const Color(0xFFEF4444),
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
                     ),

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paatu_padava_mobile/services/auth_manager.dart';
+import 'package:paatu_padava_mobile/services/supabase_service.dart';
 
 void main() {
   group('AuthUser & Auth State Transition Tests', () {
@@ -69,6 +70,16 @@ void main() {
 
       expect(states.length, equals(3));
       AuthManager.authNotifier.removeListener(listener);
+    });
+
+    test('SupabaseService.ensureReady distinguishes missing credentials vs uninitialized', () {
+      // In default test environment without --dart-define, isConfigured is false
+      expect(
+        () => SupabaseService.ensureReady(),
+        throwsA(predicate((e) =>
+          e.toString().contains('Supabase credentials are not configured on this build')
+        )),
+      );
     });
   });
 }

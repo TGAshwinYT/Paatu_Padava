@@ -8,14 +8,25 @@ class SupabaseService {
   static const String _envUrl = String.fromEnvironment('SUPABASE_URL');
   static const String _envAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
 
+  static String _cleanSecret(String raw) {
+    var s = raw.trim();
+    if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+      s = s.substring(1, s.length - 1).trim();
+    }
+    while (s.endsWith('/')) {
+      s = s.substring(0, s.length - 1).trim();
+    }
+    return s;
+  }
+
   static String get supabaseUrl {
-    final trimmed = _envUrl.trim();
+    final trimmed = _cleanSecret(_envUrl);
     if (trimmed.isNotEmpty) return trimmed;
     return 'https://placeholder.supabase.co';
   }
 
   static String get supabaseAnonKey {
-    final trimmed = _envAnonKey.trim();
+    final trimmed = _cleanSecret(_envAnonKey);
     if (trimmed.isNotEmpty) return trimmed;
     return 'placeholder-anon-key';
   }
@@ -35,6 +46,9 @@ class SupabaseService {
   static bool _isInitialized = false;
   static bool get isInitialized => _isInitialized;
 
+  static String? _initError;
+  static String? get initError => _initError;
+
   static SupabaseClient? get client {
     if (!_isInitialized) return null;
     try {
@@ -50,7 +64,22 @@ class SupabaseService {
   /// Stream of Supabase authentication state changes
   static Stream<AuthState>? get authStateChanges => client?.auth.onAuthStateChange;
 
+  /// Validates readiness before attempting any remote auth call,
+  /// strictly distinguishing between missing credentials vs startup failure.
+  static void ensureReady() {
+    if (!isConfigured) {
+      throw 'Cloud sync is offline: Supabase credentials are not configured on this build.';
+    }
+    if (!_isInitialized || client == null) {
+      final detail = (_initError != null && _initError!.isNotEmpty)
+          ? ': $_initError'
+          : '.';
+      throw 'Cloud sync is offline: Supabase failed to start$detail';
+    }
+  }
+
   static Future<void> init() async {
+    _initError = null;
     if (!isConfigured) {
       debugPrint('[SupabaseService] Offline Mode: Supabase credentials not configured ($supabaseUrl).');
       _isInitialized = false;
@@ -66,7 +95,8 @@ class SupabaseService {
       _isInitialized = true;
       debugPrint('[SupabaseService] Initialized successfully with $supabaseUrl');
     } catch (e) {
-      debugPrint('[SupabaseService] Init notice (running in offline/resilient mode): $e');
+      _initError = e.toString().replaceAll('Exception:', '').trim();
+      debugPrint('[SupabaseService] Init error (running in offline/resilient mode): $e');
       _isInitialized = false;
     }
   }
@@ -78,9 +108,7 @@ class SupabaseService {
     required String password,
     String? username,
   }) async {
-    if (!isConfigured || client == null) {
-      throw 'Cloud sync is offline. Supabase credentials are not configured on this build.';
-    }
+    ensureReady();
     final c = client!;
 
     try {
@@ -110,9 +138,7 @@ class SupabaseService {
     required String email,
     required String password,
   }) async {
-    if (!isConfigured || client == null) {
-      throw 'Cloud sync is offline. Supabase credentials are not configured on this build.';
-    }
+    ensureReady();
     final c = client!;
 
     try {
@@ -133,9 +159,7 @@ class SupabaseService {
 
   /// Native Google Sign-In with Supabase OAuth Token Exchange
   static Future<AuthResponse?> signInWithGoogle() async {
-    if (!isConfigured || client == null) {
-      throw 'Cloud sync is offline: Supabase credentials are not configured on this build.';
-    }
+    ensureReady();
     final c = client!;
 
     try {

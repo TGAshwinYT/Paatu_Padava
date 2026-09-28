@@ -31,6 +31,12 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
   bool _isLoading = false;
   String? _errorMessage;
 
+  // Google Sign-In is hidden until Web Client ID and SHA-1 registration are fully verified
+  static const bool _enableGoogleSignIn = bool.fromEnvironment(
+    'ENABLE_GOOGLE_SIGN_IN',
+    defaultValue: false,
+  );
+
   @override
   void initState() {
     super.initState();
@@ -344,35 +350,37 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
               ),
             ],
 
-            // Google Sign In Button
-            OutlinedButton.icon(
-              onPressed: _isLoading ? null : _handleGoogleSignIn,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.white,
-                side: BorderSide(color: Colors.white.withOpacity(0.15)),
-                backgroundColor: const Color(0xFF0A0E1A),
-                padding: const EdgeInsets.symmetric(vertical: 13),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              ),
-              icon: const Icon(Icons.g_mobiledata_rounded, color: Colors.white, size: 26),
-              label: Text(
-                'Continue with Google',
-                style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w600),
-              ),
-            ),
-            const SizedBox(height: 14),
-
-            Row(
-              children: [
-                Expanded(child: Divider(color: Colors.white.withOpacity(0.08))),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Text('OR', style: GoogleFonts.outfit(color: Colors.white38, fontSize: 11)),
+            if (_enableGoogleSignIn) ...[
+              // Google Sign In Button
+              OutlinedButton.icon(
+                onPressed: _isLoading ? null : _handleGoogleSignIn,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: BorderSide(color: Colors.white.withOpacity(0.15)),
+                  backgroundColor: const Color(0xFF0A0E1A),
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 ),
-                Expanded(child: Divider(color: Colors.white.withOpacity(0.08))),
-              ],
-            ),
-            const SizedBox(height: 14),
+                icon: const Icon(Icons.g_mobiledata_rounded, color: Colors.white, size: 26),
+                label: Text(
+                  'Continue with Google',
+                  style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              Row(
+                children: [
+                  Expanded(child: Divider(color: Colors.white.withOpacity(0.08))),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Text('OR', style: GoogleFonts.outfit(color: Colors.white38, fontSize: 11)),
+                  ),
+                  Expanded(child: Divider(color: Colors.white.withOpacity(0.08))),
+                ],
+              ),
+              const SizedBox(height: 14),
+            ],
 
             // Animated Neon Sliding Control (Tabs: Sign In / Create Account)
             Container(

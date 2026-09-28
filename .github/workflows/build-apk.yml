@@ -50,24 +50,27 @@ jobs:
 
       - name: Validate Supabase Secrets
         run: |
-          URL="${{ secrets.SUPABASE_URL }}"
-          KEY="${{ secrets.SUPABASE_ANON_KEY }}"
+          RAW_URL="${{ secrets.SUPABASE_URL }}"
+          RAW_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
+
+          URL=$(printf '%s' "$RAW_URL" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KEY=$(printf '%s' "$RAW_KEY" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
           FAILED=0
-
           echo "== Validating Supabase Secrets =="
 
           if [ -z "$URL" ]; then
             echo "::error::SUPABASE_URL secret is missing in GitHub repository secrets!"
             FAILED=1
           else
-            if echo "$URL" | grep -q "[ '\" ]"; then
-              echo "::error::SUPABASE_URL contains quotes or spaces. Ensure it is a clean URL like: https://<project-ref>.supabase.co"
+            if echo "$URL" | grep -q "['\"]"; then
+              echo "::error::SUPABASE_URL contains quote characters. Please remove any single or double quotes in GitHub Secrets."
               FAILED=1
             fi
 
-            if ! echo "$URL" | grep -Eq "^https://[a-zA-Z0-9-]+\.supabase\.co/?$"; then
-              echo "::error::SUPABASE_URL must look like https://<project-ref>.supabase.co with no trailing path or query parameters. Got: $URL"
+            C_URL=$(printf '%s' "$URL" | tr -d ' "\x27' | sed 's:/*$::')
+            if ! echo "$C_URL" | grep -Eq "^https://[a-zA-Z0-9-]+\.supabase\.co$"; then
+              echo "::error::SUPABASE_URL must look like https://<project-ref>.supabase.co (e.g. https://bdolimatfkyqibiedlqp.supabase.co). Got: '$URL'"
               FAILED=1
             fi
           fi
@@ -76,12 +79,13 @@ jobs:
             echo "::error::SUPABASE_ANON_KEY secret is missing in GitHub repository secrets!"
             FAILED=1
           else
-            if echo "$KEY" | grep -q "[ '\" ]"; then
-              echo "::error::SUPABASE_ANON_KEY contains quotes or spaces. It must be the raw token without quotes or spaces."
+            if echo "$KEY" | grep -q "['\"]"; then
+              echo "::error::SUPABASE_ANON_KEY contains quote characters. Please remove any single or double quotes in GitHub Secrets."
               FAILED=1
             fi
 
-            if ! echo "$KEY" | grep -Eq "^eyJ"; then
+            C_KEY=$(printf '%s' "$KEY" | tr -d ' "\x27')
+            if ! echo "$C_KEY" | grep -Eq "^eyJ"; then
               echo "::error::SUPABASE_ANON_KEY should be the public 'anon' JWT starting with 'eyJ...'. Please ensure you did not copy the service-role key or an invalid string."
               FAILED=1
             fi
@@ -101,16 +105,12 @@ jobs:
           SHORT_SHA="${GIT_SHA:0:7}"
           BUILD_TIME=$(date -u +'%Y-%m-%d %H:%M UTC')
 
-          RAW_URL="${{ secrets.SUPABASE_URL }}"
-          CLEAN_URL="${RAW_URL%/}"
-          CLEAN_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
+          CLEAN_URL=$(printf '%s' "${{ secrets.SUPABASE_URL }}" | tr -d '\r\n "' | sed "s/'//g" | sed 's:/*$::')
+          CLEAN_KEY=$(printf '%s' "${{ secrets.SUPABASE_ANON_KEY }}" | tr -d '\r\n "' | sed "s/'//g")
 
-          flutter build apk --release \
-            --android-skip-build-dependency-validation \
-            --dart-define=SUPABASE_URL="$CLEAN_URL" \
-            --dart-define=SUPABASE_ANON_KEY="$CLEAN_KEY" \
-            --dart-define=GIT_COMMIT="$SHORT_SHA" \
-            --dart-define=BUILD_TIME="$BUILD_TIME"
+          echo "Building APK with Git commit: $SHORT_SHA ($BUILD_TIME)..."
+
+          flutter build apk --release -t lib/main.dart --android-skip-build-dependency-validation --dart-define=SUPABASE_URL="$CLEAN_URL" --dart-define=SUPABASE_ANON_KEY="$CLEAN_KEY" --dart-define=GIT_COMMIT="$SHORT_SHA" --dart-define=BUILD_TIME="$BUILD_TIME"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

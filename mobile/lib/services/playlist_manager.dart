@@ -9,12 +9,18 @@ class UserPlaylist {
   String title;
   final int createdAt;
   List<Song> tracks;
+  bool isCollaborative;
+  String? inviteCode;
+  String? ownerId;
 
   UserPlaylist({
     required this.id,
     required this.title,
     required this.createdAt,
     required this.tracks,
+    this.isCollaborative = false,
+    this.inviteCode,
+    this.ownerId,
   });
 
   Map<String, dynamic> toMap() => {
@@ -22,6 +28,9 @@ class UserPlaylist {
     'title': title,
     'created_at': createdAt,
     'tracks': tracks.map((t) => t.toMap()).toList(),
+    'is_collaborative': isCollaborative,
+    'invite_code': inviteCode,
+    'owner_id': ownerId,
   };
 
   factory UserPlaylist.fromMap(Map<dynamic, dynamic> map) {
@@ -31,6 +40,29 @@ class UserPlaylist {
       title: map['title']?.toString() ?? 'Untitled Playlist',
       createdAt: int.tryParse(map['created_at']?.toString() ?? '') ?? DateTime.now().millisecondsSinceEpoch,
       tracks: rawTracks.map((t) => Song.fromMap(t as Map<dynamic, dynamic>)).toList(),
+      isCollaborative: map['is_collaborative'] == true,
+      inviteCode: map['invite_code']?.toString(),
+      ownerId: map['owner_id']?.toString(),
+    );
+  }
+
+  UserPlaylist copyWith({
+    String? id,
+    String? title,
+    int? createdAt,
+    List<Song>? tracks,
+    bool? isCollaborative,
+    String? inviteCode,
+    String? ownerId,
+  }) {
+    return UserPlaylist(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      createdAt: createdAt ?? this.createdAt,
+      tracks: tracks ?? this.tracks,
+      isCollaborative: isCollaborative ?? this.isCollaborative,
+      inviteCode: inviteCode ?? this.inviteCode,
+      ownerId: ownerId ?? this.ownerId,
     );
   }
 

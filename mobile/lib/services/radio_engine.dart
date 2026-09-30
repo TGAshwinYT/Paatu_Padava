@@ -1,9 +1,7 @@
 import 'dart:math';
-import 'package:flutter/foundation.dart';
 import '../data/repositories/song_repository.dart';
 import '../models/song.dart';
 import 'api_client.dart';
-import 'history_manager.dart';
 import 'player_handler.dart';
 import 'saavn_client.dart';
 import 'settings_manager.dart';
@@ -13,13 +11,6 @@ class RadioEngine {
   /// Combines related recommendations, artist top hits, contextual recommendations,
   /// and regional trending tracks while enforcing artist diversity and anti-repetition.
   static Future<List<Song>> buildSongRadio(Song seedSong, {int limit = 50}) async {
-    final List<Song> radioTracks = [seedSong];
-    final Set<String> seenKeys = {
-      seedSong.id,
-      seedSong.canonicalBaseKey,
-      seedSong.canonicalSongKey,
-    };
-
     final prefLangs = SettingsManager.preferredLanguages;
     final primaryLang = prefLangs.isNotEmpty ? prefLangs.first : 'tamil';
 

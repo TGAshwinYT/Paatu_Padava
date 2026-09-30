@@ -1,7 +1,6 @@
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import '../models/song.dart';
-import 'auth_manager.dart';
 import 'history_manager.dart';
 import 'supabase_service.dart';
 

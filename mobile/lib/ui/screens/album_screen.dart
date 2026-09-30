@@ -3,7 +3,6 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/song.dart';
 import '../../services/saavn_client.dart';
 import '../../services/player_handler.dart';
-import '../../services/download_manager.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/batch_download_button.dart';
 import '../widgets/swipeable_song_tile.dart';

@@ -86,10 +86,12 @@ class HistoryManager {
       await _box.put(key, songMap);
       _refreshList();
 
-      // 2. Coordinated Cloud Persistence
+      // 2. Coordinated Single Cloud Persistence Path
       final supaUser = SupabaseService.currentUser;
       if (supaUser != null && !supaUser.isAnonymous) {
         _persistPlayToCloud(supaUser.id, song);
+      } else {
+        _persistPlayToBackendOnly(song);
       }
     } catch (e) {
       debugPrint('[HistoryManager] Local recordPlay notice: $e');
@@ -110,8 +112,12 @@ class HistoryManager {
           await _pendingBox?.put(song.id, song.toMap());
         } catch (_) {}
       }
+    });
+  }
 
-      // Feed backend ML recommendation engine
+  /// Fallback single write path when Supabase is unauthenticated/guest
+  static void _persistPlayToBackendOnly(Song song) {
+    Future(() async {
       try {
         await ApiClient.addListenHistory(song);
       } catch (_) {}

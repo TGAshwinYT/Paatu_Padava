@@ -56,12 +56,134 @@ class TrackEntity {
     this.lyrics,
     this.language,
     this.isSmartRecommended = false,
+    this.versions = const [],
   })  : title = sanitize(title, fallback: 'Unknown Title'),
         artist = sanitize(artist, fallback: 'Unknown Artist'),
         album = sanitize(album, fallback: 'Unknown Album');
 
+  final List<TrackEntity> versions;
+
   /// Canonical deduplication key: normalizes title and artist to match tracks across sources
   String get deduplicationKey => '${title.trim().toLowerCase()}_${artist.trim().toLowerCase()}';
+
+  /// Primary artist: extracts the first primary artist before commas, ampersands, or feature tags
+  String get primaryArtist {
+    final lower = artist.toLowerCase();
+    final parts = lower.split(RegExp(r'[,&/|]|\bfeat\.?\b|\bft\.?\b|\bwith\b'));
+    final first = parts.isNotEmpty ? parts.first.trim() : lower.trim();
+    return first.replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), '').trim();
+  }
+
+  /// Normalized title: strips brackets, parentheses (From film, remix, lofi tags), punctuation
+  String get normalizedTitle {
+    return title
+        .toLowerCase()
+        .replaceAll(RegExp(r'\([^)]*\)'), ' ')
+        .replaceAll(RegExp(r'\[[^\]]*\]'), ' ')
+        .replaceAll(RegExp(r'\b(remix|lofi|lo-fi|live|acoustic|cover|soundtrack|ost)\b', caseSensitive: false), ' ')
+        .replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  /// Duration bucketed into 3-second bands (±3s tolerance)
+  int get durationBand => (duration > 0) ? (duration / 3).round() * 3 : 0;
+
+  /// Base key for grouping all releases, dubs, and versions of the same song
+  String get canonicalBaseKey => '${normalizedTitle}___$primaryArtist';
+
+  /// Strict key for identical recording/track matching (normalized title + primary artist + duration ±3s)
+  String get canonicalSongKey => '${normalizedTitle}___${primaryArtist}___$durationBand';
+
+  /// Tags version type like Remix, Lofi, Live, From film, Acoustic, Cover, or Original
+  String get versionTag {
+    final lower = title.toLowerCase();
+    if (lower.contains('remix') || lower.contains('mix') || lower.contains('club')) return 'Remix';
+    if (lower.contains('lofi') || lower.contains('lo-fi') || lower.contains('chill') || lower.contains('slowed')) return 'Lofi';
+    if (lower.contains('live') || lower.contains('unplugged') || lower.contains('concert')) return 'Live';
+    if (lower.contains('acoustic') || lower.contains('piano')) return 'Acoustic';
+    if (lower.contains('cover') || lower.contains('tribute')) return 'Cover';
+    if (lower.contains('from ') || lower.contains('soundtrack') || lower.contains('film') || lower.contains('ost')) return 'From film';
+    return 'Original';
+  }
+
+  /// Checks if artwork is official high-res album art rather than a video thumbnail
+  bool get hasOfficialAlbumArt {
+    if (coverUrl.isEmpty) return false;
+    final lower = coverUrl.toLowerCase();
+    if (lower.contains('ytimg.com') || lower.contains('youtube.com')) return false;
+    return lower.contains('saavncdn.com') || lower.contains('jiosaavn') || source == 'saavn';
+  }
+
+  /// Groups versions of the same song into one canonical TrackEntity with attached versions
+  static List<TrackEntity> groupTracks(List<TrackEntity> tracks, {String? preferredLanguage}) {
+    if (tracks.isEmpty) return [];
+
+    final Map<String, List<TrackEntity>> groups = {};
+    for (final track in tracks) {
+      final key = track.canonicalBaseKey;
+      groups.putIfAbsent(key, () => []).add(track);
+    }
+
+    final List<TrackEntity> result = [];
+    final prefLangLower = preferredLanguage?.toLowerCase().trim();
+
+    for (final group in groups.values) {
+      if (group.isEmpty) continue;
+
+      // Sort group members to elect the best primary track:
+      // 1. Prefer official album art (JioSaavn high-res)
+      // 2. Prefer JioSaavn source over YouTube
+      // 3. Prefer matching preferred language
+      // 4. Prefer Original over Remix/Lofi for primary entry
+      group.sort((a, b) {
+        if (a.hasOfficialAlbumArt && !b.hasOfficialAlbumArt) return -1;
+        if (!a.hasOfficialAlbumArt && b.hasOfficialAlbumArt) return 1;
+
+        if (a.source == 'saavn' && b.source != 'saavn') return -1;
+        if (a.source != 'saavn' && b.source == 'saavn') return 1;
+
+        if (prefLangLower != null && prefLangLower.isNotEmpty) {
+          final aMatch = a.language?.toLowerCase() == prefLangLower;
+          final bMatch = b.language?.toLowerCase() == prefLangLower;
+          if (aMatch && !bMatch) return -1;
+          if (!aMatch && bMatch) return 1;
+        }
+
+        final aIsOriginal = a.versionTag == 'Original';
+        final bIsOriginal = b.versionTag == 'Original';
+        if (aIsOriginal && !bIsOriginal) return -1;
+        if (!aIsOriginal && bIsOriginal) return 1;
+
+        return 0;
+      });
+
+      final primary = group.first;
+      final alternateVersions = group.skip(1).toList();
+
+      result.add(TrackEntity(
+        id: primary.id,
+        title: primary.title,
+        artist: primary.artist,
+        album: primary.album,
+        albumId: primary.albumId,
+        artistId: primary.artistId,
+        coverUrl: primary.coverUrl,
+        streamUrl: primary.streamUrl,
+        duration: primary.duration,
+        isDownloaded: primary.isDownloaded,
+        localFilePath: primary.localFilePath,
+        downloadedAt: primary.downloadedAt,
+        source: primary.source,
+        lyrics: primary.lyrics,
+        language: primary.language,
+        isSmartRecommended: primary.isSmartRecommended,
+        versions: alternateVersions,
+      ));
+    }
+
+    return result;
+  }
 
   /// Converts this domain entity to legacy Song model for seamless framework compatibility
   Song toSong() {
@@ -82,6 +204,7 @@ class TrackEntity {
       lyrics: lyrics,
       language: language,
       isSmartRecommended: isSmartRecommended,
+      versions: versions.map((v) => v.toSong()).toList(),
     );
   }
 
@@ -104,6 +227,7 @@ class TrackEntity {
       lyrics: song.lyrics,
       language: song.language,
       isSmartRecommended: song.isSmartRecommended,
+      versions: song.versions.map((v) => TrackEntity.fromSong(v)).toList(),
     );
   }
 

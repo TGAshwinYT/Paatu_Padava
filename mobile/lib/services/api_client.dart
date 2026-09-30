@@ -12,12 +12,14 @@ class SearchResultBundle {
   final List<Song> songs;
   final List<Map<String, dynamic>> artists;
   final List<Map<String, dynamic>> albums;
+  final String? didYouMean;
 
   SearchResultBundle({
     this.topResult,
     required this.songs,
     required this.artists,
     required this.albums,
+    this.didYouMean,
   });
 }
 
@@ -33,15 +35,26 @@ class ApiClient {
     if (token != null && token.isNotEmpty) {
       map['Authorization'] = 'Bearer $token';
     }
-    final user = AuthManager.currentUser;
-    if (user != null && !user.isGuest) {
-      map['X-User-ID'] = user.id;
-      map['X-User-Email'] = user.email;
-    }
     return map;
   }
 
   // ================= 1. Machine Learning & Listen History ================= //
+
+  static Future<void> recordSearchClick(Song song) async {
+    try {
+      final uri = Uri.parse('$baseUrl/api/history/search-click');
+      final body = json.encode({
+        'id': song.id,
+        'title': song.title,
+        'artist': song.artist,
+        'cover_url': song.coverUrl,
+        'audio_url': song.streamUrl ?? '',
+        'language': song.language ?? '',
+      });
+
+      await http.post(uri, headers: _headers, body: body).timeout(const Duration(seconds: 4));
+    } catch (_) {}
+  }
 
   static Future<void> addListenHistory(Song song) async {
     try {
@@ -172,6 +185,7 @@ class ApiClient {
         final rawSongs = matches['songs'] as List<dynamic>? ?? [];
         final rawArtists = matches['artists'] as List<dynamic>? ?? [];
         final rawAlbums = matches['albums'] as List<dynamic>? ?? [];
+        final didYouMean = matches['did_you_mean']?.toString();
 
         return SearchResultBundle(
           topResult: topResult != null
@@ -188,6 +202,7 @@ class ApiClient {
           albums: rawAlbums.map((e) => Map<String, dynamic>.from(e as Map).map(
                 (k, v) => MapEntry(k, (k == 'title' || k == 'artist') ? Song.sanitize(v) : v),
               )).toList(),
+          didYouMean: didYouMean,
         );
       }
     } catch (_) {}

@@ -37,38 +37,13 @@ class CatalogRepository {
     'k. s. chithra': 'https://c.saavncdn.com/artists/K_S_Chithra_500x500.jpg',
   };
 
-  /// Enforce strict language parameter appending on queries ("$query $language").
-  /// Guarantees regional queries prioritize matching language versions over original language releases.
+  /// Sanitizes query string. Queries are sent clean without appending language keywords.
   static String appendLanguageParameter(String query, [String? language]) {
-    final cleanQ = query.trim();
-    if (cleanQ.isEmpty) return cleanQ;
-
-    final lang = (language != null && language.isNotEmpty)
-        ? language.trim().toLowerCase()
-        : (SettingsManager.preferredLanguages.isNotEmpty
-            ? SettingsManager.preferredLanguages.first.trim().toLowerCase()
-            : (AuthManager.currentUser?.preferredLanguages.isNotEmpty == true
-                ? AuthManager.currentUser!.preferredLanguages.first.trim().toLowerCase()
-                : 'tamil'));
-
-    if (lang.isEmpty || lang == 'all') return cleanQ;
-
-    final lower = cleanQ.toLowerCase();
-    const knownLanguages = [
-      'tamil', 'telugu', 'hindi', 'malayalam', 'kannada',
-      'english', 'punjabi', 'marathi', 'bengali'
-    ];
-
-    if (knownLanguages.any((l) => lower.contains(l))) {
-      return cleanQ;
-    }
-
-    final capitalized = lang[0].toUpperCase() + lang.substring(1);
-    return '$cleanQ $capitalized';
+    return query.trim();
   }
 
   /// Multi-source aggregated search querying JioSaavn CDN and YouTube Music in parallel.
-  /// Deduplicates across both sources using [TrackEntity.deduplicationKey] and applies distinct artwork.
+  /// Sends clean query, groups versions into canonical songs, and applies language prior scoring.
   static Future<List<TrackEntity>> searchAggregated(
     String query, {
     String? language,
@@ -77,15 +52,14 @@ class CatalogRepository {
     final cleanQuery = query.trim();
     if (cleanQuery.isEmpty) return [];
 
-    final biasedQuery = appendLanguageParameter(cleanQuery, language);
-    debugPrint('[CatalogRepository] Aggregated search for: "$biasedQuery" (raw: "$cleanQuery", limit: $limit)');
+    debugPrint('[CatalogRepository] Aggregated search for: "$cleanQuery" (limit: $limit)');
 
     try {
       final results = await Future.wait([
-        // 1. Direct JioSaavn CDN query (320kbps high fidelity)
-        SaavnClient.search(biasedQuery, limit: limit, language: language).catchError((_) => <Song>[]),
-        // 2. Direct YouTube Music search (Innertube client)
-        YouTubeClient.search(biasedQuery, limit: limit).catchError((_) => <Song>[]),
+        // 1. Direct JioSaavn CDN query (320kbps high fidelity, language passed as API hint only)
+        SaavnClient.search(cleanQuery, limit: limit, language: language).catchError((_) => <Song>[]),
+        // 2. Direct YouTube Music search (Innertube client with clean query)
+        YouTubeClient.search(cleanQuery, limit: limit).catchError((_) => <Song>[]),
       ]);
 
       final saavnTracks = results[0].map((s) => TrackEntity.fromSong(s)).toList();
@@ -99,23 +73,32 @@ class CatalogRepository {
         if (i < ytTracks.length) merged.add(ytTracks[i]);
       }
 
-      // Deduplicate using deduplicationKey
-      final deduplicated = deduplicateTracks(merged);
+      // Group versions into canonical tracks with attached alternate versions
+      final canonicalGrouped = TrackEntity.groupTracks(merged, preferredLanguage: language);
 
-      // Re-rank by language relevance match
-      final targetLang = (language ?? 'tamil').toLowerCase();
-      deduplicated.sort((a, b) {
-        final aMatch = a.title.toLowerCase().contains(targetLang) ||
-            a.language?.toLowerCase() == targetLang;
-        final bMatch = b.title.toLowerCase().contains(targetLang) ||
-            b.language?.toLowerCase() == targetLang;
-        if (aMatch && !bMatch) return -1;
-        if (!aMatch && bMatch) return 1;
-        return 0;
+      // Re-rank by language prior boost (1st language strongest boost, 2nd weaker, never a filter)
+      final prefLangs = SettingsManager.preferredLanguages;
+      final firstLang = (language ?? (prefLangs.isNotEmpty ? prefLangs.first : 'Tamil')).toLowerCase();
+      final secondLang = prefLangs.length > 1 ? prefLangs[1].toLowerCase() : null;
+
+      canonicalGrouped.sort((a, b) {
+        double aScore = 0.0;
+        double bScore = 0.0;
+
+        if (a.language?.toLowerCase() == firstLang || a.title.toLowerCase().contains(firstLang)) aScore += 0.35;
+        else if (secondLang != null && (a.language?.toLowerCase() == secondLang || a.title.toLowerCase().contains(secondLang))) aScore += 0.15;
+
+        if (b.language?.toLowerCase() == firstLang || b.title.toLowerCase().contains(firstLang)) bScore += 0.35;
+        else if (secondLang != null && (b.language?.toLowerCase() == secondLang || b.title.toLowerCase().contains(secondLang))) bScore += 0.15;
+
+        if (a.hasOfficialAlbumArt) aScore += 0.10;
+        if (b.hasOfficialAlbumArt) bScore += 0.10;
+
+        return bScore.compareTo(aScore);
       });
 
       // Ensure distinct artwork across consecutive items
-      return ensureDistinctArtwork(deduplicated);
+      return ensureDistinctArtwork(canonicalGrouped);
     } catch (e) {
       debugPrint('[CatalogRepository] Search error: $e');
       return [];

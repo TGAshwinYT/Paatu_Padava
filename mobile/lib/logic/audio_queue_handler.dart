@@ -519,13 +519,69 @@ class AudioQueueHandler {
     }
   }
 
+  /// Verifies candidate audio track against target before playing (title, artist, duration)
+  static bool verifyAudioMatch(Song candidate, Song target) {
+    // 1. Duration check: tolerance of 12 seconds when both durations are available
+    if (target.duration > 0 && candidate.duration > 0) {
+      final diff = (candidate.duration - target.duration).abs();
+      if (diff > 12) {
+        return false;
+      }
+    }
+
+    // 2. Title similarity check
+    final normTargetTitle = _normalizeForComparison(target.title);
+    final normCandTitle = _normalizeForComparison(candidate.title);
+    if (normTargetTitle.isEmpty || normCandTitle.isEmpty) return false;
+
+    if (normTargetTitle == normCandTitle ||
+        normTargetTitle.contains(normCandTitle) ||
+        normCandTitle.contains(normTargetTitle)) {
+      return true;
+    }
+
+    final targetTokens = normTargetTitle.split(' ').where((w) => w.length > 1).toSet();
+    final candTokens = normCandTitle.split(' ').where((w) => w.length > 1).toSet();
+    if (targetTokens.isEmpty || candTokens.isEmpty) return false;
+
+    final overlap = targetTokens.intersection(candTokens).length;
+    final ratio = overlap / targetTokens.length;
+    if (ratio >= 0.5) {
+      final normTargetArtist = _normalizeForComparison(target.artist);
+      final normCandArtist = _normalizeForComparison(candidate.artist);
+      if (normTargetArtist.isNotEmpty && normCandArtist.isNotEmpty) {
+        final artistTargetTokens = normTargetArtist.split(' ').where((w) => w.length > 2).toSet();
+        final artistCandTokens = normCandArtist.split(' ').where((w) => w.length > 2).toSet();
+        if (artistTargetTokens.isNotEmpty && artistCandTokens.isNotEmpty) {
+          final artistOverlap = artistTargetTokens.intersection(artistCandTokens);
+          if (artistOverlap.isNotEmpty) return true;
+        }
+      }
+      return ratio >= 0.7;
+    }
+
+    return false;
+  }
+
+  static String _normalizeForComparison(String text) {
+    return text
+        .toLowerCase()
+        .replaceAll(RegExp(r'\([^)]*\)'), ' ')
+        .replaceAll(RegExp(r'\[[^\]]*\]'), ' ')
+        .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
   Future<String?> _resolveStreamUrl(Song song) async {
     if (song.source == 'youtube' || song.id.length == 11) {
       try {
         final query = YouTubeClient.cleanTitle('${song.title} ${song.artist}');
-        final saavnMatches = await SaavnClient.search(query, limit: 1);
-        if (saavnMatches.isNotEmpty && saavnMatches.first.streamUrl != null) {
-          return saavnMatches.first.streamUrl;
+        final saavnMatches = await SaavnClient.search(query, limit: 3);
+        for (final match in saavnMatches) {
+          if (match.streamUrl != null && verifyAudioMatch(match, song)) {
+            return match.streamUrl;
+          }
         }
       } catch (_) {}
       try {
@@ -533,9 +589,14 @@ class AudioQueueHandler {
       } catch (_) {}
     } else {
       try {
-        final matches = await SaavnClient.search('${song.title} ${song.artist}', limit: 1);
-        if (matches.isNotEmpty && matches.first.streamUrl != null) {
-          return matches.first.streamUrl;
+        if (song.streamUrl != null && song.streamUrl!.isNotEmpty) {
+          return song.streamUrl;
+        }
+        final matches = await SaavnClient.search('${song.title} ${song.artist}', limit: 3);
+        for (final match in matches) {
+          if (match.streamUrl != null && verifyAudioMatch(match, song)) {
+            return match.streamUrl;
+          }
         }
       } catch (_) {}
     }

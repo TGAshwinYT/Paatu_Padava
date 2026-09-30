@@ -27,6 +27,7 @@ class SearchResultsState {
   final List<Map<String, dynamic>> albums;
   final List<Map<String, dynamic>> artists;
   final List<Song> ytSongs;
+  final String? didYouMean;
 
   const SearchResultsState({
     this.topResult,
@@ -34,6 +35,7 @@ class SearchResultsState {
     this.albums = const [],
     this.artists = const [],
     this.ytSongs = const [],
+    this.didYouMean,
   });
 
   bool get isEmpty =>
@@ -51,6 +53,7 @@ class _SearchScreenState extends State<SearchScreen> {
   static final HtmlUnescape _unescape = HtmlUnescape();
   final TextEditingController _searchController = TextEditingController();
   Timer? _debounceTimer;
+  int _searchRequestId = 0;
 
   // State isolation via ValueNotifiers: eliminates full-page rebuilds & refresh lag
   final ValueNotifier<String> _currentTabNotifier = ValueNotifier<String>('All');
@@ -164,13 +167,11 @@ class _SearchScreenState extends State<SearchScreen> {
     // 400ms Debounce: strictly prevents API requests and rebuilds while typing
     _debounceTimer = Timer(const Duration(milliseconds: 400), () {
       if (!mounted) return;
-      // Fetch suggestions only after user pauses typing for 400ms
       ApiClient.searchSuggestions(clean).then((suggs) {
         if (mounted && _searchController.text.trim() == clean) {
           _suggestionsNotifier.value = suggs;
         }
       });
-      // CRITICAL FIX: NEVER save to search history in onChanged!
       _executeSearch(clean, saveHistory: false);
     });
   }
@@ -179,12 +180,12 @@ class _SearchScreenState extends State<SearchScreen> {
     final clean = query.trim();
     if (clean.isEmpty) return;
 
-    // Save to local search history ONLY if explicitly requested (e.g. onSubmitted or clicking results)
+    final currentRequestId = ++_searchRequestId;
+
     if (saveHistory) {
       SearchHistoryManager.addQuery(clean);
     }
 
-    // Typo evaluation: match against locally cached popular titles & tokens
     final correction = FuzzySearchService.findCorrection(clean);
     _fuzzyCorrectionNotifier.value = correction;
 
@@ -200,56 +201,66 @@ class _SearchScreenState extends State<SearchScreen> {
     try {
       if (tab == 'All') {
         final unified = await SearchService.searchUnified(clean, language: prefLang, limit: 25);
-        if (mounted) {
-          _resultsNotifier.value = SearchResultsState(
-            topResult: unified.topResult,
-            songs: unified.songs,
-            ytSongs: unified.ytSongs,
-            albums: unified.albums,
-            artists: unified.artists,
-          );
-          _isSearchingNotifier.value = false;
-          return;
-        }
+        if (!mounted || currentRequestId != _searchRequestId) return;
+        _resultsNotifier.value = SearchResultsState(
+          topResult: unified.topResult,
+          songs: unified.songs,
+          ytSongs: unified.ytSongs,
+          albums: unified.albums,
+          artists: unified.artists,
+          didYouMean: unified.didYouMean,
+        );
+        _isSearchingNotifier.value = false;
+        return;
       } else if (tab == 'Songs') {
         final unified = await SearchService.searchUnified(clean, language: prefLang, limit: 25);
-        if (mounted) {
-          _resultsNotifier.value = SearchResultsState(songs: unified.songs);
-          _isSearchingNotifier.value = false;
-        }
+        if (!mounted || currentRequestId != _searchRequestId) return;
+        _resultsNotifier.value = SearchResultsState(
+          songs: unified.songs,
+          didYouMean: unified.didYouMean,
+        );
+        _isSearchingNotifier.value = false;
       } else if (tab == 'Albums') {
         final albums = await SaavnClient.searchAlbums(clean, limit: 25);
-        if (mounted) {
-          _resultsNotifier.value = SearchResultsState(albums: albums);
-          _isSearchingNotifier.value = false;
-        }
+        if (!mounted || currentRequestId != _searchRequestId) return;
+        final labeled = albums.map((alb) {
+          final songCount = int.tryParse(alb['song_count']?.toString() ?? '0') ?? 0;
+          final title = (alb['title'] ?? '').toString().toLowerCase();
+          final isSingle = songCount == 1 || title.contains('single');
+          return {
+            ...alb,
+            'type': isSingle ? 'Single' : 'Album',
+          };
+        }).toList();
+        _resultsNotifier.value = SearchResultsState(albums: labeled);
+        _isSearchingNotifier.value = false;
       } else if (tab == 'Artists') {
         final artists = await SaavnClient.searchArtists(clean, limit: 25);
-        if (mounted) {
-          _resultsNotifier.value = SearchResultsState(artists: artists);
-          _isSearchingNotifier.value = false;
-        }
+        if (!mounted || currentRequestId != _searchRequestId) return;
+        _resultsNotifier.value = SearchResultsState(artists: artists);
+        _isSearchingNotifier.value = false;
       } else if (tab == 'YouTube') {
-        final biasedQuery = SearchService.buildLanguageBiasedQuery(clean, language: prefLang);
-        final yt = await YouTubeClient.search(biasedQuery, limit: 25);
-        if (mounted) {
-          final cleanYt = SongRepository.deduplicateSongs(yt);
-          _resultsNotifier.value = SearchResultsState(ytSongs: cleanYt);
-          _isSearchingNotifier.value = false;
-        }
+        final yt = await YouTubeClient.search(clean, limit: 25);
+        if (!mounted || currentRequestId != _searchRequestId) return;
+        final groupedYt = SongRepository.groupCanonicalSongs(yt, preferredLanguage: prefLang);
+        final cleanYt = SongRepository.deduplicateSongs(groupedYt);
+        _resultsNotifier.value = SearchResultsState(ytSongs: cleanYt);
+        _isSearchingNotifier.value = false;
       }
 
-      // If zero results found due to a typo, attempt automatic fuzzy fallback search
-      if (mounted && _resultsNotifier.value.isEmpty && correction != null) {
+      if (mounted && currentRequestId == _searchRequestId && _resultsNotifier.value.isEmpty && correction != null) {
         final fallbackSongs = await FuzzySearchService.executeFallbackSearch(clean, language: prefLang);
-        if (fallbackSongs.isNotEmpty && mounted) {
-          final cleanFallback = SongRepository.deduplicateSongs(fallbackSongs);
+        if (fallbackSongs.isNotEmpty && mounted && currentRequestId == _searchRequestId) {
+          final grouped = SongRepository.groupCanonicalSongs(fallbackSongs, preferredLanguage: prefLang);
+          final cleanFallback = SongRepository.deduplicateSongs(grouped);
           _resultsNotifier.value = SearchResultsState(songs: cleanFallback);
           FuzzySearchService.registerSongs(cleanFallback);
         }
       }
     } catch (_) {
-      if (mounted) _isSearchingNotifier.value = false;
+      if (mounted && currentRequestId == _searchRequestId) {
+        _isSearchingNotifier.value = false;
+      }
     }
   }
 
@@ -266,10 +277,13 @@ class _SearchScreenState extends State<SearchScreen> {
     _executeSearch(query, saveHistory: true);
   }
 
-  void _recordSearchResultClick() {
+  void _recordSearchResultClick([Song? song]) {
     final clean = _searchController.text.trim();
     if (clean.isNotEmpty) {
       SearchHistoryManager.addQuery(clean);
+    }
+    if (song != null) {
+      ApiClient.recordSearchClick(song);
     }
   }
 
@@ -917,9 +931,10 @@ class _SearchScreenState extends State<SearchScreen> {
                     foregroundColor: Colors.white,
                     elevation: 4,
                     onPressed: () {
-                      _recordSearchResultClick();
-                      if (queue.isNotEmpty) {
-                        audioHandler.playSong(queue.first, queue: queue);
+                      final songToPlay = queue.isNotEmpty ? queue.first : null;
+                      _recordSearchResultClick(songToPlay);
+                      if (songToPlay != null) {
+                        audioHandler.playSong(songToPlay, queue: queue);
                       }
                     },
                     child: const Icon(Icons.play_arrow_rounded, size: 28),
@@ -943,6 +958,50 @@ class _SearchScreenState extends State<SearchScreen> {
     return ListView(
       padding: const EdgeInsets.only(bottom: 120),
       children: [
+        if (state.didYouMean != null)
+          Container(
+            margin: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.neonViolet.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.neonViolet.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.help_outline_rounded, color: AppColors.neonViolet, size: 18),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: RichText(
+                    text: TextSpan(
+                      style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 13),
+                      children: [
+                        const TextSpan(text: 'Showing results. Did you mean: '),
+                        WidgetSpan(
+                          alignment: PlaceholderAlignment.middle,
+                          child: GestureDetector(
+                            onTap: () {
+                              _searchController.text = state.didYouMean!;
+                              _executeSearch(state.didYouMean!, saveHistory: true);
+                            },
+                            child: Text(
+                              _unescape.convert(Song.sanitize(state.didYouMean!)),
+                              style: GoogleFonts.outfit(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                decoration: TextDecoration.underline,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
         // Top Result Hero Card
         if (state.topResult != null) ...[
           Padding(
@@ -1130,8 +1189,8 @@ class _SearchScreenState extends State<SearchScreen> {
 
         return ListTile(
           onTap: () {
-            // Save search term ONLY when user clicks a result
-            _recordSearchResultClick();
+            // Save search term & record click-through for ranking feedback
+            _recordSearchResultClick(song);
             audioHandler.playSong(song, queue: queue);
           },
           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 3),
@@ -1192,6 +1251,27 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
                 ),
               ),
+              if (song.versions.isNotEmpty)
+                GestureDetector(
+                  onTap: () => _showVersionsSheet(song),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                    margin: const EdgeInsets.only(right: 6),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceElevated,
+                      border: Border.all(color: AppColors.surfaceBorderHighlight),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      '${song.versions.length + 1} ver',
+                      style: GoogleFonts.outfit(
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ),
+                ),
               Expanded(
                 child: Text(
                   cleanArtist,
@@ -1293,11 +1373,34 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.outfit(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                Row(
+                  children: [
+                    if (album['type'] == 'Single' || album['is_single'] == true)
+                      Container(
+                        margin: const EdgeInsets.only(right: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: AppColors.electricCyan.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          'SINGLE',
+                          style: GoogleFonts.outfit(
+                            color: AppColors.electricCyan,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    Expanded(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.outfit(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
                 ),
                 Text(
                   artist,
@@ -1358,6 +1461,111 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
           subtitle: Text('Artist', style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 12)),
           trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: AppColors.textSecondary),
+        );
+      },
+    );
+  }
+
+  void _showVersionsSheet(Song primary) {
+    final allVersions = [primary, ...primary.versions];
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surfaceDark,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                  child: Text(
+                    'Available Versions',
+                    style: GoogleFonts.outfit(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+                  child: Text(
+                    primary.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.outfit(
+                      color: AppColors.textSecondary,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                const Divider(color: AppColors.surfaceBorder, height: 16),
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: allVersions.length,
+                    itemBuilder: (context, idx) {
+                      final v = allVersions[idx];
+                      return ListTile(
+                        leading: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: SizedBox(
+                            width: 44,
+                            height: 44,
+                            child: CachedNetworkImage(
+                              imageUrl: v.coverUrl,
+                              fit: BoxFit.cover,
+                              errorWidget: (_, __, ___) => Container(color: AppColors.surfaceElevated),
+                            ),
+                          ),
+                        ),
+                        title: Text(
+                          v.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.outfit(color: Colors.white, fontSize: 14),
+                        ),
+                        subtitle: Text(
+                          '${v.versionTag} • ${v.artist}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 12),
+                        ),
+                        trailing: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: v.source == 'youtube'
+                                ? AppColors.electricCyan.withOpacity(0.2)
+                                : AppColors.neonViolet.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            v.source == 'youtube' ? 'YT' : '320K',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: v.source == 'youtube' ? AppColors.electricCyan : AppColors.neonViolet,
+                            ),
+                          ),
+                        ),
+                        onTap: () {
+                          Navigator.pop(context);
+                          _recordSearchResultClick(v);
+                          audioHandler.playSong(v, queue: allVersions);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
         );
       },
     );

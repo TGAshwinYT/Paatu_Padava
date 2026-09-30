@@ -10,7 +10,7 @@ from services import youtube
 from services.recommender import personal_recommender, canonical_title, extract_language_from_title
 from services.saavn import search_saavn
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from connection import get_db, get_redis
 from upstash_redis.asyncio import Redis as UpstashRedis
 import models
@@ -633,6 +633,40 @@ def search_canonical_title(title: str, artist: str = "") -> str:
         base += ' ' + ' '.join(matched_versions)
     return base
 
+def detect_script_language(text: str) -> Optional[str]:
+    for ch in text:
+        cp = ord(ch)
+        if 0x0B80 <= cp <= 0x0BFF:
+            return "tamil"
+        if 0x0C00 <= cp <= 0x0C7F:
+            return "telugu"
+        if 0x0D00 <= cp <= 0x0D7F:
+            return "malayalam"
+        if 0x0C80 <= cp <= 0x0CFF:
+            return "kannada"
+        if 0x0900 <= cp <= 0x097F:
+            return "hindi"
+    return None
+
+
+TANGLISH_TRANSLITERATION_MAP = {
+    "mesaya muruku": "meesaya murukku",
+    "mesaya murukku": "meesaya murukku",
+    "meesaya muruku": "meesaya murukku",
+    "puthu mazha": "puthumazha",
+    "puthumazhai": "puthumazha",
+    "oorum blood": "aarambam",
+    "kanne kalaimane": "kanne kalaimane",
+    "kannazhaga": "kannazhaga",
+    "rowdy baby": "rowdy baby",
+    "aalaporan tamizhan": "aalaporaan thamizhan",
+    "anbil avan": "anbil avan",
+    "vaseegara": "vaseegara",
+    "munbe vaa": "munbe vaa",
+    "maruvaarthai": "maruvaarthai",
+    "enpt": "enai noki paayum thota",
+}
+
 @router.get("/search")
 async def search_tracks(
     query: str = Query(..., min_length=1), 
@@ -640,13 +674,30 @@ async def search_tracks(
     db: AsyncSession = Depends(get_db)
 ):
     try:
-        # 1. Detect if the user explicitly typed a language name in their query
-        detected_lang = None
+        # 1. Script detection and explicit language override extraction
+        script_lang = detect_script_language(query)
+        detected_lang = script_lang
         known_languages = ["tamil", "telugu", "hindi", "malayalam", "kannada", "english", "punjabi"]
-        q_lower = query.lower()
+        
+        # Clean query: strip explicit language keywords from upstream query
+        clean_query = query
         for kl in known_languages:
-            if kl in q_lower:
+            pattern = re.compile(rf'\b{kl}\b', re.IGNORECASE)
+            if pattern.search(clean_query):
                 detected_lang = kl
+                clean_query = pattern.sub('', clean_query).strip()
+
+        clean_query = ' '.join(clean_query.split())
+        if not clean_query:
+            clean_query = query.strip()
+
+        # Handle Tanglish-to-native transliteration / typo mapping
+        cq_lower = clean_query.lower()
+        did_you_mean_suggestion = None
+        for typo, correction in TANGLISH_TRANSLITERATION_MAP.items():
+            if typo in cq_lower:
+                clean_query = cq_lower.replace(typo, correction)
+                did_you_mean_suggestion = correction
                 break
 
         if detected_lang:
@@ -654,24 +705,64 @@ async def search_tracks(
         else:
             search_languages = get_user_search_languages(user)
 
-        # 2. Parallel search: JioSaavn (for direct stream URLs) and YouTube Music (Songs, Albums, Artists)
-        saavn_task = search_saavn(query, language=search_languages)
-        song_task = youtube.search_youtube(query, limit=20)
-        album_task = youtube.search_albums_youtube(query, limit=6)
-        artist_task = youtube.search_artists_youtube(query, limit=6)
-
-        saavn_res, songs, albums, artists = await asyncio.gather(
-            saavn_task, song_task, album_task, artist_task, return_exceptions=True
-        )
-
-        saavn_songs = saavn_res if isinstance(saavn_res, list) else []
-        yt_songs = songs if isinstance(songs, list) else []
-        albums = albums if isinstance(albums, list) else []
-        artists = artists if isinstance(artists, list) else []
-
-        # 3. Spotify-Grade Relevance Scoring & Version-Aware Deduplication
         pref_langs = [l.strip().lower() for l in search_languages.split(",") if l.strip()]
+        primary_lang = pref_langs[0] if pref_langs else "tamil"
 
+        # 2. Retrieve in parallel with timeouts: Query JioSaavn first, YouTube only when JioSaavn is weak
+        saavn_songs = []
+        try:
+            saavn_res = await asyncio.wait_for(search_saavn(clean_query, language=primary_lang), timeout=4.0)
+            if isinstance(saavn_res, list):
+                saavn_songs = saavn_res
+        except Exception as se:
+            print(f"Saavn search notice: {se}")
+
+        # JioSaavn is weak if < 3 results or top score < 55.0
+        is_saavn_weak = len(saavn_songs) < 3
+        if not is_saavn_weak:
+            top_saavn_score = max([score_track_relevance(s, clean_query, pref_langs) for s in saavn_songs[:3]], default=0.0)
+            if top_saavn_score < 55.0:
+                is_saavn_weak = True
+
+        yt_songs = []
+        albums = []
+        artists = []
+
+        if is_saavn_weak:
+            song_task = youtube.search_youtube(clean_query, limit=20)
+            album_task = youtube.search_albums_youtube(clean_query, limit=6)
+            artist_task = youtube.search_artists_youtube(clean_query, limit=6)
+            yt_res, alb_res, art_res = await asyncio.gather(
+                song_task, album_task, artist_task, return_exceptions=True
+            )
+            yt_songs = yt_res if isinstance(yt_res, list) else []
+            albums = alb_res if isinstance(alb_res, list) else []
+            artists = art_res if isinstance(art_res, list) else []
+        else:
+            # Load albums and artists lazily in parallel
+            album_task = youtube.search_albums_youtube(clean_query, limit=6)
+            artist_task = youtube.search_artists_youtube(clean_query, limit=6)
+            alb_res, art_res = await asyncio.gather(
+                album_task, artist_task, return_exceptions=True
+            )
+            albums = alb_res if isinstance(alb_res, list) else []
+            artists = art_res if isinstance(art_res, list) else []
+
+        # 3. Query click-through feedback from SearchClickHistory to boost ranking over time
+        click_boosts = {}
+        try:
+            click_stmt = (
+                select(models.SearchClickHistory.yt_video_id, func.count().label("cnt"))
+                .group_by(models.SearchClickHistory.yt_video_id)
+            )
+            click_res = await db.execute(click_stmt)
+            for vid, cnt in click_res.all():
+                if vid:
+                    click_boosts[str(vid)] = min(float(cnt) * 5.0, 25.0)
+        except Exception as c_err:
+            print(f"Search click model query warning: {c_err}")
+
+        # 4. Relevance Scoring & Deduplication
         candidates = []
         all_songs = saavn_songs + yt_songs
         for s in all_songs:
@@ -679,10 +770,13 @@ async def search_tracks(
                 continue
             if detected_lang and not s.get("language"):
                 s["language"] = detected_lang
-            score = score_track_relevance(s, query, pref_langs)
+            score = score_track_relevance(s, clean_query, pref_langs)
+            sid = str(s.get("id") or "")
+            if sid in click_boosts:
+                score += click_boosts[sid]
             candidates.append((score, s))
 
-        # Sort candidates descending by score FIRST so the highest quality studio release wins
+        # Sort candidates descending by score FIRST so highest quality studio release wins
         candidates.sort(key=lambda x: x[0], reverse=True)
 
         seen_canonical = set()
@@ -704,40 +798,48 @@ async def search_tracks(
             ranked_songs.append(s)
             ranked_scores.append(score)
 
-        # 4. Top Result Determination across Artist, Album, and Song
+        # 5. Top Result Confidence Bar (threshold >= 70.0)
+        CONFIDENCE_THRESHOLD = 70.0
+
         best_song = ranked_songs[0] if ranked_songs else None
         best_song_score = ranked_scores[0] if ranked_scores else -999.0
 
         best_artist = artists[0] if artists else None
-        best_artist_score = score_artist_relevance(best_artist, query) if best_artist else -999.0
+        best_artist_score = score_artist_relevance(best_artist, clean_query) if best_artist else -999.0
 
         best_album = albums[0] if albums else None
-        best_album_score = score_album_relevance(best_album, query) if best_album else -999.0
+        best_album_score = score_album_relevance(best_album, clean_query) if best_album else -999.0
 
-        # Crown highest scoring entity as Top Result
+        best_score = max(best_song_score, best_artist_score, best_album_score)
+
         top_result = None
-        if best_artist and best_artist_score > best_song_score and best_artist_score > best_album_score:
-            top_result = best_artist
-            top_result["type"] = "artist"
-        elif best_album and best_album_score > best_song_score and best_album_score > best_artist_score:
-            top_result = best_album
-            top_result["type"] = "album"
-        elif best_song:
-            top_result = best_song
-            top_result["type"] = "song"
-        elif best_artist:
-            top_result = best_artist
-            top_result["type"] = "artist"
-        elif best_album:
-            top_result = best_album
-            top_result["type"] = "album"
-            
+        did_you_mean = did_you_mean_suggestion
+
+        if best_score >= CONFIDENCE_THRESHOLD:
+            if best_artist and best_artist_score >= best_score:
+                top_result = best_artist
+                top_result["type"] = "artist"
+            elif best_album and best_album_score >= best_score:
+                top_result = best_album
+                top_result["type"] = "album"
+            elif best_song:
+                top_result = best_song
+                top_result["type"] = "song"
+        else:
+            # Confidence bar not cleared: show "Did you mean..." instead of a random song
+            top_result = None
+            if not did_you_mean and ranked_songs:
+                candidate_title = ranked_songs[0].get("title", "")
+                if candidate_title and clean_song_title(candidate_title) != clean_song_title(clean_query):
+                    did_you_mean = candidate_title
+
         return {
             "global_matches": {
                 "top_result": top_result, 
                 "songs": ranked_songs[:20], 
                 "artists": artists, 
-                "albums": albums 
+                "albums": albums,
+                "did_you_mean": did_you_mean
             }
         }
     except Exception as e:

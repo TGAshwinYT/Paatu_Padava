@@ -51,48 +51,54 @@ from models import User
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
-async def _resolve_user_from_token_or_headers(
+SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET") or SECRET_KEY
+
+async def _resolve_user_from_token(
     token: Optional[str],
-    x_user_id: Optional[str],
-    x_user_email: Optional[str],
     db: AsyncSession
 ) -> Optional[User]:
     """
-    Unified user resolution supporting:
+    Unified cryptographic user resolution supporting:
     1. Local custom JWT (FastAPI web client signed with JWT_SECRET)
-    2. Supabase Auth JWT (Mobile client token containing sub & email)
-    3. Explicit X-User-ID / X-User-Email service headers
+    2. Supabase Auth JWT (Mobile client token verified via SUPABASE_JWT_SECRET / HS256)
+    Untrusted client headers (X-User-ID / X-User-Email) are strictly dropped.
     """
+    if not token:
+        return None
+
     sub = None
     email = None
 
-    if token:
-        # Try local JWT secret verification
-        try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            email = payload.get("sub")
-        except JWTError:
-            # Fallback: Parse Supabase JWT claims
+    # 1. Attempt verification with application SECRET_KEY
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email = payload.get("sub") or payload.get("email")
+        sub = payload.get("id") or (payload.get("sub") if "@" not in str(payload.get("sub", "")) else None)
+    except JWTError:
+        # 2. Attempt cryptographic verification with SUPABASE_JWT_SECRET
+        if SUPABASE_JWT_SECRET:
             try:
-                claims = jwt.get_unverified_claims(token)
-                email = claims.get("email")
-                sub = claims.get("sub")
-            except Exception:
-                pass
+                payload = jwt.decode(
+                    token, 
+                    SUPABASE_JWT_SECRET, 
+                    algorithms=["HS256"], 
+                    options={"verify_aud": False}
+                )
+                email = payload.get("email")
+                sub = payload.get("sub")
+            except JWTError:
+                return None
+        else:
+            return None
 
-    if not email and x_user_email:
-        email = x_user_email
-    if not sub and x_user_id:
-        sub = x_user_id
-
-    # 1. Lookup by Email
+    # 3. Lookup user by verified Email
     if email:
         result = await db.execute(select(User).where(User.email == email))
         user = result.scalars().first()
         if user:
             return user
 
-    # 2. Lookup by UUID / sub
+    # 4. Lookup user by verified UUID / sub
     if sub:
         try:
             u_uuid = uuid.UUID(sub)
@@ -103,7 +109,7 @@ async def _resolve_user_from_token_or_headers(
         except Exception:
             pass
 
-    # 3. Auto-provision in public.users if authenticated via Supabase
+    # 5. Auto-provision in public.users if cryptographically verified via Supabase
     if email or sub:
         try:
             user_id = uuid.UUID(sub) if sub else uuid.uuid4()
@@ -126,8 +132,6 @@ async def _resolve_user_from_token_or_headers(
 
 async def get_current_user(
     token: Optional[str] = Depends(oauth2_scheme),
-    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
-    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     db: AsyncSession = Depends(get_db)
 ) -> User:
     credentials_exception = HTTPException(
@@ -135,20 +139,18 @@ async def get_current_user(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    user = await _resolve_user_from_token_or_headers(token, x_user_id, x_user_email, db)
+    user = await _resolve_user_from_token(token, db)
     if user is None:
         raise credentials_exception
     return user
 
 async def get_current_user_optional(
     token: Optional[str] = Depends(oauth2_scheme_optional),
-    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
-    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     db: AsyncSession = Depends(get_db)
 ) -> Optional[User]:
     """
-    Optional authentication: returns the User object if a valid token or user identity is present, 
+    Optional authentication: returns the User object if a cryptographically verified token is present, 
     otherwise returns None without raising a 401 error.
     """
-    return await _resolve_user_from_token_or_headers(token, x_user_id, x_user_email, db)
+    return await _resolve_user_from_token(token, db)
 

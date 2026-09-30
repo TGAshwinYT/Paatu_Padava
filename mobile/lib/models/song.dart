@@ -33,6 +33,7 @@ class Song {
   String? lyrics;
   final String? language;
   final bool isSmartRecommended;
+  final List<Song> versions;
 
   Song({
     required this.id,
@@ -51,10 +52,60 @@ class Song {
     this.lyrics,
     this.language,
     this.isSmartRecommended = false,
+    this.versions = const [],
   });
 
   /// Canonical deduplication key: normalizes title and artist to match tracks across sources
   String get deduplicationKey => '${title.trim().toLowerCase()}_${artist.trim().toLowerCase()}';
+
+  /// Primary artist: extracts the first primary artist before commas, ampersands, or feature tags
+  String get primaryArtist {
+    final lower = artist.toLowerCase();
+    final parts = lower.split(RegExp(r'[,&/|]|\bfeat\.?\b|\bft\.?\b|\bwith\b'));
+    final first = parts.isNotEmpty ? parts.first.trim() : lower.trim();
+    return first.replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), '').trim();
+  }
+
+  /// Normalized title: strips brackets, parentheses (From film, remix, lofi tags), punctuation
+  String get normalizedTitle {
+    return title
+        .toLowerCase()
+        .replaceAll(RegExp(r'\([^)]*\)'), ' ')
+        .replaceAll(RegExp(r'\[[^\]]*\]'), ' ')
+        .replaceAll(RegExp(r'\b(remix|lofi|lo-fi|live|acoustic|cover|soundtrack|ost)\b', caseSensitive: false), ' ')
+        .replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  /// Duration bucketed into 3-second bands (±3s tolerance)
+  int get durationBand => (duration > 0) ? (duration / 3).round() * 3 : 0;
+
+  /// Base key for grouping all releases, dubs, and versions of the same song
+  String get canonicalBaseKey => '${normalizedTitle}___$primaryArtist';
+
+  /// Strict key for identical recording/track matching (normalized title + primary artist + duration ±3s)
+  String get canonicalSongKey => '${normalizedTitle}___${primaryArtist}___$durationBand';
+
+  /// Tags version type like Remix, Lofi, Live, From film, Acoustic, Cover, or Original
+  String get versionTag {
+    final lower = title.toLowerCase();
+    if (lower.contains('remix') || lower.contains('mix') || lower.contains('club')) return 'Remix';
+    if (lower.contains('lofi') || lower.contains('lo-fi') || lower.contains('chill') || lower.contains('slowed')) return 'Lofi';
+    if (lower.contains('live') || lower.contains('unplugged') || lower.contains('concert')) return 'Live';
+    if (lower.contains('acoustic') || lower.contains('piano')) return 'Acoustic';
+    if (lower.contains('cover') || lower.contains('tribute')) return 'Cover';
+    if (lower.contains('from ') || lower.contains('soundtrack') || lower.contains('film') || lower.contains('ost')) return 'From film';
+    return 'Original';
+  }
+
+  /// Checks if artwork is official high-res album art rather than a video thumbnail
+  bool get hasOfficialAlbumArt {
+    if (coverUrl.isEmpty) return false;
+    final lower = coverUrl.toLowerCase();
+    if (lower.contains('ytimg.com') || lower.contains('youtube.com')) return false;
+    return lower.contains('saavncdn.com') || lower.contains('jiosaavn') || source == 'saavn';
+  }
 
   Map<String, dynamic> toMap() {
     return {
@@ -151,6 +202,7 @@ class Song {
     String? lyrics,
     String? language,
     bool? isSmartRecommended,
+    List<Song>? versions,
   }) {
     return Song(
       id: id ?? this.id,
@@ -169,6 +221,7 @@ class Song {
       lyrics: lyrics ?? this.lyrics,
       language: language ?? this.language,
       isSmartRecommended: isSmartRecommended ?? this.isSmartRecommended,
+      versions: versions ?? this.versions,
     );
   }
 }

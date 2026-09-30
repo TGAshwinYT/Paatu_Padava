@@ -117,7 +117,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
     // Coordinated play recording: atomic local Hive + cloud Supabase with retry
     HistoryManager.recordPlay(song);
-    _smartShuffleController.recordRecentlyPlayed(song.id);
+    _smartShuffleController.recordRecentlyPlayed(song);
 
     // Reset listen history & lyrics offset
     _hasRecordedListen = false;
@@ -345,6 +345,15 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   @override
   Future<void> skipToNext() async {
+    final current = currentSong;
+    if (current != null) {
+      final pos = _player.position;
+      if (pos.inSeconds < 30) {
+        _smartShuffleController.recordFeedback(song: current, isPositive: false);
+      } else {
+        _smartShuffleController.recordFeedback(song: current, isPositive: true);
+      }
+    }
     await _queueHandler.skipToNext();
   }
 

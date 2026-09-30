@@ -106,8 +106,62 @@ class SongRepository {
       if (key.length > 3) seenKeys.add(key);
       result.add(song);
     }
-
     return result;
+  }
+
+  /// Groups multiple versions and sources into canonical songs with an attached versions list.
+  /// Prefers official album art and high-fidelity source for the primary entry.
+  static List<Song> groupCanonicalSongs(
+    Iterable<Song> songs, {
+    String? preferredLanguage,
+  }) {
+    if (songs.isEmpty) return [];
+
+    final Map<String, List<Song>> groups = {};
+    for (final s in songs) {
+      if (s.title.trim().isEmpty) continue;
+      final key = s.canonicalBaseKey;
+      groups.putIfAbsent(key.isNotEmpty ? key : s.id, () => []).add(s);
+    }
+
+    final List<Song> canonicalList = [];
+    final prefLangLower = preferredLanguage?.toLowerCase().trim();
+
+    for (final group in groups.values) {
+      if (group.isEmpty) continue;
+
+      group.sort((a, b) {
+        // 1. Official album art preference
+        if (a.hasOfficialAlbumArt && !b.hasOfficialAlbumArt) return -1;
+        if (!a.hasOfficialAlbumArt && b.hasOfficialAlbumArt) return 1;
+
+        // 2. High fidelity source preference (Saavn 320kbps over YouTube)
+        if (a.source == 'saavn' && b.source != 'saavn') return -1;
+        if (a.source != 'saavn' && b.source == 'saavn') return 1;
+
+        // 3. Preferred language matching
+        if (prefLangLower != null && prefLangLower.isNotEmpty) {
+          final aMatch = a.language?.toLowerCase() == prefLangLower;
+          final bMatch = b.language?.toLowerCase() == prefLangLower;
+          if (aMatch && !bMatch) return -1;
+          if (!aMatch && bMatch) return 1;
+        }
+
+        // 4. Prefer Original track over remix/lofi for primary entry
+        final aOrig = a.versionTag == 'Original';
+        final bOrig = b.versionTag == 'Original';
+        if (aOrig && !bOrig) return -1;
+        if (!aOrig && bOrig) return 1;
+
+        return 0;
+      });
+
+      final primary = group.first;
+      final alternateVersions = group.skip(1).toList();
+      canonicalList.add(primary.copyWith(versions: alternateVersions));
+    }
+
+    return canonicalList;
   }
 
   /// Fetches User Taste Mix ("Made For You") based on Supabase favorite artists and most frequently played artists in History.

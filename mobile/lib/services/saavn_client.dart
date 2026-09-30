@@ -158,6 +158,7 @@ class SaavnClient {
         'p': '1',
         'n': limit.toString(),
         'q': clean,
+        if (language != null && language.isNotEmpty) 'languages': language.toLowerCase().trim(),
       };
 
       final uri = Uri.parse(baseUrl).replace(queryParameters: queryParams);
@@ -173,21 +174,6 @@ class SaavnClient {
           songs.add(_parseSongItem(item));
         } else if (item is Map) {
           songs.add(_parseSongItem(Map<String, dynamic>.from(item)));
-        }
-      }
-
-      // Strict regional filtering: if language is specified and the user query
-      // does not explicitly ask for another language, prioritize or filter matching tracks
-      if (language != null && language.isNotEmpty) {
-        final targetLang = language.toLowerCase().trim();
-        final bool queryMentionsOtherLang = ['hindi', 'english', 'telugu', 'tamil', 'malayalam', 'kannada', 'punjabi']
-            .any((l) => l != targetLang && clean.toLowerCase().contains(l));
-
-        if (!queryMentionsOtherLang) {
-          final matched = songs.where((s) => s.language == null || s.language!.isEmpty || s.language == targetLang).toList();
-          if (matched.isNotEmpty) {
-            return matched;
-          }
         }
       }
 
@@ -360,11 +346,7 @@ class SaavnClient {
       final list = (data is List) ? data : (data['songs'] ?? data['data'] ?? []);
       final List<Song> songs = [];
       for (final item in list) {
-        final parsed = _parseSongItem(Map<String, dynamic>.from(item));
-        if (language != null && language.isNotEmpty && parsed.language != null) {
-          if (parsed.language!.toLowerCase() != language.toLowerCase()) continue;
-        }
-        songs.add(parsed);
+        songs.add(_parseSongItem(Map<String, dynamic>.from(item)));
       }
       return songs;
     } catch (_) {

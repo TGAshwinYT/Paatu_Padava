@@ -54,6 +54,7 @@ dependencies:
   permission_handler: ^11.3.0
   cupertino_icons: ^1.0.6
   uuid: ^4.6.0
+  palette_generator: ^0.3.3+7
 
 dev_dependencies:
   flutter_test:

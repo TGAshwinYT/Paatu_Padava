@@ -6,6 +6,7 @@ import '../../services/player_handler.dart';
 import '../../services/download_manager.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/batch_download_button.dart';
+import '../widgets/swipeable_song_tile.dart';
 
 class AlbumScreen extends StatefulWidget {
   final String albumId;
@@ -169,77 +170,10 @@ class _AlbumScreenState extends State<AlbumScreen> {
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
                       final song = _songs[index];
-                      return ListTile(
-                        onTap: () => audioHandler.playSong(song, queue: _songs),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
-                        leading: SizedBox(
-                          width: 28,
-                          child: Text(
-                            '${index + 1}',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        title: Text(
-                          song.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
-                        ),
-                        subtitle: Text(
-                          song.artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
-                        ),
-                        trailing: ValueListenableBuilder<List<Song>>(
-                          valueListenable: DownloadManager.downloadedSongsNotifier,
-                          builder: (context, _, __) {
-                            return ValueListenableBuilder<Map<String, double>>(
-                              valueListenable: DownloadManager.activeDownloads,
-                              builder: (context, activeDownloads, __) {
-                                final isDownloaded = DownloadManager.isDownloaded(song.id);
-                                final isDownloading = activeDownloads.containsKey(song.id);
-                                final isQueued = DownloadManager.isQueuedOrDownloading(song.id) && !isDownloading && !isDownloaded;
-
-                                if (isDownloading) {
-                                  final p = activeDownloads[song.id] ?? 0.0;
-                                  return SizedBox(
-                                    width: 32,
-                                    height: 32,
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(6.0),
-                                      child: CircularProgressIndicator(
-                                        value: p > 0 ? p : null,
-                                        strokeWidth: 2.2,
-                                        color: const Color(0xFF6366F1),
-                                        backgroundColor: Colors.white10,
-                                      ),
-                                    ),
-                                  );
-                                }
-                                if (isQueued) {
-                                  return const SizedBox(
-                                    width: 32,
-                                    height: 32,
-                                    child: Icon(Icons.hourglass_empty_rounded, color: Color(0xFF818CF8), size: 18),
-                                  );
-                                }
-                                if (isDownloaded) {
-                                  return const SizedBox(
-                                    width: 32,
-                                    height: 32,
-                                    child: Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 20),
-                                  );
-                                }
-                                return IconButton(
-                                  icon: const Icon(Icons.download_for_offline_outlined, color: Color(0xFF64748B), size: 22),
-                                  onPressed: () => DownloadManager.downloadSong(song),
-                                );
-                              },
-                            );
-                          },
-                        ),
+                      return SwipeableSongTile(
+                        song: song,
+                        queue: _songs,
+                        index: index,
                       );
                     },
                     childCount: _songs.length,

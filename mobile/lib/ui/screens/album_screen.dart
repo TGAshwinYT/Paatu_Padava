@@ -5,6 +5,7 @@ import '../../services/saavn_client.dart';
 import '../../services/player_handler.dart';
 import '../../services/download_manager.dart';
 import '../widgets/mini_player.dart';
+import '../widgets/batch_download_button.dart';
 
 class AlbumScreen extends StatefulWidget {
   final String albumId;
@@ -112,35 +113,40 @@ class _AlbumScreenState extends State<AlbumScreen> {
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                    child: Row(
-                      children: [
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF6366F1),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF6366F1),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            ),
+                            icon: const Icon(Icons.play_arrow_rounded, size: 22),
+                            label: const Text('Play Album', style: TextStyle(fontWeight: FontWeight.bold)),
+                            onPressed: () => audioHandler.playSong(_songs.first, queue: _songs),
                           ),
-                          icon: const Icon(Icons.play_arrow_rounded, size: 22),
-                          label: const Text('Play Album', style: TextStyle(fontWeight: FontWeight.bold)),
-                          onPressed: () => audioHandler.playSong(_songs.first, queue: _songs),
-                        ),
-                        const SizedBox(width: 12),
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white70,
-                            side: BorderSide(color: Colors.white.withOpacity(0.15)),
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          const SizedBox(width: 12),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white70,
+                              side: BorderSide(color: Colors.white.withOpacity(0.15)),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            ),
+                            icon: const Icon(Icons.shuffle_rounded, size: 18),
+                            label: const Text('Shuffle'),
+                            onPressed: () {
+                              final shuffled = List<Song>.from(_songs)..shuffle();
+                              audioHandler.playSong(shuffled.first, queue: shuffled);
+                            },
                           ),
-                          icon: const Icon(Icons.shuffle_rounded, size: 18),
-                          label: const Text('Shuffle'),
-                          onPressed: () {
-                            final shuffled = List<Song>.from(_songs)..shuffle();
-                            audioHandler.playSong(shuffled.first, queue: shuffled);
-                          },
-                        ),
-                      ],
+                          const SizedBox(width: 12),
+                          BatchDownloadButton(songs: _songs, label: 'Download All'),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -186,9 +192,53 @@ class _AlbumScreenState extends State<AlbumScreen> {
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
                         ),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.download_for_offline_outlined, color: Color(0xFF64748B), size: 22),
-                          onPressed: () => DownloadManager.downloadSong(song),
+                        trailing: ValueListenableBuilder<List<Song>>(
+                          valueListenable: DownloadManager.downloadedSongsNotifier,
+                          builder: (context, _, __) {
+                            return ValueListenableBuilder<Map<String, double>>(
+                              valueListenable: DownloadManager.activeDownloads,
+                              builder: (context, activeDownloads, __) {
+                                final isDownloaded = DownloadManager.isDownloaded(song.id);
+                                final isDownloading = activeDownloads.containsKey(song.id);
+                                final isQueued = DownloadManager.isQueuedOrDownloading(song.id) && !isDownloading && !isDownloaded;
+
+                                if (isDownloading) {
+                                  final p = activeDownloads[song.id] ?? 0.0;
+                                  return SizedBox(
+                                    width: 32,
+                                    height: 32,
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(6.0),
+                                      child: CircularProgressIndicator(
+                                        value: p > 0 ? p : null,
+                                        strokeWidth: 2.2,
+                                        color: const Color(0xFF6366F1),
+                                        backgroundColor: Colors.white10,
+                                      ),
+                                    ),
+                                  );
+                                }
+                                if (isQueued) {
+                                  return const SizedBox(
+                                    width: 32,
+                                    height: 32,
+                                    child: Icon(Icons.hourglass_empty_rounded, color: Color(0xFF818CF8), size: 18),
+                                  );
+                                }
+                                if (isDownloaded) {
+                                  return const SizedBox(
+                                    width: 32,
+                                    height: 32,
+                                    child: Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 20),
+                                  );
+                                }
+                                return IconButton(
+                                  icon: const Icon(Icons.download_for_offline_outlined, color: Color(0xFF64748B), size: 22),
+                                  onPressed: () => DownloadManager.downloadSong(song),
+                                );
+                              },
+                            );
+                          },
                         ),
                       );
                     },

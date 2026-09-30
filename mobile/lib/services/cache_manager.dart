@@ -1,8 +1,44 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart' as fcm;
 import 'package:path_provider/path_provider.dart';
+import 'download_manager.dart';
 
-/// Automatic cache eviction manager:
+class StorageBreakdown {
+  final int offlineAudioBytes;
+  final int offlineSongCount;
+  final int tempCacheBytes;
+  final int imageCacheBytes;
+  final int hiveDatabaseBytes;
+  final int totalAppBytes;
+
+  const StorageBreakdown({
+    required this.offlineAudioBytes,
+    required this.offlineSongCount,
+    required this.tempCacheBytes,
+    required this.imageCacheBytes,
+    required this.hiveDatabaseBytes,
+    required this.totalAppBytes,
+  });
+
+  String get offlineAudioFormatted => formatBytes(offlineAudioBytes);
+  String get tempCacheFormatted => formatBytes(tempCacheBytes);
+  String get imageCacheFormatted => formatBytes(imageCacheBytes);
+  String get hiveDatabaseFormatted => formatBytes(hiveDatabaseBytes);
+  String get totalAppFormatted => formatBytes(totalAppBytes);
+
+  static String formatBytes(int bytes) {
+    if (bytes <= 0) return '0.0 MB';
+    final mb = bytes / (1024 * 1024);
+    if (mb >= 1024) {
+      return '${(mb / 1024).toStringAsFixed(2)} GB';
+    }
+    return '${mb.toStringAsFixed(1)} MB';
+  }
+}
+
+/// Automatic cache eviction manager & storage metrics service:
 /// Checks temporary cache directory size on app launch.
 /// If cache size exceeds 400MB or files are older than 7 days,
 /// automatically deletes cached files in the background without blocking the UI thread.
@@ -12,7 +48,6 @@ class CacheManager {
 
   /// Runs background cache audit and eviction without blocking the UI
   static Future<void> autoEvictOldCache() async {
-    // Run in background without awaiting on main thread
     Future.microtask(() async {
       try {
         final tempDir = await getTemporaryDirectory();
@@ -66,34 +101,96 @@ class CacheManager {
     });
   }
 
+  /// Calculates a detailed breakdown of all storage used by the app
+  static Future<StorageBreakdown> getDetailedBreakdown() async {
+    int offlineBytes = 0;
+    int offlineCount = 0;
+    int tempBytes = 0;
+    int imageBytes = 0;
+    int hiveBytes = 0;
+
+    // 1. Offline Audio Files
+    try {
+      offlineBytes = DownloadManager.getTotalOfflineSizeBytes();
+      offlineCount = DownloadManager.getDownloadedSongs().length;
+    } catch (_) {}
+
+    // 2. Documents Directory (Hive boxes & app state)
+    try {
+      final docDir = await getApplicationDocumentsDirectory();
+      if (docDir.existsSync()) {
+        final docFiles = docDir.listSync(recursive: false);
+        for (final file in docFiles) {
+          if (file is File) {
+            final name = file.path.toLowerCase();
+            if (name.endsWith('.hive') || name.endsWith('.lock') || name.contains('box')) {
+              try {
+                hiveBytes += file.lengthSync();
+              } catch (_) {}
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 3. Temporary Directory & Streaming Caches
+    try {
+      final tempDir = await getTemporaryDirectory();
+      if (tempDir.existsSync()) {
+        final tempEntities = tempDir.listSync(recursive: true, followLinks: false);
+        for (final entity in tempEntities) {
+          if (entity is File) {
+            try {
+              final len = entity.lengthSync();
+              final path = entity.path.toLowerCase();
+              if (path.contains('image_picker') || path.contains('cached_image') || path.contains('libcachedimagedata')) {
+                imageBytes += len;
+              } else {
+                tempBytes += len;
+              }
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (_) {}
+
+    final totalApp = offlineBytes + tempBytes + imageBytes + hiveBytes;
+
+    return StorageBreakdown(
+      offlineAudioBytes: offlineBytes,
+      offlineSongCount: offlineCount,
+      tempCacheBytes: tempBytes,
+      imageCacheBytes: imageBytes,
+      hiveDatabaseBytes: hiveBytes,
+      totalAppBytes: totalApp,
+    );
+  }
+
   /// Calculates current cache size string (e.g. "45.2 MB")
   static Future<String> getCacheSizeString() async {
     try {
-      final tempDir = await getTemporaryDirectory();
-      if (!tempDir.existsSync()) return '0.0 MB';
-
-      int totalBytes = 0;
-      final entities = tempDir.listSync(recursive: true, followLinks: false);
-      for (final entity in entities) {
-        if (entity is File) {
-          try {
-            totalBytes += entity.lengthSync();
-          } catch (_) {}
-        }
-      }
-
-      final mb = totalBytes / (1024 * 1024);
-      if (mb > 1024) {
-        return '${(mb / 1024).toStringAsFixed(2)} GB';
-      }
-      return '${mb.toStringAsFixed(1)} MB';
+      final breakdown = await getDetailedBreakdown();
+      final cacheBytes = breakdown.tempCacheBytes + breakdown.imageCacheBytes;
+      return StorageBreakdown.formatBytes(cacheBytes);
     } catch (_) {
       return '0.0 MB';
     }
   }
 
-  /// Manually clears all temporary cache files
+  /// Clears network and disk image caches
+  static Future<void> clearImageCache() async {
+    try {
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+      await fcm.DefaultCacheManager().emptyCache();
+    } catch (e) {
+      debugPrint('[CacheManager] Clear image cache error: $e');
+    }
+  }
+
+  /// Manually clears all temporary cache and image files
   static Future<void> clearAllCache() async {
+    await clearImageCache();
     try {
       final tempDir = await getTemporaryDirectory();
       if (tempDir.existsSync()) {

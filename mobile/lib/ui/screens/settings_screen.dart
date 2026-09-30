@@ -8,6 +8,7 @@ import '../../services/cache_manager.dart';
 import '../../services/supabase_service.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/auth_dialog.dart';
+import 'storage_settings_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -605,36 +606,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildStorageCard() {
     return Container(
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFF131B2E),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.white.withOpacity(0.06)),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Temporary Cache', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
-              const SizedBox(height: 4),
-              Text('Size: $_cacheSizeStr', style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
-            ],
-          ),
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1E293B),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const StorageSettingsScreen()),
+            );
+            _calculateCacheSize();
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF6366F1).withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.storage_rounded, color: Color(0xFF818CF8), size: 22),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Storage & Offline Downloads',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Temporary cache: $_cacheSizeStr • Tap to manage space',
+                        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded, color: Color(0xFF64748B), size: 22),
+              ],
             ),
-            icon: _isClearing
-                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.delete_sweep_outlined, size: 18),
-            label: const Text('Clear Cache'),
-            onPressed: _isClearing ? null : _clearCache,
           ),
-        ],
+        ),
       ),
     );
   }

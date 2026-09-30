@@ -7,12 +7,16 @@ class SettingsManager {
 
   static final ValueNotifier<String> streamingQualityNotifier = ValueNotifier<String>('320kbps');
   static final ValueNotifier<String> downloadQualityNotifier = ValueNotifier<String>('320kbps');
+  static final ValueNotifier<bool> volumeNormalizationNotifier = ValueNotifier<bool>(true);
+  static final ValueNotifier<int> crossfadeDurationNotifier = ValueNotifier<int>(0);
   static final ValueNotifier<String> eqPresetNotifier = ValueNotifier<String>('flat');
   static final ValueNotifier<List<double>> eqBandsNotifier = ValueNotifier<List<double>>([0.0, 0.0, 0.0, 0.0, 0.0]);
   static final ValueNotifier<List<String>> languagesNotifier = ValueNotifier<List<String>>(['Tamil', 'English']);
 
   static String get streamingQuality => streamingQualityNotifier.value;
   static String get downloadQuality => downloadQualityNotifier.value;
+  static bool get isVolumeNormalizationEnabled => volumeNormalizationNotifier.value;
+  static int get crossfadeSeconds => crossfadeDurationNotifier.value;
   static String get eqPreset => eqPresetNotifier.value;
   static List<double> get eqBands => eqBandsNotifier.value;
 
@@ -44,6 +48,8 @@ class SettingsManager {
 
     streamingQualityNotifier.value = _box.get('streaming_quality', defaultValue: '320kbps') as String;
     downloadQualityNotifier.value = _box.get('download_quality', defaultValue: '320kbps') as String;
+    volumeNormalizationNotifier.value = _box.get('volume_normalization', defaultValue: true) as bool;
+    crossfadeDurationNotifier.value = (_box.get('crossfade_seconds', defaultValue: 0) as num).toInt();
     eqPresetNotifier.value = _box.get('eq_preset', defaultValue: 'flat') as String;
 
     final rawBands = _box.get('eq_bands');
@@ -67,6 +73,17 @@ class SettingsManager {
   static Future<void> setDownloadQuality(String quality) async {
     downloadQualityNotifier.value = quality;
     await _box.put('download_quality', quality);
+  }
+
+  static Future<void> setVolumeNormalization(bool enabled) async {
+    volumeNormalizationNotifier.value = enabled;
+    await _box.put('volume_normalization', enabled);
+  }
+
+  static Future<void> setCrossfadeSeconds(int seconds) async {
+    final clamped = seconds.clamp(0, 12);
+    crossfadeDurationNotifier.value = clamped;
+    await _box.put('crossfade_seconds', clamped);
   }
 
   static Future<void> setEqPreset(String presetKey) async {

@@ -253,6 +253,75 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
       child: Column(
         children: [
+          ValueListenableBuilder<bool>(
+            valueListenable: SettingsManager.volumeNormalizationNotifier,
+            builder: (context, isEnabled, _) {
+              return SwitchListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                activeColor: const Color(0xFF6366F1),
+                title: const Text(
+                  'Loudness Normalization (ReplayGain)',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                ),
+                subtitle: const Text(
+                  'Standardizes loudness (-14 LUFS) between YouTube & 320k master streams to prevent volume jumps',
+                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                ),
+                value: isEnabled,
+                onChanged: (val) => SettingsManager.setVolumeNormalization(val),
+              );
+            },
+          ),
+          Divider(color: Colors.white.withOpacity(0.06), height: 1),
+          ValueListenableBuilder<int>(
+            valueListenable: SettingsManager.crossfadeDurationNotifier,
+            builder: (context, crossfadeSec, _) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Crossfade Transitions',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                        ),
+                        Text(
+                          crossfadeSec == 0 ? 'Off (Gapless)' : '${crossfadeSec}s',
+                          style: const TextStyle(color: Color(0xFF818CF8), fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Smoothly blends and fades volume between consecutive songs',
+                      style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                    ),
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        activeTrackColor: const Color(0xFF6366F1),
+                        inactiveTrackColor: Colors.white12,
+                        thumbColor: Colors.white,
+                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                        trackHeight: 3,
+                      ),
+                      child: Slider(
+                        value: crossfadeSec.toDouble(),
+                        min: 0.0,
+                        max: 12.0,
+                        divisions: 12,
+                        onChanged: (val) => SettingsManager.setCrossfadeSeconds(val.round()),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+          Divider(color: Colors.white.withOpacity(0.06), height: 1),
           ValueListenableBuilder<String>(
             valueListenable: SettingsManager.streamingQualityNotifier,
             builder: (context, streamingQuality, _) {

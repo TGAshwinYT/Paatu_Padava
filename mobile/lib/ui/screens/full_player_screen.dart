@@ -13,6 +13,7 @@ import '../../services/equalizer_service.dart';
 import '../../services/settings_manager.dart';
 import '../widgets/queue_sheet.dart';
 import '../widgets/add_to_playlist_dialog.dart';
+import '../widgets/fluid_mesh_gradient.dart';
 import 'lyrics_screen.dart';
 
 class FullPlayerScreen extends StatefulWidget {
@@ -290,34 +291,12 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
 
         return Scaffold(
           backgroundColor: const Color(0xFF0A0E1A),
-          body: Stack(
-            children: [
-              // Ambient Glowing Album Art Background (BloomeeTunes style)
-              if (song.coverUrl.isNotEmpty)
-                Positioned.fill(
-                  child: Opacity(
-                    opacity: 0.22,
-                    child: CachedNetworkImage(
-                      imageUrl: song.coverUrl,
-                      fit: BoxFit.cover,
-                      errorWidget: (_, __, ___) => const SizedBox.shrink(),
-                    ),
-                  ),
-                ),
-              Positioned.fill(
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 55, sigmaY: 55),
-                  child: Container(
-                    color: const Color(0xFF0A0E1A).withOpacity(0.85),
-                  ),
-                ),
-              ),
-
-              // Main Player Interface
-              SafeArea(
-                child: Column(
-                  children: [
-                    // Top App Bar
+          body: FluidMeshGradient(
+            imageUrl: song.coverUrl,
+            child: SafeArea(
+              child: Column(
+                children: [
+                  // Top App Bar
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                       child: Row(
@@ -720,8 +699,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                   ],
                 ),
               ),
-            ],
-          ),
+            ),
         );
       },
     );

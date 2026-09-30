@@ -34,6 +34,7 @@ class User(Base):
     liked_songs = relationship("LikedSong", back_populates="user")
     search_history = relationship("SearchHistory", back_populates="user")
     search_click_history = relationship("SearchClickHistory", back_populates="user")
+    playlists = relationship("Playlist", back_populates="user")
 
 class Artist(Base):
     __tablename__ = "artists"
@@ -105,3 +106,46 @@ class LikedSong(Base):
     __table_args__ = (UniqueConstraint("user_id", "yt_video_id", name="uq_user_song"),)
 
     user = relationship("User", back_populates="liked_songs")
+
+class Playlist(Base):
+    __tablename__ = "playlists"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    title = Column(String(255), nullable=False)
+    description = Column(String, default="")
+    cover_url = Column(String, default="")
+    external_id = Column(String, nullable=True)
+    is_public = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "title", name="uq_user_playlist_title"),
+    )
+
+    tracks = relationship("PlaylistTrack", back_populates="playlist", cascade="all, delete-orphan", order_by="PlaylistTrack.position")
+    user = relationship("User", back_populates="playlists")
+
+class PlaylistTrack(Base):
+    __tablename__ = "playlist_tracks"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    playlist_id = Column(UUID(as_uuid=True), ForeignKey("playlists.id", ondelete="CASCADE"), nullable=False)
+    track_id = Column(String(100), nullable=False)
+    title = Column(String(255), nullable=False)
+    artist = Column(String(255), nullable=False)
+    album = Column(String(255), default="")
+    artwork_url = Column(String, default="")
+    stream_url = Column(String, default="")
+    source_type = Column(String(50), default="saavn")
+    duration = Column(Integer, default=0)
+    position = Column(Integer, default=0)
+    added_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("playlist_id", "track_id", name="uq_playlist_track"),
+    )
+
+    playlist = relationship("Playlist", back_populates="tracks")
+

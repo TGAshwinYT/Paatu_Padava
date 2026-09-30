@@ -123,22 +123,6 @@ async def create_tables():
                 )
             """))
             await conn.execute(text("ALTER TABLE search_click_history ADD COLUMN IF NOT EXISTS language TEXT"))
-            
-            await conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS artists (
-                    id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    image_url TEXT
-                )
-            """))
-            await conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS user_followed_artists (
-                    user_id UUID REFERENCES users(id),
-                    artist_id TEXT REFERENCES artists(id),
-                    followed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    PRIMARY KEY (user_id, artist_id)
-                )
-            """))
         except Exception as e:
             print(f"Migration Note: {e}")
 

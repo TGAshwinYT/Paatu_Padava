@@ -76,10 +76,10 @@ class SyncManager {
       }
 
       // ================= 2. Scalable Joined Playlists & Tracks Query ================= //
-      // Single joined query: selects user_playlists and embeds playlist_tracks(*) in one network request!
+      // Single joined query: selects playlists and embeds playlist_tracks(*) in one network request!
       final List<dynamic> remotePlaylists = await client
-          .from('user_playlists')
-          .select('id, title, thumbnail_url, created_at, playlist_tracks(id, track_id, title, artist, artwork_url, stream_url, source_type, added_at)')
+          .from('playlists')
+          .select('id, title, cover_url, created_at, playlist_tracks(id, track_id, title, artist, artwork_url, stream_url, source_type, added_at, position)')
           .eq('user_id', supaUser.id)
           .order('created_at', ascending: false);
 
@@ -95,6 +95,7 @@ class SyncManager {
 
         // Tracks are directly populated from the joined relation (no N+1 query loop!)
         final List<dynamic> tracksData = pl['playlist_tracks'] as List<dynamic>? ?? [];
+        tracksData.sort((a, b) => ((a['position'] ?? 0) as num).compareTo((b['position'] ?? 0) as num));
 
         final List<Song> tracks = tracksData.map((t) {
           return Song(
@@ -161,8 +162,38 @@ class SyncManager {
   // ================= Direct User-Scoped Mutations ================= //
 
   /// Creates a playlist with instant local persistence and asynchronous Supabase cloud sync
+  /// Idempotently reuses existing playlist if title already exists, preventing duplicates
   static Future<UserPlaylist> createPlaylist(String title, {List<Song>? initialTracks}) async {
     final cleanTitle = title.trim().isEmpty ? 'My Playlist' : title.trim();
+
+    // Idempotency check: Does a playlist with this title already exist?
+    final existingList = PlaylistManager.getPlaylists();
+    UserPlaylist? existing;
+    for (final p in existingList) {
+      if (p.title.trim().toLowerCase() == cleanTitle.toLowerCase()) {
+        existing = p;
+        break;
+      }
+    }
+
+    if (existing != null) {
+      // If playlist already exists, append new tracks without creating a duplicate!
+      if (initialTracks != null && initialTracks.isNotEmpty) {
+        for (final track in initialTracks) {
+          if (!existing.tracks.any((t) => t.id == track.id)) {
+            existing.tracks.add(track);
+          }
+        }
+        await PlaylistManager.savePlaylistDirectly(existing);
+
+        final supaUser = SupabaseService.currentUser;
+        if (supaUser != null) {
+          await pushPlaylistToCloud(existing, supaUser.id);
+        }
+      }
+      return existing;
+    }
+
     final id = _uuid.v4();
     final tracks = initialTracks != null ? List<Song>.from(initialTracks) : <Song>[];
 
@@ -179,7 +210,7 @@ class SyncManager {
     // 2. Commit to Supabase if authenticated
     final supaUser = SupabaseService.currentUser;
     if (supaUser != null) {
-      pushPlaylistToCloud(playlist, supaUser.id);
+      await pushPlaylistToCloud(playlist, supaUser.id);
     }
 
     return playlist;
@@ -194,6 +225,7 @@ class SyncManager {
       return false; // Prevent duplicates within the playlist
     }
 
+    final newPosition = pl.tracks.length;
     pl.tracks.add(song);
     await PlaylistManager.savePlaylistDirectly(pl);
 
@@ -210,12 +242,13 @@ class SyncManager {
           'artwork_url': song.coverUrl,
           'stream_url': song.streamUrl,
           'source_type': song.source,
-        });
+          'position': newPosition,
+        }, onConflict: 'playlist_id, track_id');
 
         if (pl.tracks.length == 1) {
           await client
-              .from('user_playlists')
-              .update({'thumbnail_url': song.coverUrl})
+              .from('playlists')
+              .update({'cover_url': song.coverUrl})
               .eq('id', playlistId)
               .eq('user_id', supaUser.id);
         }
@@ -261,7 +294,7 @@ class SyncManager {
     if (supaUser != null && client != null) {
       try {
         await client
-            .from('user_playlists')
+            .from('playlists')
             .update({'title': pl.title})
             .eq('id', playlistId)
             .eq('user_id', supaUser.id);
@@ -280,7 +313,7 @@ class SyncManager {
     if (supaUser != null && client != null) {
       try {
         await client
-            .from('user_playlists')
+            .from('playlists')
             .delete()
             .eq('id', playlistId)
             .eq('user_id', supaUser.id);
@@ -291,28 +324,34 @@ class SyncManager {
   }
 
   /// Pushes a local playlist and all its tracks up to Supabase
+  /// Enforces ON CONFLICT (user_id, title) to update existing instead of creating duplicate
   static Future<void> pushPlaylistToCloud(UserPlaylist pl, String userId) async {
     final client = SupabaseService.client;
     if (client == null) return;
 
     try {
-      await client.from('user_playlists').upsert({
+      await client.from('playlists').upsert({
         'id': pl.id,
         'user_id': userId,
         'title': pl.title,
-        'thumbnail_url': pl.coverUrl,
-      });
+        'cover_url': pl.coverUrl,
+      }, onConflict: 'user_id, title');
 
       if (pl.tracks.isNotEmpty) {
-        final trackRows = pl.tracks.map((song) => {
-          'id': _uuid.v4(),
-          'playlist_id': pl.id,
-          'track_id': song.id,
-          'title': TrackEntity.sanitize(song.title),
-          'artist': TrackEntity.sanitize(song.artist),
-          'artwork_url': song.coverUrl,
-          'stream_url': song.streamUrl,
-          'source_type': song.source,
+        final trackRows = pl.tracks.asMap().entries.map((entry) {
+          final idx = entry.key;
+          final song = entry.value;
+          return {
+            'id': _uuid.v4(),
+            'playlist_id': pl.id,
+            'track_id': song.id,
+            'title': TrackEntity.sanitize(song.title),
+            'artist': TrackEntity.sanitize(song.artist),
+            'artwork_url': song.coverUrl,
+            'stream_url': song.streamUrl,
+            'source_type': song.source,
+            'position': idx,
+          };
         }).toList();
 
         await client.from('playlist_tracks').upsert(

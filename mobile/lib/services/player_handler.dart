@@ -11,6 +11,8 @@ import 'history_manager.dart';
 import 'equalizer_service.dart';
 import 'youtube_client.dart';
 import 'radio_engine.dart';
+import 'favorites_manager.dart';
+import 'playlist_manager.dart';
 
 late PaatuAudioHandler audioHandler;
 
@@ -370,5 +372,118 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   @override
   Future<void> skipToPrevious() async {
     await _queueHandler.skipToPrevious();
+  }
+
+  // ================= Android Auto & MediaBrowserService Hierarchy ================= //
+
+  @override
+  Future<List<MediaItem>> getChildren(String parentMediaId, [Map<String, dynamic>? options]) async {
+    // 1. Root Level
+    if (parentMediaId == AudioService.MEDIA_ROOT_ID) {
+      return [
+        const MediaItem(
+          id: 'root_liked',
+          title: 'Liked Songs',
+          playable: false,
+        ),
+        const MediaItem(
+          id: 'root_history',
+          title: 'Recently Played',
+          playable: false,
+        ),
+        const MediaItem(
+          id: 'root_playlists',
+          title: 'Playlists',
+          playable: false,
+        ),
+      ];
+    }
+
+    // 2. Liked Songs
+    if (parentMediaId == 'root_liked') {
+      final songs = FavoritesManager.getFavorites();
+      return songs.map((s) => s.toMediaItem().copyWith(playable: true)).toList();
+    }
+
+    // 3. Recently Played
+    if (parentMediaId == 'root_history') {
+      final songs = HistoryManager.getHistory();
+      return songs.take(30).map((s) => s.toMediaItem().copyWith(playable: true)).toList();
+    }
+
+    // 4. Playlists list
+    if (parentMediaId == 'root_playlists') {
+      final playlists = PlaylistManager.getPlaylists();
+      return playlists.map<MediaItem>((pl) => MediaItem(
+        id: 'pl_${pl.id}',
+        title: pl.title,
+        playable: false,
+        artUri: pl.coverUrl.isNotEmpty ? Uri.tryParse(pl.coverUrl) : null,
+      )).toList();
+    }
+
+    // 5. Specific Playlist songs
+    if (parentMediaId.startsWith('pl_')) {
+      final plId = parentMediaId.substring(3);
+      final playlist = PlaylistManager.getPlaylist(plId);
+      if (playlist != null) {
+        return playlist.tracks.map((s) => s.toMediaItem().copyWith(playable: true)).toList();
+      }
+    }
+
+    return [];
+  }
+
+  @override
+  Future<MediaItem?> getMediaItem(String mediaId) async {
+    for (final song in playlist) {
+      if (song.id == mediaId) return song.toMediaItem();
+    }
+    final liked = FavoritesManager.getFavorites();
+    for (final song in liked) {
+      if (song.id == mediaId) return song.toMediaItem();
+    }
+    final history = HistoryManager.getHistory();
+    for (final song in history) {
+      if (song.id == mediaId) return song.toMediaItem();
+    }
+    return null;
+  }
+
+  @override
+  Future<void> playFromMediaId(String mediaId, [Map<String, dynamic>? extras]) async {
+    // 1. Current Queue
+    for (int i = 0; i < playlist.length; i++) {
+      if (playlist[i].id == mediaId) {
+        await skipToQueueItem(i);
+        return;
+      }
+    }
+
+    // 2. Favorites
+    final liked = FavoritesManager.getFavorites();
+    final likedIdx = liked.indexWhere((s) => s.id == mediaId);
+    if (likedIdx != -1) {
+      await playSong(liked[likedIdx], queue: liked);
+      return;
+    }
+
+    // 3. History
+    final history = HistoryManager.getHistory();
+    final histIdx = history.indexWhere((s) => s.id == mediaId);
+    if (histIdx != -1) {
+      await playSong(history[histIdx], queue: history);
+      return;
+    }
+
+    // 4. Playlists
+    final playlists = PlaylistManager.getPlaylists();
+    for (final pl in playlists) {
+      final idx = pl.tracks.indexWhere((s) => s.id == mediaId);
+      if (idx != -1) {
+        await playSong(pl.tracks[idx], queue: pl.tracks);
+        return;
+      }
+    }
   }
 }

@@ -12,6 +12,7 @@ import '../../services/auth_manager.dart';
 import '../widgets/auth_dialog.dart';
 import '../widgets/spotify_import_dialog.dart';
 import '../widgets/add_to_playlist_dialog.dart';
+import '../widgets/join_playlist_dialog.dart';
 import '../widgets/sync_status_indicator.dart';
 import '../widgets/account_bar_button.dart';
 import 'playlist_screen.dart';
@@ -419,52 +420,88 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
       builder: (context, playlists, _) {
         return CustomScrollView(
           slivers: [
-            // Create Playlist Banner Button
+            // Create Playlist & Join Shared Buttons
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
-                child: InkWell(
-                  onTap: _showCreatePlaylistDialog,
-                  borderRadius: BorderRadius.circular(16),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          const Color(0xFF1DB954).withOpacity(0.18),
-                          const Color(0xFF131B2E),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: _showCreatePlaylistDialog,
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                const Color(0xFF1DB954).withOpacity(0.18),
+                                const Color(0xFF131B2E),
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFF1DB954).withOpacity(0.35)),
+                          ),
+                          child: Row(
+                            children: [
+                              const CircleAvatar(
+                                radius: 16,
+                                backgroundColor: Color(0xFF1DB954),
+                                child: Icon(Icons.add_rounded, color: Colors.black, size: 20),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'Create Playlist',
+                                  style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFF1DB954).withOpacity(0.35)),
                     ),
-                    child: Row(
-                      children: [
-                        const CircleAvatar(
-                          radius: 18,
-                          backgroundColor: Color(0xFF1DB954),
-                          child: Icon(Icons.add_rounded, color: Colors.black, size: 22),
-                        ),
-                        const SizedBox(width: 14),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Create New Playlist',
-                              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => JoinPlaylistDialog.show(context),
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                const Color(0xFF6366F1).withOpacity(0.18),
+                                const Color(0xFF131B2E),
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
                             ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Custom collections saved locally & synced to cloud',
-                              style: GoogleFonts.outfit(color: const Color(0xFF94A3B8), fontSize: 11),
-                            ),
-                          ],
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.35)),
+                          ),
+                          child: Row(
+                            children: [
+                              const CircleAvatar(
+                                radius: 16,
+                                backgroundColor: Color(0xFF6366F1),
+                                child: Icon(Icons.group_add_rounded, color: Colors.white, size: 18),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'Join Shared',
+                                  style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
             ),
@@ -582,9 +619,21 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                         overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
                       ),
-                      subtitle: Text(
-                        '$trackCount ${trackCount == 1 ? "track" : "tracks"}',
-                        style: GoogleFonts.outfit(color: const Color(0xFF94A3B8), fontSize: 12),
+                      subtitle: Row(
+                        children: [
+                          if (playlist.isCollaborative) ...[
+                            const Icon(Icons.group_rounded, color: Color(0xFF34D399), size: 14),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Shared • ',
+                              style: GoogleFonts.outfit(color: const Color(0xFF34D399), fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                          Text(
+                            '$trackCount ${trackCount == 1 ? "track" : "tracks"}',
+                            style: GoogleFonts.outfit(color: const Color(0xFF94A3B8), fontSize: 12),
+                          ),
+                        ],
                       ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,

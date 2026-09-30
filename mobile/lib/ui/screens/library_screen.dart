@@ -17,6 +17,7 @@ import '../widgets/account_bar_button.dart';
 import 'playlist_screen.dart';
 import 'settings_screen.dart';
 import 'liked_songs_screen.dart';
+import 'listening_recap_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -292,6 +293,61 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                         ),
                       ),
                       const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.white38),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // Paatu Recap Banner
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+              child: InkWell(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ListeningRecapScreen()),
+                  );
+                },
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF3B0764), Color(0xFF1E1B4B)],
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFA855F7).withOpacity(0.35)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFA855F7).withOpacity(0.25),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.auto_awesome, color: Color(0xFFC084FC), size: 20),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Paatu Recap 2026',
+                              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                            Text(
+                              'Discover your top tracks, artists, and music persona',
+                              style: GoogleFonts.outfit(color: Colors.white60, fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.arrow_forward_ios_rounded, color: Color(0xFFC084FC), size: 14),
                     ],
                   ),
                 ),

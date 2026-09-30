@@ -9,6 +9,7 @@ import '../../services/supabase_service.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/auth_dialog.dart';
 import 'storage_settings_screen.dart';
+import 'listening_recap_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -146,6 +147,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildSectionHeader('STORAGE & CACHE', Icons.storage_rounded),
               const SizedBox(height: 10),
               _buildStorageCard(),
+              const SizedBox(height: 20),
+
+              // Listening Recap & Wrapped Section
+              _buildSectionHeader('YOUR STATS & WRAPPED', Icons.auto_awesome),
+              const SizedBox(height: 10),
+              _buildRecapCard(),
               const SizedBox(height: 20),
 
               // About Section
@@ -652,6 +659,76 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
                 const Icon(Icons.chevron_right_rounded, color: Color(0xFF64748B), size: 22),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  Widget _buildRecapCard() {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF6366F1).withOpacity(0.18),
+            const Color(0xFFEC4899).withOpacity(0.12),
+            const Color(0xFF131B2E),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF818CF8).withOpacity(0.3)),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ListeningRecapScreen()),
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF6366F1), Color(0xFFEC4899)],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF6366F1).withOpacity(0.4),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(Icons.auto_awesome, color: Colors.white, size: 22),
+                ),
+                const SizedBox(width: 14),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Paatu Recap & Music Wrapped',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                      SizedBox(height: 3),
+                      Text(
+                        'Relive your top songs, artists & listening persona in story mode',
+                        style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.arrow_forward_ios_rounded, color: Color(0xFFA5B4FC), size: 16),
               ],
             ),
           ),

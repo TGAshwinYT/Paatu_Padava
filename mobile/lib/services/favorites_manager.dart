@@ -67,13 +67,13 @@ class FavoritesManager {
         await client.from('liked_songs').upsert({
           'id': _uuid.v4(),
           'user_id': supaUser.id,
-          'yt_video_id': song.id,
+          'track_id': song.id,
           'title': TrackEntity.sanitize(song.title),
           'artist': TrackEntity.sanitize(song.artist),
           'cover_url': song.coverUrl,
           'audio_url': song.streamUrl,
           'language': song.language ?? '',
-        }, onConflict: 'user_id,yt_video_id');
+        }, onConflict: 'user_id, track_id');
       } catch (e) {
         debugPrint('[FavoritesManager] Cloud favorite push notice: $e');
       }
@@ -92,7 +92,7 @@ class FavoritesManager {
             .from('liked_songs')
             .delete()
             .eq('user_id', supaUser.id)
-            .eq('yt_video_id', songId);
+            .eq('track_id', songId);
       } catch (e) {
         debugPrint('[FavoritesManager] Cloud favorite delete notice: $e');
       }
@@ -113,13 +113,13 @@ class FavoritesManager {
       // 1. Fetch remote favorites
       final List<dynamic> remoteData = await client
           .from('liked_songs')
-          .select('id, yt_video_id, title, artist, cover_url, audio_url, language')
+          .select('id, track_id, title, artist, cover_url, audio_url, language')
           .eq('user_id', supaUser.id);
 
       final Set<String> remoteTrackIds = {};
 
       for (final item in remoteData) {
-        final trackId = item['yt_video_id']?.toString() ?? '';
+        final trackId = (item['track_id'] ?? item['yt_video_id'])?.toString() ?? '';
         if (trackId.isEmpty) continue;
         remoteTrackIds.add(trackId);
 
@@ -146,13 +146,13 @@ class FavoritesManager {
             await client.from('liked_songs').upsert({
               'id': _uuid.v4(),
               'user_id': supaUser.id,
-              'yt_video_id': local.id,
+              'track_id': local.id,
               'title': TrackEntity.sanitize(local.title),
               'artist': TrackEntity.sanitize(local.artist),
               'cover_url': local.coverUrl,
               'audio_url': local.streamUrl,
               'language': local.language ?? '',
-            }, onConflict: 'user_id,yt_video_id');
+            }, onConflict: 'user_id, track_id');
           } catch (e) {
             debugPrint('[FavoritesManager] Local favorite cloud sync notice: $e');
           }

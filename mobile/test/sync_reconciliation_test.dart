@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:paatu_padava_mobile/domain/models/track_entity.dart';
 import 'package:paatu_padava_mobile/models/song.dart';
 import 'package:paatu_padava_mobile/services/playlist_manager.dart';
@@ -109,6 +111,50 @@ void main() {
 
       SyncManager.syncStatusNotifier.value = SyncStatus.error;
       expect(SyncManager.status, equals(SyncStatus.error));
+    });
+  });
+
+  group('Playlist De-Duplication & Idempotency Tests', () {
+    late Directory tempDir;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('paatu_playlist_test_');
+      Hive.init(tempDir.path);
+      await Hive.openBox(PlaylistManager.boxName);
+    });
+
+    tearDown(() async {
+      await Hive.close();
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
+    test('Creating a playlist with an existing title reuses existing playlist instead of duplicating', () async {
+      final songA = Song(id: 's_01', title: 'Song 1', artist: 'Artist 1', album: '', duration: 180, coverUrl: '');
+      final pl1 = await SyncManager.createPlaylist('My Playlist', initialTracks: [songA]);
+
+      expect(PlaylistManager.getPlaylists().length, equals(1));
+      expect(pl1.title, equals('My Playlist'));
+
+      // Attempt to create "My Playlist" again (even with casing/whitespace variance)
+      final songB = Song(id: 's_02', title: 'Song 2', artist: 'Artist 2', album: '', duration: 200, coverUrl: '');
+      final pl2 = await SyncManager.createPlaylist('  my playlist  ', initialTracks: [songB]);
+
+      // Verifies no duplicate playlist was created!
+      expect(PlaylistManager.getPlaylists().length, equals(1));
+      expect(pl2.id, equals(pl1.id));
+      expect(pl2.tracks.length, equals(2));
+      expect(pl2.tracks.map((t) => t.id), containsAll(['s_01', 's_02']));
+    });
+
+    test('Adding duplicate song to playlist is cleanly rejected', () async {
+      final song = Song(id: 's_dup', title: 'Song Dup', artist: 'Artist', album: '', duration: 180, coverUrl: '');
+      final pl = await SyncManager.createPlaylist('Favorites Collection', initialTracks: [song]);
+
+      final addedAgain = await SyncManager.addSongToPlaylist(pl.id, song);
+      expect(addedAgain, isFalse);
+      expect(pl.tracks.length, equals(1));
     });
   });
 }

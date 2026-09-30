@@ -39,10 +39,13 @@ class AudioQueueHandler {
   StreamSubscription<int?>? _currentIndexSub;
   StreamSubscription<PlayerState>? _playerStateSub;
   StreamSubscription<SequenceState?>? _sequenceStateSub;
+  StreamSubscription<Duration>? _positionSub;
   Timer? _idleTimeoutTimer;
 
   int _sessionToken = 0;
   bool _isLoading = false;
+  bool _isDisposed = false;
+  bool _isFading = false;
 
   AudioQueueHandler({
     required this.player,
@@ -52,6 +55,73 @@ class AudioQueueHandler {
     this.onIdleRelease,
   }) {
     _initStreamListeners();
+    SettingsManager.volumeNormalizationNotifier.addListener(_onNormalizationChanged);
+  }
+
+  /// Calculates target normalized volume (0.0 to 1.0)
+  /// Balances uncompressed studio masters (JioSaavn) against normalized YouTube Opus audio (-14 LUFS)
+  static double getNormalizedVolumeForSong(Song? song) {
+    if (!SettingsManager.isVolumeNormalizationEnabled) {
+      return 1.0;
+    }
+    if (song == null) return 1.0;
+
+    final isHotStudioMaster = song.source == 'saavn' ||
+        song.source == 'jiosaavn' ||
+        (song.streamUrl != null &&
+            (song.streamUrl!.contains('jiosaavn') || song.streamUrl!.contains('.mp4')));
+
+    if (isHotStudioMaster) {
+      return 0.80; // ~ -2.0 dB calibration to match YouTube's -14 LUFS reference
+    }
+    return 1.0;
+  }
+
+  /// Smoothly ramps player volume to [targetVolume] over [durationMs]
+  Future<void> _fadeVolumeTo(double targetVolume, {int durationMs = 250}) async {
+    if (_isDisposed) return;
+    final startVolume = player.volume;
+    if ((startVolume - targetVolume).abs() < 0.02) {
+      try {
+        await player.setVolume(targetVolume);
+      } catch (_) {}
+      return;
+    }
+
+    _isFading = true;
+    const int steps = 8;
+    final stepMs = (durationMs / steps).round();
+    for (int i = 1; i <= steps; i++) {
+      if (_isDisposed || !_isFading) break;
+      final v = startVolume + (targetVolume - startVolume) * (i / steps);
+      try {
+        await player.setVolume(v.clamp(0.0, 1.0));
+      } catch (_) {}
+      await Future.delayed(Duration(milliseconds: stepMs));
+    }
+    _isFading = false;
+  }
+
+  void _onNormalizationChanged() {
+    final target = getNormalizedVolumeForSong(currentSong);
+    _fadeVolumeTo(target, durationMs: 250);
+  }
+
+  void _handleCrossfade(Duration pos) {
+    final crossfadeSec = SettingsManager.crossfadeSeconds;
+    if (crossfadeSec <= 0) return;
+    final duration = player.duration;
+    if (duration == null || duration.inSeconds <= crossfadeSec * 2) return;
+
+    final remaining = duration - pos;
+    if (remaining.inSeconds <= crossfadeSec && remaining.inMilliseconds > 250) {
+      final targetNorm = getNormalizedVolumeForSong(currentSong);
+      final ratio = (remaining.inMilliseconds / (crossfadeSec * 1000)).clamp(0.0, 1.0);
+      final fadedVolume = targetNorm * ratio;
+      try {
+        player.setVolume(fadedVolume.clamp(0.0, 1.0));
+      } catch (_) {}
+    }
   }
 
   Timer? get idleTimeoutTimer => _idleTimeoutTimer;
@@ -133,9 +203,19 @@ class AudioQueueHandler {
         onSongChanged?.call(song);
         onQueueProgress?.call(_currentIndex, _queue.length);
 
+        // Smooth volume normalization and crossfade entry
+        final targetNorm = getNormalizedVolumeForSong(song);
+        final crossfadeSec = SettingsManager.crossfadeSeconds;
+        final fadeInMs = crossfadeSec > 0 ? (crossfadeSec * 600).clamp(250, 2000) : 150;
+        _fadeVolumeTo(targetNorm, durationMs: fadeInMs);
+
         // Preload upcoming tracks for instantaneous gapless transition
         preloadUpcomingTracks(_currentIndex);
       }
+    });
+
+    _positionSub = player.positionStream.listen((pos) {
+      _handleCrossfade(pos);
     });
 
     _playerStateSub = player.playerStateStream.listen((state) {
@@ -204,6 +284,18 @@ class AudioQueueHandler {
       useLazyPreparation: true,
     );
 
+    final targetNorm = getNormalizedVolumeForSong(activeSong);
+    final crossfadeSec = SettingsManager.crossfadeSeconds;
+    if (crossfadeSec > 0) {
+      try {
+        await player.setVolume(0.0);
+      } catch (_) {}
+    } else {
+      try {
+        await player.setVolume(targetNorm);
+      } catch (_) {}
+    }
+
     try {
       await player.setAudioSource(
         _playlistSource,
@@ -215,6 +307,9 @@ class AudioQueueHandler {
 
       if (autoPlay) {
         await player.play();
+        if (crossfadeSec > 0) {
+          _fadeVolumeTo(targetNorm, durationMs: (crossfadeSec * 600).clamp(250, 2000));
+        }
       }
 
       _isLoading = false;
@@ -286,11 +381,20 @@ class AudioQueueHandler {
     final targetSong = _queue[targetIndex];
     onSongChanged?.call(targetSong);
 
+    final targetNorm = getNormalizedVolumeForSong(targetSong);
+    final crossfadeSec = SettingsManager.crossfadeSeconds;
+
+    // Smooth micro fade-out before jumping if currently playing
+    if (player.playing && player.volume > 0.05) {
+      await _fadeVolumeTo(0.0, durationMs: 120);
+    }
+
     // If targetIndex already exists in _playlistSource, use gapless seek
     if (targetIndex < _playlistSource.length) {
       try {
         await player.seek(Duration.zero, index: targetIndex);
         await player.play();
+        _fadeVolumeTo(targetNorm, durationMs: crossfadeSec > 0 ? (crossfadeSec * 600).clamp(250, 2000) : 150);
         preloadUpcomingTracks(targetIndex);
         onQueueProgress?.call(_currentIndex, _queue.length);
         return;
@@ -311,6 +415,7 @@ class AudioQueueHandler {
         await player.setAudioSource(_playlistSource);
         if (token != _sessionToken) return;
         await player.play();
+        _fadeVolumeTo(targetNorm, durationMs: crossfadeSec > 0 ? (crossfadeSec * 600).clamp(250, 2000) : 150);
         preloadUpcomingTracks(targetIndex);
         onQueueProgress?.call(_currentIndex, _queue.length);
       } catch (e) {
@@ -604,6 +709,10 @@ class AudioQueueHandler {
   }
 
   void dispose() {
+    _isDisposed = true;
+    _isFading = false;
+    SettingsManager.volumeNormalizationNotifier.removeListener(_onNormalizationChanged);
+    _positionSub?.cancel();
     cancelIdleTimer();
     _sequenceStateSub?.cancel();
     _currentIndexSub?.cancel();

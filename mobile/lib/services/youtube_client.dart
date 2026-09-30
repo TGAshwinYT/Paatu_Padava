@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../models/song.dart';
+import 'settings_manager.dart';
 
 class YouTubeClient {
   static YoutubeExplode? _ytInstance;
@@ -66,12 +67,26 @@ class YouTubeClient {
       final manifest = await _yt.videos.streamsClient.getManifest(videoId).timeout(const Duration(seconds: 4));
       final audioStreams = manifest.audioOnly;
       if (audioStreams.isNotEmpty) {
-        // Prioritize AAC / M4A stream (itag 140) for standard ExoPlayer compatibility
         AudioStreamInfo? chosenStream;
-        for (final s in audioStreams) {
-          if (s.tag == 140 || s.container.name.toLowerCase().contains('mp4') || s.container.name.toLowerCase().contains('m4a')) {
-            chosenStream = s;
-            break;
+        final quality = SettingsManager.streamingQuality;
+
+        // Data Saver (96 kbps): choose lowest bitrate stream
+        if (quality == '96kbps') {
+          for (final s in audioStreams) {
+            if (s.bitrate.kiloBitsPerSecond <= 100) {
+              chosenStream = s;
+              break;
+            }
+          }
+        }
+
+        // Standard or High: Prioritize AAC / M4A stream (itag 140) for standard ExoPlayer compatibility
+        if (chosenStream == null) {
+          for (final s in audioStreams) {
+            if (s.tag == 140 || s.container.name.toLowerCase().contains('mp4') || s.container.name.toLowerCase().contains('m4a')) {
+              chosenStream = s;
+              break;
+            }
           }
         }
         chosenStream ??= audioStreams.withHighestBitrate();

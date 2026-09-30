@@ -5,6 +5,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/song.dart';
 import 'saavn_client.dart';
+import 'settings_manager.dart';
 import 'youtube_client.dart';
 
 class DownloadManager {
@@ -58,6 +59,18 @@ class DownloadManager {
       }
 
       if (audioUrl == null || audioUrl.isEmpty) return false;
+
+      // Quality bitrate adjustments for JioSaavn download
+      if (audioUrl.contains('jiosaavn') || audioUrl.contains('.mp4')) {
+        final q = SettingsManager.downloadQuality;
+        if (q == '96kbps') {
+          audioUrl = audioUrl.replaceAll('_320.mp4', '_96.mp4').replaceAll('_160.mp4', '_96.mp4');
+        } else if (q == '160kbps') {
+          audioUrl = audioUrl.replaceAll('_320.mp4', '_160.mp4').replaceAll('_96.mp4', '_160.mp4');
+        } else {
+          audioUrl = audioUrl.replaceAll('_96.mp4', '_320.mp4').replaceAll('_160.mp4', '_320.mp4');
+        }
+      }
 
       // 2. Prepare Storage Directory
       final dir = await getApplicationDocumentsDirectory();

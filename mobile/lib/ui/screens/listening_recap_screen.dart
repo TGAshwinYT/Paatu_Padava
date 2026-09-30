@@ -3,8 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import '../../models/song.dart';
-import '../../services/player_handler.dart';
 import '../../services/recap_service.dart';
 
 /// Full-screen animated story experience for Paatu Recap (Music Wrapped).
@@ -25,7 +23,6 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> with Ticker
   int _currentIndex = 0;
   static const int _totalSlides = 5;
   static const Duration _slideDuration = Duration(seconds: 7);
-  bool _isPaused = false;
 
   @override
   void initState() {
@@ -86,12 +83,10 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> with Ticker
   }
 
   void _pauseProgress() {
-    setState(() => _isPaused = true);
     _progressController.stop();
   }
 
   void _resumeProgress() {
-    setState(() => _isPaused = false);
     _progressController.forward();
   }
 
@@ -870,7 +865,7 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> with Ticker
               child: Center(
                 child: Container(
                   width: double.infinity,
-                  constraints: const BoxThemeData(maxWidth: 360),
+                  constraints: const BoxConstraints(maxWidth: 360),
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(

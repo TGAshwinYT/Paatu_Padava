@@ -5,7 +5,6 @@ import '../../models/song.dart';
 import '../../services/saavn_client.dart';
 import '../../services/youtube_client.dart';
 import '../../services/settings_manager.dart';
-import '../../services/auth_manager.dart';
 
 /// Clean Architecture Data Repository: Multi-Source Catalog Aggregator
 /// Combines high-bitrate JioSaavn CDN audio with YouTube Music catalog data.
@@ -85,11 +84,17 @@ class CatalogRepository {
         double aScore = 0.0;
         double bScore = 0.0;
 
-        if (a.language?.toLowerCase() == firstLang || a.title.toLowerCase().contains(firstLang)) aScore += 0.35;
-        else if (secondLang != null && (a.language?.toLowerCase() == secondLang || a.title.toLowerCase().contains(secondLang))) aScore += 0.15;
+        if (a.language?.toLowerCase() == firstLang || a.title.toLowerCase().contains(firstLang)) {
+          aScore += 0.35;
+        } else if (secondLang != null && (a.language?.toLowerCase() == secondLang || a.title.toLowerCase().contains(secondLang))) {
+          aScore += 0.15;
+        }
 
-        if (b.language?.toLowerCase() == firstLang || b.title.toLowerCase().contains(firstLang)) bScore += 0.35;
-        else if (secondLang != null && (b.language?.toLowerCase() == secondLang || b.title.toLowerCase().contains(secondLang))) bScore += 0.15;
+        if (b.language?.toLowerCase() == firstLang || b.title.toLowerCase().contains(firstLang)) {
+          bScore += 0.35;
+        } else if (secondLang != null && (b.language?.toLowerCase() == secondLang || b.title.toLowerCase().contains(secondLang))) {
+          bScore += 0.15;
+        }
 
         if (a.hasOfficialAlbumArt) aScore += 0.10;
         if (b.hasOfficialAlbumArt) bScore += 0.10;

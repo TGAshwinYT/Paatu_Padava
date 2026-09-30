@@ -12,8 +12,6 @@ class DiscordRpcService {
   static const String _defaultClientId = '123456789012345678'; // Paatu Padava Discord Application ID
   static bool _isEnabled = true;
   static Socket? _socket;
-  static StreamSubscription? _songSub;
-  static StreamSubscription? _playStateSub;
   static bool _isConnected = false;
 
   static bool get isSupportedPlatform =>
@@ -63,9 +61,13 @@ class DiscordRpcService {
       final startEpoch = nowMs - ((positionSeconds ?? audioHandler.player.position.inSeconds) * 1000);
       final endEpoch = song.duration > 0 ? startEpoch + (song.duration * 1000) : null;
 
+      final detailsText = song.title.length > 128 ? '${song.title.substring(0, 125)}...' : song.title;
+      final byArtist = 'by ${song.artist}';
+      final stateText = byArtist.length > 128 ? '${byArtist.substring(0, 125)}...' : byArtist;
+
       final activity = <String, dynamic>{
-        'details': song.title.length > 128 ? song.title.substring(0, 125) + '...' : song.title,
-        'state': 'by ${song.artist}'.length > 128 ? 'by ${song.artist}'.substring(0, 125) + '...' : 'by ${song.artist}',
+        'details': detailsText,
+        'state': stateText,
         'assets': {
           'large_image': song.coverUrl.isNotEmpty ? song.coverUrl : 'paatu_logo',
           'large_text': song.album.isNotEmpty ? song.album : 'Paatu Paadava Lossless',
@@ -125,16 +127,19 @@ class DiscordRpcService {
     for (int i = 0; i < 10; i++) {
       try {
         final pipePath = Platform.isWindows
-            ? r'\\.\pipe\discord-ipc-' + '$i'
+            ? '\\\\.\\pipe\\discord-ipc-$i'
             : (Platform.environment['XDG_RUNTIME_DIR'] != null
                 ? '${Platform.environment['XDG_RUNTIME_DIR']}/discord-ipc-$i'
                 : '/tmp/discord-ipc-$i');
 
-        final socket = await Socket.connect(
-          InternetAddress(pipePath, type: InternetAddressType.unix),
-          0,
-          timeout: const Duration(milliseconds: 200),
-        ).catchError((_) => null);
+        Socket? socket;
+        try {
+          socket = await Socket.connect(
+            InternetAddress(pipePath, type: InternetAddressType.unix),
+            0,
+            timeout: const Duration(milliseconds: 200),
+          );
+        } catch (_) {}
 
         if (socket != null) {
           _socket = socket;

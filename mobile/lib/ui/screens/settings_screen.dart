@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_cache_manager/flutter_cache_manager.dart' hide CacheManager;
 import 'package:package_info_plus/package_info_plus.dart';
 import '../../services/settings_manager.dart';
 import '../../services/auth_manager.dart';
@@ -20,7 +19,6 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   String _cacheSizeStr = 'Calculating...';
-  bool _isClearing = false;
   String _appVersion = 'Version 2.0.0 (Release)';
 
   static const String _gitCommit = String.fromEnvironment('GIT_COMMIT', defaultValue: '');
@@ -75,28 +73,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _cacheSizeStr = '0.0 MB';
         });
       }
-    }
-  }
-
-  Future<void> _clearCache() async {
-    setState(() => _isClearing = true);
-    try {
-      await DefaultCacheManager().emptyCache();
-      await CacheManager.clearAllCache();
-      await _calculateCacheSize();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Cache cleared successfully!')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to clear cache: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isClearing = false);
     }
   }
 
@@ -665,6 +641,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
+  }
+
   Widget _buildRecapCard() {
     return Container(
       decoration: BoxDecoration(

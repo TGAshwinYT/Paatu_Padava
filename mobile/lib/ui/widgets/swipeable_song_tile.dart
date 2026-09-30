@@ -211,6 +211,11 @@ class SwipeableSongTile extends StatelessWidget {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Playing "${song.title}" next')),
                   );
+                } else if (val == 'start_radio') {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Starting Radio for "${song.title}"...')),
+                  );
+                  audioHandler.startSongRadio(song);
                 } else if (val == 'add_to_playlist') {
                   AddToPlaylistDialog.show(context, song);
                 } else if (val == 'remove') {
@@ -218,6 +223,16 @@ class SwipeableSongTile extends StatelessWidget {
                 }
               },
               itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'start_radio',
+                  child: Row(
+                    children: [
+                      Icon(Icons.radio_rounded, color: Color(0xFF818CF8), size: 20),
+                      SizedBox(width: 10),
+                      Text('Start Song Radio', style: TextStyle(color: Colors.white, fontSize: 13)),
+                    ],
+                  ),
+                ),
                 const PopupMenuItem(
                   value: 'play_next',
                   child: Row(

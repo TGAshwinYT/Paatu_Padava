@@ -55,16 +55,25 @@ class HistoryManager {
   static Future<void> clear() => clearHistory();
 
   /// Coordinated single write entry point for track play events:
-  /// 1. Updates local Hive cache with deduplication and 100-item ceiling.
+  /// 1. Updates local Hive cache with deduplication and 100-item ceiling while preserving play_count.
   /// 2. Asynchronously writes to Supabase `user_history` with error capture and pending retry queue.
   static Future<void> recordPlay(Song song) async {
     try {
-      // 1. Remove existing duplicate key
+      int playCount = 1;
+      List<int> timestamps = [];
       String? existingKey;
       for (final key in _box.keys) {
         final data = _box.get(key);
         if (data != null && data is Map && data['id'] == song.id) {
           existingKey = key.toString();
+          if (data['play_count'] is num) {
+            playCount = (data['play_count'] as num).toInt() + 1;
+          } else {
+            playCount = 2;
+          }
+          if (data['timestamps'] is List) {
+            timestamps = (data['timestamps'] as List).map((e) => (e as num).toInt()).toList();
+          }
           break;
         }
       }
@@ -80,9 +89,12 @@ class HistoryManager {
 
       // Store new timestamped entry with explicit played_at epoch ms
       final now = DateTime.now().millisecondsSinceEpoch;
+      timestamps.add(now);
       final key = 'h_${now}_${song.id}';
       final songMap = Map<String, dynamic>.from(song.toMap());
       songMap['played_at'] = now;
+      songMap['play_count'] = playCount;
+      songMap['timestamps'] = timestamps;
       await _box.put(key, songMap);
       _refreshList();
 
@@ -96,6 +108,19 @@ class HistoryManager {
     } catch (e) {
       debugPrint('[HistoryManager] Local recordPlay notice: $e');
     }
+  }
+
+  /// Exposes raw history entries with play counts, timestamps, and song metadata for analytics
+  static List<Map<String, dynamic>> getRawHistoryEntries() {
+    final List<Map<String, dynamic>> raw = [];
+    if (!Hive.isBoxOpen(boxName)) return raw;
+    for (final key in _box.keys) {
+      final data = _box.get(key);
+      if (data != null && data is Map) {
+        raw.add(Map<String, dynamic>.from(data));
+      }
+    }
+    return raw;
   }
 
   /// Backward-compatibility alias

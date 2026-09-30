@@ -10,6 +10,7 @@ import 'api_client.dart';
 import 'history_manager.dart';
 import 'equalizer_service.dart';
 import 'youtube_client.dart';
+import 'radio_engine.dart';
 
 late PaatuAudioHandler audioHandler;
 
@@ -249,6 +250,15 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     final beforeCount = _queueHandler.queue.length;
     await _smartShuffleController.ingestSmartRecommendations();
     return _queueHandler.queue.length - beforeCount;
+  }
+
+  Future<int> startSongRadio(Song seedSong) async {
+    final radioQueue = await RadioEngine.buildSongRadio(seedSong);
+    if (radioQueue.isNotEmpty) {
+      await playSong(seedSong, queue: radioQueue);
+      return radioQueue.length;
+    }
+    return 0;
   }
 
   // ================= Sleep Timer ================= //

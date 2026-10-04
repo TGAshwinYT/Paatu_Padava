@@ -22,6 +22,10 @@
 -keep class io.hivedb.** { *; }
 -dontwarn io.hivedb.**
 
+# Play Core & Deferred Components (prevent R8 missing class warnings/errors)
+-dontwarn com.google.android.play.core.**
+-dontwarn io.flutter.embedding.engine.deferredcomponents.**
+
 # JNI & Native Libraries
 -keepclasseswithmembernames class * {
     native <methods>;

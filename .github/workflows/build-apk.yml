@@ -98,6 +98,13 @@ jobs:
 
           echo "✅ All Supabase secrets verified and ready for injection."
 
+      - name: Ensure Build Keystore
+        run: |
+          mkdir -p ~/.android
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
       - name: Build Release APK
         working-directory: mobile
         run: |

@@ -25,8 +25,8 @@ jobs:
         run: |
           # Create a clean orphan branch containing only the backend files for Hugging Face
           git checkout --orphan hf-sync
-          # Remove frontend and mobile directories so Hugging Face Space hosts only the backend
-          git rm -rf frontend-react mobile scripts --ignore-unmatch
+          # Remove non-backend directories so Hugging Face Space hosts only the backend
+          git rm -rf frontend-react mobile scripts archive plans .agents .antigravity --ignore-unmatch
           git commit -m "Deploy Paatu Padava Backend to Hugging Face Spaces"
           
           # Add HF remote and force-push to main

@@ -51,7 +51,8 @@ from models import User
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
-SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET") or SECRET_KEY
+# Distinct Supabase JWT Secret for mobile token verification (never conflate with SECRET_KEY)
+SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")
 
 async def _resolve_user_from_token(
     token: Optional[str],

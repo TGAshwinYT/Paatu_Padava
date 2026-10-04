@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../models/song.dart';
+import '../core/app_config.dart';
 import 'settings_manager.dart';
 
 class YouTubeClient {
@@ -23,7 +24,7 @@ class YouTubeClient {
     }
   }
 
-  static const String _baseUrl = 'https://tgashwinyt-paatu-padava.hf.space';
+  static String get _baseUrl => AppConfig.backendUrl;
 
   static String cleanTitle(String title) {
     var cleaned = Song.sanitize(title);

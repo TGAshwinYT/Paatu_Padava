@@ -43,15 +43,11 @@ dependencies:
   # Fuzzy search matching
   fuzzywuzzy: ^1.1.5
 
-  # Synchronized Lyrics
-  flutter_lyric: ^2.0.4+1
 
   # UI / UX Utilities
   cached_network_image: ^3.3.1
   flutter_cache_manager: ^3.3.1
   google_fonts: ^6.1.0
-  intl: ^0.19.0
-  permission_handler: ^11.3.0
   cupertino_icons: ^1.0.6
   uuid: ^4.6.0
   palette_generator: ^0.3.3+7

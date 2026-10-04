@@ -7,6 +7,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:just_audio/just_audio.dart';
 import '../../models/song.dart';
 import '../../services/player_handler.dart';
+import '../../services/api_client.dart';
+import '../../domain/models/lyrics_state.dart';
 import '../widgets/lyrics_offset_pill.dart';
 
 class _LrcLine {
@@ -74,6 +76,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
 
     // Listen to reactive lyrics updates
     audioHandler.currentLyricsNotifier.addListener(_onLyricsChanged);
+    audioHandler.lyricsStateNotifier.addListener(_onLyricsChanged);
 
     // Listen to manual offset changes from other components
     audioHandler.lyricsOffsetMsNotifier.addListener(_onOffsetNotifierChanged);
@@ -89,6 +92,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
     _userScrollResumeTimer?.cancel();
     _scrollController.dispose();
     audioHandler.currentLyricsNotifier.removeListener(_onLyricsChanged);
+    audioHandler.lyricsStateNotifier.removeListener(_onLyricsChanged);
     audioHandler.lyricsOffsetMsNotifier.removeListener(_onOffsetNotifierChanged);
     super.dispose();
   }
@@ -541,6 +545,18 @@ class _LyricsScreenState extends State<LyricsScreen> {
                 const SizedBox(width: 4),
               ],
 
+              // Wrong Lyrics Picker / Manual Search
+              IconButton(
+                icon: const Icon(
+                  Icons.manage_search_rounded,
+                  color: Colors.white70,
+                  size: 24,
+                ),
+                tooltip: 'Wrong Lyrics? Search Alternatives',
+                onPressed: () => _openWrongLyricsPicker(song),
+              ),
+              const SizedBox(width: 4),
+
               // Always-visible Fullscreen Toggle (⛶)
               IconButton(
                 icon: Icon(
@@ -564,7 +580,119 @@ class _LyricsScreenState extends State<LyricsScreen> {
   }
 
   Widget _buildLyricsBody(Song? song) {
+    final state = audioHandler.lyricsStateNotifier.value;
     final lyrics = audioHandler.currentLyricsNotifier.value;
+
+    if (state.status == LyricsStatus.loading && (lyrics == null || lyrics.trim().isEmpty)) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: const [
+            CircularProgressIndicator(color: Color(0xFF818CF8)),
+            SizedBox(height: 16),
+            Text(
+              'Finding synchronized lyrics...',
+              style: TextStyle(color: Colors.white70, fontSize: 15, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (state.status == LyricsStatus.error && (lyrics == null || lyrics.trim().isEmpty)) {
+      final err = state.error;
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.06),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.cloud_off_rounded, size: 44, color: Color(0xFFEF4444)),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                "Couldn't load lyrics",
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                err?.userMessage ?? 'Please check your connection and try again.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white60, fontSize: 13),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.refresh_rounded, size: 16, color: Colors.white),
+                    label: const Text('Retry', style: TextStyle(color: Colors.white)),
+                    style: OutlinedButton.styleFrom(
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                    onPressed: () => audioHandler.reloadLyrics(),
+                  ),
+                  const SizedBox(width: 12),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.search_rounded, size: 16, color: Color(0xFF818CF8)),
+                    label: const Text('Search Lyrics', style: TextStyle(color: Colors.white)),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Color(0xFF818CF8)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                    onPressed: () => _openWrongLyricsPicker(song),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (state.status == LyricsStatus.rejectedMismatch && (lyrics == null || lyrics.trim().isEmpty)) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.06),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.warning_amber_rounded, size: 48, color: Color(0xFFF59E0B)),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Lyrics rejected due to low confidence',
+              style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'The matched track differed too much in title or duration.',
+              style: TextStyle(color: Colors.white38, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.search_rounded, size: 16, color: Color(0xFF818CF8)),
+              label: const Text('Find / Search Lyrics', style: TextStyle(color: Colors.white)),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Color(0xFF818CF8)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              ),
+              onPressed: () => _openWrongLyricsPicker(song),
+            ),
+          ],
+        ),
+      );
+    }
 
     if (lyrics == null || lyrics.trim().isEmpty) {
       return Center(
@@ -588,6 +716,16 @@ class _LyricsScreenState extends State<LyricsScreen> {
             const Text(
               'Enjoy the pure acoustic vibes',
               style: TextStyle(color: Colors.white30, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.search_rounded, size: 16, color: Color(0xFF818CF8)),
+              label: const Text('Find / Search Lyrics', style: TextStyle(color: Colors.white)),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Color(0xFF818CF8)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              ),
+              onPressed: () => _openWrongLyricsPicker(song),
             ),
           ],
         ),
@@ -853,6 +991,218 @@ class _LyricsScreenState extends State<LyricsScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Future<void> _openWrongLyricsPicker(Song? song) async {
+    final searchController = TextEditingController(text: song != null ? '${song.title} ${song.artist}' : '');
+    List<Map<String, dynamic>> searchResults = [];
+    bool isSearching = false;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF0F172A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (bottomSheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            void performSearch() async {
+              final q = searchController.text.trim();
+              if (q.isEmpty) return;
+              setSheetState(() => isSearching = true);
+              final results = await ApiClient.searchLyricsCandidates(q);
+              setSheetState(() {
+                searchResults = results;
+                isSearching = false;
+              });
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+                left: 16,
+                right: 16,
+                top: 16,
+              ),
+              child: SizedBox(
+                height: MediaQuery.of(context).size.height * 0.7,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 36,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Lyrics Search & Picker',
+                          style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: searchController,
+                      style: const TextStyle(color: Colors.white),
+                      onSubmitted: (_) => performSearch(),
+                      decoration: InputDecoration(
+                        hintText: 'Search title or artist...',
+                        hintStyle: const TextStyle(color: Colors.white38),
+                        filled: true,
+                        fillColor: const Color(0xFF1E293B),
+                        prefixIcon: const Icon(Icons.search, color: Color(0xFF818CF8)),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.arrow_forward_rounded, color: Color(0xFF818CF8)),
+                          onPressed: performSearch,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (isSearching)
+                      const Expanded(
+                        child: Center(child: CircularProgressIndicator(color: Color(0xFF818CF8))),
+                      )
+                    else if (searchResults.isEmpty)
+                      Expanded(
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.manage_search_rounded, size: 48, color: Colors.white24),
+                              const SizedBox(height: 10),
+                              const Text('Search for synced LRC or plain lyrics', style: TextStyle(color: Colors.white54)),
+                              const SizedBox(height: 16),
+                              OutlinedButton.icon(
+                                icon: const Icon(Icons.paste_rounded, size: 16),
+                                label: const Text('Paste Custom Lyrics / LRC'),
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  _showPasteCustomLyricsDialog(song);
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      Expanded(
+                        child: ListView.separated(
+                          itemCount: searchResults.length,
+                          separatorBuilder: (_, __) => const Divider(color: Colors.white12, height: 1),
+                          itemBuilder: (context, i) {
+                            final item = searchResults[i];
+                            final track = item['trackName'] ?? item['name'] ?? 'Unknown';
+                            final artist = item['artistName'] ?? 'Unknown';
+                            final album = item['albumName'] ?? '';
+                            final synced = item['syncedLyrics']?.toString();
+                            final plain = item['plainLyrics']?.toString();
+                            final isSynced = synced != null && synced.trim().isNotEmpty;
+                            final chosen = isSynced ? synced : plain;
+
+                            return ListTile(
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                              title: Text(
+                                track,
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                              ),
+                              subtitle: Text(
+                                '$artist • $album',
+                                style: const TextStyle(color: Colors.white60, fontSize: 12),
+                              ),
+                              trailing: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: isSynced ? const Color(0xFF10B981).withOpacity(0.2) : Colors.white12,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  isSynced ? 'Synced LRC' : 'Plain Text',
+                                  style: TextStyle(
+                                    color: isSynced ? const Color(0xFF34D399) : Colors.white60,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              onTap: () {
+                                if (chosen != null && chosen.trim().isNotEmpty) {
+                                  audioHandler.currentLyricsNotifier.value = chosen;
+                                  Navigator.pop(context);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Lyrics updated for track')),
+                                  );
+                                }
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _showPasteCustomLyricsDialog(Song? song) async {
+    final pasteController = TextEditingController();
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF0F172A),
+          title: const Text('Paste Custom Lyrics', style: TextStyle(color: Colors.white)),
+          content: TextField(
+            controller: pasteController,
+            maxLines: 8,
+            style: const TextStyle(color: Colors.white, fontSize: 13),
+            decoration: const InputDecoration(
+              hintText: 'Paste synced [mm:ss.xx] or plain lyrics here...',
+              hintStyle: TextStyle(color: Colors.white38),
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final txt = pasteController.text.trim();
+                if (txt.isNotEmpty) {
+                  audioHandler.currentLyricsNotifier.value = txt;
+                  Navigator.pop(dialogContext);
+                }
+              },
+              child: const Text('Apply'),
+            ),
+          ],
+        );
+      },
     );
   }
 }

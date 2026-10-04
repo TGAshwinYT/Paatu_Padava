@@ -96,12 +96,21 @@ class CollaborativePlaylistService {
       throw Exception('Cloud sync is offline. Sign in to join collaborative playlists.');
     }
 
-    // 1. Query playlist by invite_code with joined tracks
-    final List<dynamic> rows = await client
-        .from('playlists')
-        .select('id, user_id, title, cover_url, is_collaborative, invite_code, created_at, playlist_tracks(id, track_id, title, artist, artwork_url, stream_url, source_type, position)')
-        .eq('invite_code', cleanCode)
-        .limit(1);
+    // 1. Query playlist by invite_code with joined tracks (with resilient fallback for added_by column)
+    List<dynamic> rows;
+    try {
+      rows = await client
+          .from('playlists')
+          .select('id, user_id, title, cover_url, is_collaborative, invite_code, created_at, playlist_tracks(id, track_id, title, artist, artwork_url, stream_url, source_type, position, added_by)')
+          .eq('invite_code', cleanCode)
+          .limit(1);
+    } catch (_) {
+      rows = await client
+          .from('playlists')
+          .select('id, user_id, title, cover_url, is_collaborative, invite_code, created_at, playlist_tracks(id, track_id, title, artist, artwork_url, stream_url, source_type, position)')
+          .eq('invite_code', cleanCode)
+          .limit(1);
+    }
 
     if (rows.isEmpty) {
       throw Exception('No collaborative playlist found for code "$cleanCode"');
@@ -128,6 +137,7 @@ class CollaborativePlaylistService {
         coverUrl: t['artwork_url']?.toString() ?? '',
         streamUrl: t['stream_url']?.toString(),
         source: t['source_type']?.toString() ?? 'saavn',
+        addedBy: t['added_by']?.toString(),
       );
     }).toList();
 
@@ -149,9 +159,11 @@ class CollaborativePlaylistService {
 
   /// Subscribes to Supabase Realtime Postgres Changes for a collaborative playlist.
   /// Fires [onTracksUpdated] immediately when any collaborator adds, deletes, or reorders tracks.
+  /// Fires [onConnectionStatusChanged] when channel connects, disconnects, or reconnects.
   static RealtimeChannel? subscribeToPlaylist({
     required String playlistId,
     required void Function(List<Song> updatedTracks) onTracksUpdated,
+    void Function(bool isConnected)? onConnectionStatusChanged,
   }) {
     final client = SupabaseService.client;
     if (client == null) return null;
@@ -170,46 +182,74 @@ class CollaborativePlaylistService {
         ),
         callback: (payload) async {
           debugPrint('[CollaborativePlaylistService] Realtime update event received on playlist $playlistId');
-          // Reload fresh tracks from Supabase
-          try {
-            final List<dynamic> trackRows = await client
-                .from('playlist_tracks')
-                .select('id, track_id, title, artist, artwork_url, stream_url, source_type, position')
-                .eq('playlist_id', playlistId)
-                .order('position', ascending: true);
-
-            final updatedSongs = trackRows.map((t) {
-              return Song(
-                id: t['track_id']?.toString() ?? '',
-                title: TrackEntity.sanitize(t['title'], fallback: 'Unknown Track'),
-                artist: TrackEntity.sanitize(t['artist'], fallback: 'Various Artists'),
-                album: '',
-                duration: 0,
-                coverUrl: t['artwork_url']?.toString() ?? '',
-                streamUrl: t['stream_url']?.toString(),
-                source: t['source_type']?.toString() ?? 'saavn',
-              );
-            }).toList();
-
-            // Update local playlist
-            final local = PlaylistManager.getPlaylist(playlistId);
-            if (local != null) {
-              final newLocal = local.copyWith(tracks: updatedSongs);
-              await PlaylistManager.savePlaylistDirectly(newLocal);
-            }
-
-            onTracksUpdated(updatedSongs);
-          } catch (e) {
-            debugPrint('[CollaborativePlaylistService] Refresh tracks error: $e');
-          }
+          await _fetchAndBroadcastTracks(client, playlistId, onTracksUpdated);
         },
       );
 
-      channel.subscribe();
+      channel.subscribe((status, [error]) async {
+        debugPrint('[CollaborativePlaylistService] Subscription status for $playlistId: $status (error: $error)');
+        final isSubscribed = status == RealtimeSubscribeStatus.subscribed;
+        onConnectionStatusChanged?.call(isSubscribed);
+
+        if (isSubscribed) {
+          // Reconcile on initial connect or after reconnecting from network drop
+          await _fetchAndBroadcastTracks(client, playlistId, onTracksUpdated);
+        }
+      });
+
       return channel;
     } catch (e) {
       debugPrint('[CollaborativePlaylistService] Subscription error: $e');
       return null;
+    }
+  }
+
+  /// Refetches tracks from Supabase, updates local Hive cache, and notifies listeners.
+  static Future<void> _fetchAndBroadcastTracks(
+    SupabaseClient client,
+    String playlistId,
+    void Function(List<Song> updatedTracks) onTracksUpdated,
+  ) async {
+    try {
+      List<dynamic> trackRows;
+      try {
+        trackRows = await client
+            .from('playlist_tracks')
+            .select('id, track_id, title, artist, artwork_url, stream_url, source_type, position, added_by')
+            .eq('playlist_id', playlistId)
+            .order('position', ascending: true);
+      } catch (_) {
+        trackRows = await client
+            .from('playlist_tracks')
+            .select('id, track_id, title, artist, artwork_url, stream_url, source_type, position')
+            .eq('playlist_id', playlistId)
+            .order('position', ascending: true);
+      }
+
+      final updatedSongs = trackRows.map((t) {
+        return Song(
+          id: t['track_id']?.toString() ?? '',
+          title: TrackEntity.sanitize(t['title'], fallback: 'Unknown Track'),
+          artist: TrackEntity.sanitize(t['artist'], fallback: 'Various Artists'),
+          album: '',
+          duration: 0,
+          coverUrl: t['artwork_url']?.toString() ?? '',
+          streamUrl: t['stream_url']?.toString(),
+          source: t['source_type']?.toString() ?? 'saavn',
+          addedBy: t['added_by']?.toString(),
+        );
+      }).toList();
+
+      // Update local playlist
+      final local = PlaylistManager.getPlaylist(playlistId);
+      if (local != null) {
+        final newLocal = local.copyWith(tracks: updatedSongs);
+        await PlaylistManager.savePlaylistDirectly(newLocal);
+      }
+
+      onTracksUpdated(updatedSongs);
+    } catch (e) {
+      debugPrint('[CollaborativePlaylistService] Refresh tracks error: $e');
     }
   }
 

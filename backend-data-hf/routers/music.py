@@ -842,9 +842,20 @@ async def search_tracks(
                 "did_you_mean": did_you_mean
             }
         }
+    except (httpx.ConnectError, httpx.TimeoutException, asyncio.TimeoutError) as ue:
+        print(f"Router Upstream Error (search): {str(ue)}")
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "UPSTREAM_UNAVAILABLE", "message": "Upstream music provider is currently unreachable.", "retry_after": 5}
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Router Error (search): {str(e)}")
-        raise HTTPException(status_code=500, detail="Error searching for music")
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "SEARCH_FAILED", "message": "Error searching for music", "retry_after": None}
+        )
 
 
 @router.get("/search/suggestions")
@@ -1096,10 +1107,20 @@ async def get_synced_lyrics(title: str = Query(...), artist: str = Query(...)):
         if not lrc_data:
             return {"synced": False, "lrc": None}
         return {"synced": True, "lrc": lrc_data}
+    except (httpx.ConnectError, httpx.TimeoutException, asyncio.TimeoutError) as ue:
+        print(f"Synced Lyrics Upstream Error: {str(ue)}")
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "UPSTREAM_UNAVAILABLE", "message": "Lyrics service is temporarily unreachable.", "retry_after": 5}
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Synced Lyrics Error: {str(e)}")
-        # return {"synced": False, "lrc": None}
-        raise HTTPException(status_code=500, detail="Error fetching synced lyrics")
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "LYRICS_FETCH_FAILED", "message": "Error fetching synced lyrics", "retry_after": None}
+        )
 
 @router.get("/lyrics")
 async def get_lrclib_lyrics_endpoint(
@@ -1133,10 +1154,27 @@ async def get_artist_details(artist_id: str):
     """
     try:
         results = await youtube.get_artist_details_youtube(artist_id)
+        if not results:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "NOT_FOUND", "message": "Artist not found or unavailable"}
+            )
         return results
+    except HTTPException:
+        raise
+    except (httpx.ConnectError, httpx.TimeoutException, asyncio.TimeoutError) as ue:
+        print(f"Artist Upstream Error: {str(ue)}")
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "UPSTREAM_UNAVAILABLE", "message": "Artist upstream service is unreachable.", "retry_after": 5}
+        )
     except Exception as e:
         print(f"Artist Error (Router): {str(e)}")
-        raise HTTPException(status_code=500, detail="Error fetching artist details")
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "ARTIST_FETCH_FAILED", "message": "Error fetching artist details", "retry_after": None}
+        )
+
 @router.get("/albums/{album_id}")
 async def get_album_details(album_id: str):
     """
@@ -1145,10 +1183,24 @@ async def get_album_details(album_id: str):
     try:
         results = await youtube.get_album_details_youtube(album_id)
         if not results:
-            raise HTTPException(status_code=404, detail="Album not found or unavailable")
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "NOT_FOUND", "message": "Album not found or unavailable"}
+            )
         return results
+    except HTTPException:
+        raise
+    except (httpx.ConnectError, httpx.TimeoutException, asyncio.TimeoutError) as ue:
+        print(f"Album Upstream Error: {str(ue)}")
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "UPSTREAM_UNAVAILABLE", "message": "Album upstream service is unreachable.", "retry_after": 5}
+        )
     except Exception as e:
         print(f"Album Error (Router): {str(e)}")
-        raise HTTPException(status_code=500, detail="Error fetching album details")
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "ALBUM_FETCH_FAILED", "message": "Error fetching album details", "retry_after": None}
+        )
 
 

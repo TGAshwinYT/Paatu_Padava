@@ -33,6 +33,7 @@ class Song {
   String? lyrics;
   final String? language;
   final bool isSmartRecommended;
+  final String? addedBy;
   final List<Song> versions;
 
   Song({
@@ -52,6 +53,7 @@ class Song {
     this.lyrics,
     this.language,
     this.isSmartRecommended = false,
+    this.addedBy,
     this.versions = const [],
   });
 
@@ -125,6 +127,7 @@ class Song {
       'lyrics': lyrics,
       'language': language,
       'isSmartRecommended': isSmartRecommended,
+      'addedBy': addedBy,
     };
   }
 
@@ -146,6 +149,7 @@ class Song {
       lyrics: map['lyrics'] != null ? sanitize(map['lyrics']) : null,
       language: map['language']?.toString(),
       isSmartRecommended: map['isSmartRecommended'] == true,
+      addedBy: map['addedBy']?.toString() ?? map['added_by']?.toString(),
     );
   }
 
@@ -166,6 +170,7 @@ class Song {
         'streamUrl': streamUrl,
         'isSmartRecommended': isSmartRecommended,
         'language': language,
+        'addedBy': addedBy,
       },
     );
   }
@@ -182,6 +187,7 @@ class Song {
       source: item.extras?['source']?.toString() ?? 'saavn',
       language: item.extras?['language']?.toString(),
       isSmartRecommended: item.extras?['isSmartRecommended'] == true,
+      addedBy: item.extras?['addedBy']?.toString(),
     );
   }
 
@@ -202,6 +208,7 @@ class Song {
     String? lyrics,
     String? language,
     bool? isSmartRecommended,
+    String? addedBy,
     List<Song>? versions,
   }) {
     return Song(
@@ -221,6 +228,7 @@ class Song {
       lyrics: lyrics ?? this.lyrics,
       language: language ?? this.language,
       isSmartRecommended: isSmartRecommended ?? this.isSmartRecommended,
+      addedBy: addedBy ?? this.addedBy,
       versions: versions ?? this.versions,
     );
   }

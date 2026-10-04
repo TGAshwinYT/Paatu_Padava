@@ -167,12 +167,4 @@ class FavoritesManager {
       _isSyncing = false;
     }
   }
-
-  /// Clears local favorites cache (e.g. on logout or fresh guest login)
-  static Future<void> clearLocal() async {
-    try {
-      await _box.clear();
-      favoritesNotifier.value = [];
-    } catch (_) {}
-  }
 }

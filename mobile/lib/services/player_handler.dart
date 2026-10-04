@@ -6,6 +6,9 @@ import 'package:just_audio/just_audio.dart';
 import '../logic/audio_queue_handler.dart';
 import '../logic/smart_shuffle_controller.dart';
 import '../models/song.dart';
+import '../domain/models/app_error.dart';
+import '../domain/models/lyrics_state.dart';
+import 'error_handler.dart';
 import 'api_client.dart';
 import 'history_manager.dart';
 import 'equalizer_service.dart';
@@ -24,9 +27,11 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   // Reactive State Notifiers for UI binding
   final ValueNotifier<String?> currentLyricsNotifier = ValueNotifier<String?>(null);
+  final ValueNotifier<LyricsState> lyricsStateNotifier = ValueNotifier<LyricsState>(const LyricsState.idle());
   final ValueNotifier<int> lyricsOffsetMsNotifier = ValueNotifier<int>(0);
   final ValueNotifier<Duration?> sleepTimerRemainingNotifier = ValueNotifier<Duration?>(null);
   final ValueNotifier<bool> isSmartShuffleNotifier = ValueNotifier<bool>(false);
+  final ValueNotifier<AppError?> playbackErrorNotifier = ValueNotifier<AppError?>(null);
 
   Timer? _sleepTimer;
   Timer? _countdownTicker;
@@ -71,6 +76,18 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     return _throttledPositionStream!;
   }
 
+  static const MediaControl _favoriteControlFilled = MediaControl(
+    androidIcon: 'drawable/ic_heart_filled',
+    label: 'Liked',
+    action: MediaAction.setRating,
+  );
+
+  static const MediaControl _favoriteControlOutlined = MediaControl(
+    androidIcon: 'drawable/ic_heart_outline',
+    label: 'Like',
+    action: MediaAction.setRating,
+  );
+
   PaatuAudioHandler() {
     _queueHandler = AudioQueueHandler(
       player: _player,
@@ -86,6 +103,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _smartShuffleController.modeNotifier.addListener(() {
       isSmartShuffleNotifier.value = _smartShuffleController.isSmartActive;
     });
+
+    // Listen to favorite additions/removals to dynamically update notification heart action
+    FavoritesManager.favoritesNotifier.addListener(_broadcastState);
 
     // Connect 5-band equalizer directly to native audio session ID
     EqualizerService.bindToPlayerSession(_player.androidAudioSessionIdStream);
@@ -126,15 +146,43 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _hasRecordedListen = false;
     lyricsOffsetMsNotifier.value = 0;
 
-    // Load lyrics
-    currentLyricsNotifier.value = (song.lyrics != null && song.lyrics!.isNotEmpty) ? song.lyrics : null;
-    ApiClient.fetchLyrics(song).then((lyrics) {
-      if (currentSong?.id == song.id && lyrics != null && lyrics.isNotEmpty) {
-        currentLyricsNotifier.value = lyrics;
-      }
-    });
+    // Load lyrics with distinct state tracking
+    reloadLyrics(targetSong: song);
 
     _broadcastState();
+  }
+
+  /// Reloads lyrics for current or target song with multi-state resolution
+  Future<void> reloadLyrics({Song? targetSong}) async {
+    final song = targetSong ?? currentSong;
+    if (song == null) {
+      lyricsStateNotifier.value = const LyricsState.idle();
+      currentLyricsNotifier.value = null;
+      return;
+    }
+
+    if (song.lyrics != null && song.lyrics!.isNotEmpty) {
+      currentLyricsNotifier.value = song.lyrics;
+      lyricsStateNotifier.value = LyricsState.loaded(song.lyrics!);
+      return;
+    }
+
+    lyricsStateNotifier.value = const LyricsState.loading();
+    try {
+      final lyrics = await ApiClient.fetchLyrics(song);
+      if (currentSong?.id != song.id) return;
+      if (lyrics != null && lyrics.trim().isNotEmpty) {
+        currentLyricsNotifier.value = lyrics;
+        lyricsStateNotifier.value = LyricsState.loaded(lyrics);
+      } else {
+        currentLyricsNotifier.value = null;
+        lyricsStateNotifier.value = const LyricsState.notFound();
+      }
+    } catch (e, stack) {
+      if (currentSong?.id != song.id) return;
+      final appErr = ErrorHandler.resolve(e, stackTrace: stack, context: 'PaatuAudioHandler.reloadLyrics');
+      lyricsStateNotifier.value = LyricsState.error(appErr);
+    }
   }
 
   void _broadcastState({bool downgradeNotification = false}) {
@@ -152,17 +200,22 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       }[_player.processingState] ?? AudioProcessingState.idle;
     }
 
+    final activeSong = currentSong;
+    final isFav = activeSong != null && FavoritesManager.isFavorite(activeSong.id);
+    final favControl = isFav ? _favoriteControlFilled : _favoriteControlOutlined;
+
     playbackState.add(playbackState.value.copyWith(
       controls: [
         MediaControl.skipToPrevious,
         if (playing) MediaControl.pause else MediaControl.play,
         MediaControl.skipToNext,
-        MediaControl.stop,
+        favControl,
       ],
       systemActions: const {
         MediaAction.seek,
         MediaAction.seekForward,
         MediaAction.seekBackward,
+        MediaAction.setRating,
       },
       androidCompactActionIndices: const [0, 1, 2],
       processingState: processingState,
@@ -174,19 +227,48 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     ));
   }
 
+  @override
+  Future<void> setRating(Rating rating, [Map<String, dynamic>? extras]) async {
+    final song = currentSong;
+    if (song != null) {
+      await FavoritesManager.toggleFavorite(song);
+      _broadcastState();
+    }
+  }
+
+  @override
+  Future<dynamic> customAction(String name, [Map<String, dynamic>? extras]) async {
+    if (name == 'toggle_favorite') {
+      final song = currentSong;
+      if (song != null) {
+        await FavoritesManager.toggleFavorite(song);
+        _broadcastState();
+      }
+      return null;
+    }
+    return super.customAction(name, extras);
+  }
+
   void _initStreams() {
-    _player.playbackEventStream.listen((event) => _broadcastState());
+    _player.playbackEventStream.listen(
+      (event) => _broadcastState(),
+      onError: (Object e, StackTrace stack) {
+        final err = ErrorHandler.resolve(e, stackTrace: stack, context: 'AudioPlayer.playbackEventStream');
+        playbackErrorNotifier.value = err;
+        debugPrint('[PlayerHandler] Playback error: ${err.userMessage}');
+        if (_queueHandler.hasNext) {
+          Future.delayed(const Duration(seconds: 2), () {
+            _queueHandler.skipToNext();
+          });
+        }
+      },
+    );
 
     _playerStateSub = _player.playerStateStream.listen((state) {
       if (state.playing) {
         _isForegroundDowngraded = false;
       }
       _broadcastState();
-      if (state.processingState == ProcessingState.completed) {
-        if (_queueHandler.hasNext) {
-          _queueHandler.skipToNext();
-        }
-      }
     });
 
     // 15-second listen tracker
@@ -206,6 +288,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _isForegroundDowngraded = false;
     _queueHandler.cancelIdleTimer();
 
+    final isNewSingleQueue = queue == null || (queue.length == 1 && queue.first.id == song.id);
     final initialIndex = queue != null ? queue.indexWhere((s) => s.id == song.id) : 0;
     final targetIndex = initialIndex != -1 ? initialIndex : 0;
 
@@ -214,6 +297,11 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       initialIndex: targetIndex,
       autoPlay: true,
     );
+
+    // If starting a fresh queue containing only this song, auto-fill Up Next using the recommendation algorithm
+    if (isNewSingleQueue) {
+      _smartShuffleController.populateUpNextForNewQueue(song);
+    }
   }
 
   // ================= Queue Management ================= //
@@ -360,13 +448,29 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     final current = currentSong;
     if (current != null) {
       final pos = _player.position;
-      if (pos.inSeconds < 30) {
-        _smartShuffleController.recordFeedback(song: current, isPositive: false);
-      } else {
-        _smartShuffleController.recordFeedback(song: current, isPositive: true);
-      }
+      final dur = _player.duration ?? const Duration(seconds: 180);
+      _smartShuffleController.recordPlaybackFeedback(
+        current,
+        listenedSeconds: pos.inSeconds,
+        totalSeconds: dur.inSeconds,
+      );
     }
     await _queueHandler.skipToNext();
+  }
+
+  @override
+  Future<void> skipToQueueItem(int index) async {
+    final current = currentSong;
+    if (current != null) {
+      final pos = _player.position;
+      final dur = _player.duration ?? const Duration(seconds: 180);
+      _smartShuffleController.recordPlaybackFeedback(
+        current,
+        listenedSeconds: pos.inSeconds,
+        totalSeconds: dur.inSeconds,
+      );
+    }
+    await _queueHandler.jumpToIndex(index);
   }
 
   @override

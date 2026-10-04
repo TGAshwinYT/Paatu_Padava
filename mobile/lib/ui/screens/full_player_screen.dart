@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:just_audio/just_audio.dart';
 import '../../models/song.dart';
+import '../../domain/models/lyrics_state.dart';
 import '../../services/player_handler.dart';
 import '../../services/download_manager.dart';
 import '../../services/favorites_manager.dart';
@@ -749,35 +750,94 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
   }
 
   Widget _buildLyricsView(Song song) {
-    return ValueListenableBuilder<String?>(
-      valueListenable: audioHandler.currentLyricsNotifier,
-      builder: (context, lyrics, _) {
-        if (lyrics == null || lyrics.trim().isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.05),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.lyrics_rounded, size: 42, color: Color(0xFF64748B)),
+    return ValueListenableBuilder<LyricsState>(
+      valueListenable: audioHandler.lyricsStateNotifier,
+      builder: (context, state, _) {
+        return ValueListenableBuilder<String?>(
+          valueListenable: audioHandler.currentLyricsNotifier,
+          builder: (context, lyrics, _) {
+            if (state.status == LyricsStatus.loading && (lyrics == null || lyrics.trim().isEmpty)) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: const [
+                    CircularProgressIndicator(color: Color(0xFF818CF8)),
+                    SizedBox(height: 14),
+                    Text(
+                      'Finding synchronized lyrics...',
+                      style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13, fontWeight: FontWeight.w500),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 14),
-                const Text(
-                  'No lyrics found for this track',
-                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14, fontWeight: FontWeight.w500),
-                ),
-              ],
-            ),
-          );
-        }
+              );
+            }
 
-        return _SyncedLyricsView(
-          lyrics: lyrics,
-          song: song,
+            if (state.status == LyricsStatus.error && (lyrics == null || lyrics.trim().isEmpty)) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.05),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.cloud_off_rounded, size: 36, color: Color(0xFFEF4444)),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        "Couldn't load lyrics",
+                        style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        state.error?.userMessage ?? 'Connection issue',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.refresh_rounded, size: 14, color: Colors.white),
+                        label: const Text('Retry', style: TextStyle(color: Colors.white, fontSize: 12)),
+                        onPressed: () => audioHandler.reloadLyrics(),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            if (lyrics == null || lyrics.trim().isEmpty) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.05),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.lyrics_rounded, size: 42, color: Color(0xFF64748B)),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'No lyrics found for this track',
+                      style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14, fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return _SyncedLyricsView(
+              lyrics: lyrics,
+              song: song,
+            );
+          },
         );
       },
     );

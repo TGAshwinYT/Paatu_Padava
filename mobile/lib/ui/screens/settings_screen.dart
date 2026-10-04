@@ -5,8 +5,10 @@ import '../../services/auth_manager.dart';
 import '../../services/equalizer_service.dart';
 import '../../services/cache_manager.dart';
 import '../../services/supabase_service.dart';
+import '../../services/party_sync_coordinator.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/auth_dialog.dart';
+import '../widgets/party_mode_sheet.dart';
 import 'storage_settings_screen.dart';
 import 'listening_recap_screen.dart';
 
@@ -117,6 +119,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildSectionHeader('MUSIC PREFERENCES', Icons.language_rounded),
               const SizedBox(height: 10),
               _buildLanguagesCard(),
+              const SizedBox(height: 20),
+
+              // Listen Together / Party Mode Section
+              _buildSectionHeader('LISTEN TOGETHER (PARTY MODE)', Icons.speaker_group_rounded),
+              const SizedBox(height: 10),
+              _buildPartyModeCard(),
               const SizedBox(height: 20),
 
               // Storage & Cache Section
@@ -302,6 +310,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ],
                 ),
+              );
+            },
+          ),
+          Divider(color: Colors.white.withOpacity(0.06), height: 1),
+          ValueListenableBuilder<NextTrackStrategyMode>(
+            valueListenable: SettingsManager.nextTrackStrategyNotifier,
+            builder: (context, strategyMode, _) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 16, 16, 6),
+                    child: Text(
+                      'Next-Song Recommendation Algorithm',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                    ),
+                  ),
+                  _buildQualityRadioTile(
+                    title: 'Spotify Style (Cohesive Clusters)',
+                    subtitle: 'Curates closely related acoustic clusters, similar tempo, and collaborative seeds',
+                    value: NextTrackStrategyMode.spotifyStyle.name,
+                    groupValue: strategyMode.name,
+                    onChanged: (val) {
+                      if (val != null) {
+                        SettingsManager.setNextTrackStrategy(NextTrackStrategyMode.spotifyStyle);
+                      }
+                    },
+                  ),
+                  _buildQualityRadioTile(
+                    title: 'YouTube Music Style (Eclectic Radio)',
+                    subtitle: 'Deeper discovery, algorithmic radio seeds, and genre-adjacent track exploration',
+                    value: NextTrackStrategyMode.ytMusicStyle.name,
+                    groupValue: strategyMode.name,
+                    onChanged: (val) {
+                      if (val != null) {
+                        SettingsManager.setNextTrackStrategy(NextTrackStrategyMode.ytMusicStyle);
+                      }
+                    },
+                  ),
+                ],
               );
             },
           ),
@@ -587,6 +635,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildPartyModeCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131B2E),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6366F1).withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.sync_rounded, color: Color(0xFF818CF8), size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Multi-Phone Lockstep Sync',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                    ValueListenableBuilder<PartyRole>(
+                      valueListenable: PartySyncCoordinator.roleNotifier,
+                      builder: (context, role, _) {
+                        final statusText = role == PartyRole.none
+                            ? 'Not connected'
+                            : (role == PartyRole.host
+                                ? 'Hosting ${PartySyncCoordinator.partyCode}'
+                                : 'Connected to ${PartySyncCoordinator.partyCode}');
+                        return Text(
+                          statusText,
+                          style: TextStyle(
+                            color: role == PartyRole.none ? const Color(0xFF94A3B8) : const Color(0xFF34D399),
+                            fontSize: 12,
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF6366F1),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                ),
+                onPressed: () => PartyModeSheet.show(context),
+                child: const Text('Open', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Syncs audio playback in real time across multiple phones with NTP clock offset compensation and Bluetooth latency adjustment.',
+            style: TextStyle(color: Color(0xFF64748B), fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildStorageCard() {
     return Container(
       decoration: BoxDecoration(
@@ -735,12 +854,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     String pillText;
     if (!isConfigured) {
-      pillText = 'Cloud Sync: Offline (Secrets not baked into this APK)';
+      pillText = 'Cloud Sync: Unavailable';
     } else if (!isInitialized) {
-      final err = SupabaseService.initError;
-      pillText = (err != null && err.isNotEmpty)
-          ? 'Cloud Sync: Offline (Failed to start: $err)'
-          : 'Cloud Sync: Offline (Supabase failed to start)';
+      pillText = 'Cloud Sync: Offline (Unable to reach sync service)';
     } else {
       final url = SupabaseService.supabaseUrl;
       final isProd = url.contains('bdolimatfkyqibiedlqp');

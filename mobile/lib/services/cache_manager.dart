@@ -4,6 +4,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart' as fcm;
 import 'package:path_provider/path_provider.dart';
 import 'download_manager.dart';
+import 'settings_manager.dart';
 
 class StorageBreakdown {
   final int offlineAudioBytes;
@@ -40,13 +41,13 @@ class StorageBreakdown {
 
 /// Automatic cache eviction manager & storage metrics service:
 /// Checks temporary cache directory size on app launch.
-/// If cache size exceeds 400MB or files are older than 7 days,
-/// automatically deletes cached files in the background without blocking the UI thread.
+/// Enforces size-capped LRU cache eviction and deletes files older than 7 days
+/// in the background without blocking the UI thread.
 class CacheManager {
-  static const int maxCacheSizeBytes = 400 * 1024 * 1024; // 400 MB
+  static int get maxCacheSizeBytes => SettingsManager.maxCacheSizeMb * 1024 * 1024;
   static const int maxCacheAgeDays = 7;
 
-  /// Runs background cache audit and eviction without blocking the UI
+  /// Runs background cache audit and true LRU eviction without blocking the UI
   static Future<void> autoEvictOldCache() async {
     Future.microtask(() async {
       try {
@@ -57,41 +58,62 @@ class CacheManager {
         const maxAgeDuration = Duration(days: maxCacheAgeDays);
 
         int totalSize = 0;
-        final List<FileSystemEntity> allEntities = [];
+        final List<MapEntry<File, FileStat>> fileStats = [];
 
-        // Gather all files and measure size
-        final entities = tempDir.listSync(recursive: true, followLinks: false);
+        // Restrict eviction strictly to audio cache (e.g. just_audio_cache or audio stream files)
+        // to avoid clobbering Flutter engine assets, shaders, or image caches.
+        final audioCacheDir = Directory('${tempDir.path}/just_audio_cache');
+        final List<FileSystemEntity> entities;
+        if (audioCacheDir.existsSync()) {
+          entities = audioCacheDir.listSync(recursive: true, followLinks: false);
+        } else {
+          entities = tempDir.listSync(recursive: true, followLinks: false).where((entity) {
+            final p = entity.path.toLowerCase();
+            return p.contains('just_audio') ||
+                p.contains('audio') ||
+                p.endsWith('.mp3') ||
+                p.endsWith('.m4a') ||
+                p.endsWith('.aac') ||
+                p.endsWith('.ogg') ||
+                p.endsWith('.opus');
+          }).toList();
+        }
+
         for (final entity in entities) {
           if (entity is File) {
-            allEntities.add(entity);
             try {
-              totalSize += entity.lengthSync();
+              final stat = entity.statSync();
+              totalSize += stat.size;
+              fileStats.add(MapEntry(entity, stat));
             } catch (_) {}
           }
         }
 
-        debugPrint('[CacheManager] Current cache size: ${(totalSize / (1024 * 1024)).toStringAsFixed(2)} MB');
+        debugPrint('[CacheManager] Current cache size: ${(totalSize / (1024 * 1024)).toStringAsFixed(2)} MB (Limit: ${SettingsManager.maxCacheSizeMb} MB)');
 
-        // Check if eviction criteria is met: >400MB or files older than 7 days
+        // Check if eviction criteria is met: > limit or files older than 7 days
         final bool exceedsLimit = totalSize > maxCacheSizeBytes;
+        final int targetReductionSize = (maxCacheSizeBytes * 0.75).round(); // Leave 25% headroom
 
-        for (final entity in allEntities) {
-          if (entity is! File) continue;
+        // Sort files by modified date ascending (oldest first = true LRU)
+        fileStats.sort((a, b) => a.value.modified.compareTo(b.value.modified));
 
-          try {
-            final stat = entity.statSync();
-            final age = now.difference(stat.modified);
+        for (final entry in fileStats) {
+          final file = entry.key;
+          final stat = entry.value;
+          final age = now.difference(stat.modified);
 
-            // Delete if older than 7 days OR if overall cache exceeds 400MB and file is older than 2 days
-            if (age > maxAgeDuration || (exceedsLimit && age > const Duration(days: 2))) {
-              entity.deleteSync();
+          // Delete if older than 7 days OR if overall cache exceeds limit
+          if (age > maxAgeDuration || (exceedsLimit && totalSize > targetReductionSize)) {
+            try {
+              file.deleteSync();
               totalSize -= stat.size;
-              debugPrint('[CacheManager] Evicted stale cache file: ${entity.path}');
-            }
-          } catch (_) {}
+              debugPrint('[CacheManager] LRU evicted stale cache file: ${file.path}');
+            } catch (_) {}
+          }
 
-          // If we were over the limit and now reduced below 250MB, we can stop
-          if (exceedsLimit && totalSize < 250 * 1024 * 1024) {
+          // If we were over the limit and now reduced below target, we can stop
+          if (exceedsLimit && totalSize <= targetReductionSize) {
             break;
           }
         }

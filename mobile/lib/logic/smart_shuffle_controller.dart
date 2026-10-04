@@ -6,6 +6,7 @@ import '../services/history_manager.dart';
 import '../services/saavn_client.dart';
 import '../services/settings_manager.dart';
 import 'audio_queue_handler.dart';
+import 'next_track_strategy.dart';
 
 enum SmartShuffleMode {
   off,        // Sequential playback
@@ -109,8 +110,11 @@ class SmartShuffleController {
   }
 
   void _onQueueProgress() {
-    if (queueHandler != null && isSmartActive && queueHandler!.upcomingCount < 3 && !_isIngesting) {
+    if (queueHandler == null || _isIngesting) return;
+    if (isSmartActive && queueHandler!.upcomingCount < 3) {
       ingestSmartRecommendations();
+    } else if (queueHandler!.upcomingCount < 2 && queueHandler!.queue.isNotEmpty) {
+      autoRefillUpcoming();
     }
   }
 
@@ -336,6 +340,56 @@ class SmartShuffleController {
     }
     result.addAll(map.values);
     return result;
+  }
+
+  /// Auto-populates Up Next when the user starts a fresh queue with a single song
+  Future<void> populateUpNextForNewQueue(Song seedSong) async {
+    if (queueHandler == null) return;
+    try {
+      final strategy = NextTrackStrategyFactory.getStrategy(SettingsManager.nextTrackStrategy);
+      final tracks = await strategy.getUpcomingTracks(
+        seedSong: seedSong,
+        queue: queueHandler!.queue,
+        history: HistoryManager.getHistory(),
+        count: 8,
+      );
+
+      if (tracks.isNotEmpty && queueHandler != null && queueHandler!.queue.isNotEmpty) {
+        for (final track in tracks) {
+          await queueHandler!.addToQueue(track);
+        }
+      }
+    } catch (e) {
+      debugPrint('[SmartShuffleController] populateUpNextForNewQueue error: $e');
+    }
+  }
+
+  /// Auto-refill upcoming queue when 1 or fewer upcoming tracks remain
+  Future<void> autoRefillUpcoming({int count = 5}) async {
+    if (queueHandler == null || _isIngesting) return;
+    final current = queueHandler!.currentSong;
+    if (current == null) return;
+
+    _isIngesting = true;
+    try {
+      final strategy = NextTrackStrategyFactory.getStrategy(SettingsManager.nextTrackStrategy);
+      final tracks = await strategy.getUpcomingTracks(
+        seedSong: current,
+        queue: queueHandler!.queue,
+        history: HistoryManager.getHistory(),
+        count: count,
+      );
+
+      if (tracks.isNotEmpty && queueHandler != null && queueHandler!.queue.isNotEmpty) {
+        for (final track in tracks) {
+          await queueHandler!.addToQueue(track);
+        }
+      }
+    } catch (e) {
+      debugPrint('[SmartShuffleController] autoRefillUpcoming error: $e');
+    } finally {
+      _isIngesting = false;
+    }
   }
 
   void dispose() {

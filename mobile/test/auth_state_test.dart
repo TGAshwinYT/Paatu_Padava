@@ -77,7 +77,7 @@ void main() {
       expect(
         () => SupabaseService.ensureReady(),
         throwsA(predicate((e) =>
-          e.toString().contains('Supabase credentials are not configured on this build')
+          e.toString().contains('Account sync is unavailable right now.')
         )),
       );
     });

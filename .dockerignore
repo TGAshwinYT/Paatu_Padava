@@ -22,3 +22,7 @@ README.md
 LICENSE
 mcp_server.py
 start_server.bat
+cookies.txt
+**/cookies.txt
+*.keystore
+*.jks

@@ -48,5 +48,13 @@ scratch_song*.jpg
 .pub/
 build/
 **/android/local.properties
+**/android/key.properties
 **/GeneratedPluginRegistrant.java
+*.keystore
+*.jks
+
+# Sensitive credentials & cookies
+cookies.txt
+**/cookies.txt
+
 

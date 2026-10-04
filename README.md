@@ -11,31 +11,27 @@ pinned: false
 
 [![Flutter](https://img.shields.io/badge/Flutter-v3.x-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
 [![Android](https://img.shields.io/badge/Android-SDK_36-3DDC84?logo=android&logoColor=white)](https://developer.android.com)
-[![React](https://img.shields.io/badge/React-19.0-61DAFB?logo=react&logoColor=black)](https://react.dev)
 [![FastAPI](https://img.shields.io/badge/FastAPI-Python_3.13-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Supabase](https://img.shields.io/badge/Supabase-Auth_%26_Cloud_DB-3ECF8E?logo=supabase&logoColor=white)](https://supabase.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Build APK](https://github.com/TGAshwinYT/Paatu_Padava/actions/workflows/build-apk.yml/badge.svg)](https://github.com/TGAshwinYT/Paatu_Padava/actions/workflows/build-apk.yml)
-[![Tests: 100% Green](https://img.shields.io/badge/Tests-68%20Flutter%20%7C%2032%20Backend%20Passing-brightgreen.svg)](#-engineering-metrics)
+[![Tests: 100% Green](https://img.shields.io/badge/Tests-110%20Flutter%20%7C%2032%20Backend%20Passing-brightgreen.svg)](#-engineering-metrics)
 
-> **Your Infinite Music Universe** — Studio-quality 320kbps audio streaming, dual-engine hybrid audio resolution, Clean Architecture domain pipelines, real-time collaborative playlists, Android Auto dashboard media browsing, native Discord Rich Presence, story-driven Paatu Recap (Music Wrapped), seed-based Song Radio discovery, gapless playback with 5-minute battery wakelock guards, Supabase cloud sync, and 100% offline playback.
+> **Your Infinite Music Universe** — Studio-quality 320kbps audio streaming, dual-engine hybrid audio resolution, Clean Architecture domain pipelines, real-time collaborative playlists, Android Auto dashboard media browsing, seed-based Song Radio discovery, smart shuffle with playback feedback, gapless playback with 5-minute battery wakelock guards, Supabase cloud sync, and 100% offline playback.
 
 ---
 
 ## 🌟 Overview
 
-**Paatu Padava** is a complete, cross-platform music streaming ecosystem tailored for Indian regional and international music lovers:
+**Paatu Padava** is a mobile-first music streaming app tailored for Indian regional and international music lovers:
 
-1. **Android Mobile App (`mobile/`)**: Native Flutter application built with Clean Architecture, background `AudioService`, gapless `ConcatenatingAudioSource`, Android Auto media hierarchy, real-time collaborative playlists, Discord Rich Presence, native Android AudioSession EQ, bidirectional Supabase playlist synchronization, and advanced offline downloads.
-2. **Web Application (`frontend-react/`)**: Modern React 19 + Vite PWA with Web Audio API 10-band equalizer, canvas visualizer, HTML5 CacheStorage offline engine, and one-click Spotify playlist/album importer.
-3. **Backend Service (`backend-data-hf/`)**: FastAPI + Python 3.13 service providing 320kbps DES media decryption, item-item collaborative filtering recommendation graphs, and sub-5ms prefix trie autocomplete.
-4. **AI MCP Server (`mcp_server.py`)**: Model Context Protocol interface enabling AI assistants (Claude Desktop, Gemini CLI, Antigravity IDE) to search tracks, fetch recommendations, and construct smart shuffle queues.
+1. **Android Mobile App (`mobile/`)**: Native Flutter application built with Clean Architecture, background `AudioService`, gapless `ConcatenatingAudioSource`, Android Auto media hierarchy, real-time collaborative playlists, native Android AudioSession EQ, bidirectional Supabase playlist synchronization, smart shuffle with feedback learning, and advanced offline downloads.
+2. **Backend Service (`backend-data-hf/`)**: FastAPI + Python 3.13 service providing 320kbps DES media decryption, item-item collaborative filtering recommendation graphs, and sub-5ms prefix trie autocomplete.
+3. **AI MCP Server (`mcp_server.py`)**: Model Context Protocol interface enabling AI assistants (Claude Desktop, Gemini CLI, Antigravity IDE) to search tracks, fetch recommendations, and construct smart shuffle queues.
 
 ---
 
-## 🏛️ Clean System Architecture
-
-The mobile client is engineered according to Clean Architecture and Domain-Driven Design principles:
+## 🏛️ System Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
@@ -47,21 +43,21 @@ The mobile client is engineered according to Clean Architecture and Domain-Drive
 ┌────────────────────────────────────────────▼────────────────────────────────────────────┐
 │                                APPLICATION & DOMAIN LAYER                               │
 │ ┌──────────────────────┐ ┌──────────────────────┐ ┌──────────────────┐ ┌──────────────┐ │
-│ │  AudioQueueHandler   │ │ SmartShuffleEngine   │ │   SyncManager    │ │ RadioEngine  │ │
-│ │  (ConcatenatingSource│ │ (Interleaving,       │ │ (Bidirectional   │ │ (Graph-based │ │
-│ │   & Lazy Preloader)  │ │  Taste Balancing)    │ │  Supabase Sync)  │ │  Discovery)  │ │
+│ │  AudioQueueHandler   │ │ SmartShuffleController│ │   SyncManager    │ │ RadioEngine  │ │
+│ │  (ConcatenatingSource│ │ (Feedback Learning,  │ │ (Bidirectional   │ │ (Graph-based │ │
+│ │   & Lazy Preloader)  │ │  Artist Diversity)   │ │  Supabase Sync)  │ │  Discovery)  │ │
 │ └──────────────────────┘ └──────────────────────┘ └──────────────────┘ └──────────────┘ │
 │ ┌──────────────────────┐ ┌──────────────────────┐ ┌──────────────────┐ ┌──────────────┐ │
-│ │ CollaborativeService │ │  AndroidAutoService  │ │ DiscordRpcService│ │ RecapService │ │
-│ │ (Supabase Realtime)  │ │ (MediaBrowserService)│ │ (IPC Named Pipes)│ │ (Story Stats)│ │
+│ │ CollaborativeService │ │  AndroidAutoService  │ │ConnectivityService│ │ RecapService │ │
+│ │ (Supabase Realtime)  │ │ (MediaBrowserService)│ │ (Offline Banner) │ │ (Story Stats)│ │
 │ └──────────────────────┘ └──────────────────────┘ └──────────────────┘ └──────────────┘ │
 └────────────────────────────────────────────┬────────────────────────────────────────────┘
                                              │ Queries / Commands
 ┌────────────────────────────────────────────▼────────────────────────────────────────────┐
 │                                   DATA REPOSITORY LAYER                                 │
 │  ┌──────────────────────┐ ┌──────────────────────────────────────────────────────────┐  │
-│  │   AudioRepository    │ │                    CatalogRepository                     │  │
-│  │   (Stream Resolver)  │ │   (Multi-Source Aggregator, Deduplication, Script Prior) │  │
+│  │  UnifiedHttpClient   │ │                    SongRepository                        │  │
+│  │  (Retries, Backoff)  │ │   (Multi-Source Aggregator, Deduplication, Script Prior) │  │
 │  └──────────┬───────────┘ └────────────────────────────┬─────────────────────────────┘  │
 └─────────────┼──────────────────────────────────────────┼────────────────────────────────┘
               │                                          │
@@ -69,8 +65,8 @@ The mobile client is engineered according to Clean Architecture and Domain-Drive
     │                   │                      │                   │
 ┌───▼───────────┐ ┌─────▼────────┐        ┌────▼────────────┐ ┌────▼───────────┐
 │ JioSaavn CDN  │ │ YouTube Ext. │        │ Supabase Cloud  │ │ Device Storage │
-│ (Direct 320k) │ │ (Innertube)  │        │ (Auth, Realtime,│ │ (Hive, SQLite, │
-│               │ │              │        │  Postgres RLS)  │ │  LRU Temp Dir) │
+│ (Direct 320k) │ │ (Innertube)  │        │ (Auth, Realtime,│ │ (Hive, Scoped  │
+│               │ │              │        │  Postgres RLS)  │ │  Storage, LRU) │
 └───────────────┘ └──────────────┘        └─────────────────┘ └────────────────┘
 ```
 
@@ -79,60 +75,56 @@ The mobile client is engineered according to Clean Architecture and Domain-Drive
 ## ✨ Key Features & Capabilities
 
 ### 🔍 Multi-Source Hybrid Catalog & Smart Search Pipeline
-- **Unified Domain Entity (`TrackEntity`)**: Canonical track entity with `deduplicationKey` (`${title.trim().toLowerCase()}_${artist.trim().toLowerCase()}`) and centralized `HtmlUnescape` string sanitization.
+- **Unified Domain Entity (`TrackEntity`)**: Canonical track entity with `deduplicationKey` and centralized `HtmlUnescape` string sanitization.
 - **Multilingual Script & Language Detection**: Automatically detects native scripts (Tamil, Telugu, Hindi, Malayalam, Kannada, Bengali, Punjabi, Latin) and handles phonetic Tanglish searches.
 - **Canonical Song Version Grouping**: Identifies and groups alternate versions (Remix, Lofi, Acoustic, Live, Film version) into a single canonical track entry with an expandable versions sheet.
 - **Language Prior & Quality Re-Ranking**: Ranks JioSaavn 320kbps streams first with dynamic language prior boosting based on user preferences.
-- **Artwork Fallback & Anti-Duplication**: Replaces generic compilation covers (e.g. repeated *"100% Melodies"*) with verified artist portraits or high-resolution video thumbnails.
-- **Search History Guard**: Capped at 12 unique terms recorded strictly on user submit or item tap; typing keystrokes never pollute history.
+- **Artwork Fallback & Anti-Duplication**: Replaces generic compilation covers with verified artist portraits or high-resolution video thumbnails.
+- **Categorized Error States**: Search distinguishes offline, timeout, server cold-start, and genuine empty results with actionable UI messages.
 
 ### 🎧 Audiophile Playback Engine
 - **Studio-Quality 320kbps Audio**: Direct decrypted JioSaavn CDN AAC streams paired with YouTube Music fallback.
 - **Gapless Audio Engine (`AudioQueueHandler`)**: Preloads upcoming audio tracks in `ConcatenatingAudioSource(useLazyPreparation: true)` for seamless zero-gap transitions between songs.
 - **5-Minute Battery & Wakelock Guard**: When playback is paused or idle for > 5 minutes, automatically deactivates `AudioSession`, closes idle network sockets, and tears down the foreground media notification to preserve battery life.
-- **Atomic Metadata Synchronization**: Directly binds to `player.currentIndexStream` and `sequenceState.currentSource.tag` so active track title, artist, and artwork switch synchronously without UI desynchronization.
 - **Native 5-Band Equalizer**: Bound directly to `player.androidAudioSessionIdStream` with acoustic presets (Bass Boost, Vocal, Electronic, Rock, Flat).
-- **Synchronized Lyrics**: Fluid scrolling LRC lyrics overlay with millisecond-precision offset controls.
+- **Fatal Error Recovery**: If the audio engine fails to initialize, a dedicated error screen with restart capability is shown instead of a crash.
+- **HTTPS Enforcement**: All stream URLs auto-upgraded to HTTPS for security.
+
+### 🧠 Smart Shuffle & Feedback Learning
+- **Playback Feedback Loop**: `SmartShuffleController.recordPlaybackFeedback` wired into skip, queue-item jump, and natural track completion — skips (< 30s) are negative, full listens are positive.
+- **Artist Diversity Cap**: Enforces at most 1 song per artist in any 5 consecutive tracks.
+- **Anti-Repeat Guards**: Comprehensive exclusion set across current queue, recent history, and favorites.
 
 ### 👥 Real-Time Collaborative Playlists
 - **Instant Invite Codes**: One-click generation of 6-character alphanumeric join codes (e.g. `PP-9K2M`).
 - **Supabase Realtime Sync**: Collaborative playlists automatically listen to live PostgreSQL table changes via Supabase Realtime Channels for immediate updates across all collaborator devices.
-- **Multi-User Collaboration**: Displays collaborator badges, handles add/remove track synchronization, and prevents race conditions via database constraints.
+- **Track Attribution**: `added_by` field tracks which collaborator added each song.
 
 ### 📊 Paatu Recap (Music Wrapped Experience)
 - **5-Slide Story Experience**: Animated full-screen story mode with auto-advancing progress bars and touch hold-to-pause gestures.
 - **Deep Listening Analytics**: Visualizes top 5 played tracks on a 3D-styled podium visualizer, top artists, and total listening minutes.
 - **Listening Persona Archetypes**: Dynamically computes personalized listener personas (*"The Sonic Explorer"*, *"The Melodic Purist"*, *"The Night Owl"*, *"The Genre Hopper"*).
-- **Shareable Summary Card**: Clean summary card with quick export options for social media sharing.
 
 ### 📻 Song Radio & Infinite Discovery Engine
 - **Seed-Based Radio (`RadioEngine`)**: Generates an infinite dynamic queue from any seed song by combining item-item collaborative filtering, artist top hits, contextual recommendations, and regional trending tracks.
-- **Artist Diversity Weighting**: Enforces strict anti-repetition guards ensuring the queue does not over-index on a single artist.
 
 ### 🚗 Android Auto Integration
 - **Automotive Media Hierarchy (`MediaBrowserServiceCompat`)**: Full dashboard media browsing for Android Auto head units.
-- **Structured Categories**: Browse categories include Recently Played (`/recents`), Cloud Playlists (`/playlists`), Offline Downloads (`/downloads`), and Daily Mixes (`/daily_mix`).
-- **Car App XML Configuration**: Fully configured with `automotive_app_desc.xml` and manifest intent filters for auto playback in connected vehicles.
+- **Structured Categories**: Browse categories include Recently Played, Cloud Playlists, Offline Downloads, and Daily Mixes.
 
-### 💬 Discord Rich Presence (RPC)
-- **Native Desktop IPC**: Communicates directly through named pipes (`\\.\pipe\discord-ipc-0` to `9`) on Windows and Unix domain sockets on Linux/macOS.
-- **Live Status Display**: Displays active song title, artist, album art, elapsed playback timestamp, and duration directly on your Discord profile.
+### 🌐 Connection Resilience
+- **Centralized Backend URL**: `AppConfig.backendUrl` via `String.fromEnvironment` for easy environment switching.
+- **Connectivity Detection**: Background reachability polling with offline banner that taps to Library/Downloads.
+- **Unified HTTP Client**: 10s timeout, exponential backoff retries on 502/503/network errors with categorized error resolution.
 
 ### 💾 Advanced Storage & Offline Manager
-- **Storage Telemetry (`StorageSettingsScreen`)**: Real-time breakdown of audio cache, downloaded tracks, app metadata, and free device storage space.
-- **Batch Download Queue (`DownloadManager`)**: Concurrent batch downloading with live progress indicators and pause/resume/cancel controls.
-- **Automatic Cache Eviction**: Background cleaner checks temporary storage on launch and evicts files older than 7 days or when exceeding 400MB.
+- **Storage Telemetry**: Real-time breakdown of audio cache, downloaded tracks, app metadata, and free device storage space.
+- **Batch Download Queue**: Concurrent batch downloading with live progress indicators and pause/resume/cancel controls.
+- **Scoped Audio Cache Eviction**: Background cleaner targets only `just_audio_cache` directory — never wipes Flutter engine caches, shaders, or image caches. Runs after Hive initialization to access settings.
 
 ### 🎨 Modern Visual Design System
-- **Fluid Dynamic Mesh Gradients (`FluidMeshGradient`)**: Ambient background gradients extracted from album artwork that softly shift during playback.
-- **Swipeable Song Action Tiles (`SwipeableSongTile`)**: Spotify-style swipe gestures with haptic feedback (swipe right to favorite/download, swipe left to remove from queue/playlist).
-- **Dynamic Artist Picker**: Spotify-style onboarding artist selector that expands collaborating artists with spring animations upon selection.
-
-### 🌐 Web Application (React 19 + Vite)
-- **10-Band Studio Web Equalizer**: Parametric BiquadFilter node chain with dynamic HTML5 Canvas frequency spectrum visualizer.
-- **100% Offline Playback (HTML5 CacheStorage)**: Zero-internet listening with dedicated storage quota meter and offline track management.
-- **Spotify Playlist & Album Importer**: One-click URL import mapping Spotify playlists to direct 320kbps streams.
-- **Desktop Keyboard Navigation**: Complete keyboard shortcuts (`Space`, `J`, `L`, `←`/`→`, `↑`/`↓`, `M`, `R`, `S`, `Q`, `/`).
+- **Fluid Dynamic Mesh Gradients (`FluidMeshGradient`)**: Ambient background gradients extracted from album artwork.
+- **Swipeable Song Action Tiles (`SwipeableSongTile`)**: Spotify-style swipe gestures with haptic feedback.
 
 ### ⚡ Backend & ML Services (FastAPI + Python 3.13)
 - **JioSaavn 320kbps Decryption**: Real-time DES cipher decoding for direct high-bitrate AAC media links.
@@ -153,23 +145,31 @@ The mobile client is engineered according to Clean Architecture and Domain-Drive
 | **Battery Life Protection** | **5-Minute Wakelock Guard** | Automatic `AudioSession.setActive(false)` and foreground service teardown |
 | **Cloud Playlist Persistence** | **100% Device Independence** | Clean 6-table relational PostgreSQL schema with RLS |
 | **Catalog Deduplication** | **Zero Redundant Tracks** | Normalized token keys (`${title}_${artist}`) across Saavn & YouTube |
-| **Search History Hygiene** | **12 Unique Capped Terms** | Explicit `onSubmitted` / result click guard; zero keystroke spam |
 | **Search Latency (p95)** | **< 300 ms** | Parallel `Future.wait` aggregation + language match re-ranking |
 | **Collaborative Sync Latency** | **< 100 ms** | Supabase Realtime WebSocket subscription channels |
-| **Recap Generation Time** | **< 150 ms** | Local history aggregations with client-side persona scoring |
-| **Flutter Test Suite** | **68 / 68 Tests Passing (100%)** | Unit, widget, coordination, and gesture tests |
+| **Flutter Test Suite** | **110 / 110 Tests Passing (100%)** | Unit, widget, coordination, queue alignment, and gesture tests |
 | **Backend Test Suite** | **32 / 32 Tests Passing (100%)** | API contracts, recommender graphs, security, and search tests |
 | **Static Analysis** | **0 Errors, 0 Warnings** | Strictly enforced via `flutter analyze` |
 
 ---
 
+## 🔒 Security
+
+- **No cleartext traffic**: `android:usesCleartextTraffic` removed; all stream URLs forced to HTTPS.
+- **No storage permissions**: Uses Android scoped storage (`getApplicationDocumentsDirectory()`).
+- **Release signing**: Loaded from `key.properties` or environment variables, never committed.
+- **ProGuard**: Minification and resource shrinking enabled for release builds.
+- **JWT separation**: Backend uses `SUPABASE_JWT_SECRET` exclusively without fallback.
+
+---
+
 ## 🗄️ Supabase Database Setup & RLS
 
-Execute this complete migration script in the [Supabase SQL Editor](https://supabase.com/dashboard/project/_/sql) to set up the clean 6-table schema with strict Row Level Security (RLS) and deduplication constraints:
+Execute this complete migration script in the [Supabase SQL Editor](https://supabase.com/dashboard/project/_/sql) to set up the clean 6-table schema with strict Row Level Security (RLS), collaborative playlist support, and deduplication constraints:
 
 ```sql
 -- =========================================================================
--- PAATU PADAVA - PRODUCTION DATABASE OVERHAUL & DE-DUPLICATION SCHEMA
+-- PAATU PADAVA - PRODUCTION DATABASE SCHEMA
 -- =========================================================================
 
 -- Enable UUID extension
@@ -237,13 +237,13 @@ CREATE TABLE IF NOT EXISTS public.playlists (
 );
 
 CREATE INDEX IF NOT EXISTS idx_playlists_user_id ON public.playlists(user_id);
-CREATE INDEX IF NOT EXISTS idx_playlists_invite_code ON public.playlists(invite_code);
+CREATE INDEX IF NOT EXISTS idx_playlists_invite_code ON public.playlists(invite_code) WHERE invite_code IS NOT NULL;
 
 CREATE OR REPLACE TRIGGER update_playlists_updated_at
     BEFORE UPDATE ON public.playlists
     FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
 
--- 3. PLAYLIST TRACKS (Single consolidated track table for playlists)
+-- 3. PLAYLIST TRACKS (With collaborator attribution)
 CREATE TABLE IF NOT EXISTS public.playlist_tracks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     playlist_id UUID NOT NULL REFERENCES public.playlists(id) ON DELETE CASCADE,
@@ -256,6 +256,7 @@ CREATE TABLE IF NOT EXISTS public.playlist_tracks (
     source_type TEXT DEFAULT 'saavn',
     duration INTEGER DEFAULT 0,
     position INTEGER DEFAULT 0,
+    added_by TEXT DEFAULT NULL,
     added_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
 
     -- CONSTRAINT: Prevents duplicate tracks inside a playlist
@@ -369,10 +370,30 @@ CREATE POLICY "Users manage user history" ON public.user_history FOR ALL USING (
 CREATE POLICY "Users manage favorite artists" ON public.user_favorite_artists FOR ALL USING (auth.uid() = user_id);
 
 -- Enable Realtime publication for multi-device sync
-ALTER PUBLICATION supabase_realtime ADD TABLE public.playlists;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.playlist_tracks;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.liked_songs;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime' AND tablename = 'playlists'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.playlists;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime' AND tablename = 'playlist_tracks'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.playlist_tracks;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime' AND tablename = 'liked_songs'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.liked_songs;
+    END IF;
+END $$;
 ```
+
+> **Note:** The schema above already includes collaborative playlist columns (`is_collaborative`, `invite_code`, `added_by`). The separate `plans/MIGRATION_COLLABORATIVE_PLAYLISTS.sql` file is only needed if your Supabase DB was set up from an older version of this schema that didn't have those columns.
 
 ---
 
@@ -381,8 +402,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.liked_songs;
 ### Prerequisites
 - **Flutter SDK**: 3.22+ (Channel `stable`)
 - **Android SDK**: API level 21 to 36 (Java 17)
-- **Node.js**: v18.0.0 or higher
-- **Python**: v3.11 or higher (or `uv`)
+- **Python**: v3.11 or higher
 
 ---
 
@@ -397,42 +417,33 @@ flutter pub get
 # Analyze code (verifies 0 errors, 0 warnings)
 flutter analyze
 
-# Run unit and widget test suite (68 tests)
+# Run unit and widget test suite (110 tests)
 flutter test
 
 # Run on connected Android device / emulator
 flutter run
 
-# Build production release APK
-flutter build apk --release --android-skip-build-dependency-validation
+# Build production release APK (requires key.properties — see key.properties.example)
+flutter build apk --release
 ```
 
 > **APK Output Path**: `mobile/build/app/outputs/flutter-apk/app-release.apk`
 
+#### Release Signing Setup:
+1. Copy `mobile/android/key.properties.example` to `mobile/android/key.properties`
+2. Fill in `storeFile`, `storePassword`, `keyAlias`, `keyPassword`
+3. **Never commit `key.properties`** — it's gitignored
+
 #### APK Signature Conflict Fix:
-If you encounter `INSTALL_FAILED_UPDATE_INCOMPATIBLE` when testing a CI release APK over a local debug build, uninstall the previous version:
+If you encounter `INSTALL_FAILED_UPDATE_INCOMPATIBLE`, uninstall the previous version:
 ```bash
 adb uninstall com.tamilgaming.paatupadava
 ```
 
 ---
 
-### 2. Run Web Frontend & Backend
+### 2. Run Backend
 
-#### One-Click Windows Launcher:
-```powershell
-.\start_server.bat
-```
-
-#### Manual Frontend Setup:
-```bash
-cd frontend-react
-npm install
-npm run dev
-```
-Visit [http://localhost:5173](http://localhost:5173).
-
-#### Manual Backend Setup:
 ```bash
 cd backend-data-hf
 python -m venv .venv
@@ -443,7 +454,7 @@ python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 #### Run Backend Test Suite:
 ```bash
-uv run --with pytest pytest backend-data-hf/tests
+python -m unittest discover -s backend-data-hf/tests
 ```
 
 ---
@@ -457,7 +468,7 @@ To connect Paatu Padava to Claude Desktop or Antigravity IDE, add this configura
   "mcpServers": {
     "paatu-padava": {
       "command": "python",
-      "args": ["d:/Library/Ashwin/Offical/TamilGaming/Music/Music 2/Paatu_Paaduva/mcp_server.py"]
+      "args": ["path/to/Paatu_Paaduva/mcp_server.py"]
     }
   }
 }
@@ -471,30 +482,31 @@ To connect Paatu Padava to Claude Desktop or Antigravity IDE, add this configura
 Paatu_Paaduva/
 ├── mobile/                           # Native Flutter Android Application (v2.0.0)
 │   ├── lib/
-│   │   ├── domain/models/            # TrackEntity (Clean Domain Entity & Sanitization)
-│   │   ├── data/repositories/        # CatalogRepository, SongRepository
-│   │   ├── logic/                    # AudioQueueHandler, SmartShuffleController
-│   │   ├── services/                 # SyncManager, RadioEngine, CollaborativePlaylistService,
-│   │   │                             # AndroidAutoService, DiscordRpcService, RecapService,
-│   │   │                             # DownloadManager, CacheManager, EqualizerService
-│   │   ├── presentation/screens/     # OnboardingArtistsScreen, AppTheme
+│   │   ├── core/                     # AppConfig (centralized backend URL)
+│   │   ├── domain/models/            # TrackEntity, AppError, LyricsState
+│   │   ├── data/repositories/        # SongRepository
+│   │   ├── logic/                    # AudioQueueHandler, SmartShuffleController,
+│   │   │                             # NextTrackStrategy, HomeFeedProvider
+│   │   ├── services/                 # SyncManager, RadioEngine, UnifiedHttpClient,
+│   │   │                             # ConnectivityService, DownloadManager, CacheManager,
+│   │   │                             # EqualizerService, ErrorHandler, SpotifyImportService
 │   │   ├── ui/
 │   │   │   ├── screens/              # HomeScreen, SearchScreen, PlayerScreen, LibraryScreen,
 │   │   │   │                         # StorageSettingsScreen, ListeningRecapScreen, SettingsScreen
 │   │   │   └── widgets/              # FluidMeshGradient, SwipeableSongTile, MiniPlayer,
 │   │   │                             # BatchDownloadButton, AuthDialog
-│   │   └── main.dart                 # App Entrypoint & AudioService Initialization
-│   ├── test/                         # 68 Comprehensive Unit & Widget Test Suites
+│   │   └── main.dart                 # App Entrypoint, AudioService Init, Fatal Error Recovery
+│   ├── test/                         # 110 Comprehensive Unit & Widget Test Suites
 │   └── android/                      # Android Gradle project (Java 17, SDK 36, Automotive XML)
-├── frontend-react/                   # React 19 + TypeScript + Vite Web PWA
-│   └── src/                          # Web Audio API Equalizer, CacheStorage, UI
 ├── backend-data-hf/                  # FastAPI Python 3.13 Data Service
 │   ├── services/                     # DES Decryption, Music Graph, Trie Autocomplete
-│   └── tests/                        # 32 Pytest Backend & Security Suites
+│   └── tests/                        # 32 Backend & Security Test Suites
+├── archive/
+│   └── frontend-react/               # Archived React 19 web app (superseded by mobile-first)
+├── plans/                            # Architecture specs, migration scripts, summaries
 ├── .github/workflows/
 │   └── build-apk.yml                 # Automated Release APK CI/CD pipeline
 ├── mcp_server.py                     # AI Model Context Protocol Server
-├── start_server.bat                  # One-click dual server launcher
 └── README.md                         # Project documentation
 ```
 

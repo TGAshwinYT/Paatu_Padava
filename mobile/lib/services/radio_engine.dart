@@ -2,7 +2,6 @@ import 'dart:math';
 import '../data/repositories/song_repository.dart';
 import '../models/song.dart';
 import 'api_client.dart';
-import 'player_handler.dart';
 import 'saavn_client.dart';
 import 'settings_manager.dart';
 
@@ -116,15 +115,5 @@ class RadioEngine {
     }
 
     return radioTracks;
-  }
-
-  /// Starts song radio immediately on the global player
-  static Future<int> playSongRadio(Song seedSong) async {
-    final radioQueue = await buildSongRadio(seedSong);
-    if (radioQueue.isNotEmpty) {
-      await audioHandler.playSong(seedSong, queue: radioQueue);
-      return radioQueue.length;
-    }
-    return 0;
   }
 }

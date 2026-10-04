@@ -156,5 +156,55 @@ void main() {
       expect(addedAgain, isFalse);
       expect(pl.tracks.length, equals(1));
     });
+
+    test('Collaborative track attribution preserves addedBy and role permissions', () async {
+      final song = Song(
+        id: 's_collab_1',
+        title: 'Master The Blaster',
+        artist: 'Anirudh',
+        album: 'Master',
+        coverUrl: '',
+        addedBy: 'Ashwin',
+      );
+
+      final playlist = UserPlaylist(
+        id: 'collab_pl_1',
+        title: 'Squad Jams',
+        createdAt: DateTime.now().millisecondsSinceEpoch,
+        tracks: [song],
+        isCollaborative: true,
+        inviteCode: 'PP-9K2M',
+        ownerId: 'user_123',
+      );
+
+      // Verify serialization preserves addedBy and collab fields
+      final map = playlist.toMap();
+      expect(map['is_collaborative'], isTrue);
+      expect(map['invite_code'], equals('PP-9K2M'));
+      expect(map['owner_id'], equals('user_123'));
+      expect(map['tracks'][0]['addedBy'], equals('Ashwin'));
+
+      final restored = UserPlaylist.fromMap(map);
+      expect(restored.isCollaborative, isTrue);
+      expect(restored.inviteCode, equals('PP-9K2M'));
+      expect(restored.tracks.first.addedBy, equals('Ashwin'));
+
+      // Test adding song with explicit attribution via addSongToPlaylist
+      await PlaylistManager.savePlaylistDirectly(restored);
+      final song2 = Song(
+        id: 's_collab_2',
+        title: 'Vaathi Coming',
+        artist: 'Anirudh',
+        album: 'Master',
+        coverUrl: '',
+        addedBy: 'GuestEditor',
+      );
+      final added = await SyncManager.addSongToPlaylist('collab_pl_1', song2);
+      expect(added, isTrue);
+
+      final updated = PlaylistManager.getPlaylist('collab_pl_1');
+      expect(updated?.tracks.length, equals(2));
+      expect(updated?.tracks[1].addedBy, equals('GuestEditor'));
+    });
   });
 }

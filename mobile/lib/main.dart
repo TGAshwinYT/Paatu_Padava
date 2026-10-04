@@ -31,9 +31,6 @@ Future<void> main() async {
   // Initialize Supabase client for cloud auth & user taste sync
   await SupabaseService.init();
 
-  // Run automatic cache cleaner in background (>400MB or >7 days old) without blocking UI
-  CacheManager.autoEvictOldCache();
-
   // Initialize offline Hive storage for songs, favorites, auth session, history, and search history
   try {
     await Hive.initFlutter();
@@ -48,7 +45,11 @@ Future<void> main() async {
     debugPrint('Storage init warning: $e');
   }
 
+  // Run automatic audio cache cleaner in background (>400MB or >7 days old) after settings are initialized
+  CacheManager.autoEvictOldCache();
+
   // Initialize background AudioService engine
+  Object? audioInitError;
   try {
     audioHandler = await AudioService.init(
       builder: () => PaatuAudioHandler(),
@@ -57,14 +58,95 @@ Future<void> main() async {
         androidNotificationChannelName: 'Paatu Padava Playback',
         androidNotificationOngoing: false,
         androidStopForegroundOnPause: false,
-        androidNotificationIcon: 'mipmap/ic_launcher',
+        androidNotificationIcon: 'drawable/ic_notification',
       ),
     );
   } catch (e) {
-    debugPrint('AudioService init warning: $e');
+    audioInitError = e;
+    debugPrint('AudioService fatal init error: $e');
+  }
+
+  if (audioInitError != null) {
+    runApp(AudioFatalErrorApp(error: audioInitError));
+    return;
   }
 
   runApp(const PaatuPadavaApp());
+}
+
+class AudioFatalErrorApp extends StatelessWidget {
+  final Object error;
+  const AudioFatalErrorApp({Key? key, required this.error}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Paatu Padava',
+      debugShowCheckedModeBanner: false,
+      themeMode: ThemeMode.dark,
+      darkTheme: ThemeData.dark().copyWith(
+        scaffoldBackgroundColor: const Color(0xFF0F172A),
+      ),
+      home: Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withOpacity(0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.music_off_rounded,
+                    size: 56,
+                    color: Colors.redAccent,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Audio Engine Error',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'The background audio playback service failed to initialize:\n$error',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.white.withOpacity(0.7),
+                    height: 1.4,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 32),
+                ElevatedButton.icon(
+                  onPressed: () => main(),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Restart App'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6366F1),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class PaatuPadavaApp extends StatelessWidget {

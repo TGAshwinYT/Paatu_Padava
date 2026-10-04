@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../../services/spotify_import_service.dart';
 import '../../services/player_handler.dart';
 import '../../services/playlist_manager.dart';
+import '../../services/error_handler.dart';
 
 class SpotifyImportDialog extends StatefulWidget {
   const SpotifyImportDialog({super.key});
@@ -99,9 +100,10 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
         _isLoadingPreview = false;
         _previewStatusText = null;
       });
+      final err = ErrorHandler.resolve(e);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error loading playlist preview: $e'),
+          content: Text('Error loading playlist preview: ${err.userMessage}'),
           backgroundColor: Colors.redAccent,
         ),
       );
@@ -136,7 +138,7 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
       if (meta == null || meta.tracks.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Failed to load Spotify playlist. Please check your URL and internet.'),
+            content: Text('Could not load Spotify playlist. Please check that the URL is valid, public, and that you have an internet connection.'),
             backgroundColor: Colors.redAccent,
           ),
         );

@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -65,16 +67,10 @@ class SupabaseService {
   static Stream<AuthState>? get authStateChanges => client?.auth.onAuthStateChange;
 
   /// Validates readiness before attempting any remote auth call,
-  /// strictly distinguishing between missing credentials vs startup failure.
+  /// hiding internal configuration details from end users.
   static void ensureReady() {
-    if (!isConfigured) {
-      throw 'Cloud sync is offline: Supabase credentials are not configured on this build.';
-    }
-    if (!_isInitialized || client == null) {
-      final detail = (_initError != null && _initError!.isNotEmpty)
-          ? ': $_initError'
-          : '.';
-      throw 'Cloud sync is offline: Supabase failed to start$detail';
+    if (!isConfigured || !_isInitialized || client == null) {
+      throw 'Account sync is unavailable right now.';
     }
   }
 
@@ -102,7 +98,7 @@ class SupabaseService {
   }
 
   /// Sign Up with Email and Password
-  /// Throws standard or recognized error messages (e.g. "User already registered")
+  /// Maps errors specifically without false 422 assumptions
   static Future<AuthResponse?> signUp({
     required String email,
     required String password,
@@ -120,12 +116,25 @@ class SupabaseService {
       return res;
     } on AuthException catch (e) {
       final msg = e.message.toLowerCase();
-      if (msg.contains('already registered') || msg.contains('user already exists') || e.statusCode == '422') {
+      if (msg.contains('already registered') || msg.contains('user already exists') || msg.contains('already in use')) {
         throw 'User already registered';
       }
+      if (msg.contains('password') && (msg.contains('least') || msg.contains('short') || msg.contains('weak') || msg.contains('character'))) {
+        throw 'Password is too weak. Please use at least 6 characters.';
+      }
+      if (msg.contains('email') && (msg.contains('invalid') || msg.contains('valid email') || msg.contains('format'))) {
+        throw 'Please enter a valid email address.';
+      }
       throw e.message;
+    } on SocketException {
+      throw 'Unable to connect to the authentication server. Please check your internet connection.';
+    } on TimeoutException {
+      throw 'Connection timed out. Please try again.';
     } catch (e) {
       final err = e.toString().toLowerCase();
+      if (err.contains('socket') || err.contains('network') || err.contains('failed host lookup')) {
+        throw 'Unable to connect to the authentication server. Please check your internet connection.';
+      }
       if (err.contains('already registered') || err.contains('user already exists')) {
         throw 'User already registered';
       }
@@ -148,7 +157,21 @@ class SupabaseService {
       );
       return res;
     } on AuthException catch (e) {
+      final msg = e.message.toLowerCase();
+      if (e.statusCode == '400' && (msg.contains('invalid login credentials') || msg.contains('invalid credentials') || msg.contains('invalid email or password'))) {
+        throw 'Incorrect email or password. Please verify your credentials.';
+      }
       throw e.message;
+    } on SocketException {
+      throw 'Unable to connect to the authentication server. Please check your internet connection.';
+    } on TimeoutException {
+      throw 'Connection timed out. Please try again.';
+    } catch (e) {
+      final err = e.toString().toLowerCase();
+      if (err.contains('socket') || err.contains('network') || err.contains('failed host lookup')) {
+        throw 'Unable to connect to the authentication server. Please check your internet connection.';
+      }
+      rethrow;
     }
   }
 

@@ -137,6 +137,8 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
                     const SizedBox(height: 24),
                     _buildQualityCard(),
                     const SizedBox(height: 24),
+                    _buildCacheLimitCard(),
+                    const SizedBox(height: 24),
                     _buildActionsCard(),
                     const SizedBox(height: 24),
                     _buildDownloadsExplorer(),
@@ -347,6 +349,90 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ================= Cache Limit Settings ================= //
+
+  Widget _buildCacheLimitCard() {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131B2E),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.storage_rounded, color: Color(0xFF10B981), size: 20),
+              SizedBox(width: 8),
+              Text(
+                'Maximum Cache Size (LRU Limit)',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Automatically purges least recently listened streaming cache when this limit is exceeded.',
+            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+          ),
+          const SizedBox(height: 14),
+          ValueListenableBuilder<int>(
+            valueListenable: SettingsManager.maxCacheSizeMbNotifier,
+            builder: (context, limitMb, _) {
+              return Row(
+                children: [
+                  _buildLimitChip(250, '250 MB', limitMb),
+                  const SizedBox(width: 8),
+                  _buildLimitChip(500, '500 MB', limitMb),
+                  const SizedBox(width: 8),
+                  _buildLimitChip(1000, '1.0 GB', limitMb),
+                  const SizedBox(width: 8),
+                  _buildLimitChip(2000, '2.0 GB', limitMb),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLimitChip(int mb, String label, int currentLimit) {
+    final isSelected = currentLimit == mb;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () async {
+          await SettingsManager.setMaxCacheSizeMb(mb);
+          await CacheManager.autoEvictOldCache();
+          await _refreshStorage();
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+          decoration: BoxDecoration(
+            color: isSelected ? const Color(0xFF10B981).withOpacity(0.2) : const Color(0xFF1E293B),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected ? const Color(0xFF10B981) : Colors.white.withOpacity(0.05),
+              width: 1.5,
+            ),
+          ),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? const Color(0xFF34D399) : Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            ),
           ),
         ),
       ),

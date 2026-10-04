@@ -153,23 +153,6 @@ class FuzzySearchService {
     return null;
   }
 
-  /// Re-ranks song search results based on fuzzy token similarity
-  static List<Song> reRankSongs(String query, List<Song> songs) {
-    if (songs.length <= 1 || query.trim().isEmpty) return songs;
-
-    final cleanQuery = Song.sanitize(query).trim();
-    final List<MapEntry<Song, int>> scored = [];
-
-    for (final song in songs) {
-      final target = '${song.title} ${song.artist}';
-      final score = tokenSetRatio(cleanQuery, target);
-      scored.add(MapEntry(song, score));
-    }
-
-    // Sort descending by similarity score
-    scored.sort((a, b) => b.value.compareTo(a.value));
-    return scored.map((e) => e.key).toList();
-  }
 
   /// Execute fallback search using fuzzy corrected query if primary search produced 0 results
   static Future<List<Song>> executeFallbackSearch(

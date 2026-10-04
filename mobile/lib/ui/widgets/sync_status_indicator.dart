@@ -36,7 +36,9 @@ class SyncStatusIndicator extends StatelessWidget {
           SyncStatus.error => (
               Icons.sync_problem_rounded,
               const Color(0xFFEF4444), // Crimson Red
-              'Cloud sync issue. Tap to retry.',
+              SyncManager.syncErrorNotifier.value != null
+                  ? '${SyncManager.syncErrorNotifier.value!} Tap to retry.'
+                  : 'Cloud sync issue. Tap to retry.',
               'Sync Error',
             ),
           SyncStatus.idle => (
@@ -52,14 +54,17 @@ class SyncStatusIndicator extends StatelessWidget {
           child: InkWell(
             onTap: () {
               ScaffoldMessenger.of(context).hideCurrentSnackBar();
+              final errorMsg = SyncManager.syncErrorNotifier.value;
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
                     status == SyncStatus.syncing
                         ? 'Library is currently synchronizing...'
-                        : 'Refreshing cloud sync...',
+                        : status == SyncStatus.error && errorMsg != null
+                            ? '$errorMsg Retrying sync...'
+                            : 'Refreshing cloud sync...',
                   ),
-                  duration: const Duration(seconds: 2),
+                  duration: const Duration(seconds: 3),
                 ),
               );
               SyncManager.syncAll();

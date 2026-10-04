@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../services/auth_manager.dart';
 import '../../services/api_client.dart';
+import '../../services/error_handler.dart';
 import 'onboarding_artists_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -199,9 +200,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       }
     } catch (e) {
       if (mounted) {
+        final err = ErrorHandler.resolve(e);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to save preferences: $e'),
+            content: Text('Failed to save preferences: ${err.userMessage}'),
             backgroundColor: Colors.redAccent,
           ),
         );

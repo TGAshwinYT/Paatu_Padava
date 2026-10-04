@@ -34,6 +34,10 @@ String decryptSaavnMediaUrl(String encryptedUrl) {
       url = url.replaceAll('_160.mp3', '_320.mp3');
     }
 
+    if (url.startsWith('http://')) {
+      url = url.replaceFirst('http://', 'https://');
+    }
+
     return url;
   } catch (e) {
     return '';

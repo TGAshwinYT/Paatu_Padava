@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../services/auth_manager.dart';
 import '../../services/supabase_service.dart';
 import '../../services/saavn_client.dart';
+import '../../services/error_handler.dart';
 import '../theme/app_theme.dart';
 
 class OnboardingArtistsScreen extends StatefulWidget {
@@ -253,8 +254,12 @@ class _OnboardingArtistsScreenState extends State<OnboardingArtistsScreen> with 
     } catch (e) {
       if (mounted) {
         setState(() => _isSaving = false);
+        final err = ErrorHandler.resolve(e);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save artists: $e')),
+          SnackBar(
+            content: Text('Failed to save artists: ${err.userMessage}'),
+            backgroundColor: Colors.redAccent,
+          ),
         );
       }
     }

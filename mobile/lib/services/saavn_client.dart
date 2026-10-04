@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import '../models/song.dart';
 import 'des_decrypt.dart';
@@ -178,6 +180,12 @@ class SaavnClient {
       }
 
       return songs;
+    } on SocketException {
+      rethrow;
+    } on TimeoutException {
+      rethrow;
+    } on http.ClientException {
+      rethrow;
     } catch (e) {
       return [];
     }

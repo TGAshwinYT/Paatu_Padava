@@ -2,10 +2,12 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:fuzzywuzzy/fuzzywuzzy.dart';
 import '../models/song.dart';
+import '../domain/models/app_error.dart';
 import 'saavn_client.dart';
 import 'youtube_client.dart';
 import 'settings_manager.dart';
 import 'fuzzy_search_service.dart';
+import 'error_handler.dart';
 import '../data/repositories/song_repository.dart';
 
 class QueryIntent {
@@ -38,6 +40,7 @@ class SearchResults {
   final List<Map<String, dynamic>> artists;
   final Map<String, dynamic>? topResult;
   final String? didYouMean;
+  final AppError? error;
 
   SearchResults({
     this.songs = const [],
@@ -46,9 +49,11 @@ class SearchResults {
     this.artists = const [],
     this.topResult,
     this.didYouMean,
+    this.error,
   });
 
   bool get isEmpty => songs.isEmpty && ytSongs.isEmpty && albums.isEmpty && artists.isEmpty;
+  bool get hasError => error != null;
 }
 
 class SearchService {
@@ -160,10 +165,6 @@ class SearchService {
     );
   }
 
-  /// Backward-compatible query clean helper. Never appends language words.
-  static String buildLanguageBiasedQuery(String query, {String? language}) {
-    return query.trim();
-  }
 
   /// Computes composite relevance score combining text similarity, artist match,
   /// language prior boost, version penalty, and source quality.
@@ -251,7 +252,7 @@ class SearchService {
         intent.cleanQuery,
         limit: limit,
         language: effectiveLang,
-      ).timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]);
+      ).timeout(const Duration(seconds: 5));
 
       final transliteratedSaavnFuture = (intent.transliteratedQuery != intent.cleanQuery)
           ? SaavnClient.search(
@@ -366,9 +367,10 @@ class SearchService {
         topResult: topResult,
         didYouMean: didYouMean,
       );
-    } catch (e) {
+    } catch (e, stack) {
       debugPrint('[SearchService] Search error: $e');
-      return SearchResults();
+      final appErr = ErrorHandler.resolve(e, stackTrace: stack, context: 'SearchService.searchUnified');
+      return SearchResults(error: appErr);
     }
   }
 }

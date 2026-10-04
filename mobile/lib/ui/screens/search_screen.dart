@@ -4,6 +4,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:html_unescape/html_unescape.dart';
 import '../../models/song.dart';
+import '../../domain/models/app_error.dart';
+import '../../services/error_handler.dart';
 import '../../services/saavn_client.dart';
 import '../../services/youtube_client.dart';
 import '../../services/api_client.dart';
@@ -20,6 +22,7 @@ import '../widgets/spotify_import_dialog.dart';
 import '../widgets/add_to_playlist_dialog.dart';
 import 'artist_screen.dart';
 import 'album_screen.dart';
+import 'library_screen.dart';
 
 class SearchResultsState {
   final Map<String, dynamic>? topResult;
@@ -29,6 +32,8 @@ class SearchResultsState {
   final List<Song> ytSongs;
   final String? didYouMean;
 
+  final AppError? error;
+
   const SearchResultsState({
     this.topResult,
     this.songs = const [],
@@ -36,10 +41,12 @@ class SearchResultsState {
     this.artists = const [],
     this.ytSongs = const [],
     this.didYouMean,
+    this.error,
   });
 
   bool get isEmpty =>
       topResult == null && songs.isEmpty && albums.isEmpty && artists.isEmpty && ytSongs.isEmpty;
+  bool get hasError => error != null;
 }
 
 class SearchScreen extends StatefulWidget {
@@ -209,6 +216,7 @@ class _SearchScreenState extends State<SearchScreen> {
           albums: unified.albums,
           artists: unified.artists,
           didYouMean: unified.didYouMean,
+          error: unified.error,
         );
         _isSearchingNotifier.value = false;
         return;
@@ -218,6 +226,7 @@ class _SearchScreenState extends State<SearchScreen> {
         _resultsNotifier.value = SearchResultsState(
           songs: unified.songs,
           didYouMean: unified.didYouMean,
+          error: unified.error,
         );
         _isSearchingNotifier.value = false;
       } else if (tab == 'Albums') {
@@ -248,7 +257,7 @@ class _SearchScreenState extends State<SearchScreen> {
         _isSearchingNotifier.value = false;
       }
 
-      if (mounted && currentRequestId == _searchRequestId && _resultsNotifier.value.isEmpty && correction != null) {
+      if (mounted && currentRequestId == _searchRequestId && _resultsNotifier.value.isEmpty && !_resultsNotifier.value.hasError && correction != null) {
         final fallbackSongs = await FuzzySearchService.executeFallbackSearch(clean, language: prefLang);
         if (fallbackSongs.isNotEmpty && mounted && currentRequestId == _searchRequestId) {
           final grouped = SongRepository.groupCanonicalSongs(fallbackSongs, preferredLanguage: prefLang);
@@ -257,8 +266,10 @@ class _SearchScreenState extends State<SearchScreen> {
           FuzzySearchService.registerSongs(cleanFallback);
         }
       }
-    } catch (_) {
+    } catch (e, stack) {
       if (mounted && currentRequestId == _searchRequestId) {
+        final appErr = ErrorHandler.resolve(e, stackTrace: stack, context: 'SearchScreen._executeSearch');
+        _resultsNotifier.value = SearchResultsState(error: appErr);
         _isSearchingNotifier.value = false;
       }
     }
@@ -574,6 +585,10 @@ class _SearchScreenState extends State<SearchScreen> {
                   );
                 }
 
+                if (state.hasError && !isSearching) {
+                  return _buildSearchErrorState(state.error!);
+                }
+
                 if (state.isEmpty && !isSearching) {
                   return Center(
                     child: Text(
@@ -605,6 +620,109 @@ class _SearchScreenState extends State<SearchScreen> {
           },
         );
       },
+    );
+  }
+
+  Widget _buildSearchErrorState(AppError error) {
+    final isOffline = error.category == AppErrorCategory.offline;
+    final isServerWaking = error.category == AppErrorCategory.serverWaking;
+    final isTimeout = error.category == AppErrorCategory.timeout;
+
+    final IconData icon = isOffline
+        ? Icons.wifi_off_rounded
+        : (isServerWaking
+            ? Icons.cloud_sync_rounded
+            : (isTimeout ? Icons.timer_off_rounded : Icons.error_outline_rounded));
+
+    final String title = isOffline
+        ? "You're Offline"
+        : (isServerWaking
+            ? "Server Is Starting Up"
+            : (isTimeout ? "Search Timed Out" : "Search Unavailable"));
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceElevated,
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.surfaceBorder),
+              ),
+              child: Icon(icon, size: 48, color: AppColors.electricCyan),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              title,
+              style: GoogleFonts.outfit(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              error.userMessage,
+              style: GoogleFonts.outfit(
+                color: AppColors.textSecondary,
+                fontSize: 14,
+                height: 1.4,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (isOffline) ...[
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.download_done_rounded, size: 18, color: AppColors.electricCyan),
+                    label: Text(
+                      'Open Downloads',
+                      style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w600),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: AppColors.electricCyan),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const LibraryScreen()),
+                      );
+                    },
+                  ),
+                  const SizedBox(width: 12),
+                ],
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.refresh_rounded, size: 18, color: Colors.white),
+                  label: Text(
+                    'Retry',
+                    style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.neonViolet,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  ),
+                  onPressed: () {
+                    final query = _searchController.text.trim();
+                    if (query.isNotEmpty) {
+                      _executeSearch(query, saveHistory: false);
+                    }
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -934,7 +1052,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       final songToPlay = queue.isNotEmpty ? queue.first : null;
                       _recordSearchResultClick(songToPlay);
                       if (songToPlay != null) {
-                        audioHandler.playSong(songToPlay, queue: queue);
+                        audioHandler.playSong(songToPlay);
                       }
                     },
                     child: const Icon(Icons.play_arrow_rounded, size: 28),
@@ -1191,7 +1309,7 @@ class _SearchScreenState extends State<SearchScreen> {
           onTap: () {
             // Save search term & record click-through for ranking feedback
             _recordSearchResultClick(song);
-            audioHandler.playSong(song, queue: queue);
+            audioHandler.playSong(song);
           },
           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 3),
           leading: Stack(
@@ -1557,7 +1675,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         onTap: () {
                           Navigator.pop(context);
                           _recordSearchResultClick(v);
-                          audioHandler.playSong(v, queue: allVersions);
+                          audioHandler.playSong(v);
                         },
                       );
                     },

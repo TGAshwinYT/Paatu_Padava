@@ -1,11 +1,14 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/song.dart';
 import 'auth_manager.dart';
 import 'settings_manager.dart';
 import 'youtube_client.dart';
 import 'saavn_client.dart';
+import 'unified_http_client.dart';
 import 'spotify_import_service.dart';
+import '../core/app_config.dart';
 
 class SearchResultBundle {
   final Map<String, dynamic>? topResult;
@@ -24,7 +27,7 @@ class SearchResultBundle {
 }
 
 class ApiClient {
-  static const String baseUrl = 'https://tgashwinyt-paatu-padava.hf.space';
+  static String get baseUrl => AppConfig.backendUrl;
 
   static Map<String, String> get _headers {
     final map = {
@@ -52,8 +55,10 @@ class ApiClient {
         'language': song.language ?? '',
       });
 
-      await http.post(uri, headers: _headers, body: body).timeout(const Duration(seconds: 4));
-    } catch (_) {}
+      await UnifiedHttpClient.post(uri, headers: _headers, body: body, timeout: const Duration(seconds: 4));
+    } catch (e) {
+      debugPrint('[ApiClient] recordSearchClick notice: $e');
+    }
   }
 
   static Future<void> addListenHistory(Song song) async {
@@ -68,14 +73,16 @@ class ApiClient {
         'language': song.language ?? '',
       });
 
-      await http.post(uri, headers: _headers, body: body).timeout(const Duration(seconds: 4));
-    } catch (_) {}
+      await UnifiedHttpClient.post(uri, headers: _headers, body: body, timeout: const Duration(seconds: 4));
+    } catch (e) {
+      debugPrint('[ApiClient] addListenHistory notice: $e');
+    }
   }
 
   static Future<List<Song>> fetchListenHistory() async {
     try {
       final uri = Uri.parse('$baseUrl/api/history/listen');
-      final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 5));
+      final response = await UnifiedHttpClient.get(uri, headers: _headers, timeout: const Duration(seconds: 6));
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (data is List) {
@@ -98,7 +105,9 @@ class ApiClient {
           return list;
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[ApiClient] fetchListenHistory notice: $e');
+    }
     return [];
   }
 
@@ -108,7 +117,7 @@ class ApiClient {
       final uri = Uri.parse('$baseUrl/api/music/for-you').replace(queryParameters: {
         'language': targetLang.toLowerCase(),
       });
-      final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 5));
+      final response = await UnifiedHttpClient.get(uri, headers: _headers, timeout: const Duration(seconds: 8));
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final queue = data['queue'] as List<dynamic>? ?? [];
@@ -125,7 +134,9 @@ class ApiClient {
         }
         return mapped;
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[ApiClient] fetchForYou notice: $e');
+    }
     return [];
   }
 
@@ -141,7 +152,7 @@ class ApiClient {
         'limit': '25',
       });
 
-      final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 5));
+      final response = await UnifiedHttpClient.get(uri, headers: _headers, timeout: const Duration(seconds: 8));
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final list = (data is List) ? data : (data['recommendations'] ?? data['data'] ?? []);
@@ -158,7 +169,9 @@ class ApiClient {
           return mapped;
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[ApiClient] fetchRecommendations notice: $e');
+    }
     return [];
   }
 
@@ -175,7 +188,7 @@ class ApiClient {
         'query': clean,
         'language': targetLang.toLowerCase(),
       });
-      final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 6));
+      final response = await UnifiedHttpClient.get(uri, headers: _headers, timeout: const Duration(seconds: 8));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -205,7 +218,9 @@ class ApiClient {
           didYouMean: didYouMean,
         );
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[ApiClient] searchGlobal backend notice: $e');
+    }
 
     // Graceful offline/direct fallback with language filter
     try {
@@ -243,7 +258,7 @@ class ApiClient {
 
     try {
       final uri = Uri.parse('$baseUrl/api/music/search/suggestions').replace(queryParameters: {'query': clean});
-      final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 3));
+      final response = await UnifiedHttpClient.get(uri, headers: _headers, timeout: const Duration(seconds: 4));
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (data is List) {
@@ -252,7 +267,9 @@ class ApiClient {
           return (data['suggestions'] as List).map((e) => e.toString()).toList();
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[ApiClient] searchSuggestions notice: $e');
+    }
     return [];
   }
 
@@ -270,7 +287,7 @@ class ApiClient {
         'current_song_id': currentSong?.id,
       });
 
-      final response = await http.post(uri, headers: _headers, body: body).timeout(const Duration(seconds: 4));
+      final response = await UnifiedHttpClient.post(uri, headers: _headers, body: body, timeout: const Duration(seconds: 5));
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final ordered = (data['ordered_ids'] as List<dynamic>?)?.map((e) => e.toString()).toList();
@@ -278,7 +295,9 @@ class ApiClient {
           return ordered;
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[ApiClient] fetchSmartShuffle backend notice: $e');
+    }
 
     // 2. Intelligent On-Device Markov Similarity Transition Chain
     return _onDeviceSmartShuffle(queue, currentSong);
@@ -329,11 +348,70 @@ class ApiClient {
 
   // ================= 4. Multi-Source Bulletproof Lyrics ================= //
 
+  static bool isSyncedLrc(String lyrics) {
+    return RegExp(r'\[\d{2}:\d{2}').hasMatch(lyrics);
+  }
+
   static Future<String?> fetchLyrics(Song song) async {
+    // 0. Stage 0: Embedded Song Lyrics if already synced LRC
+    if (song.lyrics != null && song.lyrics!.isNotEmpty && isSyncedLrc(song.lyrics!)) {
+      return song.lyrics;
+    }
+
     final cleanedTitle = YouTubeClient.cleanTitle(song.title);
     final cleanedArtist = song.artist.replaceAll(RegExp(r'\b(topic|vevo)\b', caseSensitive: false), '').trim();
+    String? fallbackPlainLyrics;
 
-    // 1. Try Direct JioSaavn Lyrics API FIRST for regional tracks to guarantee language match!
+    // 1. Stage 1: Try Backend LRCLIB synced endpoint
+    try {
+      final uri = Uri.parse('$baseUrl/api/music/lyrics').replace(queryParameters: {
+        'title': cleanedTitle,
+        'artist': cleanedArtist,
+        if (song.duration > 0) 'duration': song.duration.toString(),
+        if (song.language != null && song.language!.isNotEmpty) 'language': song.language!,
+      });
+
+      final response = await UnifiedHttpClient.get(uri, headers: _headers, timeout: const Duration(seconds: 5));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final synced = data['syncedLyrics']?.toString();
+        if (synced != null && synced.trim().isNotEmpty && isSyncedLrc(synced)) {
+          return Song.sanitize(synced.trim());
+        }
+        final plain = (data['plainLyrics'] ?? data['lyrics'])?.toString();
+        if (plain != null && plain.trim().isNotEmpty) {
+          fallbackPlainLyrics ??= Song.sanitize(plain.trim());
+        }
+      }
+    } catch (e) {
+      debugPrint('[ApiClient] Backend lyrics stage notice: $e');
+    }
+
+    // 2. Stage 2: Try Direct LRCLIB Public API for Synced LRC
+    try {
+      final uri = Uri.parse('https://lrclib.net/api/get').replace(queryParameters: {
+        'track_name': cleanedTitle,
+        'artist_name': cleanedArtist,
+        if (song.duration > 0) 'duration': song.duration.toString(),
+      });
+
+      final response = await UnifiedHttpClient.get(uri, timeout: const Duration(seconds: 5));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final synced = data['syncedLyrics']?.toString();
+        if (synced != null && synced.trim().isNotEmpty && isSyncedLrc(synced)) {
+          return Song.sanitize(synced.trim());
+        }
+        final plain = data['plainLyrics']?.toString();
+        if (plain != null && plain.trim().isNotEmpty && fallbackPlainLyrics == null) {
+          fallbackPlainLyrics = Song.sanitize(plain.trim());
+        }
+      }
+    } catch (e) {
+      debugPrint('[ApiClient] Direct LRCLIB stage notice: $e');
+    }
+
+    // 3. Stage 3: Try Direct JioSaavn Regional Lyrics API
     if (song.source != 'youtube' && song.id.isNotEmpty && song.id.length != 11) {
       try {
         final uri = Uri.parse('https://www.jiosaavn.com/api.php').replace(queryParameters: {
@@ -345,56 +423,41 @@ class ApiClient {
           'lyrics_id': song.id,
         });
 
-        final response = await http.get(uri).timeout(const Duration(seconds: 4));
+        final response = await UnifiedHttpClient.get(uri, timeout: const Duration(seconds: 5));
         if (response.statusCode == 200) {
           final data = json.decode(response.body);
           final lyrics = data['lyrics']?.toString();
           if (lyrics != null && lyrics.trim().isNotEmpty) {
             final formatted = lyrics.replaceAll('<br>', '\n').replaceAll('<br/>', '\n').trim();
-            return Song.sanitize(formatted);
+            final sanitized = Song.sanitize(formatted);
+            if (isSyncedLrc(sanitized)) {
+              return sanitized;
+            }
+            fallbackPlainLyrics ??= sanitized;
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('[ApiClient] JioSaavn lyrics stage notice: $e');
+      }
     }
 
-    // 2. Try Backend LRCLIB synced endpoint passing original track language
-    try {
-      final uri = Uri.parse('$baseUrl/api/music/lyrics').replace(queryParameters: {
-        'title': cleanedTitle,
-        'artist': cleanedArtist,
-        if (song.duration > 0) 'duration': song.duration.toString(),
-        if (song.language != null && song.language!.isNotEmpty) 'language': song.language!,
-      });
+    // 4. Return best fallback plain lyrics or embedded plain lyrics
+    return fallbackPlainLyrics ?? song.lyrics;
+  }
 
-      final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 4));
+  /// Searches LRCLIB database for alternative lyrics candidates
+  static Future<List<Map<String, dynamic>>> searchLyricsCandidates(String query) async {
+    try {
+      final uri = Uri.parse('https://lrclib.net/api/search').replace(queryParameters: {
+        'q': query.trim(),
+      });
+      final response = await http.get(uri).timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final lyrics = data['syncedLyrics'] ?? data['plainLyrics'] ?? data['lyrics'];
-        if (lyrics != null && lyrics.toString().trim().isNotEmpty) {
-          return Song.sanitize(lyrics.toString().trim());
-        }
+        final List data = json.decode(response.body);
+        return data.whereType<Map<String, dynamic>>().toList();
       }
     } catch (_) {}
-
-    // 3. Try Direct LRCLIB Public API
-    try {
-      final uri = Uri.parse('https://lrclib.net/api/get').replace(queryParameters: {
-        'track_name': cleanedTitle,
-        'artist_name': cleanedArtist,
-        if (song.duration > 0) 'duration': song.duration.toString(),
-      });
-
-      final response = await http.get(uri).timeout(const Duration(seconds: 4));
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final lyrics = data['syncedLyrics'] ?? data['plainLyrics'];
-        if (lyrics != null && lyrics.toString().trim().isNotEmpty) {
-          return Song.sanitize(lyrics.toString().trim());
-        }
-      }
-    } catch (_) {}
-
-    return null;
+    return [];
   }
 
   // ================= 5. Bulletproof Spotify Playlist Import ================= //

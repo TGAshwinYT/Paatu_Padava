@@ -5,9 +5,11 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/song.dart';
+import '../domain/models/app_error.dart';
 import 'saavn_client.dart';
 import 'settings_manager.dart';
 import 'youtube_client.dart';
+import 'error_handler.dart';
 
 class DownloadManager {
   static const String boxName = 'offline_songs';
@@ -15,8 +17,25 @@ class DownloadManager {
 
   static final Dio _dio = Dio();
   static final ValueNotifier<Map<String, double>> activeDownloads = ValueNotifier({});
+  static final ValueNotifier<Map<String, AppError>> downloadErrorsNotifier = ValueNotifier({});
   static final ValueNotifier<List<Song>> downloadedSongsNotifier = ValueNotifier<List<Song>>([]);
   static final ValueNotifier<int> queueLengthNotifier = ValueNotifier<int>(0);
+
+  static AppError? getDownloadError(String songId) => downloadErrorsNotifier.value[songId];
+
+  static void _recordDownloadError(String songId, AppError err) {
+    final map = Map<String, AppError>.from(downloadErrorsNotifier.value);
+    map[songId] = err;
+    downloadErrorsNotifier.value = map;
+  }
+
+  static void _clearDownloadError(String songId) {
+    if (downloadErrorsNotifier.value.containsKey(songId)) {
+      final map = Map<String, AppError>.from(downloadErrorsNotifier.value);
+      map.remove(songId);
+      downloadErrorsNotifier.value = map;
+    }
+  }
 
   // Managed Concurrency Queue
   static final List<Song> _downloadQueue = [];
@@ -166,6 +185,8 @@ class DownloadManager {
     _cancelTokens[song.id] = cancelToken;
 
     try {
+      _clearDownloadError(song.id);
+
       // 1. Resolve Audio URL if not already present
       String? audioUrl = song.streamUrl;
       if (audioUrl == null || audioUrl.isEmpty) {
@@ -179,7 +200,17 @@ class DownloadManager {
         }
       }
 
-      if (audioUrl == null || audioUrl.isEmpty) return false;
+      if (audioUrl == null || audioUrl.isEmpty) {
+        final err = AppError(
+          category: AppErrorCategory.songUnavailable,
+          userMessage: 'Audio stream unavailable for "${song.title}".',
+          actionLabel: 'Retry',
+          actionType: AppActionType.retry,
+          errorCode: 'ERR_DOWNLOAD_STREAM_UNAVAILABLE',
+        );
+        _recordDownloadError(song.id, err);
+        return false;
+      }
       if (cancelToken.isCancelled) return false;
 
       // Quality bitrate adjustments for JioSaavn download
@@ -242,6 +273,7 @@ class DownloadManager {
       );
 
       await _box.put(song.id, downloadedSong.toMap());
+      _clearDownloadError(song.id);
       downloadedSongsNotifier.value = getDownloadedSongs();
 
       // Clean up progress
@@ -250,7 +282,9 @@ class DownloadManager {
       activeDownloads.value = updated;
 
       return true;
-    } catch (e) {
+    } catch (e, stack) {
+      final appErr = ErrorHandler.resolve(e, stackTrace: stack, context: 'DownloadManager.downloadSong');
+      _recordDownloadError(song.id, appErr);
       final updated = Map<String, double>.from(activeDownloads.value);
       updated.remove(song.id);
       activeDownloads.value = updated;

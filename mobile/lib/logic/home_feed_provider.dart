@@ -7,6 +7,9 @@ import '../services/history_manager.dart';
 import '../services/saavn_client.dart';
 import '../data/repositories/song_repository.dart';
 
+import '../domain/models/app_error.dart';
+import '../services/error_handler.dart';
+
 class HomeFeedState {
   final List<Song> madeForYou;
   final List<Song> trendingMerged;
@@ -16,6 +19,7 @@ class HomeFeedState {
   final List<Song> recentHistory;
   final bool isLoading;
   final String? error;
+  final AppError? appError;
 
   const HomeFeedState({
     this.madeForYou = const [],
@@ -26,7 +30,15 @@ class HomeFeedState {
     this.recentHistory = const [],
     this.isLoading = false,
     this.error,
+    this.appError,
   });
+
+  bool get isEmpty =>
+      madeForYou.isEmpty &&
+      trendingMerged.isEmpty &&
+      newReleases.isEmpty &&
+      popularArtists.isEmpty &&
+      featuredAlbums.isEmpty;
 
   HomeFeedState copyWith({
     List<Song>? madeForYou,
@@ -37,6 +49,7 @@ class HomeFeedState {
     List<Song>? recentHistory,
     bool? isLoading,
     String? error,
+    AppError? appError,
   }) {
     return HomeFeedState(
       madeForYou: madeForYou ?? this.madeForYou,
@@ -47,6 +60,7 @@ class HomeFeedState {
       recentHistory: recentHistory ?? this.recentHistory,
       isLoading: isLoading ?? this.isLoading,
       error: error,
+      appError: appError,
     );
   }
 }
@@ -139,8 +153,13 @@ class HomeFeedProvider extends ChangeNotifier {
         isLoading: false,
       );
       notifyListeners();
-    } catch (e) {
-      _state = _state.copyWith(isLoading: false, error: e.toString());
+    } catch (e, stack) {
+      final appErr = ErrorHandler.resolve(e, stackTrace: stack, context: 'HomeFeedProvider.loadFeed');
+      _state = _state.copyWith(
+        isLoading: false,
+        error: appErr.userMessage,
+        appError: appErr,
+      );
       notifyListeners();
     }
   }

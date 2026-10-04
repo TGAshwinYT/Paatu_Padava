@@ -123,8 +123,6 @@ class HistoryManager {
     return raw;
   }
 
-  /// Backward-compatibility alias
-  static Future<void> addSong(Song song) => recordPlay(song);
 
   /// Asynchronously persists play event to Supabase, queuing for retry if network is unavailable
   static void _persistPlayToCloud(String userId, Song song) {

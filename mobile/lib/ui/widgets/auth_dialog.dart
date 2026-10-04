@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../services/auth_manager.dart';
+import '../../services/error_handler.dart';
+import '../../domain/models/app_error.dart';
 import '../screens/onboarding_screen.dart';
 
 class AuthDialog extends StatefulWidget {
@@ -85,13 +87,13 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
           ),
         );
       } else {
-        setState(() => _errorMessage = 'Invalid email or password. Please try again.');
+        setState(() => _errorMessage = 'Invalid email or password. Please verify your credentials.');
       }
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _errorMessage = e.toString().replaceAll('Exception:', '').trim();
+        _errorMessage = ErrorHandler.resolve(e, context: 'AuthDialog._handleLogin').userMessage;
       });
     }
   }
@@ -122,12 +124,12 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
           MaterialPageRoute(builder: (_) => const OnboardingScreen()),
         );
       } else {
-        setState(() => _errorMessage = 'Registration failed. Email might already be registered.');
+        setState(() => _errorMessage = 'Registration could not be completed. Please try again.');
       }
     } catch (e) {
-      final errStr = e.toString().toLowerCase();
+      final err = ErrorHandler.resolve(e, context: 'AuthDialog._handleRegister');
       if (!mounted) return;
-      if (errStr.contains('already registered') || errStr.contains('already exists') || errStr.contains('user already')) {
+      if (err.category == AppErrorCategory.authEmailExists || err.userMessage.toLowerCase().contains('already registered')) {
         setState(() {
           _isLoading = false;
           _errorMessage = null;
@@ -145,7 +147,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
       } else {
         setState(() {
           _isLoading = false;
-          _errorMessage = e.toString().replaceAll('Exception:', '').trim();
+          _errorMessage = err.userMessage;
         });
       }
     }
@@ -171,12 +173,10 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
       }
     } catch (e) {
       if (!mounted) return;
-      final msg = e.toString().replaceAll('Exception:', '').trim();
+      final resolved = ErrorHandler.resolve(e, context: 'AuthDialog._handleGoogleSignIn');
       setState(() {
         _isLoading = false;
-        _errorMessage = msg.isNotEmpty
-            ? msg
-            : 'Google Sign-In is unavailable right now. Please sign in with email and password.';
+        _errorMessage = resolved.userMessage;
       });
     }
   }

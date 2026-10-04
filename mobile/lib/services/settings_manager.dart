@@ -2,6 +2,11 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'auth_manager.dart';
 
+enum NextTrackStrategyMode {
+  spotifyStyle,
+  ytMusicStyle,
+}
+
 class SettingsManager {
   static const String boxName = 'settings_box';
 
@@ -12,6 +17,10 @@ class SettingsManager {
   static final ValueNotifier<String> eqPresetNotifier = ValueNotifier<String>('flat');
   static final ValueNotifier<List<double>> eqBandsNotifier = ValueNotifier<List<double>>([0.0, 0.0, 0.0, 0.0, 0.0]);
   static final ValueNotifier<List<String>> languagesNotifier = ValueNotifier<List<String>>(['Tamil', 'English']);
+  static final ValueNotifier<NextTrackStrategyMode> nextTrackStrategyNotifier =
+      ValueNotifier<NextTrackStrategyMode>(NextTrackStrategyMode.spotifyStyle);
+  static final ValueNotifier<int> maxCacheSizeMbNotifier = ValueNotifier<int>(500);
+  static final ValueNotifier<int> bluetoothDelayMsNotifier = ValueNotifier<int>(0);
 
   static String get streamingQuality => streamingQualityNotifier.value;
   static String get downloadQuality => downloadQualityNotifier.value;
@@ -19,6 +28,9 @@ class SettingsManager {
   static int get crossfadeSeconds => crossfadeDurationNotifier.value;
   static String get eqPreset => eqPresetNotifier.value;
   static List<double> get eqBands => eqBandsNotifier.value;
+  static NextTrackStrategyMode get nextTrackStrategy => nextTrackStrategyNotifier.value;
+  static int get maxCacheSizeMb => maxCacheSizeMbNotifier.value;
+  static int get bluetoothDelayMs => bluetoothDelayMsNotifier.value;
 
   /// Single coordinated preferred languages accessor:
   /// Uses AuthManager profile preferences as the source of truth,
@@ -63,6 +75,30 @@ class SettingsManager {
     if (rawLangs is List) {
       languagesNotifier.value = rawLangs.map((e) => e.toString()).toList();
     }
+
+    final savedStrategyStr = _box.get('next_track_strategy', defaultValue: 'spotifyStyle') as String;
+    nextTrackStrategyNotifier.value = NextTrackStrategyMode.values.firstWhere(
+      (m) => m.name == savedStrategyStr,
+      orElse: () => NextTrackStrategyMode.spotifyStyle,
+    );
+    maxCacheSizeMbNotifier.value = (_box.get('max_cache_size_mb', defaultValue: 500) as num).toInt();
+    bluetoothDelayMsNotifier.value = (_box.get('bluetooth_delay_ms', defaultValue: 0) as num).toInt();
+  }
+
+  static Future<void> setBluetoothDelayMs(int ms) async {
+    final clamped = ms.clamp(-500, 500);
+    bluetoothDelayMsNotifier.value = clamped;
+    await _box.put('bluetooth_delay_ms', clamped);
+  }
+
+  static Future<void> setMaxCacheSizeMb(int mb) async {
+    maxCacheSizeMbNotifier.value = mb;
+    await _box.put('max_cache_size_mb', mb);
+  }
+
+  static Future<void> setNextTrackStrategy(NextTrackStrategyMode mode) async {
+    nextTrackStrategyNotifier.value = mode;
+    await _box.put('next_track_strategy', mode.name);
   }
 
   static Future<void> setStreamingQuality(String quality) async {

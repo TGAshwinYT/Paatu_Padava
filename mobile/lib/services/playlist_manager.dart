@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../models/song.dart';
+import 'supabase_service.dart';
 import 'sync_manager.dart';
 
 class UserPlaylist {
@@ -64,6 +65,13 @@ class UserPlaylist {
       inviteCode: inviteCode ?? this.inviteCode,
       ownerId: ownerId ?? this.ownerId,
     );
+  }
+
+  /// Whether current logged-in user owns this playlist
+  bool get isOwner {
+    final supaId = SupabaseService.currentUser?.id;
+    if (ownerId == null || supaId == null) return true;
+    return ownerId == supaId;
   }
 
   String get coverUrl => tracks.isNotEmpty ? tracks.first.coverUrl : '';

@@ -27,6 +27,7 @@ class PlaylistScreen extends StatefulWidget {
 
 class _PlaylistScreenState extends State<PlaylistScreen> {
   RealtimeChannel? _collabChannel;
+  bool _isCollabConnected = false;
 
   @override
   void initState() {
@@ -49,6 +50,13 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                 backgroundColor: Color(0xFF10B981),
               ),
             );
+          }
+        },
+        onConnectionStatusChanged: (isConnected) {
+          if (mounted) {
+            setState(() {
+              _isCollabConnected = isConnected;
+            });
           }
         },
       );
@@ -127,6 +135,18 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                   ),
                   const SizedBox(height: 24),
                   if (isCollab) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.white10,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        playlist.isOwner ? 'Role: Creator (Host)' : 'Role: Collaborator (Editor)',
+                        style: GoogleFonts.outfit(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                     Text(
                       'INVITE CODE',
                       style: GoogleFonts.outfit(
@@ -175,26 +195,43 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                       ),
                     ),
                     const SizedBox(height: 20),
-                    OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.redAccent,
-                        side: const BorderSide(color: Colors.redAccent),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        minimumSize: const Size(double.infinity, 48),
-                      ),
-                      icon: const Icon(Icons.group_off_rounded, size: 20),
-                      label: const Text('Disable Collaboration'),
-                      onPressed: () async {
-                        final updated = await CollaborativePlaylistService.disableCollaboration(playlist.id);
-                        if (updated != null) {
-                          CollaborativePlaylistService.unsubscribe(_collabChannel);
-                          _collabChannel = null;
-                          if (mounted) setState(() {});
+                    if (playlist.isOwner)
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.redAccent,
+                          side: const BorderSide(color: Colors.redAccent),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          minimumSize: const Size(double.infinity, 48),
+                        ),
+                        icon: const Icon(Icons.group_off_rounded, size: 20),
+                        label: const Text('Disable Collaboration'),
+                        onPressed: () async {
+                          final updated = await CollaborativePlaylistService.disableCollaboration(playlist.id);
+                          if (updated != null) {
+                            CollaborativePlaylistService.unsubscribe(_collabChannel);
+                            _collabChannel = null;
+                            if (mounted) setState(() {});
+                            Navigator.pop(bottomCtx);
+                          }
+                        },
+                      )
+                    else
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.amberAccent,
+                          side: const BorderSide(color: Colors.amberAccent),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          minimumSize: const Size(double.infinity, 48),
+                        ),
+                        icon: const Icon(Icons.logout_rounded, size: 20),
+                        label: const Text('Leave Playlist'),
+                        onPressed: () async {
                           Navigator.pop(bottomCtx);
-                        }
-                      },
-                    ),
+                          _confirmDelete(context, playlist);
+                        },
+                      ),
                   ] else ...[
                     SizedBox(
                       width: double.infinity,
@@ -232,13 +269,16 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
   }
 
   void _confirmDelete(BuildContext context, UserPlaylist playlist) {
+    final isOwner = playlist.isOwner;
     showDialog(
       context: context,
       builder: (dialogCtx) => AlertDialog(
         backgroundColor: const Color(0xFF131B2E),
-        title: const Text('Delete Playlist?', style: TextStyle(color: Colors.white)),
+        title: Text(isOwner ? 'Delete Playlist?' : 'Leave Playlist?', style: const TextStyle(color: Colors.white)),
         content: Text(
-          'Are you sure you want to delete "${playlist.title}"? This cannot be undone.',
+          isOwner
+              ? 'Are you sure you want to delete "${playlist.title}"? This cannot be undone.'
+              : 'Are you sure you want to leave "${playlist.title}"? It will be removed from your library but remain active for other collaborators.',
           style: const TextStyle(color: Color(0xFF94A3B8)),
         ),
         actions: [
@@ -249,11 +289,15 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () {
-              PlaylistManager.deletePlaylist(playlist.id);
+              if (isOwner) {
+                PlaylistManager.deletePlaylist(playlist.id);
+              } else {
+                PlaylistManager.deletePlaylistDirectly(playlist.id);
+              }
               Navigator.pop(dialogCtx);
               Navigator.pop(context);
             },
-            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+            child: Text(isOwner ? 'Delete' : 'Leave', style: const TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -326,8 +370,11 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                         onPressed: () => _showCollaborationSheet(context, playlist!),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
-                        tooltip: 'Delete Playlist',
+                        icon: Icon(
+                          playlist.isOwner ? Icons.delete_outline_rounded : Icons.logout_rounded,
+                          color: Colors.redAccent,
+                        ),
+                        tooltip: playlist.isOwner ? 'Delete Playlist' : 'Leave Playlist',
                         onPressed: () => _confirmDelete(context, playlist!),
                       ),
                     ],
@@ -391,19 +438,27 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF10B981).withOpacity(0.18),
+                                    color: (_isCollabConnected ? const Color(0xFF10B981) : const Color(0xFFF59E0B)).withOpacity(0.18),
                                     borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(color: const Color(0xFF10B981).withOpacity(0.4)),
+                                    border: Border.all(
+                                      color: (_isCollabConnected ? const Color(0xFF10B981) : const Color(0xFFF59E0B)).withOpacity(0.4),
+                                    ),
                                   ),
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      const Icon(Icons.sensors_rounded, color: Color(0xFF34D399), size: 12),
+                                      Icon(
+                                        _isCollabConnected ? Icons.sensors_rounded : Icons.sensors_off_rounded,
+                                        color: _isCollabConnected ? const Color(0xFF34D399) : const Color(0xFFFBBF24),
+                                        size: 12,
+                                      ),
                                       const SizedBox(width: 4),
                                       Text(
-                                        'LIVE COLLAB • ${playlist.inviteCode ?? ""}',
+                                        _isCollabConnected
+                                            ? 'LIVE COLLAB • ${playlist.inviteCode ?? ""}'
+                                            : 'RECONNECTING • ${playlist.inviteCode ?? ""}',
                                         style: GoogleFonts.outfit(
-                                          color: const Color(0xFF34D399),
+                                          color: _isCollabConnected ? const Color(0xFF34D399) : const Color(0xFFFBBF24),
                                           fontSize: 10,
                                           fontWeight: FontWeight.bold,
                                           letterSpacing: 0.8,

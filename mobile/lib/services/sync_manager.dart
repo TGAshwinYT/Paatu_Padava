@@ -8,6 +8,7 @@ import 'favorites_manager.dart';
 import 'history_manager.dart';
 import 'playlist_manager.dart';
 import 'supabase_service.dart';
+import 'error_handler.dart';
 
 enum SyncStatus { idle, syncing, synced, offline, error }
 
@@ -77,11 +78,21 @@ class SyncManager {
 
       // ================= 2. Scalable Joined Playlists & Tracks Query ================= //
       // Single joined query: selects playlists and embeds playlist_tracks(*) in one network request!
-      final List<dynamic> remotePlaylists = await client
-          .from('playlists')
-          .select('id, title, cover_url, created_at, playlist_tracks(id, track_id, title, artist, artwork_url, stream_url, source_type, added_at, position)')
-          .eq('user_id', supaUser.id)
-          .order('created_at', ascending: false);
+      List<dynamic> remotePlaylists = [];
+      try {
+        remotePlaylists = await client
+            .from('playlists')
+            .select('id, user_id, title, cover_url, is_collaborative, invite_code, created_at, playlist_tracks(id, track_id, title, artist, artwork_url, stream_url, source_type, added_at, position, added_by)')
+            .eq('user_id', supaUser.id)
+            .order('created_at', ascending: false);
+      } catch (_) {
+        // Fallback for older schema without added_by column
+        remotePlaylists = await client
+            .from('playlists')
+            .select('id, user_id, title, cover_url, is_collaborative, invite_code, created_at, playlist_tracks(id, track_id, title, artist, artwork_url, stream_url, source_type, added_at, position)')
+            .eq('user_id', supaUser.id)
+            .order('created_at', ascending: false);
+      }
 
       final Map<String, UserPlaylist> reconciledMap = {};
 
@@ -107,6 +118,7 @@ class SyncManager {
             coverUrl: t['artwork_url']?.toString() ?? '',
             streamUrl: t['stream_url']?.toString(),
             source: t['source_type']?.toString() ?? 'saavn',
+            addedBy: t['added_by']?.toString(),
           );
         }).toList();
 
@@ -115,6 +127,9 @@ class SyncManager {
           title: plTitle,
           createdAt: createdAtMs,
           tracks: tracks,
+          isCollaborative: pl['is_collaborative'] == true,
+          inviteCode: pl['invite_code']?.toString(),
+          ownerId: pl['user_id']?.toString(),
         );
       }
 
@@ -152,7 +167,7 @@ class SyncManager {
       debugPrint('[SyncManager] Joined sync finished: ${reconciledMap.length} playlists, favorites, and history synchronized.');
     } catch (e) {
       debugPrint('[SyncManager] Sync failed: $e');
-      syncErrorNotifier.value = e.toString();
+      syncErrorNotifier.value = ErrorHandler.resolve(e).userMessage;
       syncStatusNotifier.value = SyncStatus.error;
     } finally {
       _isSyncing = false;
@@ -216,23 +231,52 @@ class SyncManager {
     return playlist;
   }
 
-  /// Adds a song to a playlist, persisting locally and writing to Supabase
+  /// Adds a song to a playlist, persisting locally and writing to Supabase.
+  /// Prevents concurrent duplicates and records user attribution.
   static Future<bool> addSongToPlaylist(String playlistId, Song song) async {
     final pl = PlaylistManager.getPlaylist(playlistId);
     if (pl == null) return false;
 
+    // 1. Local duplicate prevention
     if (pl.tracks.any((t) => t.id == song.id)) {
       return false; // Prevent duplicates within the playlist
     }
 
+    final client = SupabaseService.client;
+    final supaUser = SupabaseService.currentUser;
+
+    // 2. Concurrent remote duplicate check for collaborative playlists
+    if (pl.isCollaborative && client != null) {
+      try {
+        final remoteCheck = await client
+            .from('playlist_tracks')
+            .select('id')
+            .eq('playlist_id', playlistId)
+            .eq('track_id', song.id)
+            .limit(1);
+        if (remoteCheck.isNotEmpty) {
+          debugPrint('[SyncManager] Duplicate track detected in remote playlist, skipping add.');
+          return false;
+        }
+      } catch (e) {
+        debugPrint('[SyncManager] Remote duplicate check notice: $e');
+      }
+    }
+
+    final localUser = AuthManager.currentUser;
+    final addedByName = song.addedBy ??
+        (localUser != null && localUser.username.isNotEmpty ? localUser.username : null) ??
+        (localUser != null && localUser.email.isNotEmpty ? localUser.email.split('@').first : null) ??
+        'Collaborator';
+
+    final trackToAdd = song.copyWith(addedBy: addedByName);
     final newPosition = pl.tracks.length;
-    pl.tracks.add(song);
+    pl.tracks.add(trackToAdd);
     await PlaylistManager.savePlaylistDirectly(pl);
 
-    final supaUser = SupabaseService.currentUser;
-    final client = SupabaseService.client;
     if (supaUser != null && client != null) {
       try {
+        // Try inserting with added_by column
         await client.from('playlist_tracks').upsert({
           'id': _uuid.v4(),
           'playlist_id': playlistId,
@@ -243,6 +287,7 @@ class SyncManager {
           'stream_url': song.streamUrl,
           'source_type': song.source,
           'position': newPosition,
+          'added_by': addedByName,
         }, onConflict: 'playlist_id, track_id');
 
         if (pl.tracks.length == 1) {
@@ -253,7 +298,22 @@ class SyncManager {
               .eq('user_id', supaUser.id);
         }
       } catch (e) {
-        debugPrint('[SyncManager] Remote track insert notice: $e');
+        // Fallback for database schema without added_by column
+        try {
+          await client.from('playlist_tracks').upsert({
+            'id': _uuid.v4(),
+            'playlist_id': playlistId,
+            'track_id': song.id,
+            'title': TrackEntity.sanitize(song.title),
+            'artist': TrackEntity.sanitize(song.artist),
+            'artwork_url': song.coverUrl,
+            'stream_url': song.streamUrl,
+            'source_type': song.source,
+            'position': newPosition,
+          }, onConflict: 'playlist_id, track_id');
+        } catch (err) {
+          debugPrint('[SyncManager] Remote track insert notice: $err');
+        }
       }
     }
     return true;

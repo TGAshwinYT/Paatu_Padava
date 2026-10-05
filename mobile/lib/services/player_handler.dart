@@ -16,6 +16,7 @@ import 'youtube_client.dart';
 import 'radio_engine.dart';
 import 'favorites_manager.dart';
 import 'playlist_manager.dart';
+import 'app_logger.dart';
 
 late PaatuAudioHandler audioHandler;
 
@@ -76,16 +77,16 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     return _throttledPositionStream!;
   }
 
-  static const MediaControl _favoriteControlFilled = MediaControl(
+  static final MediaControl _favoriteControlFilled = MediaControl.custom(
     androidIcon: 'drawable/ic_heart_filled',
     label: 'Liked',
-    action: MediaAction.setRating,
+    name: 'toggle_favorite',
   );
 
-  static const MediaControl _favoriteControlOutlined = MediaControl(
+  static final MediaControl _favoriteControlOutlined = MediaControl.custom(
     androidIcon: 'drawable/ic_heart_outline',
     label: 'Like',
-    action: MediaAction.setRating,
+    name: 'toggle_favorite',
   );
 
   PaatuAudioHandler() {
@@ -120,21 +121,22 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       await session.configure(const AudioSessionConfiguration.music());
       // Handle onAudioBecomingNoisy (e.g. Bluetooth headphones disconnected / unplugged)
       _becomingNoisySub = session.becomingNoisyEventStream.listen((_) {
-        debugPrint('[PaatuAudioHandler] Audio becoming noisy (headset/BT unplugged) -> auto-pausing & starting idle countdown');
+        AppLogger.log('PlayerHandler', 'Audio becoming noisy (headset/BT unplugged) -> auto-pausing');
         pause();
       });
-    } catch (e) {
-      debugPrint('[PaatuAudioHandler] AudioSession setup error: $e');
+    } catch (e, stack) {
+      AppLogger.recordError(e, stack, context: 'AudioSession setup');
     }
   }
 
   void _handleIdleRelease() {
-    debugPrint('[PaatuAudioHandler] Downgrading foreground service notification after 5-minute timeout');
+    AppLogger.log('PlayerHandler', 'Downgrading foreground service notification after 5-minute timeout');
     _isForegroundDowngraded = true;
     _broadcastState(downgradeNotification: true);
   }
 
   void _onActiveTrackChanged(Song song) {
+    AppLogger.log('PlayerHandler', 'Active track changed: "${song.title}" (${song.artist}) [id=${song.id}]');
     // Synchronously update system notification metadata
     mediaItem.add(song.toMediaItem());
 
@@ -238,10 +240,12 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   @override
   Future<dynamic> customAction(String name, [Map<String, dynamic>? extras]) async {
+    AppLogger.log('PlayerHandler', 'Custom action received: $name');
     if (name == 'toggle_favorite') {
       final song = currentSong;
       if (song != null) {
         await FavoritesManager.toggleFavorite(song);
+        AppLogger.log('PlayerHandler', 'Toggled favorite for: "${song.title}" -> ${FavoritesManager.isFavorite(song.id)}');
         _broadcastState();
       }
       return null;
@@ -253,6 +257,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _player.playbackEventStream.listen(
       (event) => _broadcastState(),
       onError: (Object e, StackTrace stack) {
+        AppLogger.recordError(e, stack, context: 'AudioPlayer.playbackEventStream');
         final err = ErrorHandler.resolve(e, stackTrace: stack, context: 'AudioPlayer.playbackEventStream');
         playbackErrorNotifier.value = err;
         debugPrint('[PlayerHandler] Playback error: ${err.userMessage}');

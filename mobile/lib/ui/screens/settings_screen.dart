@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../../services/settings_manager.dart';
 import '../../services/auth_manager.dart';
@@ -6,6 +7,8 @@ import '../../services/equalizer_service.dart';
 import '../../services/cache_manager.dart';
 import '../../services/supabase_service.dart';
 import '../../services/party_sync_coordinator.dart';
+import '../../services/app_logger.dart';
+import '../../services/battery_optimization_service.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/auth_dialog.dart';
 import '../widgets/party_mode_sheet.dart';
@@ -22,6 +25,9 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   String _cacheSizeStr = 'Calculating...';
   String _appVersion = 'Version 2.0.0 (Release)';
+  String _deviceManufacturer = '';
+  bool _isIgnoringBattery = true;
+  bool _isAggressiveOEM = false;
 
   static const String _gitCommit = String.fromEnvironment('GIT_COMMIT', defaultValue: '');
   static const String _buildTime = String.fromEnvironment('BUILD_TIME', defaultValue: '');
@@ -42,6 +48,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _loadPackageInfo();
     _calculateCacheSize();
+    _checkBatteryOptimization();
+  }
+
+  Future<void> _checkBatteryOptimization() async {
+    try {
+      final mfg = await BatteryOptimizationService.getDeviceManufacturer();
+      final isIgnoring = await BatteryOptimizationService.isIgnoringBatteryOptimizations();
+      final isAggressive = await BatteryOptimizationService.isAggressiveBatteryOEM();
+      if (mounted) {
+        setState(() {
+          _deviceManufacturer = mfg;
+          _isIgnoringBattery = isIgnoring;
+          _isAggressiveOEM = isAggressive;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadPackageInfo() async {
@@ -137,6 +159,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildSectionHeader('YOUR STATS & WRAPPED', Icons.auto_awesome),
               const SizedBox(height: 10),
               _buildRecapCard(),
+              const SizedBox(height: 20),
+
+              // Battery & Background Playback Section
+              _buildSectionHeader('BACKGROUND PLAYBACK & BATTERY', Icons.battery_charging_full_rounded),
+              const SizedBox(height: 10),
+              _buildBatteryOptimizationCard(),
+              const SizedBox(height: 20),
+
+              // Diagnostics & Crash Logs Section
+              _buildSectionHeader('DIAGNOSTICS & CRASH LOGS', Icons.bug_report_rounded),
+              const SizedBox(height: 10),
+              _buildDiagnosticsCard(),
               const SizedBox(height: 20),
 
               // About Section
@@ -919,6 +953,256 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBatteryOptimizationCard() {
+    final isRestricted = !_isIgnoringBattery;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: (_isAggressiveOEM && isRestricted)
+              ? Colors.amberAccent.withOpacity(0.4)
+              : Colors.white.withOpacity(0.06),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: isRestricted ? Colors.amberAccent.withOpacity(0.12) : const Color(0xFF10B981).withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  isRestricted ? Icons.battery_alert_rounded : Icons.battery_charging_full_rounded,
+                  color: isRestricted ? Colors.amberAccent : const Color(0xFF10B981),
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _deviceManufacturer.isNotEmpty
+                          ? '$_deviceManufacturer Battery Status'
+                          : 'Battery Optimization',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      isRestricted ? 'Optimized (Background playback may be stopped)' : 'Unrestricted (Continuous playback active)',
+                      style: TextStyle(
+                        color: isRestricted ? Colors.amberAccent : const Color(0xFF94A3B8),
+                        fontSize: 12,
+                        fontWeight: isRestricted ? FontWeight.w600 : FontWeight.normal,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (_isAggressiveOEM && isRestricted) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.amberAccent.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.amberAccent.withOpacity(0.2)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline_rounded, color: Colors.amberAccent, size: 16),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'OxygenOS restricts background apps by default. Tap below to set Battery to "Unrestricted" so music keeps playing when locked.',
+                      style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 11, height: 1.4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                await BatteryOptimizationService.openBatteryOptimizationSettings();
+                await Future.delayed(const Duration(seconds: 1));
+                await _checkBatteryOptimization();
+              },
+              icon: const Icon(Icons.settings_outlined, size: 16),
+              label: const Text('Manage Battery Optimization'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF818CF8),
+                side: const BorderSide(color: Color(0xFF6366F1), width: 1),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDiagnosticsCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6366F1).withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.bug_report_rounded, color: Color(0xFF818CF8), size: 22),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'App & Playback Event Trace',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                    SizedBox(height: 3),
+                    Text(
+                      'Diagnostic logs for track transitions, preload, and crashes',
+                      style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => _showLogViewerDialog(),
+                  icon: const Icon(Icons.article_outlined, size: 16),
+                  label: const Text('View Logs'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6366F1),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  await AppLogger.clearLog();
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Diagnostic logs cleared.'),
+                        backgroundColor: Color(0xFF1E293B),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.delete_outline_rounded, size: 16),
+                label: const Text('Clear'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF94A3B8),
+                  side: BorderSide(color: Colors.white.withOpacity(0.1)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showLogViewerDialog() async {
+    final logText = await AppLogger.getLogContent();
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF0F172A),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.terminal_rounded, color: Color(0xFF818CF8), size: 20),
+            SizedBox(width: 8),
+            Text('Diagnostics & Crash Logs', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 380,
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0A0E1A),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white.withOpacity(0.08)),
+            ),
+            child: SingleChildScrollView(
+              child: SelectableText(
+                logText,
+                style: const TextStyle(
+                  color: Color(0xFFCBD5E1),
+                  fontFamily: 'monospace',
+                  fontSize: 10.5,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: logText));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Logs copied to clipboard.'),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+            icon: const Icon(Icons.copy_rounded, size: 16, color: Color(0xFF818CF8)),
+            label: const Text('Copy All', style: TextStyle(color: Color(0xFF818CF8))),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close', style: TextStyle(color: Colors.white70)),
           ),
         ],
       ),

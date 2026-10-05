@@ -12,6 +12,8 @@ import '../services/settings_manager.dart';
 import '../services/youtube_client.dart';
 import '../services/error_handler.dart';
 import '../services/player_handler.dart';
+import '../services/app_logger.dart';
+import '../domain/models/app_error.dart';
 
 class AudioQueueHandler {
   final AudioPlayer player;
@@ -137,10 +139,11 @@ class AudioQueueHandler {
   /// Starts the 5-minute idle timeout timer when playback is paused, completed, or idle
   void startIdleTimer({Duration timeout = const Duration(minutes: 5)}) {
     cancelIdleTimer();
+    if (player.playing || _isLoading) return;
     _idleTimeoutTimer = Timer(timeout, () {
       handleIdleRelease();
     });
-    debugPrint('[AudioQueueHandler] Started 5-minute idle timeout countdown');
+    AppLogger.log('AudioQueueHandler', 'Started 5-minute idle timeout countdown');
   }
 
   /// Cancels any active idle timeout countdown
@@ -148,13 +151,18 @@ class AudioQueueHandler {
     if (_idleTimeoutTimer != null) {
       _idleTimeoutTimer?.cancel();
       _idleTimeoutTimer = null;
-      debugPrint('[AudioQueueHandler] Cancelled idle timeout countdown');
+      AppLogger.log('AudioQueueHandler', 'Cancelled idle timeout countdown');
     }
   }
 
   /// Downgrades foreground service notification and releases native CPU WakeLocks
   Future<void> handleIdleRelease() async {
-    debugPrint('[AudioQueueHandler] 5-minute idle timeout reached. Downgrading notification & releasing WakeLocks.');
+    if (player.playing || _isLoading) {
+      AppLogger.log('AudioQueueHandler', 'handleIdleRelease aborted: player is still active or loading');
+      cancelIdleTimer();
+      return;
+    }
+    AppLogger.log('AudioQueueHandler', '5-minute idle timeout reached. Downgrading notification & releasing WakeLocks.');
     // 1. Close idle YouTube client sockets
     YouTubeClient.closeIdleClient();
 
@@ -162,7 +170,9 @@ class AudioQueueHandler {
     try {
       final session = await AudioSession.instance;
       await session.setActive(false);
-    } catch (_) {}
+    } catch (e, stack) {
+      AppLogger.recordError(e, stack, context: 'AudioSession.setActive(false)');
+    }
 
     // 3. Callback to PaatuAudioHandler to downgrade notification (remove ongoing flag)
     onIdleRelease?.call();
@@ -201,10 +211,13 @@ class AudioQueueHandler {
     // Sole index writer on track transition: updates UI & notification atomically
     _currentIndexSub = player.currentIndexStream.listen((index) {
       if (index != null && index >= 0 && index < _queue.length && index != _currentIndex) {
+        final oldIndex = _currentIndex;
         _currentIndex = index;
+        _sessionToken++; // Invalidate in-flight preloads from the previous track so they cannot mutate active track
         _syncState();
 
         final song = _queue[_currentIndex];
+        AppLogger.log('AudioQueueHandler', 'Track transition: index $oldIndex -> $index ("${song.title}" [id=${song.id}])');
         onSongChanged?.call(song);
         onQueueProgress?.call(_currentIndex, _queue.length);
 
@@ -273,6 +286,8 @@ class AudioQueueHandler {
     final token = ++_sessionToken;
     _isLoading = true;
 
+    AppLogger.log('AudioQueueHandler', 'loadQueue: ${songs.length} songs, initialIndex=$initialIndex, autoPlay=$autoPlay');
+
     try {
       await player.stop();
     } catch (_) {}
@@ -300,15 +315,22 @@ class AudioQueueHandler {
       if (token != _sessionToken) return;
       if (resolvedUrl != null && resolvedUrl.isNotEmpty) {
         activeSong.streamUrl = resolvedUrl;
+      } else {
+        AppLogger.log('AudioQueueHandler', 'Failed to resolve active song: "${activeSong.title}". Skipping to next track.');
+        final appErr = AppError.songUnavailable(
+          activeSong.title,
+          debugDetails: 'Active song stream resolution returned null in loadQueue',
+        );
+        audioHandler.playbackErrorNotifier.value = appErr;
       }
     }
 
-    // Build ConcatenatingAudioSource aligned 1-to-1 with _queue
+    // Build ConcatenatingAudioSource aligned with _queue without fake .invalid URLs
     final List<AudioSource> sources = [];
     for (int i = 0; i < _queue.length; i++) {
       final s = _queue[i];
-      // Active song is resolved; other songs build fast or use temporary placeholder
-      final src = await _buildAudioSource(s, allowNetworkResolve: i == _currentIndex);
+      // Resolve active and immediate next track ahead of time
+      final src = await _buildAudioSource(s, allowNetworkResolve: i == _currentIndex || i == _currentIndex + 1);
       if (src != null) {
         sources.add(src);
       }
@@ -334,7 +356,7 @@ class AudioQueueHandler {
     try {
       await player.setAudioSource(
         _playlistSource,
-        initialIndex: _currentIndex,
+        initialIndex: _currentIndex < sources.length ? _currentIndex : 0,
         initialPosition: Duration.zero,
       );
 
@@ -350,11 +372,11 @@ class AudioQueueHandler {
       _isLoading = false;
       onQueueProgress?.call(_currentIndex, _queue.length);
 
-      // Asynchronously buffer upcoming tracks
+      // Asynchronously preload immediate upcoming track
       preloadUpcomingTracks(_currentIndex);
     } catch (e, stack) {
       _isLoading = false;
-      debugPrint('[AudioQueueHandler] Error initializing queue: $e');
+      AppLogger.recordError(e, stack, context: 'AudioQueueHandler.loadQueue setAudioSource');
       final appErr = ErrorHandler.resolve(e, stackTrace: stack, context: 'AudioQueueHandler.loadQueue');
       audioHandler.playbackErrorNotifier.value = appErr;
       if (hasNext) {
@@ -371,31 +393,49 @@ class AudioQueueHandler {
     final targetIndex = fromIndex + 1;
     if (targetIndex >= 0 && targetIndex < _queue.length) {
       final song = _queue[targetIndex];
+      AppLogger.log('AudioQueueHandler', 'Preloading upcoming track [$targetIndex]: "${song.title}"');
 
       // Resolve stream URL if missing
       if (song.streamUrl == null || song.streamUrl!.isEmpty) {
         final url = await _resolveStreamUrl(song);
-        if (token != _sessionToken) return;
+        if (token != _sessionToken) {
+          AppLogger.log('AudioQueueHandler', 'Preload aborted: session changed during resolution for "${song.title}"');
+          return;
+        }
         if (url != null && url.isNotEmpty) {
           song.streamUrl = url;
+        } else {
+          AppLogger.log('AudioQueueHandler', 'Preload stream resolution failed for "${song.title}". Will skip gracefully on playback.');
+          return; // Do NOT mount an invalid or unresolvable source!
         }
       }
 
-      // Replace placeholder with resolved source in _playlistSource
+      // Check if targetIndex became the current index while we were resolving:
+      if (targetIndex == _currentIndex || token != _sessionToken) {
+        AppLogger.log('AudioQueueHandler', 'Preload target [$targetIndex] is now active. Aborting mutation.');
+        return;
+      }
+
+      final source = await _buildAudioSource(song, allowNetworkResolve: false);
+      if (source == null || token != _sessionToken || targetIndex == _currentIndex) return;
+
       if (targetIndex < _playlistSource.length) {
-        final source = await _buildAudioSource(song, allowNetworkResolve: true);
-        if (source != null && token == _sessionToken) {
+        // ONLY replace if targetIndex is strictly greater than _currentIndex (never mutate playing track)
+        if (targetIndex > _currentIndex) {
           try {
             await _playlistSource.removeAt(targetIndex);
             await _playlistSource.insert(targetIndex, source);
-          } catch (_) {}
+            AppLogger.log('AudioQueueHandler', 'Replaced playlist source at index $targetIndex with resolved stream');
+          } catch (e) {
+            AppLogger.log('AudioQueueHandler', 'Safe catch during playlist source update at $targetIndex: $e');
+          }
         }
       } else if (targetIndex == _playlistSource.length) {
-        final source = await _buildAudioSource(song, allowNetworkResolve: true);
-        if (source != null && token == _sessionToken) {
-          try {
-            await _playlistSource.add(source);
-          } catch (_) {}
+        try {
+          await _playlistSource.add(source);
+          AppLogger.log('AudioQueueHandler', 'Appended resolved source at index $targetIndex to playlist');
+        } catch (e) {
+          AppLogger.log('AudioQueueHandler', 'Safe catch during playlist source add at $targetIndex: $e');
         }
       }
     }
@@ -423,6 +463,7 @@ class AudioQueueHandler {
     final token = ++_sessionToken;
 
     final targetSong = _queue[targetIndex];
+    AppLogger.log('AudioQueueHandler', 'jumpToIndex: targetIndex=$targetIndex ("${targetSong.title}")');
     final targetNorm = getNormalizedVolumeForSong(targetSong);
     final crossfadeSec = SettingsManager.crossfadeSeconds;
 
@@ -443,7 +484,7 @@ class AudioQueueHandler {
     // Ensure _playlistSource is filled up to targetIndex if needed
     while (_playlistSource.length <= targetIndex && _playlistSource.length < _queue.length) {
       final idx = _playlistSource.length;
-      final src = await _buildAudioSource(_queue[idx], allowNetworkResolve: idx == targetIndex);
+      final src = await _buildAudioSource(_queue[idx], allowNetworkResolve: true);
       if (src != null) {
         try {
           await _playlistSource.add(src);
@@ -455,7 +496,7 @@ class AudioQueueHandler {
       }
     }
 
-    if (targetIndex < _playlistSource.length) {
+    if (targetIndex < _playlistSource.length && targetIndex != _currentIndex) {
       final resolvedSource = await _buildAudioSource(targetSong, allowNetworkResolve: true);
       if (resolvedSource != null && token == _sessionToken) {
         try {
@@ -475,13 +516,15 @@ class AudioQueueHandler {
       _fadeVolumeTo(targetNorm, durationMs: crossfadeSec > 0 ? (crossfadeSec * 600).clamp(250, 2000) : 150);
       preloadUpcomingTracks(targetIndex);
       onQueueProgress?.call(_currentIndex, _queue.length);
-    } catch (e) {
+    } catch (e, stack) {
+      AppLogger.recordError(e, stack, context: 'AudioQueueHandler.jumpToIndex seek');
       debugPrint('[AudioQueueHandler] Jump error: $e');
     }
   }
 
   /// Add track to the end of the queue
   Future<void> addToQueue(Song song) async {
+    AppLogger.log('AudioQueueHandler', 'addToQueue: "${song.title}" [id=${song.id}]');
     _queue.add(song);
     _originalQueue.add(song);
     _syncState();
@@ -504,6 +547,7 @@ class AudioQueueHandler {
   /// Insert track at specific index maintaining playlist source alignment
   Future<void> insertAt(int index, Song song) async {
     final safeIndex = index.clamp(0, _queue.length);
+    AppLogger.log('AudioQueueHandler', 'insertAt index $safeIndex: "${song.title}" [id=${song.id}]');
     _queue.insert(safeIndex, song);
     if (!song.isSmartRecommended) {
       _originalQueue.insert(safeIndex.clamp(0, _originalQueue.length), song);
@@ -532,6 +576,7 @@ class AudioQueueHandler {
     final isRemovingCurrent = index == _currentIndex;
 
     final removed = _queue.removeAt(index);
+    AppLogger.log('AudioQueueHandler', 'removeAt index $index: "${removed.title}" (isCurrent=$isRemovingCurrent)');
     _originalQueue.removeWhere((s) => s.id == removed.id);
 
     if (index < _playlistSource.length) {
@@ -567,6 +612,7 @@ class AudioQueueHandler {
     }
 
     final song = _queue.removeAt(oldIndex);
+    AppLogger.log('AudioQueueHandler', 'reorder: $oldIndex -> $newIndex ("${song.title}")');
     _queue.insert(newIndex, song);
 
     // Adjust current index tracking
@@ -593,6 +639,7 @@ class AudioQueueHandler {
   Future<void> replaceUpcomingQueue(List<Song> newUpcoming) async {
     if (_currentIndex < 0 || _currentIndex >= _queue.length) return;
 
+    AppLogger.log('AudioQueueHandler', 'replaceUpcomingQueue with ${newUpcoming.length} tracks');
     // Keep history and current playing song intact
     final kept = _queue.sublist(0, _currentIndex + 1);
     _queue.clear();
@@ -625,6 +672,7 @@ class AudioQueueHandler {
 
   /// Clear queue
   Future<void> clear() async {
+    AppLogger.log('AudioQueueHandler', 'Queue cleared');
     cancelIdleTimer();
     YouTubeClient.closeIdleClient();
     _sessionToken++;
@@ -667,10 +715,8 @@ class AudioQueueHandler {
     }
 
     if (streamUrl == null || streamUrl.isEmpty) {
-      return AudioSource.uri(
-        Uri.parse('https://audio-resolver.paatupaadava.invalid/${song.id}'),
-        tag: song.toMediaItem(),
-      );
+      // Do NOT mount fake .invalid URLs that cause ExoPlayer DNS lookup crashes
+      return null;
     }
 
     // Quality bitrate adjustments for JioSaavn
@@ -755,10 +801,20 @@ class AudioQueueHandler {
   }
 
   Future<String?> _resolveStreamUrl(Song song) async {
+    final sw = Stopwatch()..start();
+    AppLogger.log('AudioQueueHandler', 'Resolving stream for: "${song.title}" (${song.artist}) [source=${song.source}, id=${song.id}]');
     try {
-      return await _resolveStreamUrlInternal(song).timeout(const Duration(seconds: 8));
-    } catch (e) {
-      debugPrint('[AudioQueueHandler] Stream resolution timeout/error for "${song.title}": $e');
+      final url = await _resolveStreamUrlInternal(song).timeout(const Duration(seconds: 8));
+      sw.stop();
+      if (url != null && url.isNotEmpty) {
+        AppLogger.log('AudioQueueHandler', 'Resolved stream for "${song.title}" in ${sw.elapsedMilliseconds}ms');
+      } else {
+        AppLogger.log('AudioQueueHandler', 'Stream resolution returned empty for "${song.title}" after ${sw.elapsedMilliseconds}ms');
+      }
+      return url;
+    } catch (e, stack) {
+      sw.stop();
+      AppLogger.recordError(e, stack, context: 'AudioQueueHandler._resolveStreamUrl for "${song.title}" (${sw.elapsedMilliseconds}ms)');
       return null;
     }
   }

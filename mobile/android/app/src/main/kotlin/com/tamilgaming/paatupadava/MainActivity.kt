@@ -1,8 +1,13 @@
 package com.tamilgaming.paatupadava
 
+import android.content.Context
 import android.content.Intent
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.Equalizer
+import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.annotation.NonNull
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -10,11 +15,56 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity: AudioServiceActivity() {
     private val CHANNEL = "com.tamilgaming.paatupadava/equalizer"
+    private val BATTERY_CHANNEL = "com.tamilgaming.paatupadava/battery"
     private var equalizer: Equalizer? = null
     private var currentSessionId: Int = 0
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        // Battery optimization & manufacturer detection channel
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, BATTERY_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getDeviceManufacturer" -> {
+                    result.success(Build.MANUFACTURER ?: "")
+                }
+                "isIgnoringBatteryOptimizations" -> {
+                    val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                    val isIgnoring = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && powerManager != null) {
+                        powerManager.isIgnoringBatteryOptimizations(packageName)
+                    } else {
+                        true
+                    }
+                    result.success(isIgnoring)
+                }
+                "openBatteryOptimizationSettings" -> {
+                    try {
+                        val intent = Intent()
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            intent.action = Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS
+                        } else {
+                            intent.action = Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+                            intent.data = Uri.parse("package:$packageName")
+                        }
+                        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        try {
+                            val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                data = Uri.parse("package:$packageName")
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            startActivity(fallback)
+                            result.success(true)
+                        } catch (e2: Exception) {
+                            result.success(false)
+                        }
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {

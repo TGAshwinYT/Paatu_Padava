@@ -157,7 +157,7 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                                       borderRadius: BorderRadius.circular(16),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: const Color(0xFFEC4899).withOpacity(0.35),
+                                          color: const Color(0xFFEC4899).withValues(alpha: 0.35),
                                           blurRadius: 20,
                                           offset: const Offset(0, 8),
                                         ),
@@ -255,7 +255,7 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                           decoration: BoxDecoration(
                             color: const Color(0xFF131B2E),
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.white.withOpacity(0.06)),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
                           ),
                           child: TextField(
                             controller: _filterController,
@@ -298,7 +298,7 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                                 decoration: BoxDecoration(
                                   color: const Color(0xFF131B2E),
                                   shape: BoxShape.circle,
-                                  border: Border.all(color: Colors.white.withOpacity(0.08)),
+                                  border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
                                 ),
                                 child: const Icon(Icons.favorite_outline_rounded, size: 52, color: Color(0xFFEC4899)),
                               ),
@@ -367,7 +367,7 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                                           width: 48,
                                           height: 48,
                                           decoration: BoxDecoration(
-                                            color: Colors.black.withOpacity(0.55),
+                                            color: Colors.black.withValues(alpha: 0.55),
                                             borderRadius: BorderRadius.circular(8),
                                           ),
                                           child: const Icon(Icons.equalizer_rounded, color: Color(0xFF1DB954), size: 22),

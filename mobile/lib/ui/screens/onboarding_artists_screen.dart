@@ -306,8 +306,8 @@ class _OnboardingArtistsScreenState extends State<OnboardingArtistsScreen> with 
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: isReady
-                          ? AppColors.electricCyan.withOpacity(0.15)
-                          : Colors.white.withOpacity(0.06),
+                          ? AppColors.electricCyan.withValues(alpha: 0.15)
+                          : Colors.white.withValues(alpha: 0.06),
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
                         color: isReady ? AppColors.electricCyan : Colors.white24,
@@ -369,7 +369,7 @@ class _OnboardingArtistsScreenState extends State<OnboardingArtistsScreen> with 
                                     boxShadow: isSelected
                                         ? [
                                             BoxShadow(
-                                              color: AppColors.electricCyan.withOpacity(0.55),
+                                              color: AppColors.electricCyan.withValues(alpha: 0.55),
                                               blurRadius: 14,
                                               spreadRadius: 2,
                                             )
@@ -432,7 +432,7 @@ class _OnboardingArtistsScreenState extends State<OnboardingArtistsScreen> with 
               decoration: BoxDecoration(
                 color: const Color(0xFF0F172A),
                 border: Border(
-                  top: BorderSide(color: Colors.white.withOpacity(0.06)),
+                  top: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
                 ),
               ),
               child: SizedBox(

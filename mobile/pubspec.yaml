@@ -1,7 +1,7 @@
 name: paatu_padava_mobile
 description: "Paatu Padava - Client-based music player with full offline downloads and background audio."
 publish_to: 'none'
-version: 2.0.0+1
+version: 2.1.0+2
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

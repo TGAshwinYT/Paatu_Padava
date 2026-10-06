@@ -33,6 +33,7 @@ class Song {
   String? lyrics;
   final String? language;
   final bool isSmartRecommended;
+  final bool isUserEnqueued;
   final String? addedBy;
   final List<Song> versions;
 
@@ -53,6 +54,7 @@ class Song {
     this.lyrics,
     this.language,
     this.isSmartRecommended = false,
+    this.isUserEnqueued = false,
     this.addedBy,
     this.versions = const [],
   });
@@ -109,6 +111,40 @@ class Song {
     return lower.contains('saavncdn.com') || lower.contains('jiosaavn') || source == 'saavn';
   }
 
+  /// Checks whether this song is the same musical recording, cover, or cross-language dub of another song
+  bool isSameSongOrDub(Song other) {
+    if (id.isNotEmpty && id == other.id) return true;
+    if (canonicalBaseKey == other.canonicalBaseKey) return true;
+    if (canonicalSongKey == other.canonicalSongKey) return true;
+
+    // Cross-language dub matching:
+    // If the composer / primary artist matches and the duration is within ±4 seconds,
+    // they represent the same musical piece released in alternate languages.
+    final bool sameArtist = primaryArtist.isNotEmpty &&
+        other.primaryArtist.isNotEmpty &&
+        primaryArtist == other.primaryArtist;
+    final bool durationMatch = duration > 0 &&
+        other.duration > 0 &&
+        (duration - other.duration).abs() <= 4;
+    if (sameArtist && durationMatch) return true;
+
+    // Album match with duration within ±4 seconds
+    final bool sameAlbum = album.isNotEmpty &&
+        other.album.isNotEmpty &&
+        album.toLowerCase().trim() == other.album.toLowerCase().trim();
+    if (sameAlbum && durationMatch) return true;
+
+    // Title similarity for alternate language tags e.g. "(Telugu)", "(Hindi)", "(Tamil)"
+    final lowerTitle = title.toLowerCase();
+    final otherLower = other.title.toLowerCase();
+    final dubRegex = RegExp(r'\b(telugu|tamil|hindi|kannada|malayalam|dubbed|dub|version)\b');
+    if ((dubRegex.hasMatch(lowerTitle) || dubRegex.hasMatch(otherLower)) && durationMatch) {
+      return true;
+    }
+
+    return false;
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -127,6 +163,7 @@ class Song {
       'lyrics': lyrics,
       'language': language,
       'isSmartRecommended': isSmartRecommended,
+      'isUserEnqueued': isUserEnqueued,
       'addedBy': addedBy,
     };
   }
@@ -149,6 +186,7 @@ class Song {
       lyrics: map['lyrics'] != null ? sanitize(map['lyrics']) : null,
       language: map['language']?.toString(),
       isSmartRecommended: map['isSmartRecommended'] == true,
+      isUserEnqueued: map['isUserEnqueued'] == true,
       addedBy: map['addedBy']?.toString() ?? map['added_by']?.toString(),
     );
   }
@@ -169,6 +207,7 @@ class Song {
         'source': source,
         'streamUrl': streamUrl,
         'isSmartRecommended': isSmartRecommended,
+        'isUserEnqueued': isUserEnqueued,
         'language': language,
         'addedBy': addedBy,
       },
@@ -187,6 +226,7 @@ class Song {
       source: item.extras?['source']?.toString() ?? 'saavn',
       language: item.extras?['language']?.toString(),
       isSmartRecommended: item.extras?['isSmartRecommended'] == true,
+      isUserEnqueued: item.extras?['isUserEnqueued'] == true,
       addedBy: item.extras?['addedBy']?.toString(),
     );
   }
@@ -208,6 +248,7 @@ class Song {
     String? lyrics,
     String? language,
     bool? isSmartRecommended,
+    bool? isUserEnqueued,
     String? addedBy,
     List<Song>? versions,
   }) {
@@ -228,6 +269,7 @@ class Song {
       lyrics: lyrics ?? this.lyrics,
       language: language ?? this.language,
       isSmartRecommended: isSmartRecommended ?? this.isSmartRecommended,
+      isUserEnqueued: isUserEnqueued ?? this.isUserEnqueued,
       addedBy: addedBy ?? this.addedBy,
       versions: versions ?? this.versions,
     );

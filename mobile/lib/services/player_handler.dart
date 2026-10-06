@@ -5,7 +5,9 @@ import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import '../logic/audio_queue_handler.dart';
 import '../logic/smart_shuffle_controller.dart';
+import '../logic/next_track_strategy.dart';
 import '../models/song.dart';
+import 'settings_manager.dart';
 import '../domain/models/app_error.dart';
 import '../domain/models/lyrics_state.dart';
 import 'error_handler.dart';
@@ -18,8 +20,27 @@ import 'favorites_manager.dart';
 import 'playlist_manager.dart';
 import 'app_logger.dart';
 
-late PaatuAudioHandler audioHandler;
+PaatuAudioHandler? _audioHandlerInstance;
 
+/// Safe accessor for the global [PaatuAudioHandler].
+/// Throws typed [AppError] if accessed before initialization is complete.
+PaatuAudioHandler get audioHandler {
+  final handler = _audioHandlerInstance;
+  if (handler == null) {
+    throw AppError.internal(
+      'Audio handler accessed before initialization was complete.',
+      code: 'AUDIO_HANDLER_NOT_INITIALIZED',
+    );
+  }
+  return handler;
+}
+
+set audioHandler(PaatuAudioHandler handler) => _audioHandlerInstance = handler;
+
+bool get isAudioHandlerInitialized => _audioHandlerInstance != null;
+
+/// App-lifetime audio background service handler coordinating playback,
+/// queue mutations, notification actions, and lock screen media session.
 class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   final AudioPlayer _player = AudioPlayer();
 
@@ -40,7 +61,15 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   bool _isForegroundDowngraded = false;
   StreamSubscription? _becomingNoisySub;
   StreamSubscription<PlayerState>? _playerStateSub;
+  StreamSubscription? _playbackEventSub;
+  StreamSubscription? _throttledPositionSub;
+  VoidCallback? _favListener;
+  VoidCallback? _smartShuffleListener;
   Stream<Duration>? _throttledPositionStream;
+
+  // Cached favorite state to eliminate per-event lookups
+  bool _cachedIsFav = false;
+  String? _cachedFavSongId;
 
   AudioPlayer get player => _player;
   AudioQueueHandler get queueHandler => _queueHandler;
@@ -89,6 +118,34 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     name: 'toggle_favorite',
   );
 
+  static final List<MediaControl> _controlsPlayingFav = [
+    MediaControl.skipToPrevious,
+    MediaControl.pause,
+    MediaControl.skipToNext,
+    _favoriteControlFilled,
+  ];
+
+  static final List<MediaControl> _controlsPlayingUnfav = [
+    MediaControl.skipToPrevious,
+    MediaControl.pause,
+    MediaControl.skipToNext,
+    _favoriteControlOutlined,
+  ];
+
+  static final List<MediaControl> _controlsPausedFav = [
+    MediaControl.skipToPrevious,
+    MediaControl.play,
+    MediaControl.skipToNext,
+    _favoriteControlFilled,
+  ];
+
+  static final List<MediaControl> _controlsPausedUnfav = [
+    MediaControl.skipToPrevious,
+    MediaControl.play,
+    MediaControl.skipToNext,
+    _favoriteControlOutlined,
+  ];
+
   PaatuAudioHandler() {
     _queueHandler = AudioQueueHandler(
       player: _player,
@@ -101,18 +158,34 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _smartShuffleController = SmartShuffleController(queueHandler: _queueHandler);
 
     // Keep legacy boolean notifier in sync with Smart mode
-    _smartShuffleController.modeNotifier.addListener(() {
+    _smartShuffleListener = () {
       isSmartShuffleNotifier.value = _smartShuffleController.isSmartActive;
-    });
+    };
+    _smartShuffleController.modeNotifier.addListener(_smartShuffleListener!);
 
     // Listen to favorite additions/removals to dynamically update notification heart action
-    FavoritesManager.favoritesNotifier.addListener(_broadcastState);
+    _favListener = () {
+      _updateCachedFav();
+      _broadcastState();
+    };
+    FavoritesManager.favoritesNotifier.addListener(_favListener!);
 
     // Connect 5-band equalizer directly to native audio session ID
     EqualizerService.bindToPlayerSession(_player.androidAudioSessionIdStream);
 
     _initAudioSession();
     _initStreams();
+  }
+
+  void _updateCachedFav() {
+    final active = currentSong;
+    if (active != null) {
+      _cachedIsFav = FavoritesManager.isFavorite(active.id);
+      _cachedFavSongId = active.id;
+    } else {
+      _cachedIsFav = false;
+      _cachedFavSongId = null;
+    }
   }
 
   Future<void> _initAudioSession() async {
@@ -139,6 +212,10 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     AppLogger.log('PlayerHandler', 'Active track changed: "${song.title}" (${song.artist}) [id=${song.id}]');
     // Synchronously update system notification metadata
     mediaItem.add(song.toMediaItem());
+
+    // Update cached favorite status once for new song
+    _cachedFavSongId = song.id;
+    _cachedIsFav = FavoritesManager.isFavorite(song.id);
 
     // Coordinated play recording: atomic local Hive + cloud Supabase with retry
     HistoryManager.recordPlay(song);
@@ -203,17 +280,23 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     }
 
     final activeSong = currentSong;
-    final isFav = activeSong != null && FavoritesManager.isFavorite(activeSong.id);
-    final favControl = isFav ? _favoriteControlFilled : _favoriteControlOutlined;
+    if (activeSong != null && activeSong.id != _cachedFavSongId) {
+      _cachedFavSongId = activeSong.id;
+      _cachedIsFav = FavoritesManager.isFavorite(activeSong.id);
+    }
+
+    final controls = playing
+        ? (_cachedIsFav ? _controlsPlayingFav : _controlsPlayingUnfav)
+        : (_cachedIsFav ? _controlsPausedFav : _controlsPausedUnfav);
 
     playbackState.add(playbackState.value.copyWith(
-      controls: [
-        MediaControl.skipToPrevious,
-        if (playing) MediaControl.pause else MediaControl.play,
-        MediaControl.skipToNext,
-        favControl,
-      ],
+      controls: controls,
       systemActions: const {
+        MediaAction.play,
+        MediaAction.pause,
+        MediaAction.stop,
+        MediaAction.skipToNext,
+        MediaAction.skipToPrevious,
         MediaAction.seek,
         MediaAction.seekForward,
         MediaAction.seekBackward,
@@ -234,6 +317,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     final song = currentSong;
     if (song != null) {
       await FavoritesManager.toggleFavorite(song);
+      _updateCachedFav();
       _broadcastState();
     }
   }
@@ -246,15 +330,20 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       if (song != null) {
         await FavoritesManager.toggleFavorite(song);
         AppLogger.log('PlayerHandler', 'Toggled favorite for: "${song.title}" -> ${FavoritesManager.isFavorite(song.id)}');
+        _updateCachedFav();
         _broadcastState();
       }
       return null;
+    }
+    if (name == 'dispose') {
+      await disposeAudioHandler();
+      return true;
     }
     return super.customAction(name, extras);
   }
 
   void _initStreams() {
-    _player.playbackEventStream.listen(
+    _playbackEventSub = _player.playbackEventStream.listen(
       (event) => _broadcastState(),
       onError: (Object e, StackTrace stack) {
         AppLogger.recordError(e, stack, context: 'AudioPlayer.playbackEventStream');
@@ -277,11 +366,33 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     });
 
     // 15-second listen tracker
-    throttledPositionStream.listen((pos) {
+    _throttledPositionSub = throttledPositionStream.listen((pos) {
       if (!_hasRecordedListen && pos.inSeconds >= 15 && currentSong != null) {
         _hasRecordedListen = true;
       }
     });
+  }
+
+  /// Disposes background audio stream listeners and cleans up subscriptions.
+  /// Note: PaatuAudioHandler is an app-lifetime singleton.
+  Future<void> disposeAudioHandler() async {
+    _becomingNoisySub?.cancel();
+    _becomingNoisySub = null;
+    _playerStateSub?.cancel();
+    _playerStateSub = null;
+    _playbackEventSub?.cancel();
+    _playbackEventSub = null;
+    _throttledPositionSub?.cancel();
+    _throttledPositionSub = null;
+    if (_favListener != null) {
+      FavoritesManager.favoritesNotifier.removeListener(_favListener!);
+      _favListener = null;
+    }
+    if (_smartShuffleListener != null) {
+      _smartShuffleController.modeNotifier.removeListener(_smartShuffleListener!);
+      _smartShuffleListener = null;
+    }
+    _queueHandler.dispose();
   }
 
   /// Load and play a song with gapless ConcatenatingAudioSource preloading
@@ -335,16 +446,58 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _queueHandler.clear();
   }
 
+  void clearUserQueue() {
+    _queueHandler.clearUserQueue();
+  }
+
   // ================= Smart Shuffle & Recommendations ================= //
 
   void toggleSmartShuffle() {
     _smartShuffleController.cycleMode();
   }
 
-  Future<int> addRadioMix() async {
+  Future<int> addRadioMix({int count = 10}) async {
+    final current = currentSong;
+    if (current == null) return 0;
     final beforeCount = _queueHandler.queue.length;
-    await _smartShuffleController.ingestSmartRecommendations();
+    try {
+      final strategy = NextTrackStrategyFactory.getStrategy(SettingsManager.nextTrackStrategy);
+      final tracks = await strategy.getUpcomingTracks(
+        seedSong: current,
+        queue: _queueHandler.queue,
+        history: HistoryManager.getHistory(),
+        count: count,
+      );
+      if (tracks.isNotEmpty) {
+        await _queueHandler.addAutoSuggestions(tracks);
+      }
+    } catch (e) {
+      debugPrint('[PlayerHandler] addRadioMix error: $e');
+    }
     return _queueHandler.queue.length - beforeCount;
+  }
+
+  /// Handles continuous endless playback when reaching the end of the queue
+  Future<void> handleAutoplayQueueEnd(Song current) async {
+    try {
+      final strategy = NextTrackStrategyFactory.getStrategy(SettingsManager.nextTrackStrategy);
+      final tracks = await strategy.getUpcomingTracks(
+        seedSong: current,
+        queue: _queueHandler.queue,
+        history: HistoryManager.getHistory(),
+        count: 6,
+      );
+      if (tracks.isNotEmpty) {
+        await _queueHandler.addAutoSuggestions(tracks);
+        if (_queueHandler.hasNext) {
+          await _queueHandler.skipToNext();
+          return;
+        }
+      }
+    } catch (e) {
+      debugPrint('[PlayerHandler] handleAutoplayQueueEnd error: $e');
+    }
+    _queueHandler.startIdleTimer();
   }
 
   Future<int> startSongRadio(Song seedSong) async {

@@ -42,7 +42,7 @@ class _QueueSheetState extends State<QueueSheet> {
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
+              color: Colors.white.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -111,11 +111,11 @@ class _QueueSheetState extends State<QueueSheet> {
                         margin: const EdgeInsets.only(right: 4),
                         decoration: BoxDecoration(
                           color: mode == SmartShuffleMode.smart
-                              ? const Color(0xFF1DB954).withOpacity(0.15)
+                              ? const Color(0xFF1DB954).withValues(alpha: 0.15)
                               : Colors.transparent,
                           borderRadius: BorderRadius.circular(12),
                           border: mode == SmartShuffleMode.smart
-                              ? Border.all(color: const Color(0xFF1DB954).withOpacity(0.3))
+                              ? Border.all(color: const Color(0xFF1DB954).withValues(alpha: 0.3))
                               : null,
                         ),
                         child: IconButton(
@@ -188,6 +188,19 @@ class _QueueSheetState extends State<QueueSheet> {
                       ? playlist.sublist(currentIndex + 1)
                       : <Song>[];
 
+                  // Partition into User Enqueued (Stack) vs Auto-Suggestions / Context
+                  final userQueueTracks = <MapEntry<int, Song>>[];
+                  final suggestedTracks = <MapEntry<int, Song>>[];
+                  for (int i = 0; i < upcomingTracks.length; i++) {
+                    final song = upcomingTracks[i];
+                    final actualIdx = currentIndex + 1 + i;
+                    if (song.isUserEnqueued) {
+                      userQueueTracks.add(MapEntry(actualIdx, song));
+                    } else {
+                      suggestedTracks.add(MapEntry(actualIdx, song));
+                    }
+                  }
+
                   return ListView(
                     padding: const EdgeInsets.only(bottom: 90, top: 8),
                     children: [
@@ -232,8 +245,82 @@ class _QueueSheetState extends State<QueueSheet> {
                         const Divider(color: Colors.white10, height: 20),
                       ],
 
-                      // SECTION 3 & 4: UP NEXT & AUTO-SUGGESTED
-                      if (upcomingTracks.isEmpty)
+                      // SECTION 3: USER QUEUE (STACK PRIORITY)
+                      if (userQueueTracks.isNotEmpty) ...[
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 4, 16, 8),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.layers_rounded, color: Color(0xFF818CF8), size: 16),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'NEXT IN QUEUE • USER STACK (${userQueueTracks.length})',
+                                    style: const TextStyle(
+                                      color: Color(0xFF818CF8),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 1.0,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              TextButton.icon(
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                icon: const Icon(Icons.clear_all_rounded, size: 16, color: Color(0xFF94A3B8)),
+                                label: const Text(
+                                  'Clear',
+                                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12, fontWeight: FontWeight.w600),
+                                ),
+                                onPressed: () {
+                                  audioHandler.clearUserQueue();
+                                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Cleared user queue'),
+                                      duration: Duration(seconds: 2),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                        ReorderableListView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: userQueueTracks.length,
+                          onReorder: (oldIdx, newIdx) {
+                            final actualOld = currentIndex + 1 + oldIdx;
+                            final actualNew = currentIndex + 1 + newIdx;
+                            audioHandler.reorderQueue(actualOld, actualNew);
+                          },
+                          itemBuilder: (context, idx) {
+                            final entry = userQueueTracks[idx];
+                            final song = entry.value;
+                            final actualIdx = entry.key;
+                            return _buildSongTile(
+                              key: ValueKey('user_q_${song.id}_${song.canonicalSongKey}'),
+                              song: song,
+                              index: actualIdx,
+                              dragIndex: idx,
+                              isCurrent: false,
+                              isPlayed: false,
+                              canDismiss: false,
+                            );
+                          },
+                        ),
+                        const Divider(color: Colors.white10, height: 24),
+                      ],
+
+                      // SECTION 4: UP NEXT • AUTO-SUGGESTIONS & PLAYLIST
+                      if (suggestedTracks.isEmpty && userQueueTracks.isEmpty)
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 24, horizontal: 20),
                           child: Center(
@@ -243,14 +330,14 @@ class _QueueSheetState extends State<QueueSheet> {
                             ),
                           ),
                         )
-                      else ...[
+                      else if (suggestedTracks.isNotEmpty) ...[
                         Padding(
                           padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text(
-                                'UP NEXT (${upcomingTracks.length})',
+                                'UP NEXT • AUTO-SUGGESTIONS (${suggestedTracks.length})',
                                 style: const TextStyle(
                                   color: Colors.white70,
                                   fontSize: 12,
@@ -258,43 +345,45 @@ class _QueueSheetState extends State<QueueSheet> {
                                   letterSpacing: 1.0,
                                 ),
                               ),
-                              if (upcomingTracks.any((s) => s.isSmartRecommended))
-                                Row(
-                                  children: const [
-                                    Icon(Icons.auto_awesome_rounded, color: Color(0xFF1DB954), size: 14),
-                                    SizedBox(width: 4),
-                                    Text(
-                                      'Auto-Suggested',
-                                      style: TextStyle(
-                                        color: Color(0xFF1DB954),
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                      ),
+                              Row(
+                                children: const [
+                                  Icon(Icons.auto_awesome_rounded, color: Color(0xFF1DB954), size: 14),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'Auto-Suggested',
+                                    style: TextStyle(
+                                      color: Color(0xFF1DB954),
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                ],
+                              ),
                             ],
                           ),
                         ),
                         ReorderableListView.builder(
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
-                          itemCount: upcomingTracks.length,
+                          itemCount: suggestedTracks.length,
                           onReorder: (oldIdx, newIdx) {
-                            final actualOld = currentIndex + 1 + oldIdx;
-                            final actualNew = currentIndex + 1 + newIdx;
+                            final baseOffset = currentIndex + 1 + userQueueTracks.length;
+                            final actualOld = baseOffset + oldIdx;
+                            final actualNew = baseOffset + newIdx;
                             audioHandler.reorderQueue(actualOld, actualNew);
                           },
                           itemBuilder: (context, idx) {
-                            final actualIdx = currentIndex + 1 + idx;
-                            final song = upcomingTracks[idx];
+                            final entry = suggestedTracks[idx];
+                            final song = entry.value;
+                            final actualIdx = entry.key;
                             return _buildSongTile(
-                              key: ValueKey('queue_${song.id}_$actualIdx'),
+                              key: ValueKey('sug_q_${song.id}_${song.canonicalSongKey}'),
                               song: song,
                               index: actualIdx,
+                              dragIndex: idx,
                               isCurrent: false,
                               isPlayed: false,
-                              canDismiss: true,
+                              canDismiss: false,
                             );
                           },
                         ),
@@ -312,7 +401,7 @@ class _QueueSheetState extends State<QueueSheet> {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           decoration: BoxDecoration(
             color: const Color(0xFF131B2E),
-            border: Border(top: BorderSide(color: Colors.white.withOpacity(0.06))),
+            border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.06))),
           ),
           child: SafeArea(
             top: false,
@@ -400,10 +489,10 @@ class _QueueSheetState extends State<QueueSheet> {
       margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFF6366F1).withOpacity(0.14),
+        color: const Color(0xFF6366F1).withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: const Color(0xFF6366F1).withOpacity(0.45),
+          color: const Color(0xFF6366F1).withValues(alpha: 0.45),
           width: 1.5,
         ),
       ),
@@ -414,7 +503,7 @@ class _QueueSheetState extends State<QueueSheet> {
             width: 32,
             height: 32,
             decoration: BoxDecoration(
-              color: const Color(0xFF6366F1).withOpacity(0.2),
+              color: const Color(0xFF6366F1).withValues(alpha: 0.2),
               shape: BoxShape.circle,
             ),
             child: const Icon(
@@ -468,8 +557,8 @@ class _QueueSheetState extends State<QueueSheet> {
                       margin: const EdgeInsets.only(right: 6),
                       decoration: BoxDecoration(
                         color: song.source == 'youtube'
-                            ? const Color(0xFF06B6D4).withOpacity(0.2)
-                            : const Color(0xFF6366F1).withOpacity(0.2),
+                            ? const Color(0xFF06B6D4).withValues(alpha: 0.2)
+                            : const Color(0xFF6366F1).withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
@@ -526,25 +615,31 @@ class _QueueSheetState extends State<QueueSheet> {
     Key? key,
     required Song song,
     required int index,
+    int? dragIndex,
     required bool isCurrent,
     required bool isPlayed,
     required bool canDismiss,
   }) {
     final isSmart = song.isSmartRecommended;
+    final isUser = song.isUserEnqueued;
 
     Widget content = Container(
       margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 2.5),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
         color: isPlayed
-            ? Colors.white.withOpacity(0.02)
-            : (isSmart
-                ? const Color(0xFF1DB954).withOpacity(0.08)
-                : Colors.transparent),
+            ? Colors.white.withValues(alpha: 0.02)
+            : (isUser
+                ? const Color(0xFF6366F1).withValues(alpha: 0.08)
+                : (isSmart
+                    ? const Color(0xFF1DB954).withValues(alpha: 0.08)
+                    : Colors.transparent)),
         border: Border.all(
-          color: isSmart
-              ? const Color(0xFF1DB954).withOpacity(0.3)
-              : Colors.white.withOpacity(0.04),
+          color: isUser
+              ? const Color(0xFF6366F1).withValues(alpha: 0.3)
+              : (isSmart
+                  ? const Color(0xFF1DB954).withValues(alpha: 0.3)
+                  : Colors.white.withValues(alpha: 0.04)),
           width: 1,
         ),
       ),
@@ -590,7 +685,27 @@ class _QueueSheetState extends State<QueueSheet> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (isSmart)
+            if (isUser)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Icon(Icons.layers_rounded, size: 11, color: Color(0xFF818CF8)),
+                    SizedBox(width: 4),
+                    Text(
+                      'User Queue • Stack',
+                      style: TextStyle(
+                        color: Color(0xFF818CF8),
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else if (isSmart)
               Padding(
                 padding: const EdgeInsets.only(bottom: 2),
                 child: Row(
@@ -633,24 +748,45 @@ class _QueueSheetState extends State<QueueSheet> {
         ),
         trailing: isPlayed
             ? const Icon(Icons.history_rounded, color: Color(0xFF475569), size: 18)
-            : ReorderableDragStartListener(
-                index: index - (audioHandler.currentIndex + 1),
-                child: const Padding(
-                  padding: EdgeInsets.all(8.0),
-                  child: Icon(Icons.drag_handle_rounded, color: Color(0xFF64748B)),
-                ),
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, color: Color(0xFF64748B), size: 18),
+                    tooltip: 'Remove',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    onPressed: () {
+                      audioHandler.removeAt(index);
+                      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Removed "${song.title}" from queue'),
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    },
+                  ),
+                  ReorderableDragStartListener(
+                    index: dragIndex ?? (index - (audioHandler.currentIndex + 1)),
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 4.0, vertical: 8.0),
+                      child: Icon(Icons.drag_handle_rounded, color: Color(0xFF64748B)),
+                    ),
+                  ),
+                ],
               ),
       ),
     );
 
-    if (canDismiss) {
+    if (isPlayed && canDismiss) {
       return Dismissible(
-        key: key ?? ValueKey('dismiss_${song.id}_$index'),
+        key: key ?? ValueKey('dismiss_played_${song.id}_$index'),
         direction: DismissDirection.endToStart,
         background: Container(
           alignment: Alignment.centerRight,
           padding: const EdgeInsets.only(right: 20),
-          color: Colors.redAccent.withOpacity(0.85),
+          color: Colors.redAccent.withValues(alpha: 0.85),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: const [
@@ -665,7 +801,7 @@ class _QueueSheetState extends State<QueueSheet> {
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Removed "${song.title}" from queue'),
+              content: Text('Removed "${song.title}" from history'),
               duration: const Duration(seconds: 2),
             ),
           );
@@ -674,6 +810,9 @@ class _QueueSheetState extends State<QueueSheet> {
       );
     }
 
-    return content;
+    return KeyedSubtree(
+      key: key ?? ValueKey('tile_${song.id}_${song.canonicalSongKey}'),
+      child: content,
+    );
   }
 }

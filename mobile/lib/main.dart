@@ -120,7 +120,7 @@ class AudioFatalErrorApp extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: Colors.redAccent.withOpacity(0.12),
+                    color: Colors.redAccent.withValues(alpha: 0.12),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
@@ -144,7 +144,7 @@ class AudioFatalErrorApp extends StatelessWidget {
                   'The background audio playback service failed to initialize:\n$error',
                   style: TextStyle(
                     fontSize: 14,
-                    color: Colors.white.withOpacity(0.7),
+                    color: Colors.white.withValues(alpha: 0.7),
                     height: 1.4,
                   ),
                   textAlign: TextAlign.center,

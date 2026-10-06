@@ -80,7 +80,7 @@ class _JoinPlaylistDialogState extends State<JoinPlaylistDialog> {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF6366F1).withOpacity(0.2),
+                    color: const Color(0xFF6366F1).withValues(alpha: 0.2),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(Icons.group_add_rounded, color: Color(0xFF818CF8), size: 22),
@@ -120,7 +120,7 @@ class _JoinPlaylistDialogState extends State<JoinPlaylistDialog> {
                 prefixIcon: const Icon(Icons.key_rounded, color: Color(0xFF818CF8), size: 20),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
+                  borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),

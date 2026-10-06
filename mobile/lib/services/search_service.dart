@@ -9,6 +9,7 @@ import 'settings_manager.dart';
 import 'fuzzy_search_service.dart';
 import 'error_handler.dart';
 import '../data/repositories/song_repository.dart';
+import 'app_logger.dart';
 
 class QueryIntent {
   final String rawQuery;
@@ -314,7 +315,9 @@ class SearchService {
               .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]);
           final groupedYt = SongRepository.groupCanonicalSongs(rawYt, preferredLanguage: effectiveLang);
           ytSongs = SongRepository.deduplicateSongs(groupedYt);
-        } catch (_) {}
+        } catch (e) {
+          AppLogger.log('SearchService', 'Fallback YouTube search notice: $e');
+        }
       }
 
       // Filter and label one-track albums

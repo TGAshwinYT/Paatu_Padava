@@ -113,7 +113,7 @@ class SmartShuffleController {
     if (queueHandler == null || _isIngesting) return;
     if (isSmartActive && queueHandler!.upcomingCount < 3) {
       ingestSmartRecommendations();
-    } else if (queueHandler!.upcomingCount < 2 && queueHandler!.queue.isNotEmpty) {
+    } else if (SettingsManager.isAutoplayEnabled && queueHandler!.upcomingCount < 2 && queueHandler!.queue.isNotEmpty) {
       autoRefillUpcoming();
     }
   }
@@ -190,9 +190,6 @@ class SmartShuffleController {
     if (currentSong == null) return;
 
     _isIngesting = true;
-    final prefLangs = SettingsManager.preferredLanguages;
-    final primaryLang = prefLangs.firstOrNull ?? 'tamil';
-
     // 1. Resolve authentic user seed without cascading: suggestions do not seed suggestions!
     Song userSeed = currentSong;
     final currentIndex = queueHandler!.currentIndex;
@@ -204,6 +201,11 @@ class SmartShuffleController {
       }
     }
 
+    final prefLangs = SettingsManager.preferredLanguages;
+    final primaryLang = (userSeed.language != null && userSeed.language!.isNotEmpty)
+        ? userSeed.language!.toLowerCase()
+        : (prefLangs.firstOrNull ?? 'tamil').toLowerCase();
+
     try {
       // 2. Multi-Source Concurrent Recommendation Retrieval
       final List<Future<List<Song>>> candidateFutures = [
@@ -213,7 +215,7 @@ class SmartShuffleController {
           artist: userSeed.artist,
           language: primaryLang,
         ),
-        // Source 2: Contextual Related Songs for user seed (hard language filter removed)
+        // Source 2: Contextual Related Songs for user seed
         SaavnClient.getRelatedSongs(userSeed.id, language: primaryLang),
         // Source 3: Artist Hits (capped)
         SaavnClient.search('${userSeed.artist} hits', limit: 8, language: primaryLang),
@@ -240,19 +242,24 @@ class SmartShuffleController {
             seenKeys.contains(baseKey)) {
           continue;
         }
+
+        // Strict Language Isolation Gate:
+        if (c.language != null && c.language!.isNotEmpty) {
+          final cLang = c.language!.toLowerCase().trim();
+          if (cLang != primaryLang) {
+            continue;
+          }
+        }
+
+        // Strict Anti-Cross-Language Dub Check:
+        if (c.isSameSongOrDub(userSeed) ||
+            (queueHandler?.queue.any((q) => c.isSameSongOrDub(q)) ?? false)) {
+          continue;
+        }
+
         seenKeys.add(baseKey);
 
         double score = 10.0;
-
-        // Language affinity scoring bonus (soft prior, never hard filter)
-        if (c.language != null && c.language!.isNotEmpty) {
-          final cLang = c.language!.toLowerCase();
-          if (prefLangs.any((l) => l.toLowerCase() == cLang)) {
-            score += 8.0;
-          }
-        } else {
-          score += 4.0;
-        }
 
         // Artist affinity bonus (capped)
         if (c.primaryArtist == userSeed.primaryArtist) {
@@ -281,13 +288,16 @@ class SmartShuffleController {
         return;
       }
 
-      // 4. Interleave recommendations with Artist Diversity Caps (at most 1 per 5 tracks)
+      // 4. Interleave recommendations with Artist Diversity Caps without disrupting User Queue Stack
       final currentUpcoming = queueHandler!.queue.sublist(queueHandler!.currentIndex + 1).toList();
+      final userQueueTracks = currentUpcoming.where((s) => s.isUserEnqueued).toList();
+      final autoUpcoming = currentUpcoming.where((s) => !s.isUserEnqueued).toList();
+
       final List<Song> interleaved = [];
       int recoIdx = 0;
 
-      for (int i = 0; i < currentUpcoming.length; i++) {
-        interleaved.add(currentUpcoming[i]);
+      for (int i = 0; i < autoUpcoming.length; i++) {
+        interleaved.add(autoUpcoming[i]);
         if ((i + 1) % 2 == 0 && recoIdx < candidates.length) {
           // Find next candidate that clears artist cap
           int lookahead = recoIdx;
@@ -296,7 +306,7 @@ class SmartShuffleController {
           }
           if (lookahead < candidates.length) {
             final picked = candidates.removeAt(lookahead);
-            interleaved.add(picked.copyWith(isSmartRecommended: true));
+            interleaved.add(picked.copyWith(isSmartRecommended: true, language: primaryLang));
           }
         }
       }
@@ -309,20 +319,21 @@ class SmartShuffleController {
         }
         if (lookahead < candidates.length) {
           final picked = candidates.removeAt(lookahead);
-          interleaved.add(picked.copyWith(isSmartRecommended: true));
+          interleaved.add(picked.copyWith(isSmartRecommended: true, language: primaryLang));
         } else {
           break;
         }
       }
 
-      // 5. Apply Intelligent Shuffle Reordering to preserve acoustic flow
+      // 5. Apply Intelligent Shuffle Reordering on auto-suggestions, leaving user queue intact
+      List<Song> finalAutoUpcoming = interleaved;
       if (interleaved.length > 2) {
         final orderedIds = await ApiClient.fetchSmartShuffle(interleaved, userSeed);
-        final orderedInterleaved = _reorderQueueByIds(interleaved, orderedIds);
-        queueHandler!.replaceUpcomingQueue(orderedInterleaved);
-      } else {
-        queueHandler!.replaceUpcomingQueue(interleaved);
+        finalAutoUpcoming = _reorderQueueByIds(interleaved, orderedIds);
       }
+
+      final List<Song> fullUpcoming = [...userQueueTracks, ...finalAutoUpcoming];
+      queueHandler!.replaceUpcomingQueue(fullUpcoming);
     } catch (e) {
       debugPrint('[SmartShuffleController] Ingestion error: $e');
     } finally {
@@ -344,7 +355,8 @@ class SmartShuffleController {
 
   /// Auto-populates Up Next when the user starts a fresh queue with a single song
   Future<void> populateUpNextForNewQueue(Song seedSong) async {
-    if (queueHandler == null) return;
+    if (queueHandler == null || _isIngesting) return;
+    _isIngesting = true;
     try {
       final strategy = NextTrackStrategyFactory.getStrategy(SettingsManager.nextTrackStrategy);
       final tracks = await strategy.getUpcomingTracks(
@@ -355,12 +367,12 @@ class SmartShuffleController {
       );
 
       if (tracks.isNotEmpty && queueHandler != null && queueHandler!.queue.isNotEmpty) {
-        for (final track in tracks) {
-          await queueHandler!.addToQueue(track);
-        }
+        await queueHandler!.addAutoSuggestions(tracks);
       }
     } catch (e) {
       debugPrint('[SmartShuffleController] populateUpNextForNewQueue error: $e');
+    } finally {
+      _isIngesting = false;
     }
   }
 
@@ -381,9 +393,7 @@ class SmartShuffleController {
       );
 
       if (tracks.isNotEmpty && queueHandler != null && queueHandler!.queue.isNotEmpty) {
-        for (final track in tracks) {
-          await queueHandler!.addToQueue(track);
-        }
+        await queueHandler!.addAutoSuggestions(tracks);
       }
     } catch (e) {
       debugPrint('[SmartShuffleController] autoRefillUpcoming error: $e');

@@ -6,6 +6,7 @@ import '../models/song.dart';
 import 'api_client.dart';
 import 'auth_manager.dart';
 import 'supabase_service.dart';
+import 'app_logger.dart';
 
 /// Unified Listening History Manager for Paatu Paadava.
 /// Coordinates instant local Hive caching with Supabase `user_history` cloud persistence,
@@ -41,7 +42,9 @@ class HistoryManager {
               ? (data['played_at'] as num).toInt()
               : fallbackIndex++;
           entries.add(MapEntry(timestamp, Song.fromMap(data)));
-        } catch (_) {}
+        } catch (e) {
+          AppLogger.log('HistoryManager', 'Corrupt history entry ignored: $e');
+        }
       }
     }
     // Highest timestamp (most recent play) first
@@ -133,7 +136,9 @@ class HistoryManager {
         debugPrint('[HistoryManager] Cloud history write failed, queuing for retry: $e');
         try {
           await _pendingBox?.put(song.id, song.toMap());
-        } catch (_) {}
+        } catch (err) {
+          AppLogger.log('HistoryManager', 'Pending box write failed: $err');
+        }
       }
     });
   }
@@ -143,7 +148,9 @@ class HistoryManager {
     Future(() async {
       try {
         await ApiClient.addListenHistory(song);
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.log('HistoryManager', 'Backend listen history fallback: $e');
+      }
     });
   }
 
@@ -168,7 +175,8 @@ class HistoryManager {
               final song = Song.fromMap(data);
               await SupabaseService.recordUserHistory(supaUser.id, song);
               await _pendingBox!.delete(k);
-            } catch (_) {
+            } catch (err) {
+              AppLogger.log('HistoryManager', 'Pending history flush paused: $err');
               break; // Stop flushing if network fails again
             }
           }
@@ -229,13 +237,17 @@ class HistoryManager {
         }
       }
       _refreshList();
-    } catch (_) {}
+    } catch (e, stack) {
+      AppLogger.recordError(e, stack, context: 'HistoryManager.removeSong');
+    }
   }
 
   static Future<void> clearHistory() async {
     try {
       await _box.clear();
       historyNotifier.value = [];
-    } catch (_) {}
+    } catch (e, stack) {
+      AppLogger.recordError(e, stack, context: 'HistoryManager.clearHistory');
+    }
   }
 }

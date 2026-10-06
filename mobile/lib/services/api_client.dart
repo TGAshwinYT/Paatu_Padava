@@ -9,6 +9,7 @@ import 'saavn_client.dart';
 import 'unified_http_client.dart';
 import 'spotify_import_service.dart';
 import '../core/app_config.dart';
+import 'app_logger.dart';
 
 class SearchResultBundle {
   final Map<String, dynamic>? topResult;
@@ -247,7 +248,8 @@ class ApiClient {
         artists: artists,
         albums: albums,
       );
-    } catch (_) {
+    } catch (e, stack) {
+      AppLogger.recordError(e, stack, context: 'ApiClient.search');
       return null;
     }
   }
@@ -308,7 +310,9 @@ class ApiClient {
     final List<String> orderedIds = [];
 
     Song active = currentSong ?? remaining.first;
-    orderedIds.add(active.id);
+    if (queue.any((s) => s.id == active.id)) {
+      orderedIds.add(active.id);
+    }
     remaining.removeWhere((s) => s.id == active.id);
 
     while (remaining.isNotEmpty) {
@@ -456,7 +460,9 @@ class ApiClient {
         final List data = json.decode(response.body);
         return data.whereType<Map<String, dynamic>>().toList();
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.log('ApiClient', 'LrcLib search fallback: $e');
+    }
     return [];
   }
 
@@ -477,7 +483,9 @@ class ApiClient {
           'tracks': meta.tracks.map((t) => {'title': t.title, 'artist': t.artist, 'duration': t.durationSeconds}).toList(),
         };
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.log('ApiClient', 'Client-side Spotify preview notice: $e');
+    }
 
     // 2. Try Backend Resolver
     try {
@@ -491,7 +499,9 @@ class ApiClient {
       if (response.statusCode == 200) {
         return json.decode(response.body) as Map<String, dynamic>;
       }
-    } catch (_) {}
+    } catch (e, stack) {
+      AppLogger.recordError(e, stack, context: 'ApiClient.previewSpotifyPlaylist backend');
+    }
 
     return null;
   }
@@ -509,7 +519,9 @@ class ApiClient {
           return result.importedSongs;
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.log('ApiClient', 'Client-side Spotify import notice: $e');
+    }
 
     // 2. Backend Fallback
     try {
@@ -530,7 +542,9 @@ class ApiClient {
           return _mapSongs(tracks);
         }
       }
-    } catch (_) {}
+    } catch (e, stack) {
+      AppLogger.recordError(e, stack, context: 'ApiClient.importSpotifyPlaylist backend');
+    }
 
     return [];
   }
@@ -541,7 +555,8 @@ class ApiClient {
     final lang = language ?? (SettingsManager.preferredLanguages.isNotEmpty ? SettingsManager.preferredLanguages.first : 'Tamil');
     try {
       return await YouTubeClient.search('Trending $lang Hit Songs', limit: 20);
-    } catch (_) {
+    } catch (e) {
+      AppLogger.log('ApiClient', 'fetchYouTubeTrending fallback: $e');
       return [];
     }
   }

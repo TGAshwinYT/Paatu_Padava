@@ -33,7 +33,7 @@ class AccountBarButton extends StatelessWidget {
                 boxShadow: isUser
                     ? [
                         BoxShadow(
-                          color: AppColors.neonViolet.withOpacity(0.35),
+                          color: AppColors.neonViolet.withValues(alpha: 0.35),
                           blurRadius: 8,
                           spreadRadius: 1,
                         ),

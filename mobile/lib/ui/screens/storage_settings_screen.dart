@@ -173,7 +173,7 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
       decoration: BoxDecoration(
         color: const Color(0xFF131B2E),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -276,7 +276,7 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
       decoration: BoxDecoration(
         color: const Color(0xFF131B2E),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -322,10 +322,10 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
           decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFF6366F1).withOpacity(0.2) : const Color(0xFF1E293B),
+            color: isSelected ? const Color(0xFF6366F1).withValues(alpha: 0.2) : const Color(0xFF1E293B),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isSelected ? const Color(0xFF6366F1) : Colors.white.withOpacity(0.05),
+              color: isSelected ? const Color(0xFF6366F1) : Colors.white.withValues(alpha: 0.05),
               width: 1.5,
             ),
           ),
@@ -363,7 +363,7 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
       decoration: BoxDecoration(
         color: const Color(0xFF131B2E),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -417,10 +417,10 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
           decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFF10B981).withOpacity(0.2) : const Color(0xFF1E293B),
+            color: isSelected ? const Color(0xFF10B981).withValues(alpha: 0.2) : const Color(0xFF1E293B),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isSelected ? const Color(0xFF10B981) : Colors.white.withOpacity(0.05),
+              color: isSelected ? const Color(0xFF10B981) : Colors.white.withValues(alpha: 0.05),
               width: 1.5,
             ),
           ),
@@ -446,7 +446,7 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
       decoration: BoxDecoration(
         color: const Color(0xFF131B2E),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -468,7 +468,7 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
             trailing: OutlinedButton(
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.white,
-                side: BorderSide(color: Colors.white.withOpacity(0.2)),
+                side: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
               onPressed: _isCleaning ? null : _clearImages,
@@ -486,7 +486,7 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
             trailing: OutlinedButton(
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.white,
-                side: BorderSide(color: Colors.white.withOpacity(0.2)),
+                side: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
               onPressed: _isCleaning ? null : _clearTempCache,
@@ -503,7 +503,7 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
             ),
             trailing: ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.redAccent.withOpacity(0.2),
+                backgroundColor: Colors.redAccent.withValues(alpha: 0.2),
                 foregroundColor: Colors.redAccent,
                 elevation: 0,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -527,7 +527,7 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
           decoration: BoxDecoration(
             color: const Color(0xFF131B2E),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white.withOpacity(0.08)),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

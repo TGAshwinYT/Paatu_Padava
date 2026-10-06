@@ -4,12 +4,15 @@ import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:just_audio/just_audio.dart';
 import '../../models/song.dart';
 import '../../services/player_handler.dart';
-import '../../services/api_client.dart';
 import '../../domain/models/lyrics_state.dart';
 import '../widgets/lyrics_offset_pill.dart';
+import '../widgets/lyrics/bgm_pulse_indicator.dart';
+import '../widgets/lyrics/lyrics_playback_bar.dart';
+import '../widgets/lyrics/wrong_lyrics_sheet.dart';
+import '../widgets/lyrics/lyrics_top_bar.dart';
+import '../widgets/lyrics/lyrics_empty_states.dart';
 
 class _LrcLine {
   final Duration timestamp;
@@ -272,12 +275,6 @@ class _LyricsScreenState extends State<LyricsScreen> {
     _scrollToActive(idx);
   }
 
-  String _formatDuration(Duration d) {
-    final minutes = d.inMinutes;
-    final seconds = d.inSeconds % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-  }
-
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<Song?>(
@@ -305,11 +302,20 @@ class _LyricsScreenState extends State<LyricsScreen> {
                   top: 0,
                   left: 0,
                   right: 0,
-                  child: _buildTopBar(currentSong),
+                  child: LyricsTopBar(
+                    song: currentSong,
+                    isLrc: _isLrc,
+                    showOffsetPill: _showOffsetPill,
+                    manualOffsetMs: _manualOffsetMs,
+                    isFullscreen: _isFullscreen,
+                    onToggleOffsetPill: () => setState(() => _showOffsetPill = !_showOffsetPill),
+                    onOpenWrongLyricsPicker: () => WrongLyricsSheet.show(context, currentSong),
+                    onToggleFullscreen: () => setState(() => _isFullscreen = !_isFullscreen),
+                    onCollapse: () => Navigator.of(context).pop(),
+                  ),
                 ),
 
               // 4. Floating LyricsOffsetPill Stacked Above Bottom Playback Controls
-              // ONLY visible when the track has synced LRC and NOT in fullscreen mode
               if (_isLrc && !_isFullscreen)
                 Positioned(
                   bottom: 125,
@@ -356,10 +362,10 @@ class _LyricsScreenState extends State<LyricsScreen> {
                   bottom: 0,
                   left: 0,
                   right: 0,
-                  child: _buildBottomPlaybackBar(currentSong),
+                  child: LyricsPlaybackBar(song: currentSong),
                 ),
 
-              // 6. Floating Exit-Fullscreen Button (Only when _isFullscreen is true)
+              // 6. Floating Exit-Fullscreen Button
               if (_isFullscreen)
                 Positioned(
                   top: MediaQuery.of(context).padding.top + 10,
@@ -373,9 +379,9 @@ class _LyricsScreenState extends State<LyricsScreen> {
                         child: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF0F172A).withOpacity(0.7),
+                            color: const Color(0xFF0F172A).withValues(alpha: 0.7),
                             shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white.withOpacity(0.15)),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
                           ),
                           child: const Icon(
                             Icons.fullscreen_exit_rounded,
@@ -415,7 +421,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
         BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 50, sigmaY: 50),
           child: Container(
-            color: const Color(0xFF060B14).withOpacity(0.85),
+            color: const Color(0xFF060B14).withValues(alpha: 0.85),
           ),
         ),
 
@@ -437,298 +443,31 @@ class _LyricsScreenState extends State<LyricsScreen> {
     );
   }
 
-  Widget _buildTopBar(Song? song) {
-    final mediaQuery = MediaQuery.of(context);
-    final isOffsetActive = _manualOffsetMs != 0;
-
-    return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-        child: Container(
-          padding: EdgeInsets.only(
-            top: mediaQuery.padding.top + 8,
-            bottom: 12,
-            left: 12,
-            right: 12,
-          ),
-          decoration: BoxDecoration(
-            color: const Color(0xFF0A0E1A).withOpacity(0.65),
-            border: Border(
-              bottom: BorderSide(color: Colors.white.withOpacity(0.06)),
-            ),
-          ),
-          child: Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white, size: 30),
-                tooltip: 'Collapse Lyrics',
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      song?.title ?? 'Lyrics',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      song?.artist ?? 'Unknown Artist',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Button to reopen or toggle the Floating LyricsOffsetPill (ONLY for synced LRC)
-              if (_isLrc) ...[
-                Tooltip(
-                  message: _showOffsetPill ? 'Hide Offset Pill' : 'Show Sync Offset Pill',
-                  child: InkWell(
-                    onTap: () {
-                      setState(() {
-                        _showOffsetPill = !_showOffsetPill;
-                      });
-                    },
-                    borderRadius: BorderRadius.circular(20),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: isOffsetActive
-                            ? const Color(0xFF9333EA).withOpacity(0.25)
-                            : (_showOffsetPill ? Colors.white.withOpacity(0.12) : Colors.transparent),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: isOffsetActive
-                              ? const Color(0xFF9333EA).withOpacity(0.5)
-                              : Colors.white.withOpacity(0.12),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.tune_rounded,
-                            size: 16,
-                            color: isOffsetActive ? const Color(0xFF06B6D4) : Colors.white70,
-                          ),
-                          if (isOffsetActive) ...[
-                            const SizedBox(width: 4),
-                            Text(
-                              _manualOffsetMs > 0 ? '+${_manualOffsetMs}ms' : '${_manualOffsetMs}ms',
-                              style: const TextStyle(
-                                color: Color(0xFF06B6D4),
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 4),
-              ],
-
-              // Wrong Lyrics Picker / Manual Search
-              IconButton(
-                icon: const Icon(
-                  Icons.manage_search_rounded,
-                  color: Colors.white70,
-                  size: 24,
-                ),
-                tooltip: 'Wrong Lyrics? Search Alternatives',
-                onPressed: () => _openWrongLyricsPicker(song),
-              ),
-              const SizedBox(width: 4),
-
-              // Always-visible Fullscreen Toggle (⛶)
-              IconButton(
-                icon: Icon(
-                  _isFullscreen ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
-                  color: Colors.white,
-                  size: 26,
-                ),
-                tooltip: _isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen',
-                onPressed: () {
-                  setState(() {
-                    _isFullscreen = !_isFullscreen;
-                  });
-                },
-              ),
-              const SizedBox(width: 4),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildLyricsBody(Song? song) {
     final state = audioHandler.lyricsStateNotifier.value;
     final lyrics = audioHandler.currentLyricsNotifier.value;
 
     if (state.status == LyricsStatus.loading && (lyrics == null || lyrics.trim().isEmpty)) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: const [
-            CircularProgressIndicator(color: Color(0xFF818CF8)),
-            SizedBox(height: 16),
-            Text(
-              'Finding synchronized lyrics...',
-              style: TextStyle(color: Colors.white70, fontSize: 15, fontWeight: FontWeight.w500),
-            ),
-          ],
-        ),
-      );
+      return const LyricsLoadingView();
     }
 
     if (state.status == LyricsStatus.error && (lyrics == null || lyrics.trim().isEmpty)) {
-      final err = state.error;
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.06),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.cloud_off_rounded, size: 44, color: Color(0xFFEF4444)),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                "Couldn't load lyrics",
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                err?.userMessage ?? 'Please check your connection and try again.',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white60, fontSize: 13),
-              ),
-              const SizedBox(height: 18),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.refresh_rounded, size: 16, color: Colors.white),
-                    label: const Text('Retry', style: TextStyle(color: Colors.white)),
-                    style: OutlinedButton.styleFrom(
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    ),
-                    onPressed: () => audioHandler.reloadLyrics(),
-                  ),
-                  const SizedBox(width: 12),
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.search_rounded, size: 16, color: Color(0xFF818CF8)),
-                    label: const Text('Search Lyrics', style: TextStyle(color: Colors.white)),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFF818CF8)),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    ),
-                    onPressed: () => _openWrongLyricsPicker(song),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
+      return LyricsErrorView(
+        error: state.error,
+        onRetry: () => audioHandler.reloadLyrics(),
+        onSearch: () => WrongLyricsSheet.show(context, song),
       );
     }
 
     if (state.status == LyricsStatus.rejectedMismatch && (lyrics == null || lyrics.trim().isEmpty)) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.06),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.warning_amber_rounded, size: 48, color: Color(0xFFF59E0B)),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Lyrics rejected due to low confidence',
-              style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'The matched track differed too much in title or duration.',
-              style: TextStyle(color: Colors.white38, fontSize: 13),
-            ),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.search_rounded, size: 16, color: Color(0xFF818CF8)),
-              label: const Text('Find / Search Lyrics', style: TextStyle(color: Colors.white)),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Color(0xFF818CF8)),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              ),
-              onPressed: () => _openWrongLyricsPicker(song),
-            ),
-          ],
-        ),
+      return LyricsRejectedMismatchView(
+        onSearch: () => WrongLyricsSheet.show(context, song),
       );
     }
 
     if (lyrics == null || lyrics.trim().isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.06),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.lyrics_rounded, size: 48, color: Colors.white38),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'No lyrics found for this track',
-              style: TextStyle(color: Colors.white60, fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'Enjoy the pure acoustic vibes',
-              style: TextStyle(color: Colors.white30, fontSize: 13),
-            ),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.search_rounded, size: 16, color: Color(0xFF818CF8)),
-              label: const Text('Find / Search Lyrics', style: TextStyle(color: Colors.white)),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Color(0xFF818CF8)),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              ),
-              onPressed: () => _openWrongLyricsPicker(song),
-            ),
-          ],
-        ),
+      return LyricsNotFoundView(
+        onSearch: () => WrongLyricsSheet.show(context, song),
       );
     }
 
@@ -794,19 +533,19 @@ class _LyricsScreenState extends State<LyricsScreen> {
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12.0),
                 child: line.isBgm
-                    ? _BgmPulseIndicator(isActive: isActive)
+                    ? BgmPulseIndicator(isActive: isActive)
                     : AnimatedDefaultTextStyle(
                         duration: const Duration(milliseconds: 250),
                         curve: Curves.easeOut,
                         style: TextStyle(
-                          color: isActive ? Colors.white : Colors.white.withOpacity(0.35),
+                          color: isActive ? Colors.white : Colors.white.withValues(alpha: 0.35),
                           fontSize: isActive ? 24 : 17,
                           fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
                           height: 1.45,
                           shadows: isActive
                               ? [
                                   BoxShadow(
-                                    color: const Color(0xFF9333EA).withOpacity(0.55),
+                                    color: const Color(0xFF9333EA).withValues(alpha: 0.55),
                                     blurRadius: 20,
                                     offset: const Offset(0, 2),
                                   ),
@@ -820,455 +559,6 @@ class _LyricsScreenState extends State<LyricsScreen> {
             ),
           );
         },
-      ),
-    );
-  }
-
-  Widget _buildBottomPlaybackBar(Song? song) {
-    return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: Container(
-          padding: EdgeInsets.only(
-            left: 20,
-            right: 20,
-            top: 10,
-            bottom: MediaQuery.of(context).padding.bottom + 8,
-          ),
-          decoration: BoxDecoration(
-            color: const Color(0xFF0F172A).withOpacity(0.85),
-            border: Border(
-              top: BorderSide(color: Colors.white.withOpacity(0.08), width: 1),
-            ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Mini Seek Progress Bar
-              StreamBuilder<Duration>(
-                stream: audioHandler.throttledPositionStream,
-                builder: (context, snapshot) {
-                  final position = snapshot.data ?? Duration.zero;
-                  final totalDuration = audioHandler.player.duration ?? Duration(seconds: song?.duration ?? 0);
-                  final posMs = position.inMilliseconds.toDouble();
-                  final totalMs = totalDuration.inMilliseconds.toDouble();
-                  final maxVal = (totalMs > posMs && totalMs > 0) ? totalMs : (posMs + 1);
-
-                  return Row(
-                    children: [
-                      Text(
-                        _formatDuration(position),
-                        style: const TextStyle(color: Colors.white38, fontSize: 11, fontWeight: FontWeight.bold),
-                      ),
-                      Expanded(
-                        child: SliderTheme(
-                          data: SliderTheme.of(context).copyWith(
-                            trackHeight: 3,
-                            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
-                            overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-                            activeTrackColor: const Color(0xFF06B6D4),
-                            inactiveTrackColor: Colors.white12,
-                            thumbColor: Colors.white,
-                          ),
-                          child: Slider(
-                            min: 0,
-                            max: maxVal,
-                            value: posMs.clamp(0.0, maxVal),
-                            onChanged: (val) {
-                              audioHandler.seek(Duration(milliseconds: val.toInt()));
-                            },
-                          ),
-                        ),
-                      ),
-                      Text(
-                        _formatDuration(totalDuration),
-                        style: const TextStyle(color: Colors.white38, fontSize: 11, fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  );
-                },
-              ),
-
-              // Compact Playback Buttons
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  // Smart Shuffle
-                  ValueListenableBuilder<bool>(
-                    valueListenable: audioHandler.isSmartShuffleNotifier,
-                    builder: (context, isSmart, _) {
-                      return IconButton(
-                        icon: Icon(
-                          Icons.auto_awesome_rounded,
-                          size: 22,
-                          color: isSmart ? const Color(0xFF9333EA) : Colors.white38,
-                        ),
-                        onPressed: () => audioHandler.toggleSmartShuffle(),
-                      );
-                    },
-                  ),
-
-                  // Previous
-                  IconButton(
-                    icon: const Icon(Icons.skip_previous_rounded, color: Colors.white, size: 30),
-                    onPressed: () => audioHandler.skipToPrevious(),
-                  ),
-
-                  // Play / Pause
-                  StreamBuilder<PlayerState>(
-                    stream: audioHandler.player.playerStateStream,
-                    builder: (context, snapshot) {
-                      final playerState = snapshot.data;
-                      final playing = playerState?.playing ?? false;
-                      final processing = playerState?.processingState;
-
-                      if (processing == ProcessingState.loading || processing == ProcessingState.buffering) {
-                        return const SizedBox(
-                          width: 46,
-                          height: 46,
-                          child: Center(
-                            child: SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: CircularProgressIndicator(color: Color(0xFF06B6D4), strokeWidth: 2.5),
-                            ),
-                          ),
-                        );
-                      }
-
-                      return InkWell(
-                        onTap: () => playing ? audioHandler.pause() : audioHandler.play(),
-                        borderRadius: BorderRadius.circular(28),
-                        child: Container(
-                          width: 50,
-                          height: 50,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: const Color(0xFF9333EA),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFF9333EA).withOpacity(0.4),
-                                blurRadius: 16,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: Icon(
-                            playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                            color: Colors.white,
-                            size: 30,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-
-                  // Next
-                  IconButton(
-                    icon: const Icon(Icons.skip_next_rounded, color: Colors.white, size: 30),
-                    onPressed: () => audioHandler.skipToNext(),
-                  ),
-
-                  // Loop mode
-                  StreamBuilder<LoopMode>(
-                    stream: audioHandler.player.loopModeStream,
-                    builder: (context, snapshot) {
-                      final loop = snapshot.data ?? LoopMode.off;
-                      final isLooping = loop != LoopMode.off;
-                      return IconButton(
-                        icon: Icon(
-                          loop == LoopMode.one ? Icons.repeat_one_rounded : Icons.repeat_rounded,
-                          size: 22,
-                          color: isLooping ? const Color(0xFF06B6D4) : Colors.white38,
-                        ),
-                        onPressed: () => audioHandler.toggleLoopMode(),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _openWrongLyricsPicker(Song? song) async {
-    final searchController = TextEditingController(text: song != null ? '${song.title} ${song.artist}' : '');
-    List<Map<String, dynamic>> searchResults = [];
-    bool isSearching = false;
-
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: const Color(0xFF0F172A),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (bottomSheetContext) {
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            void performSearch() async {
-              final q = searchController.text.trim();
-              if (q.isEmpty) return;
-              setSheetState(() => isSearching = true);
-              final results = await ApiClient.searchLyricsCandidates(q);
-              setSheetState(() {
-                searchResults = results;
-                isSearching = false;
-              });
-            }
-
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(context).viewInsets.bottom,
-                left: 16,
-                right: 16,
-                top: 16,
-              ),
-              child: SizedBox(
-                height: MediaQuery.of(context).size.height * 0.7,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 36,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.white24,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Lyrics Search & Picker',
-                          style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close_rounded, color: Colors.white70),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: searchController,
-                      style: const TextStyle(color: Colors.white),
-                      onSubmitted: (_) => performSearch(),
-                      decoration: InputDecoration(
-                        hintText: 'Search title or artist...',
-                        hintStyle: const TextStyle(color: Colors.white38),
-                        filled: true,
-                        fillColor: const Color(0xFF1E293B),
-                        prefixIcon: const Icon(Icons.search, color: Color(0xFF818CF8)),
-                        suffixIcon: IconButton(
-                          icon: const Icon(Icons.arrow_forward_rounded, color: Color(0xFF818CF8)),
-                          onPressed: performSearch,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    if (isSearching)
-                      const Expanded(
-                        child: Center(child: CircularProgressIndicator(color: Color(0xFF818CF8))),
-                      )
-                    else if (searchResults.isEmpty)
-                      Expanded(
-                        child: Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.manage_search_rounded, size: 48, color: Colors.white24),
-                              const SizedBox(height: 10),
-                              const Text('Search for synced LRC or plain lyrics', style: TextStyle(color: Colors.white54)),
-                              const SizedBox(height: 16),
-                              OutlinedButton.icon(
-                                icon: const Icon(Icons.paste_rounded, size: 16),
-                                label: const Text('Paste Custom Lyrics / LRC'),
-                                onPressed: () {
-                                  Navigator.pop(context);
-                                  _showPasteCustomLyricsDialog(song);
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                    else
-                      Expanded(
-                        child: ListView.separated(
-                          itemCount: searchResults.length,
-                          separatorBuilder: (_, __) => const Divider(color: Colors.white12, height: 1),
-                          itemBuilder: (context, i) {
-                            final item = searchResults[i];
-                            final track = item['trackName'] ?? item['name'] ?? 'Unknown';
-                            final artist = item['artistName'] ?? 'Unknown';
-                            final album = item['albumName'] ?? '';
-                            final synced = item['syncedLyrics']?.toString();
-                            final plain = item['plainLyrics']?.toString();
-                            final isSynced = synced != null && synced.trim().isNotEmpty;
-                            final chosen = isSynced ? synced : plain;
-
-                            return ListTile(
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                              title: Text(
-                                track,
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
-                              ),
-                              subtitle: Text(
-                                '$artist • $album',
-                                style: const TextStyle(color: Colors.white60, fontSize: 12),
-                              ),
-                              trailing: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: isSynced ? const Color(0xFF10B981).withOpacity(0.2) : Colors.white12,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  isSynced ? 'Synced LRC' : 'Plain Text',
-                                  style: TextStyle(
-                                    color: isSynced ? const Color(0xFF34D399) : Colors.white60,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              onTap: () {
-                                if (chosen != null && chosen.trim().isNotEmpty) {
-                                  audioHandler.currentLyricsNotifier.value = chosen;
-                                  Navigator.pop(context);
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Lyrics updated for track')),
-                                  );
-                                }
-                              },
-                            );
-                          },
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _showPasteCustomLyricsDialog(Song? song) async {
-    final pasteController = TextEditingController();
-    await showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF0F172A),
-          title: const Text('Paste Custom Lyrics', style: TextStyle(color: Colors.white)),
-          content: TextField(
-            controller: pasteController,
-            maxLines: 8,
-            style: const TextStyle(color: Colors.white, fontSize: 13),
-            decoration: const InputDecoration(
-              hintText: 'Paste synced [mm:ss.xx] or plain lyrics here...',
-              hintStyle: TextStyle(color: Colors.white38),
-              border: OutlineInputBorder(),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                final txt = pasteController.text.trim();
-                if (txt.isNotEmpty) {
-                  audioHandler.currentLyricsNotifier.value = txt;
-                  Navigator.pop(dialogContext);
-                }
-              },
-              child: const Text('Apply'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _BgmPulseIndicator extends StatefulWidget {
-  final bool isActive;
-  const _BgmPulseIndicator({required this.isActive});
-
-  @override
-  State<_BgmPulseIndicator> createState() => _BgmPulseIndicatorState();
-}
-
-class _BgmPulseIndicatorState extends State<_BgmPulseIndicator> with SingleTickerProviderStateMixin {
-  late AnimationController _anim;
-
-  @override
-  void initState() {
-    super.initState();
-    _anim = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _anim.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _anim,
-      builder: (context, _) {
-        final scale = widget.isActive ? (0.85 + _anim.value * 0.25) : 0.8;
-        return Opacity(
-          opacity: widget.isActive ? (0.6 + _anim.value * 0.4) : 0.25,
-          child: Transform.scale(
-            scale: scale,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _dot(),
-                const SizedBox(width: 6),
-                _dot(),
-                const SizedBox(width: 6),
-                _dot(),
-                const SizedBox(width: 8),
-                Icon(
-                  Icons.music_note_rounded,
-                  size: 18,
-                  color: widget.isActive ? const Color(0xFF06B6D4) : Colors.white38,
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _dot() {
-    return Container(
-      width: 7,
-      height: 7,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: widget.isActive ? const Color(0xFF06B6D4) : Colors.white38,
       ),
     );
   }

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import '../models/song.dart';
+import 'app_logger.dart';
 
 class SupabaseService {
   // Raw credentials injected via --dart-define in CI/CD or local runs
@@ -55,7 +56,8 @@ class SupabaseService {
     if (!_isInitialized) return null;
     try {
       return Supabase.instance.client;
-    } catch (_) {
+    } catch (e) {
+      AppLogger.log('SupabaseService', 'Client instance access notice: $e');
       return null;
     }
   }
@@ -233,7 +235,9 @@ class SupabaseService {
       if (await googleSignIn.isSignedIn()) {
         await googleSignIn.signOut();
       }
-    } catch (_) {}
+    } catch (e, stack) {
+      AppLogger.recordError(e, stack, context: 'SupabaseService.signOut');
+    }
   }
 
   /// Fetch user preferences (e.g. preferred languages) from table `profiles`

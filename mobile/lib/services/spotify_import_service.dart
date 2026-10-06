@@ -7,6 +7,7 @@ import 'package:html_unescape/html_unescape.dart';
 import '../models/song.dart';
 import 'saavn_client.dart';
 import 'youtube_client.dart';
+import 'app_logger.dart';
 
 /// Single Spotify Track representation extracted from Spotify Web API or Embed
 class SpotifyTrackItem {
@@ -238,7 +239,9 @@ class SpotifyImportService {
         final data = json.decode(response.body);
         return data['accessToken']?.toString();
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.log('SpotifyImportService', 'Token fetch notice: $e');
+    }
     return null;
   }
 
@@ -506,7 +509,9 @@ class SpotifyImportService {
           );
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.log('SpotifyImportService', 'fetchSpotifyMetadata notice: $e');
+    }
 
     return null;
   }
@@ -584,7 +589,9 @@ class SpotifyImportService {
         }
         return bestSaavn;
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.log('SpotifyImportService', 'Saavn match search notice: $e');
+    }
 
     // ── Tier 2: YouTube Fallback ──
     try {
@@ -635,7 +642,9 @@ class SpotifyImportService {
         }
         return bestYt;
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.log('SpotifyImportService', 'YouTube match search notice: $e');
+    }
 
     return null;
   }

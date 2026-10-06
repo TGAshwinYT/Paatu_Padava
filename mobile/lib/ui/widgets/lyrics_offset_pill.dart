@@ -40,23 +40,23 @@ class LyricsOffsetPill extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           decoration: BoxDecoration(
-            color: const Color(0xFF0F172A).withOpacity(0.78),
+            color: const Color(0xFF0F172A).withValues(alpha: 0.78),
             borderRadius: BorderRadius.circular(32),
             border: Border.all(
               color: isOffsetActive
-                  ? const Color(0xFF06B6D4).withOpacity(0.5)
-                  : Colors.white.withOpacity(0.12),
+                  ? const Color(0xFF06B6D4).withValues(alpha: 0.5)
+                  : Colors.white.withValues(alpha: 0.12),
               width: 1.2,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.45),
+                color: Colors.black.withValues(alpha: 0.45),
                 blurRadius: 22,
                 offset: const Offset(0, 8),
               ),
               if (isOffsetActive)
                 BoxShadow(
-                  color: const Color(0xFF9333EA).withOpacity(0.35),
+                  color: const Color(0xFF9333EA).withValues(alpha: 0.35),
                   blurRadius: 18,
                   spreadRadius: 1,
                 ),
@@ -107,7 +107,7 @@ class LyricsOffsetPill extends StatelessWidget {
                           'TAP TO RESET',
                           style: TextStyle(
                             color: isOffsetActive
-                                ? const Color(0xFF06B6D4).withOpacity(0.85)
+                                ? const Color(0xFF06B6D4).withValues(alpha: 0.85)
                                 : Colors.white38,
                             fontSize: 8.5,
                             fontWeight: FontWeight.w700,
@@ -135,7 +135,7 @@ class LyricsOffsetPill extends StatelessWidget {
               Container(
                 width: 1,
                 height: 22,
-                color: Colors.white.withOpacity(0.12),
+                color: Colors.white.withValues(alpha: 0.12),
               ),
 
               const SizedBox(width: 6),
@@ -175,7 +175,7 @@ class LyricsOffsetPill extends StatelessWidget {
             padding: EdgeInsets.all(padding),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: backgroundColor ?? Colors.white.withOpacity(0.08),
+              color: backgroundColor ?? Colors.white.withValues(alpha: 0.08),
             ),
             child: Icon(
               icon,

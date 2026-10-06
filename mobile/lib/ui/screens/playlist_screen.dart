@@ -104,7 +104,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF6366F1).withOpacity(0.2),
+                          color: const Color(0xFF6366F1).withValues(alpha: 0.2),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(Icons.group_rounded, color: Color(0xFF818CF8), size: 24),
@@ -162,7 +162,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                       decoration: BoxDecoration(
                         color: const Color(0xFF0A0E1A),
                         borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.4)),
+                        border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.4)),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -403,7 +403,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                               gradient: LinearGradient(
                                 colors: [
                                   Colors.transparent,
-                                  const Color(0xFF0A0E1A).withOpacity(0.85),
+                                  const Color(0xFF0A0E1A).withValues(alpha: 0.85),
                                   const Color(0xFF0A0E1A),
                                 ],
                                 begin: Alignment.topCenter,
@@ -438,10 +438,10 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                   decoration: BoxDecoration(
-                                    color: (_isCollabConnected ? const Color(0xFF10B981) : const Color(0xFFF59E0B)).withOpacity(0.18),
+                                    color: (_isCollabConnected ? const Color(0xFF10B981) : const Color(0xFFF59E0B)).withValues(alpha: 0.18),
                                     borderRadius: BorderRadius.circular(10),
                                     border: Border.all(
-                                      color: (_isCollabConnected ? const Color(0xFF10B981) : const Color(0xFFF59E0B)).withOpacity(0.4),
+                                      color: (_isCollabConnected ? const Color(0xFF10B981) : const Color(0xFFF59E0B)).withValues(alpha: 0.4),
                                     ),
                                   ),
                                   child: Row(
@@ -491,7 +491,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                                   OutlinedButton.icon(
                                     style: OutlinedButton.styleFrom(
                                       foregroundColor: Colors.white70,
-                                      side: BorderSide(color: Colors.white.withOpacity(0.15)),
+                                      side: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
                                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                                     ),

@@ -28,17 +28,21 @@ class AudioQueueHandler {
   final List<Song> _queue = [];
   final List<Song> _originalQueue = [];
   int _currentIndex = -1;
+  int _playlistBaseIndex = 0;
+  int get playlistBaseIndex => _playlistBaseIndex;
 
   // Atomic state notifiers for UI and notification sync
   final ValueNotifier<List<Song>> queueNotifier = ValueNotifier<List<Song>>([]);
   final ValueNotifier<int> currentIndexNotifier = ValueNotifier<int>(-1);
   final ValueNotifier<Song?> currentSongNotifier = ValueNotifier<Song?>(null);
+  final ValueNotifier<AppError?> errorNotifier = ValueNotifier<AppError?>(null);
 
   // Callbacks
   final void Function(Song song)? onSongChanged;
   final void Function(int currentIndex, int totalQueue)? onQueueProgress;
   final void Function(bool isPlaying)? onPlayStateChanged;
   final VoidCallback? onIdleRelease;
+  final void Function(AppError error)? onError;
 
   StreamSubscription<int?>? _currentIndexSub;
   StreamSubscription<PlayerState>? _playerStateSub;
@@ -58,6 +62,7 @@ class AudioQueueHandler {
     this.onQueueProgress,
     this.onPlayStateChanged,
     this.onIdleRelease,
+    this.onError,
   }) {
     _initStreamListeners();
     SettingsManager.volumeNormalizationNotifier.addListener(_onNormalizationChanged);
@@ -210,25 +215,28 @@ class AudioQueueHandler {
 
     // Sole index writer on track transition: updates UI & notification atomically
     _currentIndexSub = player.currentIndexStream.listen((index) {
-      if (index != null && index >= 0 && index < _queue.length && index != _currentIndex) {
-        final oldIndex = _currentIndex;
-        _currentIndex = index;
-        _sessionToken++; // Invalidate in-flight preloads from the previous track so they cannot mutate active track
-        _syncState();
+      if (index != null && index >= 0) {
+        final actualIndex = _playlistBaseIndex + index;
+        if (actualIndex >= 0 && actualIndex < _queue.length && actualIndex != _currentIndex) {
+          final oldIndex = _currentIndex;
+          _currentIndex = actualIndex;
+          _sessionToken++; // Invalidate in-flight preloads from the previous track so they cannot mutate active track
+          _syncState();
 
-        final song = _queue[_currentIndex];
-        AppLogger.log('AudioQueueHandler', 'Track transition: index $oldIndex -> $index ("${song.title}" [id=${song.id}])');
-        onSongChanged?.call(song);
-        onQueueProgress?.call(_currentIndex, _queue.length);
+          final song = _queue[_currentIndex];
+          AppLogger.log('AudioQueueHandler', 'Track transition: index $oldIndex -> $actualIndex ("${song.title}" [id=${song.id}])');
+          onSongChanged?.call(song);
+          onQueueProgress?.call(_currentIndex, _queue.length);
 
-        // Smooth volume normalization and crossfade entry
-        final targetNorm = getNormalizedVolumeForSong(song);
-        final crossfadeSec = SettingsManager.crossfadeSeconds;
-        final fadeInMs = crossfadeSec > 0 ? (crossfadeSec * 600).clamp(250, 2000) : 150;
-        _fadeVolumeTo(targetNorm, durationMs: fadeInMs);
+          // Smooth volume normalization and crossfade entry
+          final targetNorm = getNormalizedVolumeForSong(song);
+          final crossfadeSec = SettingsManager.crossfadeSeconds;
+          final fadeInMs = crossfadeSec > 0 ? (crossfadeSec * 600).clamp(250, 2000) : 150;
+          _fadeVolumeTo(targetNorm, durationMs: fadeInMs);
 
-        // Preload upcoming tracks for instantaneous gapless transition
-        preloadUpcomingTracks(_currentIndex);
+          // Preload upcoming tracks for instantaneous gapless transition
+          preloadUpcomingTracks(_currentIndex);
+        }
       }
     });
 
@@ -263,6 +271,8 @@ class AudioQueueHandler {
         }
         if (hasNext) {
           skipToNext();
+        } else if (SettingsManager.isAutoplayEnabled && current != null && isAudioHandlerInitialized) {
+          audioHandler.handleAutoplayQueueEnd(current);
         } else {
           startIdleTimer();
         }
@@ -299,6 +309,7 @@ class AudioQueueHandler {
     _queue.addAll(songs);
     _originalQueue.addAll(songs);
     _currentIndex = (initialIndex >= 0 && initialIndex < songs.length) ? initialIndex : 0;
+    _playlistBaseIndex = _currentIndex;
 
     _syncState();
     if (_queue.isEmpty) {
@@ -321,18 +332,28 @@ class AudioQueueHandler {
           activeSong.title,
           debugDetails: 'Active song stream resolution returned null in loadQueue',
         );
-        audioHandler.playbackErrorNotifier.value = appErr;
+        errorNotifier.value = appErr;
+        onError?.call(appErr);
+        if (isAudioHandlerInitialized) {
+          audioHandler.playbackErrorNotifier.value = appErr;
+        }
       }
     }
 
-    // Build ConcatenatingAudioSource aligned with _queue without fake .invalid URLs
+    // Build ConcatenatingAudioSource starting from _currentIndex
+    // Child 0 is GUARANTEED to be activeSong!
     final List<AudioSource> sources = [];
-    for (int i = 0; i < _queue.length; i++) {
-      final s = _queue[i];
-      // Resolve active and immediate next track ahead of time
-      final src = await _buildAudioSource(s, allowNetworkResolve: i == _currentIndex || i == _currentIndex + 1);
-      if (src != null) {
-        sources.add(src);
+    final activeSrc = await _buildAudioSource(activeSong, allowNetworkResolve: true);
+    if (activeSrc != null) {
+      sources.add(activeSrc);
+    }
+
+    // Preload immediate next track if available
+    if (_currentIndex + 1 < _queue.length) {
+      final nextSong = _queue[_currentIndex + 1];
+      final nextSrc = await _buildAudioSource(nextSong, allowNetworkResolve: true);
+      if (nextSrc != null && token == _sessionToken) {
+        sources.add(nextSrc);
       }
     }
 
@@ -356,7 +377,7 @@ class AudioQueueHandler {
     try {
       await player.setAudioSource(
         _playlistSource,
-        initialIndex: _currentIndex < sources.length ? _currentIndex : 0,
+        initialIndex: 0,
         initialPosition: Duration.zero,
       );
 
@@ -387,7 +408,7 @@ class AudioQueueHandler {
     }
   }
 
-  /// Preloads the immediate upcoming track (1-track limit) for battery conservation & gapless transition
+  /// Preloads the immediate upcoming track for battery conservation & gapless transition
   Future<void> preloadUpcomingTracks(int fromIndex) async {
     final token = _sessionToken;
     final targetIndex = fromIndex + 1;
@@ -419,23 +440,27 @@ class AudioQueueHandler {
       final source = await _buildAudioSource(song, allowNetworkResolve: false);
       if (source == null || token != _sessionToken || targetIndex == _currentIndex) return;
 
-      if (targetIndex < _playlistSource.length) {
-        // ONLY replace if targetIndex is strictly greater than _currentIndex (never mutate playing track)
-        if (targetIndex > _currentIndex) {
+      final targetPlayerIndex = targetIndex - _playlistBaseIndex;
+      if (targetPlayerIndex < 0) return;
+
+      if (targetPlayerIndex < _playlistSource.length) {
+        // ONLY replace if targetPlayerIndex is strictly greater than player's active index
+        final currentPlayerIndex = _currentIndex - _playlistBaseIndex;
+        if (targetPlayerIndex > currentPlayerIndex) {
           try {
-            await _playlistSource.removeAt(targetIndex);
-            await _playlistSource.insert(targetIndex, source);
-            AppLogger.log('AudioQueueHandler', 'Replaced playlist source at index $targetIndex with resolved stream');
+            await _playlistSource.removeAt(targetPlayerIndex);
+            await _playlistSource.insert(targetPlayerIndex, source);
+            AppLogger.log('AudioQueueHandler', 'Replaced playlist source at player index $targetPlayerIndex with resolved stream');
           } catch (e) {
-            AppLogger.log('AudioQueueHandler', 'Safe catch during playlist source update at $targetIndex: $e');
+            AppLogger.log('AudioQueueHandler', 'Safe catch during playlist source update at $targetPlayerIndex: $e');
           }
         }
-      } else if (targetIndex == _playlistSource.length) {
+      } else if (targetPlayerIndex == _playlistSource.length) {
         try {
           await _playlistSource.add(source);
-          AppLogger.log('AudioQueueHandler', 'Appended resolved source at index $targetIndex to playlist');
+          AppLogger.log('AudioQueueHandler', 'Appended resolved source at player index $targetPlayerIndex to playlist');
         } catch (e) {
-          AppLogger.log('AudioQueueHandler', 'Safe catch during playlist source add at $targetIndex: $e');
+          AppLogger.log('AudioQueueHandler', 'Safe catch during playlist source add at $targetPlayerIndex: $e');
         }
       }
     }
@@ -472,7 +497,7 @@ class AudioQueueHandler {
       await _fadeVolumeTo(0.0, durationMs: 120);
     }
 
-    // Ensure target track is resolved and mounted in _playlistSource
+    // Ensure target track is resolved
     if (targetSong.streamUrl == null || targetSong.streamUrl!.isEmpty) {
       final url = await _resolveStreamUrl(targetSong);
       if (token != _sessionToken) return;
@@ -481,67 +506,82 @@ class AudioQueueHandler {
       }
     }
 
-    // Ensure _playlistSource is filled up to targetIndex if needed
-    while (_playlistSource.length <= targetIndex && _playlistSource.length < _queue.length) {
-      final idx = _playlistSource.length;
-      final src = await _buildAudioSource(_queue[idx], allowNetworkResolve: true);
-      if (src != null) {
-        try {
-          await _playlistSource.add(src);
-        } catch (_) {
-          break;
+    final targetPlayerIndex = targetIndex - _playlistBaseIndex;
+
+    // If targetIndex is already present within current _playlistSource window, use gapless seek
+    if (targetPlayerIndex >= 0 && targetPlayerIndex < _playlistSource.length) {
+      try {
+        await player.seek(Duration.zero, index: targetPlayerIndex);
+        if (!player.playing) {
+          await player.play();
         }
-      } else {
-        break;
+        _currentIndex = targetIndex;
+        _syncState();
+        onSongChanged?.call(targetSong);
+        _fadeVolumeTo(targetNorm, durationMs: crossfadeSec > 0 ? (crossfadeSec * 600).clamp(250, 2000) : 150);
+        preloadUpcomingTracks(targetIndex);
+        onQueueProgress?.call(_currentIndex, _queue.length);
+        return;
+      } catch (e) {
+        AppLogger.log('AudioQueueHandler', 'Gapless seek failed at $targetPlayerIndex: $e. Re-centering playlist source.');
       }
     }
 
-    if (targetIndex < _playlistSource.length && targetIndex != _currentIndex) {
-      final resolvedSource = await _buildAudioSource(targetSong, allowNetworkResolve: true);
-      if (resolvedSource != null && token == _sessionToken) {
-        try {
-          await _playlistSource.removeAt(targetIndex);
-          await _playlistSource.insert(targetIndex, resolvedSource);
-        } catch (_) {}
+    // Re-center _playlistSource window at targetIndex
+    _playlistBaseIndex = targetIndex;
+    _currentIndex = targetIndex;
+    _syncState();
+    onSongChanged?.call(targetSong);
+
+    final List<AudioSource> sources = [];
+    final activeSrc = await _buildAudioSource(targetSong, allowNetworkResolve: true);
+    if (activeSrc != null) {
+      sources.add(activeSrc);
+    }
+
+    if (targetIndex + 1 < _queue.length) {
+      final nextSong = _queue[targetIndex + 1];
+      final nextSrc = await _buildAudioSource(nextSong, allowNetworkResolve: true);
+      if (nextSrc != null && token == _sessionToken) {
+        sources.add(nextSrc);
       }
     }
 
-    if (token != _sessionToken) return;
+    _playlistSource = ConcatenatingAudioSource(
+      children: sources,
+      useLazyPreparation: true,
+    );
 
     try {
-      await player.seek(Duration.zero, index: targetIndex);
-      if (!player.playing) {
-        await player.play();
-      }
+      await player.setAudioSource(
+        _playlistSource,
+        initialIndex: 0,
+        initialPosition: Duration.zero,
+      );
+      if (token != _sessionToken) return;
+      await player.play();
       _fadeVolumeTo(targetNorm, durationMs: crossfadeSec > 0 ? (crossfadeSec * 600).clamp(250, 2000) : 150);
       preloadUpcomingTracks(targetIndex);
       onQueueProgress?.call(_currentIndex, _queue.length);
     } catch (e, stack) {
-      AppLogger.recordError(e, stack, context: 'AudioQueueHandler.jumpToIndex seek');
+      AppLogger.recordError(e, stack, context: 'AudioQueueHandler.jumpToIndex setAudioSource');
       debugPrint('[AudioQueueHandler] Jump error: $e');
     }
   }
 
-  /// Add track to the end of the queue
+  /// Add track to queue as stack (pushed to play next right after current track)
   Future<void> addToQueue(Song song) async {
-    AppLogger.log('AudioQueueHandler', 'addToQueue: "${song.title}" [id=${song.id}]');
-    _queue.add(song);
-    _originalQueue.add(song);
-    _syncState();
-
-    final source = await _buildAudioSource(song, allowNetworkResolve: false);
-    if (source != null) {
-      try {
-        await _playlistSource.add(source);
-      } catch (_) {}
-    }
-    onQueueProgress?.call(_currentIndex, _queue.length);
+    final queued = song.copyWith(isUserEnqueued: true);
+    AppLogger.log('AudioQueueHandler', 'addToQueue (stack push): "${queued.title}" [id=${queued.id}]');
+    final insertIdx = (_currentIndex >= 0 && _currentIndex < _queue.length) ? _currentIndex + 1 : _queue.length;
+    await insertAt(insertIdx, queued);
   }
 
-  /// Insert track to play next (right after current index)
+  /// Insert track to play next (pushed onto top of queue stack)
   Future<void> insertNext(Song song) async {
+    final queued = song.copyWith(isUserEnqueued: true);
     final insertIdx = (_currentIndex >= 0 && _currentIndex < _queue.length) ? _currentIndex + 1 : _queue.length;
-    await insertAt(insertIdx, song);
+    await insertAt(insertIdx, queued);
   }
 
   /// Insert track at specific index maintaining playlist source alignment
@@ -554,19 +594,40 @@ class AudioQueueHandler {
     }
     if (safeIndex <= _currentIndex) {
       _currentIndex++;
+      _playlistBaseIndex++;
     }
     _syncState();
 
-    final source = await _buildAudioSource(song, allowNetworkResolve: false);
-    if (source != null) {
-      try {
-        if (safeIndex < _playlistSource.length) {
-          await _playlistSource.insert(safeIndex, source);
-        } else {
-          await _playlistSource.add(source);
+    final targetPlayerIndex = safeIndex - _playlistBaseIndex;
+    if (targetPlayerIndex >= 0 && targetPlayerIndex <= _playlistSource.length) {
+      final source = await _buildAudioSource(song, allowNetworkResolve: false);
+      if (source != null) {
+        try {
+          if (targetPlayerIndex < _playlistSource.length) {
+            await _playlistSource.insert(targetPlayerIndex, source);
+          } else {
+            await _playlistSource.add(source);
+          }
+        } catch (e) {
+          AppLogger.log('AudioQueueHandler', 'PlaylistSource insert error: $e');
         }
-      } catch (_) {}
+      }
     }
+    preloadUpcomingTracks(_currentIndex);
+    onQueueProgress?.call(_currentIndex, _queue.length);
+  }
+
+  /// Appends auto-suggested / recommended tracks to the end of the queue
+  Future<void> addAutoSuggestions(List<Song> songs) async {
+    if (songs.isEmpty) return;
+    AppLogger.log('AudioQueueHandler', 'addAutoSuggestions: ${songs.length} tracks');
+    for (final song in songs) {
+      final autoSong = song.copyWith(isSmartRecommended: true, isUserEnqueued: false);
+      _queue.add(autoSong);
+      _originalQueue.add(autoSong);
+    }
+    _syncState();
+    preloadUpcomingTracks(_currentIndex);
     onQueueProgress?.call(_currentIndex, _queue.length);
   }
 
@@ -579,10 +640,13 @@ class AudioQueueHandler {
     AppLogger.log('AudioQueueHandler', 'removeAt index $index: "${removed.title}" (isCurrent=$isRemovingCurrent)');
     _originalQueue.removeWhere((s) => s.id == removed.id);
 
-    if (index < _playlistSource.length) {
+    final targetPlayerIndex = index - _playlistBaseIndex;
+    if (targetPlayerIndex >= 0 && targetPlayerIndex < _playlistSource.length) {
       try {
-        await _playlistSource.removeAt(index);
-      } catch (_) {}
+        await _playlistSource.removeAt(targetPlayerIndex);
+      } catch (e) {
+        AppLogger.log('AudioQueueHandler', 'PlaylistSource removeAt error: $e');
+      }
     }
 
     if (isRemovingCurrent) {
@@ -596,6 +660,7 @@ class AudioQueueHandler {
     } else {
       if (index < _currentIndex) {
         _currentIndex--;
+        _playlistBaseIndex--;
       }
       _syncState();
       onQueueProgress?.call(_currentIndex, _queue.length);
@@ -604,35 +669,46 @@ class AudioQueueHandler {
 
   /// Reorder tracks seamlessly and keep player indices aligned
   Future<void> reorder(int oldIndex, int newIndex) async {
-    if (oldIndex < 0 || oldIndex >= _queue.length) return;
-    if (newIndex < 0 || newIndex > _queue.length) return;
+    try {
+      if (oldIndex < 0 || oldIndex >= _queue.length) return;
+      if (newIndex < 0 || newIndex > _queue.length) return;
 
-    if (oldIndex < newIndex) {
-      newIndex -= 1;
+      if (oldIndex < newIndex) {
+        newIndex -= 1;
+      }
+      if (oldIndex == newIndex) return;
+
+      final song = _queue.removeAt(oldIndex);
+      AppLogger.log('AudioQueueHandler', 'reorder: $oldIndex -> $newIndex ("${song.title}")');
+      _queue.insert(newIndex, song);
+
+      // Adjust current index tracking
+      if (oldIndex == _currentIndex) {
+        _currentIndex = newIndex;
+      } else if (oldIndex < _currentIndex && newIndex >= _currentIndex) {
+        _currentIndex--;
+        _playlistBaseIndex--;
+      } else if (oldIndex > _currentIndex && newIndex <= _currentIndex) {
+        _currentIndex++;
+        _playlistBaseIndex++;
+      }
+
+      _syncState();
+
+      final oldPlayerIdx = oldIndex - _playlistBaseIndex;
+      final newPlayerIdx = newIndex - _playlistBaseIndex;
+      if (oldPlayerIdx >= 0 && oldPlayerIdx < _playlistSource.length &&
+          newPlayerIdx >= 0 && newPlayerIdx < _playlistSource.length) {
+        try {
+          await _playlistSource.move(oldPlayerIdx, newPlayerIdx);
+        } catch (_) {}
+      }
+
+      preloadUpcomingTracks(_currentIndex);
+      onQueueProgress?.call(_currentIndex, _queue.length);
+    } catch (e, stack) {
+      AppLogger.recordError(e, stack, context: 'AudioQueueHandler.reorder');
     }
-
-    final song = _queue.removeAt(oldIndex);
-    AppLogger.log('AudioQueueHandler', 'reorder: $oldIndex -> $newIndex ("${song.title}")');
-    _queue.insert(newIndex, song);
-
-    // Adjust current index tracking
-    if (oldIndex == _currentIndex) {
-      _currentIndex = newIndex;
-    } else if (oldIndex < _currentIndex && newIndex >= _currentIndex) {
-      _currentIndex--;
-    } else if (oldIndex > _currentIndex && newIndex <= _currentIndex) {
-      _currentIndex++;
-    }
-
-    _syncState();
-
-    if (oldIndex < _playlistSource.length && newIndex < _playlistSource.length) {
-      try {
-        await _playlistSource.move(oldIndex, newIndex);
-      } catch (_) {}
-    }
-
-    onQueueProgress?.call(_currentIndex, _queue.length);
   }
 
   /// Replace upcoming queue with new list of tracks (used by Smart Shuffle & next-song algorithms)
@@ -646,8 +722,9 @@ class AudioQueueHandler {
     _queue.addAll(kept);
     _queue.addAll(newUpcoming);
 
+    final currentPlayerIndex = _currentIndex - _playlistBaseIndex;
     // Remove old upcoming items from _playlistSource
-    while (_playlistSource.length > _currentIndex + 1) {
+    while (_playlistSource.length > currentPlayerIndex + 1) {
       try {
         await _playlistSource.removeAt(_playlistSource.length - 1);
       } catch (_) {
@@ -683,6 +760,7 @@ class AudioQueueHandler {
     _queue.clear();
     _originalQueue.clear();
     _currentIndex = -1;
+    _playlistBaseIndex = 0;
     _syncState();
 
     try {
@@ -691,6 +769,21 @@ class AudioQueueHandler {
 
     currentSongNotifier.value = null;
     onQueueProgress?.call(-1, 0);
+  }
+
+  /// Clear only tracks explicitly added by user to the queue stack
+  Future<void> clearUserQueue() async {
+    if (_queue.isEmpty || _currentIndex >= _queue.length - 1) return;
+    AppLogger.log('AudioQueueHandler', 'Clearing user queue');
+    final toRemove = <int>[];
+    for (int i = _queue.length - 1; i > _currentIndex; i--) {
+      if (_queue[i].isUserEnqueued) {
+        toRemove.add(i);
+      }
+    }
+    for (final idx in toRemove) {
+      await removeAt(idx);
+    }
   }
 
   // ================= Private AudioSource Builders ================= //
@@ -829,10 +922,14 @@ class AudioQueueHandler {
             return match.streamUrl;
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.log('AudioQueueHandler', 'Saavn match resolution notice: $e');
+      }
       try {
         return await YouTubeClient.getAudioStreamUrl(song.id, title: song.title, artist: song.artist);
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.log('AudioQueueHandler', 'YouTube stream resolution notice: $e');
+      }
     } else {
       try {
         if (song.streamUrl != null && song.streamUrl!.isNotEmpty) {
@@ -844,7 +941,9 @@ class AudioQueueHandler {
             return match.streamUrl;
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.log('AudioQueueHandler', 'Direct Saavn stream resolution notice: $e');
+      }
     }
     return null;
   }

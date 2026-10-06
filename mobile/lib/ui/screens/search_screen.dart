@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:html_unescape/html_unescape.dart';
 import '../../models/song.dart';
 import '../../domain/models/app_error.dart';
@@ -10,19 +9,21 @@ import '../../services/saavn_client.dart';
 import '../../services/youtube_client.dart';
 import '../../services/api_client.dart';
 import '../../services/player_handler.dart';
-import '../../services/download_manager.dart';
-import '../../services/favorites_manager.dart';
 import '../../services/search_history_manager.dart';
 import '../../services/settings_manager.dart';
 import '../../services/fuzzy_search_service.dart';
 import '../../services/search_service.dart';
 import '../../data/repositories/song_repository.dart';
 import '../theme/app_theme.dart';
-import '../widgets/spotify_import_dialog.dart';
-import '../widgets/add_to_playlist_dialog.dart';
-import 'artist_screen.dart';
-import 'album_screen.dart';
 import 'library_screen.dart';
+import '../widgets/search/search_error_view.dart';
+import '../widgets/search/search_pre_content.dart';
+import '../widgets/search/search_song_tile.dart';
+import '../widgets/search/search_albums_grid.dart';
+import '../widgets/search/search_artists_list.dart';
+import '../widgets/search/search_all_results_view.dart';
+import '../widgets/search/search_song_options_sheet.dart';
+import '../widgets/search/search_versions_sheet.dart';
 
 class SearchResultsState {
   final Map<String, dynamic>? topResult;
@@ -299,66 +300,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _showSongOptions(Song song) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppColors.surfaceElevated,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.playlist_play_rounded, color: AppColors.neonViolet),
-              title: const Text('Play Next', style: TextStyle(color: Colors.white)),
-              onTap: () {
-                audioHandler.insertNext(song);
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Playing "${_unescape.convert(Song.sanitize(song.title))}" next')),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.queue_music_rounded, color: Colors.white70),
-              title: const Text('Add to Queue', style: TextStyle(color: Colors.white)),
-              onTap: () {
-                audioHandler.addToQueue(song);
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Added "${_unescape.convert(Song.sanitize(song.title))}" to queue')),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.playlist_add_rounded, color: AppColors.electricCyan),
-              title: const Text('Add to Playlist', style: TextStyle(color: Colors.white)),
-              onTap: () {
-                Navigator.pop(context);
-                AddToPlaylistDialog.show(context, song);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.download_rounded, color: AppColors.electricCyan),
-              title: const Text('Download Offline', style: TextStyle(color: Colors.white)),
-              onTap: () {
-                DownloadManager.downloadSong(song);
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.favorite_border_rounded, color: AppColors.neonViolet),
-              title: const Text('Like / Favorite', style: TextStyle(color: Colors.white)),
-              onTap: () {
-                FavoritesManager.toggleFavorite(song);
-                Navigator.pop(context);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
+    SearchSongOptionsSheet.show(context, song);
   }
 
   @override
@@ -450,9 +392,9 @@ class _SearchScreenState extends State<SearchScreen> {
                   margin: const EdgeInsets.fromLTRB(20, 2, 20, 8),
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(
-                    color: AppColors.neonViolet.withOpacity(0.12),
+                    color: AppColors.neonViolet.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.neonViolet.withOpacity(0.3)),
+                    border: Border.all(color: AppColors.neonViolet.withValues(alpha: 0.3)),
                   ),
                   child: Row(
                     children: [
@@ -570,7 +512,11 @@ class _SearchScreenState extends State<SearchScreen> {
       valueListenable: _hasSearchedNotifier,
       builder: (context, hasSearched, _) {
         if (!hasSearched) {
-          return _buildPreSearchContent();
+          return SearchPreContent(
+            trendingArtists: _trendingArtists,
+            browseCategories: _browseCategories,
+            onSelectQuery: _triggerCategorySearch,
+          );
         }
 
         return ValueListenableBuilder<SearchResultsState>(
@@ -586,7 +532,21 @@ class _SearchScreenState extends State<SearchScreen> {
                 }
 
                 if (state.hasError && !isSearching) {
-                  return _buildSearchErrorState(state.error!);
+                  return SearchErrorView(
+                    error: state.error!,
+                    onRetry: () {
+                      final query = _searchController.text.trim();
+                      if (query.isNotEmpty) {
+                        _executeSearch(query, saveHistory: false);
+                      }
+                    },
+                    onOpenDownloads: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const LibraryScreen()),
+                      );
+                    },
+                  );
                 }
 
                 if (state.isEmpty && !isSearching) {
@@ -602,13 +562,33 @@ class _SearchScreenState extends State<SearchScreen> {
                   valueListenable: _currentTabNotifier,
                   builder: (context, currentTab, _) {
                     if (currentTab == 'All') {
-                      return _buildAllResults(state);
+                      return SearchAllResultsView(
+                        state: state,
+                        query: _searchController.text,
+                        onDidYouMeanTap: (suggestion) {
+                          _searchController.text = suggestion;
+                          _executeSearch(suggestion, saveHistory: true);
+                        },
+                        onArtistRecordClick: () => _recordSearchResultClick(),
+                        onRecordClick: ([song]) => _recordSearchResultClick(song),
+                        onSongTap: (song) => audioHandler.playSong(song),
+                        onShowOptions: _showSongOptions,
+                        onShowVersions: _showVersionsSheet,
+                      );
                     } else if (currentTab == 'Songs') {
                       return _buildSongsList(state.songs);
                     } else if (currentTab == 'Albums') {
-                      return _buildAlbumsGrid(state.albums);
+                      return SearchAlbumsGrid(
+                        albums: state.albums,
+                        query: _searchController.text,
+                        onRecordClick: _recordSearchResultClick,
+                      );
                     } else if (currentTab == 'Artists') {
-                      return _buildArtistsList(state.artists);
+                      return SearchArtistsList(
+                        artists: state.artists,
+                        query: _searchController.text,
+                        onRecordClick: _recordSearchResultClick,
+                      );
                     } else if (currentTab == 'YouTube') {
                       return _buildSongsList(state.ytSongs);
                     }
@@ -623,660 +603,6 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _buildSearchErrorState(AppError error) {
-    final isOffline = error.category == AppErrorCategory.offline;
-    final isServerWaking = error.category == AppErrorCategory.serverWaking;
-    final isTimeout = error.category == AppErrorCategory.timeout;
-
-    final IconData icon = isOffline
-        ? Icons.wifi_off_rounded
-        : (isServerWaking
-            ? Icons.cloud_sync_rounded
-            : (isTimeout ? Icons.timer_off_rounded : Icons.error_outline_rounded));
-
-    final String title = isOffline
-        ? "You're Offline"
-        : (isServerWaking
-            ? "Server Is Starting Up"
-            : (isTimeout ? "Search Timed Out" : "Search Unavailable"));
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: AppColors.surfaceElevated,
-                shape: BoxShape.circle,
-                border: Border.all(color: AppColors.surfaceBorder),
-              ),
-              child: Icon(icon, size: 48, color: AppColors.electricCyan),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              title,
-              style: GoogleFonts.outfit(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              error.userMessage,
-              style: GoogleFonts.outfit(
-                color: AppColors.textSecondary,
-                fontSize: 14,
-                height: 1.4,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (isOffline) ...[
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.download_done_rounded, size: 18, color: AppColors.electricCyan),
-                    label: Text(
-                      'Open Downloads',
-                      style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w600),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: AppColors.electricCyan),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    ),
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const LibraryScreen()),
-                      );
-                    },
-                  ),
-                  const SizedBox(width: 12),
-                ],
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.refresh_rounded, size: 18, color: Colors.white),
-                  label: Text(
-                    'Retry',
-                    style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.neonViolet,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                  ),
-                  onPressed: () {
-                    final query = _searchController.text.trim();
-                    if (query.isNotEmpty) {
-                      _executeSearch(query, saveHistory: false);
-                    }
-                  },
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPreSearchContent() {
-    return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      children: [
-        // Spotify Import Quick Action
-        Container(
-          margin: const EdgeInsets.only(bottom: 16),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: AppColors.surfaceElevated,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.surfaceBorderHighlight),
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: AppColors.neonViolet.withOpacity(0.2),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.album_rounded, color: AppColors.neonViolet, size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Paste a Spotify Link to Import',
-                  style: GoogleFonts.outfit(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
-                ),
-              ),
-              ElevatedButton(
-                onPressed: () => SpotifyImportDialog.show(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.neonViolet,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  minimumSize: Size.zero,
-                ),
-                child: Text('Import', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 12)),
-              ),
-            ],
-          ),
-        ),
-
-        // Recent Searches with strict deduplication & 12 item cap
-        ValueListenableBuilder<List<String>>(
-          valueListenable: SearchHistoryManager.historyNotifier,
-          builder: (context, history, _) {
-            if (history.isEmpty) return const SizedBox.shrink();
-
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Recent Searches',
-                      style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                    TextButton(
-                      child: Text('Clear All', style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 12)),
-                      onPressed: () => SearchHistoryManager.clearAll(),
-                    ),
-                  ],
-                ),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: history.map((q) {
-                    final cleanDisplay = _unescape.convert(Song.sanitize(q));
-                    return InputChip(
-                      backgroundColor: AppColors.surfaceElevated,
-                      label: Text(cleanDisplay, style: GoogleFonts.outfit(color: AppColors.textWhite, fontSize: 12)),
-                      deleteIcon: const Icon(Icons.close_rounded, size: 16, color: AppColors.textSecondary),
-                      onDeleted: () => SearchHistoryManager.removeQuery(q),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        side: const BorderSide(color: AppColors.surfaceBorder),
-                      ),
-                      onPressed: () {
-                        _searchController.text = q;
-                        _executeSearch(q, saveHistory: true);
-                      },
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 20),
-              ],
-            );
-          },
-        ),
-
-        // Trending Artists
-        Text(
-          'Trending Artists',
-          style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 38,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: _trendingArtists.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 8),
-            itemBuilder: (context, i) {
-              final artist = _trendingArtists[i];
-              return ActionChip(
-                backgroundColor: AppColors.surfaceElevated,
-                avatar: const Icon(Icons.person_rounded, size: 15, color: AppColors.electricCyan),
-                label: Text(artist, style: GoogleFonts.outfit(color: Colors.white70, fontSize: 12)),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  side: const BorderSide(color: AppColors.surfaceBorder),
-                ),
-                onPressed: () => _triggerCategorySearch(artist),
-              );
-            },
-          ),
-        ),
-
-        const SizedBox(height: 24),
-
-        // Browse All Category Tiles with Neon Theme Gradients
-        Text(
-          'Browse All',
-          style: GoogleFonts.outfit(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 12),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            childAspectRatio: 1.7,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-          ),
-          itemCount: _browseCategories.length,
-          itemBuilder: (context, index) {
-            final cat = _browseCategories[index];
-            final colors = cat['colors'] as List<Color>;
-
-            return InkWell(
-              onTap: () => _triggerCategorySearch(cat['query'] as String),
-              borderRadius: BorderRadius.circular(14),
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: colors,
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(14),
-                  boxShadow: [
-                    BoxShadow(
-                      color: colors.first.withOpacity(0.25),
-                      blurRadius: 8,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: Stack(
-                  children: [
-                    Align(
-                      alignment: Alignment.topLeft,
-                      child: Text(
-                        cat['title'] as String,
-                        style: GoogleFonts.outfit(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      right: -6,
-                      bottom: -6,
-                      child: Transform.rotate(
-                        angle: 0.25,
-                        child: Icon(
-                          cat['icon'] as IconData,
-                          size: 44,
-                          color: Colors.white.withOpacity(0.35),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
-
-        const SizedBox(height: 120),
-      ],
-    );
-  }
-
-  Widget _buildTopResultCard(Map<String, dynamic> top, List<Song> queue) {
-    final type = top['type']?.toString() ?? 'song';
-    final title = _unescape.convert(Song.sanitize(top['title']?.toString() ?? top['name']?.toString() ?? ''));
-    final artist = _unescape.convert(Song.sanitize(top['artist']?.toString() ?? top['subtitle']?.toString() ?? ''));
-    final cover = top['cover_url']?.toString() ?? top['image']?.toString() ?? '';
-    final isArtist = type.toLowerCase() == 'artist';
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceElevated,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.surfaceBorderHighlight),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(isArtist ? 38 : 12),
-                child: SizedBox(
-                  width: 76,
-                  height: 76,
-                  child: cover.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: cover,
-                          fit: BoxFit.cover,
-                          errorWidget: (_, __, ___) => Container(color: AppColors.surfaceDark),
-                        )
-                      : Container(
-                          color: AppColors.surfaceDark,
-                          child: Icon(
-                            isArtist ? Icons.person : Icons.music_note,
-                            color: Colors.white38,
-                            size: 32,
-                          ),
-                        ),
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: AppColors.neonViolet.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        isArtist ? 'ARTIST' : 'TOP RESULT',
-                        style: GoogleFonts.outfit(
-                          color: AppColors.neonViolet,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.8,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.outfit(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    if (artist.isNotEmpty && !isArtist)
-                      Text(
-                        artist,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.outfit(
-                          color: AppColors.textSecondary,
-                          fontSize: 13,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerRight,
-            child: isArtist
-                ? ElevatedButton.icon(
-                    onPressed: () {
-                      _recordSearchResultClick();
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => ArtistScreen(
-                            artistId: top['id']?.toString() ?? '',
-                            artistName: title,
-                            imageUrl: cover,
-                          ),
-                        ),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.neonViolet,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    ),
-                    icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-                    label: Text('View Artist', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
-                  )
-                : FloatingActionButton.small(
-                    heroTag: 'top_result_play',
-                    backgroundColor: AppColors.neonViolet,
-                    foregroundColor: Colors.white,
-                    elevation: 4,
-                    onPressed: () {
-                      final songToPlay = queue.isNotEmpty ? queue.first : null;
-                      _recordSearchResultClick(songToPlay);
-                      if (songToPlay != null) {
-                        audioHandler.playSong(songToPlay);
-                      }
-                    },
-                    child: const Icon(Icons.play_arrow_rounded, size: 28),
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAllResults(SearchResultsState state) {
-    if (state.songs.isEmpty && state.albums.isEmpty && state.artists.isEmpty && state.topResult == null) {
-      return Center(
-        child: Text(
-          'No results found for "${_searchController.text}"',
-          style: GoogleFonts.outfit(color: AppColors.textSecondary),
-        ),
-      );
-    }
-
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 120),
-      children: [
-        if (state.didYouMean != null)
-          Container(
-            margin: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: AppColors.neonViolet.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.neonViolet.withOpacity(0.3)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.help_outline_rounded, color: AppColors.neonViolet, size: 18),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: RichText(
-                    text: TextSpan(
-                      style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 13),
-                      children: [
-                        const TextSpan(text: 'Showing results. Did you mean: '),
-                        WidgetSpan(
-                          alignment: PlaceholderAlignment.middle,
-                          child: GestureDetector(
-                            onTap: () {
-                              _searchController.text = state.didYouMean!;
-                              _executeSearch(state.didYouMean!, saveHistory: true);
-                            },
-                            child: Text(
-                              _unescape.convert(Song.sanitize(state.didYouMean!)),
-                              style: GoogleFonts.outfit(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                decoration: TextDecoration.underline,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-        // Top Result Hero Card
-        if (state.topResult != null) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
-            child: Text(
-              'Top Result',
-              style: GoogleFonts.outfit(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
-            ),
-          ),
-          _buildTopResultCard(state.topResult!, state.songs),
-        ],
-
-        // Top Artists Row
-        if (state.artists.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 10),
-            child: Text(
-              'Artists',
-              style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ),
-          SizedBox(
-            height: 110,
-            child: ListView.separated(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              scrollDirection: Axis.horizontal,
-              itemCount: state.artists.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 14),
-              itemBuilder: (context, index) {
-                final art = state.artists[index];
-                final id = art['id']?.toString() ?? '';
-                final name = _unescape.convert(Song.sanitize(art['name']?.toString() ?? ''));
-                final img = art['image']?.toString() ?? '';
-
-                return GestureDetector(
-                  onTap: () {
-                    _recordSearchResultClick();
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ArtistScreen(
-                          artistId: id,
-                          artistName: name,
-                          imageUrl: img,
-                        ),
-                      ),
-                    );
-                  },
-                  child: Column(
-                    children: [
-                      CircleAvatar(
-                        radius: 34,
-                        backgroundColor: AppColors.surfaceElevated,
-                        backgroundImage: img.isNotEmpty ? CachedNetworkImageProvider(img) : null,
-                      ),
-                      const SizedBox(height: 6),
-                      SizedBox(
-                        width: 74,
-                        child: Text(
-                          name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.outfit(color: Colors.white70, fontSize: 11),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-
-        // Top Albums Row
-        if (state.albums.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
-            child: Text(
-              'Albums',
-              style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ),
-          SizedBox(
-            height: 160,
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              scrollDirection: Axis.horizontal,
-              itemCount: state.albums.length,
-              itemBuilder: (context, index) {
-                final album = state.albums[index];
-                final id = album['id']?.toString() ?? '';
-                final title = _unescape.convert(Song.sanitize(album['title']?.toString() ?? ''));
-                final img = album['image']?.toString() ?? '';
-
-                return GestureDetector(
-                  onTap: () {
-                    _recordSearchResultClick();
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => AlbumScreen(
-                          albumId: id,
-                          albumTitle: title,
-                          imageUrl: img,
-                        ),
-                      ),
-                    );
-                  },
-                  child: Container(
-                    width: 120,
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(14),
-                          child: SizedBox(
-                            width: 120,
-                            height: 120,
-                            child: CachedNetworkImage(
-                              imageUrl: img,
-                              fit: BoxFit.cover,
-                              errorWidget: (_, __, ___) => Container(color: AppColors.surfaceDark),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.outfit(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-
-        // Songs Header & List
-        if (state.songs.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
-            child: Text(
-              'Songs',
-              style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ),
-          ...state.songs.map((song) => _buildSongItem(song, state.songs)),
-        ],
-      ],
-    );
-  }
 
   Widget _buildSongsList(List<Song> songList) {
     if (songList.isEmpty) {
@@ -1292,399 +618,27 @@ class _SearchScreenState extends State<SearchScreen> {
       padding: const EdgeInsets.only(bottom: 120),
       itemCount: songList.length,
       itemBuilder: (context, index) {
-        return _buildSongItem(songList[index], songList);
-      },
-    );
-  }
-
-  Widget _buildSongItem(Song song, List<Song> queue) {
-    return ValueListenableBuilder<Song?>(
-      valueListenable: audioHandler.currentSongNotifier,
-      builder: (context, currentSong, _) {
-        final isPlaying = currentSong?.id == song.id;
-        final cleanTitle = _unescape.convert(Song.sanitize(song.title));
-        final cleanArtist = _unescape.convert(Song.sanitize(song.artist));
-
-        return ListTile(
+        final song = songList[index];
+        return SearchSongTile(
+          song: song,
           onTap: () {
-            // Save search term & record click-through for ranking feedback
             _recordSearchResultClick(song);
             audioHandler.playSong(song);
           },
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 3),
-          leading: Stack(
-            alignment: Alignment.center,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: SizedBox(
-                  width: 50,
-                  height: 50,
-                  child: CachedNetworkImage(
-                    imageUrl: song.coverUrl,
-                    fit: BoxFit.cover,
-                    errorWidget: (_, __, ___) => Container(color: AppColors.surfaceDark),
-                  ),
-                ),
-              ),
-              if (isPlaying)
-                Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.55),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(Icons.equalizer_rounded, color: AppColors.electricCyan, size: 24),
-                ),
-            ],
-          ),
-          title: Text(
-            cleanTitle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: GoogleFonts.outfit(
-              color: isPlaying ? AppColors.neonViolet : Colors.white,
-              fontWeight: isPlaying ? FontWeight.bold : FontWeight.w500,
-              fontSize: 14,
-            ),
-          ),
-          subtitle: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                margin: const EdgeInsets.only(right: 6),
-                decoration: BoxDecoration(
-                  color: song.source == 'youtube'
-                      ? AppColors.electricCyan.withOpacity(0.2)
-                      : AppColors.neonViolet.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  song.source == 'youtube' ? 'YT' : '320K',
-                  style: TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.bold,
-                    color: song.source == 'youtube' ? AppColors.electricCyan : AppColors.neonViolet,
-                  ),
-                ),
-              ),
-              if (song.versions.isNotEmpty)
-                GestureDetector(
-                  onTap: () => _showVersionsSheet(song),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                    margin: const EdgeInsets.only(right: 6),
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceElevated,
-                      border: Border.all(color: AppColors.surfaceBorderHighlight),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      '${song.versions.length + 1} ver',
-                      style: GoogleFonts.outfit(
-                        fontSize: 9,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white70,
-                      ),
-                    ),
-                  ),
-                ),
-              Expanded(
-                child: Text(
-                  cleanArtist,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 12),
-                ),
-              ),
-            ],
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ValueListenableBuilder<List<Song>>(
-                valueListenable: FavoritesManager.favoritesNotifier,
-                builder: (context, _, __) {
-                  final isFav = FavoritesManager.isFavorite(song.id);
-                  return IconButton(
-                    icon: Icon(
-                      isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                      size: 20,
-                      color: isFav ? AppColors.neonViolet : AppColors.textSecondary,
-                    ),
-                    onPressed: () => FavoritesManager.toggleFavorite(song),
-                  );
-                },
-              ),
-              IconButton(
-                icon: const Icon(Icons.more_vert_rounded, color: AppColors.textSecondary),
-                onPressed: () => _showSongOptions(song),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildAlbumsGrid(List<Map<String, dynamic>> albums) {
-    if (albums.isEmpty) {
-      return Center(
-        child: Text(
-          'No albums found for "${_searchController.text}"',
-          style: GoogleFonts.outfit(color: AppColors.textSecondary),
-        ),
-      );
-    }
-
-    return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: 0.78,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-      ),
-      itemCount: albums.length,
-      itemBuilder: (context, index) {
-        final album = albums[index];
-        final id = album['id']?.toString() ?? '';
-        final title = _unescape.convert(Song.sanitize(album['title']?.toString() ?? ''));
-        final artist = _unescape.convert(Song.sanitize(album['artist']?.toString() ?? ''));
-        final img = album['image']?.toString() ?? '';
-
-        return GestureDetector(
-          onTap: () {
-            _recordSearchResultClick();
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => AlbumScreen(
-                  albumId: id,
-                  albumTitle: title,
-                  imageUrl: img,
-                ),
-              ),
-            );
-          },
-          child: Container(
-            decoration: BoxDecoration(
-              color: AppColors.surfaceElevated,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            padding: const EdgeInsets.all(10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: CachedNetworkImage(
-                        imageUrl: img,
-                        fit: BoxFit.cover,
-                        errorWidget: (_, __, ___) => Container(color: AppColors.surfaceDark),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    if (album['type'] == 'Single' || album['is_single'] == true)
-                      Container(
-                        margin: const EdgeInsets.only(right: 6),
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          color: AppColors.electricCyan.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          'SINGLE',
-                          style: GoogleFonts.outfit(
-                            color: AppColors.electricCyan,
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    Expanded(
-                      child: Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.outfit(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ],
-                ),
-                Text(
-                  artist,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 11),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildArtistsList(List<Map<String, dynamic>> artists) {
-    if (artists.isEmpty) {
-      return Center(
-        child: Text(
-          'No artists found for "${_searchController.text}"',
-          style: GoogleFonts.outfit(color: AppColors.textSecondary),
-        ),
-      );
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.only(bottom: 120),
-      itemCount: artists.length,
-      itemBuilder: (context, index) {
-        final art = artists[index];
-        final id = art['id']?.toString() ?? '';
-        final name = _unescape.convert(Song.sanitize(art['name']?.toString() ?? ''));
-        final img = art['image']?.toString() ?? '';
-
-        return ListTile(
-          onTap: () {
-            _recordSearchResultClick();
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ArtistScreen(
-                  artistId: id,
-                  artistName: name,
-                  imageUrl: img,
-                ),
-              ),
-            );
-          },
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-          leading: CircleAvatar(
-            radius: 26,
-            backgroundColor: AppColors.surfaceElevated,
-            backgroundImage: img.isNotEmpty ? CachedNetworkImageProvider(img) : null,
-          ),
-          title: Text(
-            name,
-            style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-          ),
-          subtitle: Text('Artist', style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 12)),
-          trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: AppColors.textSecondary),
+          onShowOptions: () => _showSongOptions(song),
+          onShowVersions: song.versions.isNotEmpty ? () => _showVersionsSheet(song) : null,
         );
       },
     );
   }
 
   void _showVersionsSheet(Song primary) {
-    final allVersions = [primary, ...primary.versions];
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppColors.surfaceDark,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                  child: Text(
-                    'Available Versions',
-                    style: GoogleFonts.outfit(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
-                  child: Text(
-                    primary.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.outfit(
-                      color: AppColors.textSecondary,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-                const Divider(color: AppColors.surfaceBorder, height: 16),
-                Flexible(
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: allVersions.length,
-                    itemBuilder: (context, idx) {
-                      final v = allVersions[idx];
-                      return ListTile(
-                        leading: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: SizedBox(
-                            width: 44,
-                            height: 44,
-                            child: CachedNetworkImage(
-                              imageUrl: v.coverUrl,
-                              fit: BoxFit.cover,
-                              errorWidget: (_, __, ___) => Container(color: AppColors.surfaceElevated),
-                            ),
-                          ),
-                        ),
-                        title: Text(
-                          v.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.outfit(color: Colors.white, fontSize: 14),
-                        ),
-                        subtitle: Text(
-                          '${v.versionTag} • ${v.artist}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 12),
-                        ),
-                        trailing: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: v.source == 'youtube'
-                                ? AppColors.electricCyan.withOpacity(0.2)
-                                : AppColors.neonViolet.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            v.source == 'youtube' ? 'YT' : '320K',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              color: v.source == 'youtube' ? AppColors.electricCyan : AppColors.neonViolet,
-                            ),
-                          ),
-                        ),
-                        onTap: () {
-                          Navigator.pop(context);
-                          _recordSearchResultClick(v);
-                          audioHandler.playSong(v);
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
+    SearchVersionsSheet.show(
+      context,
+      primary,
+      onSelectSong: (v) {
+        _recordSearchResultClick(v);
+        audioHandler.playSong(v);
       },
     );
   }

@@ -8,6 +8,7 @@ import '../models/song.dart';
 import 'player_handler.dart';
 import 'settings_manager.dart';
 import 'supabase_service.dart';
+import 'app_logger.dart';
 
 enum PartyRole { none, host, joiner }
 
@@ -425,7 +426,9 @@ class PartySyncCoordinator {
     if (_partyChannel != null) {
       try {
         SupabaseService.client?.removeChannel(_partyChannel!);
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.log('PartySyncCoordinator', 'Remove channel notice: $e');
+      }
       _partyChannel = null;
     }
 

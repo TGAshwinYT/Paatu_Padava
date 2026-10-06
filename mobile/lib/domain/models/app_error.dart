@@ -118,6 +118,18 @@ class AppError {
     );
   }
 
+  /// Factory helper for internal system or uninitialized state errors
+  factory AppError.internal(String message, {String code = 'ERR_INTERNAL', String? debugDetails}) {
+    return AppError(
+      category: AppErrorCategory.unknown,
+      userMessage: message,
+      actionLabel: 'OK',
+      actionType: AppActionType.none,
+      errorCode: code,
+      debugDetails: debugDetails,
+    );
+  }
+
   @override
   String toString() => 'AppError($errorCode: $userMessage)';
 }

@@ -1,7 +1,7 @@
 # 📋 Paatu Padava — Architecture & Status Summary
-**Project:** Paatu Padava (பாட்டு பாடவா) — v2.0.0  
-**Last Updated:** October 4, 2026  
-**Status:** Phase 0 (Security & Cleanup) Complete — All 106 tests pass, 0 analyzer issues
+**Project:** Paatu Padava (பாட்டு பாடவா) — v2.1.0  
+**Last Updated:** October 6, 2026  
+**Status:** Phase 0 & Phase 1 Complete — 3-Tier Queue, Autoplay Engine, 132/132 Flutter tests pass, 32/32 Backend tests pass, 0 analyzer issues
 
 ---
 
@@ -24,7 +24,7 @@
 
 | Layer | Path | Role |
 |---|---|---|
-| **Mobile App** | `mobile/` | Flutter player with background audio, offline downloads, smart shuffle |
+| **Mobile App** | `mobile/` | Flutter player with background audio, 3-tier queue, endless autoplay, smart shuffle |
 | **Backend API** | `backend-data-hf/` | Python FastAPI on HuggingFace Spaces — search, recommendations, yt-dlp |
 | **Cloud DB** | Supabase | User auth, history, playlists, favorites sync |
 | **React Web** | `archive/frontend-react/` | **Archived** — superseded by mobile-first approach |
@@ -36,11 +36,9 @@
 | Metric | Value |
 |---|---|
 | `flutter analyze` | **0 issues** |
-| `flutter test` | **106/106 passed** |
-| `python -m unittest discover -s backend-data-hf/tests` | **32/32 passed** |
-| Unused dependencies removed | `flutter_lyric`, `intl`, `permission_handler` |
-| Dead code files deleted | `discord_rpc_service.dart`, `catalog_repository.dart` |
-| Dead methods deleted | `reRankSongs`, `buildLanguageBiasedQuery`, `playSongRadio`, `addSong` (alias), `clearLocal` |
+| `flutter test` | **132/132 passed (100%)** |
+| `python -m unittest discover -s tests` | **32/32 passed (100%)** |
+| Total Tests | **164/164 passed (100%)** |
 
 ---
 
@@ -83,12 +81,11 @@ Defined in `.antigravity/agents.json`:
 
 ---
 
-## 5. Remaining Work (Future Phases)
+## 5. Recent Completed Milestones
 
-Phases 0D and 1+ are defined in the user's original issue list and not yet started:
-- **Phase 0D**: Accurate, specific error messages (search, player, lyrics, home feed, downloads)
-- **Phase 1**: Queue/playback alignment fixes (the original index drift bugs)
-- **Phase 2+**: Feature work TBD
+- **Phase 0D Complete**: Accurate, specific error messages and AppError domain models across search, player, lyrics, home feed, and downloads.
+- **Phase 1 Complete**: Spotify & Echo-Music-inspired 3-tier queue architecture (Now Playing, User Queue Stack, Up Next / Autoplay Context), endless autoplay refills, 50-track Song Radio, 3-state Smart Shuffle, OEM background stability, and dual-ingestion mutex lock.
+- **Phase 2 Complete**: Modular presentation layer refactor across widgets (`home/`, `player/`, `search/`, `settings/`, `library/`, `lyrics/`, `recap/`).
 
 ---
 

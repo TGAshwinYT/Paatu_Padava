@@ -66,6 +66,7 @@ class HomeFeedState {
 }
 
 /// Unified Home Feed provider orchestrating JioSaavn, YouTube Music, and User Taste recommendations.
+/// Documented as an app-lifetime singleton initialized once on startup.
 class HomeFeedProvider extends ChangeNotifier {
   static final HomeFeedProvider instance = HomeFeedProvider._internal();
   factory HomeFeedProvider() => instance;
@@ -76,13 +77,26 @@ class HomeFeedProvider extends ChangeNotifier {
 
   String _currentLanguage = 'Tamil';
   String get currentLanguage => _currentLanguage;
+  bool _isInitialized = false;
 
   Future<void> init() async {
+    if (_isInitialized) return;
+    _isInitialized = true;
     _resolveCurrentLanguage();
     // Dynamically react whenever user finishes onboarding or changes preferences
     AuthManager.authNotifier.addListener(_onPreferencesChanged);
     SettingsManager.languagesNotifier.addListener(_onPreferencesChanged);
     await loadFeed();
+  }
+
+  @override
+  void dispose() {
+    if (_isInitialized) {
+      AuthManager.authNotifier.removeListener(_onPreferencesChanged);
+      SettingsManager.languagesNotifier.removeListener(_onPreferencesChanged);
+      _isInitialized = false;
+    }
+    super.dispose();
   }
 
   void _resolveCurrentLanguage() {

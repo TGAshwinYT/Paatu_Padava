@@ -102,7 +102,7 @@ class _FluidMeshGradientState extends State<FluidMeshGradient> with SingleTicker
 
       if (vibrantList.length >= 2) {
         while (vibrantList.length < 4) {
-          vibrantList.add(vibrantList.first.withOpacity(0.8));
+          vibrantList.add(vibrantList.first.withValues(alpha: 0.8));
         }
         _paletteCache[url] = vibrantList.take(4).toList();
         if (mounted) {
@@ -159,9 +159,9 @@ class _FluidMeshGradientState extends State<FluidMeshGradient> with SingleTicker
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  const Color(0xFF0A0E1A).withOpacity(0.40),
+                  const Color(0xFF0A0E1A).withValues(alpha: 0.40),
                   Colors.transparent,
-                  const Color(0xFF0A0E1A).withOpacity(0.85),
+                  const Color(0xFF0A0E1A).withValues(alpha: 0.85),
                 ],
                 stops: const [0.0, 0.45, 1.0],
               ),
@@ -191,10 +191,10 @@ class _FluidMeshPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (colors.isEmpty) return;
 
-    final c1 = colors[0].withOpacity(opacity);
-    final c2 = colors.length > 1 ? colors[1].withOpacity(opacity * 0.9) : c1;
-    final c3 = colors.length > 2 ? colors[2].withOpacity(opacity * 0.85) : c2;
-    final c4 = colors.length > 3 ? colors[3].withOpacity(opacity * 0.8) : c1;
+    final c1 = colors[0].withValues(alpha: opacity);
+    final c2 = colors.length > 1 ? colors[1].withValues(alpha: opacity * 0.9) : c1;
+    final c3 = colors.length > 2 ? colors[2].withValues(alpha: opacity * 0.85) : c2;
+    final c4 = colors.length > 3 ? colors[3].withValues(alpha: opacity * 0.8) : c1;
 
     // Harmonic sinusoidal displacement trajectories
     final p1 = Offset(
@@ -231,7 +231,7 @@ class _FluidMeshPainter extends CustomPainter {
   void _drawRadialBlob(Canvas canvas, Offset center, double radius, Color color) {
     final paint = Paint()
       ..shader = RadialGradient(
-        colors: [color, color.withOpacity(0.0)],
+        colors: [color, color.withValues(alpha: 0.0)],
         stops: const [0.0, 1.0],
       ).createShader(Rect.fromCircle(center: center, radius: radius));
 

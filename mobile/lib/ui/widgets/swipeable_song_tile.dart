@@ -36,8 +36,8 @@ class SwipeableSongTile extends StatelessWidget {
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              const Color(0xFF6366F1).withOpacity(0.85),
-              const Color(0xFF8B5CF6).withOpacity(0.50),
+              const Color(0xFF6366F1).withValues(alpha: 0.85),
+              const Color(0xFF8B5CF6).withValues(alpha: 0.50),
             ],
           ),
         ),
@@ -57,7 +57,7 @@ class SwipeableSongTile extends StatelessWidget {
           ? Container(
               alignment: Alignment.centerRight,
               padding: const EdgeInsets.symmetric(horizontal: 24),
-              color: Colors.redAccent.withOpacity(0.85),
+              color: Colors.redAccent.withValues(alpha: 0.85),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [

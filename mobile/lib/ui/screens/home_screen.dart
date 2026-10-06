@@ -4,24 +4,23 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:html_unescape/html_unescape.dart';
 import '../../models/song.dart';
 import '../../services/player_handler.dart';
-import '../../services/download_manager.dart';
-import '../../services/favorites_manager.dart';
 import '../../services/auth_manager.dart';
 import '../../services/history_manager.dart';
 import '../../logic/home_feed_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/spotify_import_dialog.dart';
-import '../widgets/auth_dialog.dart';
-import '../widgets/add_to_playlist_dialog.dart';
 import '../widgets/sync_status_indicator.dart';
+import '../widgets/account_bar_button.dart';
+import '../widgets/home/home_song_card.dart';
+import '../widgets/home/home_song_tile.dart';
+import '../widgets/home/guest_mode_banner.dart';
+import '../widgets/home/home_error_view.dart';
+import '../widgets/home/home_shortcut_tile.dart';
 import 'artist_screen.dart';
 import 'album_screen.dart';
 import 'settings_screen.dart';
 import 'liked_songs_screen.dart';
 import 'history_screen.dart';
-import 'library_screen.dart';
-import '../../domain/models/app_error.dart';
-import '../widgets/account_bar_button.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -45,150 +44,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (hour < 12) return 'Good morning';
     if (hour < 17) return 'Good afternoon';
     return 'Good evening';
-  }
-
-  Widget _buildShortcutTile({
-    required String title,
-    required IconData icon,
-    required Color iconColor,
-    required List<Color> gradient,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        height: 52,
-        decoration: BoxDecoration(
-          color: AppColors.surfaceElevated,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.surfaceBorder),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: gradient,
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
-              ),
-              child: Icon(icon, color: iconColor, size: 24),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.outfit(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHomeErrorView(AppError error) {
-    final isOffline = error.category == AppErrorCategory.offline;
-    final isServerWaking = error.category == AppErrorCategory.serverWaking;
-
-    final IconData icon = isOffline
-        ? Icons.wifi_off_rounded
-        : (isServerWaking ? Icons.cloud_sync_rounded : Icons.cloud_off_rounded);
-
-    final String title = isOffline
-        ? "You're Offline"
-        : (isServerWaking ? "Server Is Waking Up" : "Couldn't Load Music Feed");
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(22),
-              decoration: BoxDecoration(
-                color: AppColors.surfaceElevated,
-                shape: BoxShape.circle,
-                border: Border.all(color: AppColors.surfaceBorder),
-              ),
-              child: Icon(icon, size: 48, color: AppColors.electricCyan),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              title,
-              style: GoogleFonts.outfit(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              error.userMessage,
-              style: GoogleFonts.outfit(
-                color: AppColors.textSecondary,
-                fontSize: 14,
-                height: 1.4,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (isOffline) ...[
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.download_done_rounded, size: 18, color: AppColors.electricCyan),
-                    label: Text(
-                      'Open Downloads',
-                      style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w600),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: AppColors.electricCyan),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    ),
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const LibraryScreen()),
-                      );
-                    },
-                  ),
-                  const SizedBox(width: 12),
-                ],
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.refresh_rounded, size: 18, color: Colors.white),
-                  label: Text(
-                    'Retry',
-                    style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.neonViolet,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                  ),
-                  onPressed: () => HomeFeedProvider.instance.loadFeed(forceRefresh: true),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   @override
@@ -228,12 +83,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: AppColors.neonViolet.withOpacity(0.4),
+                                      color: AppColors.neonViolet.withValues(alpha: 0.4),
                                       blurRadius: 16,
                                       offset: const Offset(0, 4),
                                     ),
                                     BoxShadow(
-                                      color: AppColors.electricCyan.withOpacity(0.2),
+                                      color: AppColors.electricCyan.withValues(alpha: 0.2),
                                       blurRadius: 10,
                                       offset: const Offset(0, 2),
                                     ),
@@ -313,7 +168,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       valueListenable: AuthManager.authNotifier,
                       builder: (context, user, _) {
                         if (user == null || user.isGuest) {
-                          return const _GuestModeBanner();
+                          return const GuestModeBanner();
                         }
                         return const SizedBox.shrink();
                       },
@@ -353,7 +208,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           Row(
                             children: [
                               Expanded(
-                                child: _buildShortcutTile(
+                                child: HomeShortcutTile(
                                   title: 'Liked Songs',
                                   icon: Icons.favorite_rounded,
                                   iconColor: Colors.white,
@@ -368,13 +223,12 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               const SizedBox(width: 10),
                               Expanded(
-                                child: _buildShortcutTile(
+                                child: HomeShortcutTile(
                                   title: 'Recently Played',
                                   icon: Icons.history_rounded,
                                   iconColor: Colors.white,
                                   gradient: const [Color(0xFF0E7490), AppColors.electricCyan],
                                   onTap: () {
-                                    // CRITICAL FIX: Push to HistoryScreen() instead of auto-playing track
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(builder: (_) => const HistoryScreen()),
@@ -388,7 +242,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           Row(
                             children: [
                               Expanded(
-                                child: _buildShortcutTile(
+                                child: HomeShortcutTile(
                                   title: 'Made For You',
                                   icon: Icons.auto_awesome_rounded,
                                   iconColor: Colors.white,
@@ -406,7 +260,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               const SizedBox(width: 10),
                               Expanded(
-                                child: _buildShortcutTile(
+                                child: HomeShortcutTile(
                                   title: 'Import Spotify',
                                   icon: Icons.album_rounded,
                                   iconColor: Colors.white,
@@ -466,7 +320,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   else if (feedState.appError != null && feedState.isEmpty)
                     SliverFillRemaining(
                       hasScrollBody: false,
-                      child: _buildHomeErrorView(feedState.appError!),
+                      child: HomeErrorView(
+                        error: feedState.appError!,
+                        onRetry: () => HomeFeedProvider.instance.loadFeed(forceRefresh: true),
+                      ),
                     )
                   else ...[
                     // "Jump Back In" (Recent History Carousel if available)
@@ -518,7 +375,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   itemCount: displayHistory.length,
                                   itemBuilder: (context, index) {
                                     final song = displayHistory[index];
-                                    return _SongCard(
+                                    return HomeSongCard(
                                       song: song,
                                       width: cardWidth,
                                       onTap: () => audioHandler.playSong(song, queue: displayHistory),
@@ -567,7 +424,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             itemCount: feedState.madeForYou.length,
                             itemBuilder: (context, index) {
                               final song = feedState.madeForYou[index];
-                              return _SongCard(
+                              return HomeSongCard(
                                 song: song,
                                 width: cardWidth,
                                 onTap: () => audioHandler.playSong(song, queue: feedState.madeForYou),
@@ -613,7 +470,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             itemCount: feedState.trendingMerged.length,
                             itemBuilder: (context, index) {
                               final song = feedState.trendingMerged[index];
-                              return _SongCard(
+                              return HomeSongCard(
                                 song: song,
                                 width: cardWidth,
                                 onTap: () => audioHandler.playSong(song, queue: feedState.trendingMerged),
@@ -669,7 +526,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                       decoration: BoxDecoration(
                                         shape: BoxShape.circle,
                                         border: Border.all(
-                                          color: AppColors.neonViolet.withOpacity(0.4),
+                                          color: AppColors.neonViolet.withValues(alpha: 0.4),
                                           width: 1.5,
                                         ),
                                       ),
@@ -734,7 +591,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             itemCount: feedState.newReleases.length,
                             itemBuilder: (context, index) {
                               final song = feedState.newReleases[index];
-                              return _SongCard(
+                              return HomeSongCard(
                                 song: song,
                                 width: cardWidth,
                                 onTap: () => audioHandler.playSong(song, queue: feedState.newReleases),
@@ -839,7 +696,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         delegate: SliverChildBuilderDelegate(
                           (context, index) {
                             final song = feedState.trendingMerged[index];
-                            return _SongTile(
+                            return HomeSongTile(
                               song: song,
                               onTap: () => audioHandler.playSong(song, queue: feedState.trendingMerged),
                             );
@@ -860,309 +717,3 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
-
-void _showSongContextMenu(BuildContext context, Song song) {
-  final unescape = HtmlUnescape();
-  final cleanTitle = unescape.convert(Song.sanitize(song.title));
-
-  showModalBottomSheet(
-    context: context,
-    backgroundColor: AppColors.surfaceElevated,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
-    builder: (context) => SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(
-            leading: const Icon(Icons.playlist_play_rounded, color: AppColors.neonViolet),
-            title: const Text('Play Next', style: TextStyle(color: Colors.white)),
-            onTap: () {
-              audioHandler.insertNext(song);
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Playing "$cleanTitle" next')),
-              );
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.queue_music_rounded, color: Colors.white70),
-            title: const Text('Add to Queue', style: TextStyle(color: Colors.white)),
-            onTap: () {
-              audioHandler.addToQueue(song);
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Added "$cleanTitle" to queue')),
-              );
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.playlist_add_rounded, color: AppColors.electricCyan),
-            title: const Text('Add to Playlist', style: TextStyle(color: Colors.white)),
-            onTap: () {
-              Navigator.pop(context);
-              AddToPlaylistDialog.show(context, song);
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.download_rounded, color: AppColors.electricCyan),
-            title: const Text('Download Offline', style: TextStyle(color: Colors.white)),
-            onTap: () {
-              DownloadManager.downloadSong(song);
-              Navigator.pop(context);
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.favorite_border_rounded, color: AppColors.neonViolet),
-            title: const Text('Like / Favorite', style: TextStyle(color: Colors.white)),
-            onTap: () {
-              FavoritesManager.toggleFavorite(song);
-              Navigator.pop(context);
-            },
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-class _SongCard extends StatelessWidget {
-  final Song song;
-  final VoidCallback onTap;
-  final double? width;
-  static final HtmlUnescape _unescape = HtmlUnescape();
-
-  const _SongCard({required this.song, required this.onTap, this.width});
-
-  @override
-  Widget build(BuildContext context) {
-    final cleanTitle = _unescape.convert(Song.sanitize(song.title));
-    final cleanArtist = _unescape.convert(Song.sanitize(song.artist));
-    final cardWidth = width ?? (MediaQuery.of(context).size.width * 0.36).clamp(130.0, 180.0);
-
-    return GestureDetector(
-      onTap: onTap,
-      onLongPress: () => _showSongContextMenu(context, song),
-      child: Container(
-        width: cardWidth,
-        margin: const EdgeInsets.symmetric(horizontal: 6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Stack(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: SizedBox(
-                    width: cardWidth,
-                    height: cardWidth,
-                    child: CachedNetworkImage(
-                      imageUrl: song.coverUrl,
-                      fit: BoxFit.cover,
-                      errorWidget: (_, __, ___) => Container(color: AppColors.surfaceElevated),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  bottom: 8,
-                  right: 8,
-                  child: Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      gradient: AppColors.neonGradient,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.neonViolet.withOpacity(0.5),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 20),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              cleanTitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
-            ),
-            Text(
-              cleanArtist,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 11),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SongTile extends StatelessWidget {
-  final Song song;
-  final VoidCallback onTap;
-  static final HtmlUnescape _unescape = HtmlUnescape();
-
-  const _SongTile({required this.song, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final cleanTitle = _unescape.convert(Song.sanitize(song.title));
-    final cleanArtist = _unescape.convert(Song.sanitize(song.artist));
-
-    return ValueListenableBuilder<Song?>(
-      valueListenable: audioHandler.currentSongNotifier,
-      builder: (context, currentSong, _) {
-        final isPlaying = currentSong?.id == song.id;
-
-        return ListTile(
-          onTap: onTap,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 3),
-          leading: Stack(
-            alignment: Alignment.center,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: SizedBox(
-                  width: 50,
-                  height: 50,
-                  child: CachedNetworkImage(
-                    imageUrl: song.coverUrl,
-                    fit: BoxFit.cover,
-                    errorWidget: (_, __, ___) => Container(color: AppColors.surfaceElevated),
-                  ),
-                ),
-              ),
-              if (isPlaying)
-                Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.55),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(Icons.equalizer_rounded, color: AppColors.electricCyan, size: 24),
-                ),
-            ],
-          ),
-          title: Text(
-            cleanTitle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: GoogleFonts.outfit(
-              color: isPlaying ? AppColors.neonViolet : Colors.white,
-              fontWeight: isPlaying ? FontWeight.bold : FontWeight.w500,
-              fontSize: 14,
-            ),
-          ),
-          subtitle: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                margin: const EdgeInsets.only(right: 6),
-                decoration: BoxDecoration(
-                  color: song.source == 'youtube'
-                      ? AppColors.electricCyan.withOpacity(0.2)
-                      : AppColors.neonViolet.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  song.source == 'youtube' ? 'YT' : '320K',
-                  style: TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.bold,
-                    color: song.source == 'youtube' ? AppColors.electricCyan : AppColors.neonViolet,
-                  ),
-                ),
-              ),
-              Expanded(
-                child: Text(
-                  cleanArtist,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 12),
-                ),
-              ),
-            ],
-          ),
-          trailing: IconButton(
-            icon: const Icon(Icons.more_vert_rounded, color: AppColors.textSecondary),
-            onPressed: () => _showSongContextMenu(context, song),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _GuestModeBanner extends StatelessWidget {
-  const _GuestModeBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceElevated,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: AppColors.neonViolet.withOpacity(0.35),
-          width: 1,
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: AppColors.neonViolet.withOpacity(0.15),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.cloud_off_rounded, color: AppColors.neonViolet, size: 16),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Guest Mode (Offline)',
-                  style: GoogleFonts.outfit(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  'Sign in to sync your playlists and favorites across devices',
-                  style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 11),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          ElevatedButton(
-            onPressed: () => AuthDialog.show(context),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.neonViolet,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              elevation: 0,
-            ),
-            child: Text(
-              'Sign In',
-              style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.bold),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-

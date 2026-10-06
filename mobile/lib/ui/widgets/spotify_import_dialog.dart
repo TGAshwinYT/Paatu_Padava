@@ -258,7 +258,7 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: const Color(0xFF1DB954).withOpacity(0.15),
+                color: const Color(0xFF1DB954).withValues(alpha: 0.15),
                 shape: BoxShape.circle,
               ),
               child: const Icon(
@@ -457,7 +457,7 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1DB954).withOpacity(0.2),
+                    color: const Color(0xFF1DB954).withValues(alpha: 0.2),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
@@ -524,9 +524,9 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF1DB954).withOpacity(0.2),
+                            color: const Color(0xFF1DB954).withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: const Color(0xFF1DB954).withOpacity(0.4)),
+                            border: Border.all(color: const Color(0xFF1DB954).withValues(alpha: 0.4)),
                           ),
                           child: Text(
                             '${(_progressFraction * 100).toInt()}%',
@@ -611,9 +611,9 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF10B981).withOpacity(0.12),
+                              color: const Color(0xFF10B981).withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: const Color(0xFF10B981).withOpacity(0.3)),
+                              border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
                             ),
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -637,9 +637,9 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFEF4444).withOpacity(0.12),
+                              color: const Color(0xFFEF4444).withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: const Color(0xFFEF4444).withOpacity(0.3)),
+                              border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.3)),
                             ),
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,

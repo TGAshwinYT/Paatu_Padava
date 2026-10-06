@@ -5,6 +5,7 @@ import '../services/api_client.dart';
 import '../services/radio_engine.dart';
 import '../services/saavn_client.dart';
 import '../services/settings_manager.dart';
+import '../services/youtube_client.dart';
 
 abstract class NextTrackStrategy {
   String get id;
@@ -19,8 +20,8 @@ abstract class NextTrackStrategy {
   });
 }
 
-/// Spotify-style: Cohesive seed-based collaborative filtering, audio cluster similarity,
-/// strict artist diversity caps, and gentle transition curves.
+/// Spotify-style: Cohesive seed-based collaborative filtering, same-soundtrack OST tracks,
+/// composer hit clusters, strict language lockdown, and anti-cross-language dub deduplication.
 class SpotifyStyleStrategy implements NextTrackStrategy {
   @override
   String get id => 'spotify_style';
@@ -40,23 +41,32 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
   }) async {
     try {
       final prefLangs = SettingsManager.preferredLanguages;
-      final primaryLang = prefLangs.firstOrNull ?? 'tamil';
+      final targetLang = (seedSong.language != null && seedSong.language!.isNotEmpty)
+          ? seedSong.language!.toLowerCase()
+          : (prefLangs.firstOrNull ?? 'tamil').toLowerCase();
 
-      // 1. Fetch from collaborative filtering backend + JioSaavn related tracks
+      // 1. Fetch from multi-tier Spotify-style cohesive sources concurrently
       final List<Future<List<Song>>> futures = [
+        // Source A: Backend Machine Learning Collaborative Recommender (Language Locked)
         ApiClient.fetchRecommendations(
           seedSong.id,
-          artist: seedSong.artist,
-          language: primaryLang,
+          artist: seedSong.primaryArtist,
+          language: targetLang,
         ),
-        SaavnClient.getRelatedSongs(seedSong.id, language: primaryLang),
-        SaavnClient.search('${seedSong.artist} hits', limit: count, language: primaryLang),
+        // Source B: Same Composer / Primary Artist Top Hits in Target Language
+        if (seedSong.primaryArtist.isNotEmpty && seedSong.primaryArtist.toLowerCase() != 'various artists')
+          SaavnClient.search('${seedSong.primaryArtist} $targetLang hits', limit: 12, language: targetLang),
+        // Source C: Same Movie Soundtrack / Album hit tracks
+        if (seedSong.album.isNotEmpty && seedSong.album.toLowerCase() != 'unknown album')
+          SaavnClient.search('${seedSong.album} $targetLang songs', limit: 8, language: targetLang),
+        // Source D: JioSaavn related tracks
+        SaavnClient.getRelatedSongs(seedSong.id, language: targetLang),
       ];
 
       final results = await Future.wait(futures);
       final List<Song> allCandidates = results.expand((x) => x).toList();
 
-      // Build exclusion set
+      // 2. Build strict exclusion set to eliminate repeat plays
       final Set<String> exclusions = {};
       for (final s in queue) {
         exclusions.add(s.id);
@@ -71,24 +81,69 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
 
       final Set<String> seenKeys = {};
       final List<Song> filtered = [];
+      final Map<String, int> artistCounts = {};
 
       for (final c in allCandidates) {
         if (c.title.trim().isEmpty) continue;
         final baseKey = c.canonicalBaseKey;
+
+        // 1. Basic ID & Canonical Title Exclusion
         if (exclusions.contains(c.id) || exclusions.contains(baseKey) || seenKeys.contains(baseKey)) {
           continue;
         }
 
-        // Check artist diversity in current selection (at most 1 per 3 tracks)
+        // 2. STRICT Language Isolation Gate:
+        // Never allow foreign/dubbed language tracks into a single-language radio stream
+        if (c.language != null && c.language!.isNotEmpty) {
+          final cLang = c.language!.toLowerCase().trim();
+          if (cLang != targetLang) {
+            continue;
+          }
+        }
+
+        // 3. STRICT Anti-Cross-Language Dub Check:
+        // Drop any candidate that is a dubbed release or identical musical recording of seedSong
+        if (c.isSameSongOrDub(seedSong)) {
+          continue;
+        }
+
+        // Check against active upcoming queue to prevent duplicate dubbed variants
+        if (queue.any((q) => c.isSameSongOrDub(q)) || filtered.any((f) => c.isSameSongOrDub(f))) {
+          continue;
+        }
+
+        // 4. Sliding Window Artist Diversity (max 2 songs per artist in suggestion pool)
         final cArtist = c.primaryArtist;
-        final recentWindow = filtered.length >= 3 ? filtered.sublist(filtered.length - 3) : filtered;
-        if (recentWindow.any((s) => s.primaryArtist == cArtist)) {
+        final currentArtistCount = artistCounts[cArtist] ?? 0;
+        if (currentArtistCount >= 2) {
           continue;
         }
 
         seenKeys.add(baseKey);
-        filtered.add(c.copyWith(isSmartRecommended: true));
+        artistCounts[cArtist] = currentArtistCount + 1;
+        filtered.add(c.copyWith(isSmartRecommended: true, language: targetLang));
         if (filtered.length >= count) break;
+      }
+
+      // If pool is still small, fill with Regional Trending in target language
+      if (filtered.length < count) {
+        final trending = await SaavnClient.getTrending(language: targetLang);
+        for (final s in trending) {
+          final baseKey = s.canonicalBaseKey;
+          if (exclusions.contains(s.id) ||
+              exclusions.contains(baseKey) ||
+              seenKeys.contains(baseKey) ||
+              s.isSameSongOrDub(seedSong) ||
+              filtered.any((f) => s.isSameSongOrDub(f))) {
+            continue;
+          }
+          if (s.language != null && s.language!.isNotEmpty && s.language!.toLowerCase() != targetLang) {
+            continue;
+          }
+          seenKeys.add(baseKey);
+          filtered.add(s.copyWith(isSmartRecommended: true, language: targetLang));
+          if (filtered.length >= count) break;
+        }
       }
 
       return filtered;
@@ -99,8 +154,8 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
   }
 }
 
-/// YouTube Music-style: Radio-mix exploration, related video autoplay seeds,
-/// genre-adjacent discovery, and energetic variety.
+/// YouTube Music-style: Algorithmic related video autoplay queue from YouTubeExplode,
+/// genre-adjacent discovery, and strict anti-dub language consistency.
 class YtMusicStyleStrategy implements NextTrackStrategy {
   @override
   String get id => 'ytmusic_style';
@@ -120,12 +175,26 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
   }) async {
     try {
       final prefLangs = SettingsManager.preferredLanguages;
-      final primaryLang = prefLangs.firstOrNull ?? 'tamil';
+      final targetLang = (seedSong.language != null && seedSong.language!.isNotEmpty)
+          ? seedSong.language!.toLowerCase()
+          : (prefLangs.firstOrNull ?? 'tamil').toLowerCase();
 
-      // 1. First attempt native YouTube Music contextual radio mix
-      final radioTracks = await RadioEngine.buildSongRadio(seedSong);
+      // 1. Fetch native YouTube Music related autoplay tracks
+      final List<Song> candidatePool = [];
+      try {
+        final ytRelated = await YouTubeClient.getRelatedSongs(seedSong, limit: count * 2);
+        candidatePool.addAll(ytRelated);
+      } catch (e) {
+        debugPrint('[YtMusicStyleStrategy] YouTube related fetch notice: $e');
+      }
 
-      // 2. Build exclusions
+      // 2. Supplement with RadioEngine curated candidate pool if YouTube yielded few tracks
+      if (candidatePool.length < count) {
+        final radioTracks = await RadioEngine.buildSongRadio(seedSong, limit: count * 2);
+        candidatePool.addAll(radioTracks);
+      }
+
+      // 3. Build exclusions
       final Set<String> exclusions = {};
       for (final s in queue) {
         exclusions.add(s.id);
@@ -140,30 +209,53 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
 
       final Set<String> seenKeys = {};
       final List<Song> upcoming = [];
+      final Map<String, int> artistCounts = {};
 
-      for (final s in radioTracks) {
+      for (final s in candidatePool) {
         if (s.title.trim().isEmpty) continue;
         final baseKey = s.canonicalBaseKey;
         if (exclusions.contains(s.id) || exclusions.contains(baseKey) || seenKeys.contains(baseKey)) {
           continue;
         }
+
+        // Language check
+        if (s.language != null && s.language!.isNotEmpty) {
+          final sLang = s.language!.toLowerCase().trim();
+          if (sLang != targetLang) {
+            continue;
+          }
+        }
+
+        // Anti-cross-language dub check
+        if (s.isSameSongOrDub(seedSong)) {
+          continue;
+        }
+        if (queue.any((q) => s.isSameSongOrDub(q)) || upcoming.any((u) => s.isSameSongOrDub(u))) {
+          continue;
+        }
+
+        // Artist diversity
+        final artist = s.primaryArtist;
+        final countForArtist = artistCounts[artist] ?? 0;
+        if (countForArtist >= 2) {
+          continue;
+        }
+
         seenKeys.add(baseKey);
-        upcoming.add(s.copyWith(isSmartRecommended: true));
+        artistCounts[artist] = countForArtist + 1;
+        upcoming.add(s.copyWith(isSmartRecommended: true, language: targetLang));
         if (upcoming.length >= count) break;
       }
 
-      // If YouTube radio yielded fewer tracks, supplement with trending in user language
-      if (upcoming.length < count) {
-        final trending = await SaavnClient.getTrending(language: primaryLang);
-        for (final s in trending) {
-          final baseKey = s.canonicalBaseKey;
-          if (exclusions.contains(s.id) || exclusions.contains(baseKey) || seenKeys.contains(baseKey)) {
-            continue;
-          }
-          seenKeys.add(baseKey);
-          upcoming.add(s.copyWith(isSmartRecommended: true));
-          if (upcoming.length >= count) break;
-        }
+      // Fallback if still under target count: use SpotifyStyleStrategy
+      if (upcoming.isEmpty) {
+        final fallback = SpotifyStyleStrategy();
+        return await fallback.getUpcomingTracks(
+          seedSong: seedSong,
+          queue: queue,
+          history: history,
+          count: count,
+        );
       }
 
       return upcoming;

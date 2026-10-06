@@ -13,7 +13,10 @@ class EqualizerService {
   static int? get activeSessionId => _activeSessionId;
   static bool get isBound => _isBound;
 
-  /// Initializes equalizer service and binds to the player's Android Audio Session ID
+  static VoidCallback? _eqBandsListener;
+
+  /// Initializes equalizer service and binds to the player's Android Audio Session ID.
+  /// Documented as an app-lifetime singleton tied to the active audio player session.
   static void bindToPlayerSession(Stream<int?> sessionIdStream) {
     _sessionSub?.cancel();
     _sessionSub = sessionIdStream.listen((sessionId) {
@@ -23,10 +26,12 @@ class EqualizerService {
       }
     });
 
-    // Listen to SettingsManager band changes and propagate to native equalizer
-    SettingsManager.eqBandsNotifier.addListener(() {
-      applyCurrentBands();
-    });
+    if (_eqBandsListener == null) {
+      _eqBandsListener = () {
+        applyCurrentBands();
+      };
+      SettingsManager.eqBandsNotifier.addListener(_eqBandsListener!);
+    }
   }
 
   /// Sets the native AudioSessionId
@@ -91,6 +96,11 @@ class EqualizerService {
   /// Disposes listeners
   static void dispose() {
     _sessionSub?.cancel();
+    _sessionSub = null;
+    if (_eqBandsListener != null) {
+      SettingsManager.eqBandsNotifier.removeListener(_eqBandsListener!);
+      _eqBandsListener = null;
+    }
     try {
       _channel.invokeMethod('release');
     } catch (_) {}

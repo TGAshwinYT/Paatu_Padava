@@ -63,7 +63,7 @@ class BatchDownloadButton extends StatelessWidget {
                         value: progress > 0 ? progress : null,
                         strokeWidth: 2.5,
                         color: const Color(0xFF6366F1),
-                        backgroundColor: Colors.white.withOpacity(0.1),
+                        backgroundColor: Colors.white.withValues(alpha: 0.1),
                       ),
                     ),
                     IconButton(
@@ -77,10 +77,10 @@ class BatchDownloadButton extends StatelessWidget {
               return OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.white,
-                  side: BorderSide(color: const Color(0xFF6366F1).withOpacity(0.6)),
+                  side: BorderSide(color: const Color(0xFF6366F1).withValues(alpha: 0.6)),
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  backgroundColor: const Color(0xFF6366F1).withOpacity(0.12),
+                  backgroundColor: const Color(0xFF6366F1).withValues(alpha: 0.12),
                 ),
                 icon: SizedBox(
                   width: 16,
@@ -115,7 +115,7 @@ class BatchDownloadButton extends StatelessWidget {
             return OutlinedButton.icon(
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.white,
-                side: BorderSide(color: Colors.white.withOpacity(0.2)),
+                side: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               ),

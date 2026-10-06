@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import '../models/song.dart';
 import 'des_decrypt.dart';
+import 'app_logger.dart';
 
 class SaavnClient {
   static const String baseUrl = 'https://www.jiosaavn.com/api.php';
@@ -357,7 +358,8 @@ class SaavnClient {
         songs.add(_parseSongItem(Map<String, dynamic>.from(item)));
       }
       return songs;
-    } catch (_) {
+    } catch (e) {
+      AppLogger.log('SaavnClient', 'getTrendingSongs error: $e');
       return [];
     }
   }

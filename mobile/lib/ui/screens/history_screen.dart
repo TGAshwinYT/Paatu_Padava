@@ -290,7 +290,7 @@ class HistoryScreen extends StatelessWidget {
                               margin: const EdgeInsets.only(right: 6),
                               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                               decoration: BoxDecoration(
-                                color: AppColors.neonViolet.withOpacity(0.2),
+                                color: AppColors.neonViolet.withValues(alpha: 0.2),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: const Text(
@@ -307,7 +307,7 @@ class HistoryScreen extends StatelessWidget {
                               margin: const EdgeInsets.only(right: 6),
                               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                               decoration: BoxDecoration(
-                                color: AppColors.electricCyan.withOpacity(0.2),
+                                color: AppColors.electricCyan.withValues(alpha: 0.2),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: const Text(

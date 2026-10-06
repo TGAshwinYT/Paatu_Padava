@@ -10,6 +10,7 @@ import 'saavn_client.dart';
 import 'settings_manager.dart';
 import 'youtube_client.dart';
 import 'error_handler.dart';
+import 'app_logger.dart';
 
 class DownloadManager {
   static const String boxName = 'offline_songs';
@@ -333,11 +334,15 @@ class DownloadManager {
           if (file is File) {
             try {
               file.deleteSync();
-            } catch (_) {}
+            } catch (e) {
+              AppLogger.log('DownloadManager', 'Error deleting offline file ${file.path}: $e');
+            }
           }
         }
       }
-    } catch (_) {}
+    } catch (e, stack) {
+      AppLogger.recordError(e, stack, context: 'DownloadManager.clearAllDownloads');
+    }
 
     if (Hive.isBoxOpen(boxName)) {
       await _box.clear();

@@ -7,7 +7,7 @@ sdk: docker
 pinned: false
 ---
 
-# 🎵 Paatu Padava (பாட்டு பாடவா) — v2.0.0
+# 🎵 Paatu Padava (பாட்டு பாடவா) — v2.1.0
 
 [![Flutter](https://img.shields.io/badge/Flutter-v3.x-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
 [![Android](https://img.shields.io/badge/Android-SDK_36-3DDC84?logo=android&logoColor=white)](https://developer.android.com)
@@ -15,9 +15,9 @@ pinned: false
 [![Supabase](https://img.shields.io/badge/Supabase-Auth_%26_Cloud_DB-3ECF8E?logo=supabase&logoColor=white)](https://supabase.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Build APK](https://github.com/TGAshwinYT/Paatu_Padava/actions/workflows/build-apk.yml/badge.svg)](https://github.com/TGAshwinYT/Paatu_Padava/actions/workflows/build-apk.yml)
-[![Tests: 100% Green](https://img.shields.io/badge/Tests-110%20Flutter%20%7C%2032%20Backend%20Passing-brightgreen.svg)](#-engineering-metrics)
+[![Tests: 100% Green](https://img.shields.io/badge/Tests-132%20Flutter%20%7C%2032%20Backend%20Passing-brightgreen.svg)](#-engineering-metrics)
 
-> **Your Infinite Music Universe** — Studio-quality 320kbps audio streaming, dual-engine hybrid audio resolution, Clean Architecture domain pipelines, real-time collaborative playlists, Android Auto dashboard media browsing, seed-based Song Radio discovery, smart shuffle with playback feedback, gapless playback with 5-minute battery wakelock guards, Supabase cloud sync, and 100% offline playback.
+> **Your Infinite Music Universe** — Studio-quality 320kbps audio streaming, dual-engine hybrid audio resolution, Clean Architecture domain pipelines, Spotify/Echo-Music-inspired 3-tier queue management (Now Playing, User Queue Priority Stack, Dynamic Up Next/Autoplay), continuous endless playback with battery wakelock guards, 50-track seed-based Song Radio discovery, 3-state Markov Smart Shuffle with feedback learning, real-time collaborative playlists, Android Auto dashboard media browsing, Supabase cloud sync, and 100% offline downloads.
 
 ---
 
@@ -25,7 +25,7 @@ pinned: false
 
 **Paatu Padava** is a mobile-first music streaming app tailored for Indian regional and international music lovers:
 
-1. **Android Mobile App (`mobile/`)**: Native Flutter application built with Clean Architecture, background `AudioService`, gapless `ConcatenatingAudioSource`, Android Auto media hierarchy, real-time collaborative playlists, native Android AudioSession EQ, bidirectional Supabase playlist synchronization, smart shuffle with feedback learning, and advanced offline downloads.
+1. **Android Mobile App (`mobile/`)**: Native Flutter application built with Clean Architecture, background `AudioService`, gapless `ConcatenatingAudioSource`, 3-tier queue architecture modeled after Spotify and modern open-source players (Bloomee, Echo-Music), endless autoplay refill, Android Auto media hierarchy, real-time collaborative playlists, native Android AudioSession EQ, bidirectional Supabase playlist synchronization, 3-state smart shuffle with feedback learning, and advanced offline downloads.
 2. **Backend Service (`backend-data-hf/`)**: FastAPI + Python 3.13 service providing 320kbps DES media decryption, item-item collaborative filtering recommendation graphs, and sub-5ms prefix trie autocomplete.
 3. **AI MCP Server (`mcp_server.py`)**: Model Context Protocol interface enabling AI assistants (Claude Desktop, Gemini CLI, Antigravity IDE) to search tracks, fetch recommendations, and construct smart shuffle queues.
 
@@ -38,14 +38,15 @@ pinned: false
 │                                 PRESENTATION LAYER (UI)                                 │
 │  Home Feed  │  Fuzzy Search  │  Lyrics (Offset/Sync)  │  Queue Sheet  │  Recap Stories  │
 │  Fluid Mesh Gradients  │  Swipeable Song Tiles  │  Storage Breakdown & Download Manager │
+│  Modular Components: ui/widgets/{home, player, search, settings, library, lyrics, recap}│
 └────────────────────────────────────────────┬────────────────────────────────────────────┘
                                              │ Binds via Streams / ValueNotifiers
 ┌────────────────────────────────────────────▼────────────────────────────────────────────┐
 │                                APPLICATION & DOMAIN LAYER                               │
 │ ┌──────────────────────┐ ┌──────────────────────┐ ┌──────────────────┐ ┌──────────────┐ │
 │ │  AudioQueueHandler   │ │ SmartShuffleController│ │   SyncManager    │ │ RadioEngine  │ │
-│ │  (ConcatenatingSource│ │ (Feedback Learning,  │ │ (Bidirectional   │ │ (Graph-based │ │
-│ │   & Lazy Preloader)  │ │  Artist Diversity)   │ │  Supabase Sync)  │ │  Discovery)  │ │
+│ │  (3-Tier Queue, Lazy │ │ (3-State Markov,     │ │ (Bidirectional   │ │ (50-Track    │ │
+│ │   Preload, Autoplay) │ │  Feedback & Diversity│ │  Supabase Sync)  │ │  Song Radio) │ │
 │ └──────────────────────┘ └──────────────────────┘ └──────────────────┘ └──────────────┘ │
 │ ┌──────────────────────┐ ┌──────────────────────┐ ┌──────────────────┐ ┌──────────────┐ │
 │ │ CollaborativeService │ │  AndroidAutoService  │ │ConnectivityService│ │ RecapService │ │
@@ -67,12 +68,40 @@ pinned: false
 │ JioSaavn CDN  │ │ YouTube Ext. │        │ Supabase Cloud  │ │ Device Storage │
 │ (Direct 320k) │ │ (Innertube)  │        │ (Auth, Realtime,│ │ (Hive, Scoped  │
 │               │ │              │        │  Postgres RLS)  │ │  Storage, LRU) │
-└───────────────┘ └──────────────┘        └─────────────────┘ └────────────────┘
+└───┬───────────┘ └──────────────┘        └─────────────────┘ └────────────────┘
 ```
 
 ---
 
 ## ✨ Key Features & Capabilities
+
+### 🔀 3-Tier Queue & Continuous Autoplay Engine (Spotify & Echo-Music Architecture)
+- **3-Tier Queue Model**:
+  - **Now Playing**: Active track with instantaneous position and playback state synchronization.
+  - **User Priority Queue Stack**: Tracks explicitly queued by the user via swipe gestures or context menu actions (*"Play Next"*, *"Add to Queue"*) are prioritized as an immutable user stack. Background recommendation algorithms will **never** displace, clobber, or alter user-queued songs.
+  - **Dynamic Up Next / Context Tier**: Album, playlist, or recommendation context that naturally plays and replenishes in the background without disturbing user priority items.
+- **Continuous Endless Autoplay Engine**:
+  - Automatically activates when playback reaches the end of the queue (`ProcessingState.completed`).
+  - Fetches 6 context-aware similar tracks via `NextTrackStrategy` and continues seamless playback without pausing or tearing down the media session.
+  - Configurable toggle in *Settings > Audio & Playback Settings* (`SettingsManager.autoplayNotifier`).
+- **Thread-Safe Dual-Ingestion Mutex Lock**:
+  - Gated by `_isIngesting` mutex lock to prevent race conditions and duplicate track additions when tapping new songs while background auto-refill triggers.
+
+### 📻 Dynamic Song Radio & Contextual Mixes
+- **50-Track Seed Song Radio (`RadioEngine.buildSongRadio`)**: One-tap discovery modal available on Full Player Screen, Home Feed song cards, and Search option sheets. Constructs an expansive 50-track playlist balancing genre, tempo, artist affinity, and regional collaborative graphs.
+- **Dynamic 10-Track Queue Injection (`addRadioMix`)**: Instantly injects 10 fresh, musically related tracks into the active session directly from the queue bottom sheet or full player.
+
+### 🧠 3-State Markov Smart Shuffle & Feedback Learning
+- **3-State Shuffle Control**: Effortlessly cycles across **Off** (dimmed), **Standard Shuffle** (indigo), and **Smart Shuffle** (emerald green badge) with direct `shuffleModeNotifier` bindings.
+- **Strict Queue Isolation**: Mathematical Markov graph guarantees that only songs within the current target queue are reordered, eliminating rogue or foreign track injection.
+- **Real-Time Feedback Learning**: Skips (< 30 seconds) apply negative recommendation weights, while full listens (> 30 seconds) strengthen artist and genre affinity weights.
+- **Artist Diversity Cap**: Guarantees at most 1 song per artist within any 5 consecutive queue tracks.
+- **Anti-Repeat Guards**: Comprehensive exclusion set checking active queue, recent playback history, and user favorites.
+
+### 📱 Hardware Media Controls & OEM Background Reliability
+- **Full MediaSession Compliance**: Explicitly registers `play`, `pause`, `stop`, `skipToNext`, and `skipToPrevious` in `playbackState.systemActions` so Android Auto, OEM lock screens (OnePlus OxygenOS, Xiaomi HyperOS, Samsung One UI), and Bluetooth headset buttons remain 100% responsive.
+- **5-Minute Battery & Wakelock Guard**: Automatically deactivates `AudioSession`, closes idle network sockets, and tears down the foreground media notification when paused or idle for > 5 minutes to prevent battery drain.
+- **Fatal Error Recovery**: Dedicated recovery UI allows one-tap audio engine restart in the rare event of an unrecoverable platform channel fault.
 
 ### 🔍 Multi-Source Hybrid Catalog & Smart Search Pipeline
 - **Unified Domain Entity (`TrackEntity`)**: Canonical track entity with `deduplicationKey` and centralized `HtmlUnescape` string sanitization.
@@ -147,8 +176,9 @@ pinned: false
 | **Catalog Deduplication** | **Zero Redundant Tracks** | Normalized token keys (`${title}_${artist}`) across Saavn & YouTube |
 | **Search Latency (p95)** | **< 300 ms** | Parallel `Future.wait` aggregation + language match re-ranking |
 | **Collaborative Sync Latency** | **< 100 ms** | Supabase Realtime WebSocket subscription channels |
-| **Flutter Test Suite** | **110 / 110 Tests Passing (100%)** | Unit, widget, coordination, queue alignment, and gesture tests |
+| **Flutter Test Suite** | **132 / 132 Tests Passing (100%)** | Unit, widget, coordination, 3-tier queue resilience, and gesture tests |
 | **Backend Test Suite** | **32 / 32 Tests Passing (100%)** | API contracts, recommender graphs, security, and search tests |
+| **Total Test Suite** | **164 / 164 Tests Passing (100%)** | Comprehensive end-to-end verification across mobile and backend |
 | **Static Analysis** | **0 Errors, 0 Warnings** | Strictly enforced via `flutter analyze` |
 
 ---
@@ -417,7 +447,7 @@ flutter pub get
 # Analyze code (verifies 0 errors, 0 warnings)
 flutter analyze
 
-# Run unit and widget test suite (110 tests)
+# Run unit, widget, and queue resilience test suite (132 tests)
 flutter test
 
 # Run on connected Android device / emulator
@@ -480,23 +510,31 @@ To connect Paatu Padava to Claude Desktop or Antigravity IDE, add this configura
 
 ```
 Paatu_Paaduva/
-├── mobile/                           # Native Flutter Android Application (v2.0.0)
+├── mobile/                           # Native Flutter Android Application (v2.1.0)
 │   ├── lib/
-│   │   ├── core/                     # AppConfig (centralized backend URL)
+│   │   ├── core/                     # AppConfig (centralized backend URL, versioning)
 │   │   ├── domain/models/            # TrackEntity, AppError, LyricsState
 │   │   ├── data/repositories/        # SongRepository
-│   │   ├── logic/                    # AudioQueueHandler, SmartShuffleController,
-│   │   │                             # NextTrackStrategy, HomeFeedProvider
+│   │   ├── logic/                    # AudioQueueHandler (3-tier queue, lazy preloading),
+│   │   │                             # SmartShuffleController (Markov, 3-state, feedback),
+│   │   │                             # NextTrackStrategy (recommendation refills), HomeFeedProvider
 │   │   ├── services/                 # SyncManager, RadioEngine, UnifiedHttpClient,
 │   │   │                             # ConnectivityService, DownloadManager, CacheManager,
 │   │   │                             # EqualizerService, ErrorHandler, SpotifyImportService
 │   │   ├── ui/
-│   │   │   ├── screens/              # HomeScreen, SearchScreen, PlayerScreen, LibraryScreen,
+│   │   │   ├── screens/              # HomeScreen, SearchScreen, FullPlayerScreen, LibraryScreen,
 │   │   │   │                         # StorageSettingsScreen, ListeningRecapScreen, SettingsScreen
-│   │   │   └── widgets/              # FluidMeshGradient, SwipeableSongTile, MiniPlayer,
-│   │   │                             # BatchDownloadButton, AuthDialog
+│   │   │   └── widgets/              # Modular UI Component System:
+│   │   │       ├── home/             # HomeSongCard, HomePlaylistCard, HomeQuickPicks, etc.
+│   │   │       ├── player/           # PlayerControls, AudioVisualizer, PlayerMetadataHeader, etc.
+│   │   │       ├── search/           # SearchSongOptionsSheet, SearchResultsList, etc.
+│   │   │       ├── settings/         # AudioQualitySettingsCard, StorageSettingsCard, etc.
+│   │   │       ├── library/          # Playlist cards, download lists
+│   │   │       ├── lyrics/           # Synced lyrics rendering, offset pills
+│   │   │       ├── recap/            # Story slides, persona badges
+│   │   │       └── ...               # FluidMeshGradient, SwipeableSongTile, MiniPlayer
 │   │   └── main.dart                 # App Entrypoint, AudioService Init, Fatal Error Recovery
-│   ├── test/                         # 110 Comprehensive Unit & Widget Test Suites
+│   ├── test/                         # 132 Comprehensive Unit, Widget & Integration Test Suites
 │   └── android/                      # Android Gradle project (Java 17, SDK 36, Automotive XML)
 ├── backend-data-hf/                  # FastAPI Python 3.13 Data Service
 │   ├── services/                     # DES Decryption, Music Graph, Trie Autocomplete

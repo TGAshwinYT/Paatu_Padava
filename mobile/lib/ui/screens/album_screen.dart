@@ -95,7 +95,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
                           gradient: LinearGradient(
                             colors: [
                               Colors.transparent,
-                              const Color(0xFF0A0E1A).withOpacity(0.85),
+                              const Color(0xFF0A0E1A).withValues(alpha: 0.85),
                               const Color(0xFF0A0E1A),
                             ],
                             begin: Alignment.topCenter,
@@ -132,7 +132,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
                           OutlinedButton.icon(
                             style: OutlinedButton.styleFrom(
                               foregroundColor: Colors.white70,
-                              side: BorderSide(color: Colors.white.withOpacity(0.15)),
+                              side: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                             ),

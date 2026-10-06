@@ -13,6 +13,7 @@ class SettingsManager {
   static final ValueNotifier<String> streamingQualityNotifier = ValueNotifier<String>('320kbps');
   static final ValueNotifier<String> downloadQualityNotifier = ValueNotifier<String>('320kbps');
   static final ValueNotifier<bool> volumeNormalizationNotifier = ValueNotifier<bool>(true);
+  static final ValueNotifier<bool> autoplayNotifier = ValueNotifier<bool>(true);
   static final ValueNotifier<int> crossfadeDurationNotifier = ValueNotifier<int>(0);
   static final ValueNotifier<String> eqPresetNotifier = ValueNotifier<String>('flat');
   static final ValueNotifier<List<double>> eqBandsNotifier = ValueNotifier<List<double>>([0.0, 0.0, 0.0, 0.0, 0.0]);
@@ -25,6 +26,7 @@ class SettingsManager {
   static String get streamingQuality => streamingQualityNotifier.value;
   static String get downloadQuality => downloadQualityNotifier.value;
   static bool get isVolumeNormalizationEnabled => volumeNormalizationNotifier.value;
+  static bool get isAutoplayEnabled => autoplayNotifier.value;
   static int get crossfadeSeconds => crossfadeDurationNotifier.value;
   static String get eqPreset => eqPresetNotifier.value;
   static List<double> get eqBands => eqBandsNotifier.value;
@@ -61,6 +63,7 @@ class SettingsManager {
     streamingQualityNotifier.value = _box.get('streaming_quality', defaultValue: '320kbps') as String;
     downloadQualityNotifier.value = _box.get('download_quality', defaultValue: '320kbps') as String;
     volumeNormalizationNotifier.value = _box.get('volume_normalization', defaultValue: true) as bool;
+    autoplayNotifier.value = _box.get('autoplay', defaultValue: true) as bool;
     crossfadeDurationNotifier.value = (_box.get('crossfade_seconds', defaultValue: 0) as num).toInt();
     eqPresetNotifier.value = _box.get('eq_preset', defaultValue: 'flat') as String;
 
@@ -114,6 +117,11 @@ class SettingsManager {
   static Future<void> setVolumeNormalization(bool enabled) async {
     volumeNormalizationNotifier.value = enabled;
     await _box.put('volume_normalization', enabled);
+  }
+
+  static Future<void> setAutoplay(bool enabled) async {
+    autoplayNotifier.value = enabled;
+    await _box.put('autoplay', enabled);
   }
 
   static Future<void> setCrossfadeSeconds(int seconds) async {

@@ -4,6 +4,7 @@ import 'package:fuzzywuzzy/model/extracted_result.dart';
 import '../models/song.dart';
 import 'saavn_client.dart';
 import 'settings_manager.dart';
+import 'app_logger.dart';
 
 class FuzzyCorrectionResult {
   final String original;
@@ -148,7 +149,9 @@ class FuzzySearchService {
           );
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.log('FuzzySearchService', 'Fuzzy correction notice: $e');
+    }
 
     return null;
   }

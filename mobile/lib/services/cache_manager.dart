@@ -2,9 +2,11 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart' as fcm;
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'download_manager.dart';
 import 'settings_manager.dart';
+import 'app_logger.dart';
 
 class StorageBreakdown {
   final int offlineAudioBytes;
@@ -47,80 +49,100 @@ class CacheManager {
   static int get maxCacheSizeBytes => SettingsManager.maxCacheSizeMb * 1024 * 1024;
   static const int maxCacheAgeDays = 7;
 
-  /// Runs background cache audit and true LRU eviction without blocking the UI
-  static Future<void> autoEvictOldCache() async {
-    Future.microtask(() async {
-      try {
-        final tempDir = await getTemporaryDirectory();
-        if (!tempDir.existsSync()) return;
+  static DateTime? _lastEvictionTime;
 
-        final now = DateTime.now();
-        const maxAgeDuration = Duration(days: maxCacheAgeDays);
+  /// Runs background cache audit and true LRU eviction.
+  /// Throttled to run at most once every 24 hours, or immediately if [force] is true.
+  /// Strictly restricted to the audio cache folder to avoid touching other app assets.
+  static Future<void> autoEvictOldCache({bool force = false}) async {
+    final now = DateTime.now();
 
-        int totalSize = 0;
-        final List<MapEntry<File, FileStat>> fileStats = [];
-
-        // Restrict eviction strictly to audio cache (e.g. just_audio_cache or audio stream files)
-        // to avoid clobbering Flutter engine assets, shaders, or image caches.
-        final audioCacheDir = Directory('${tempDir.path}/just_audio_cache');
-        final List<FileSystemEntity> entities;
-        if (audioCacheDir.existsSync()) {
-          entities = audioCacheDir.listSync(recursive: true, followLinks: false);
-        } else {
-          entities = tempDir.listSync(recursive: true, followLinks: false).where((entity) {
-            final p = entity.path.toLowerCase();
-            return p.contains('just_audio') ||
-                p.contains('audio') ||
-                p.endsWith('.mp3') ||
-                p.endsWith('.m4a') ||
-                p.endsWith('.aac') ||
-                p.endsWith('.ogg') ||
-                p.endsWith('.opus');
-          }).toList();
-        }
-
-        for (final entity in entities) {
-          if (entity is File) {
-            try {
-              final stat = entity.statSync();
-              totalSize += stat.size;
-              fileStats.add(MapEntry(entity, stat));
-            } catch (_) {}
-          }
-        }
-
-        debugPrint('[CacheManager] Current cache size: ${(totalSize / (1024 * 1024)).toStringAsFixed(2)} MB (Limit: ${SettingsManager.maxCacheSizeMb} MB)');
-
-        // Check if eviction criteria is met: > limit or files older than 7 days
-        final bool exceedsLimit = totalSize > maxCacheSizeBytes;
-        final int targetReductionSize = (maxCacheSizeBytes * 0.75).round(); // Leave 25% headroom
-
-        // Sort files by modified date ascending (oldest first = true LRU)
-        fileStats.sort((a, b) => a.value.modified.compareTo(b.value.modified));
-
-        for (final entry in fileStats) {
-          final file = entry.key;
-          final stat = entry.value;
-          final age = now.difference(stat.modified);
-
-          // Delete if older than 7 days OR if overall cache exceeds limit
-          if (age > maxAgeDuration || (exceedsLimit && totalSize > targetReductionSize)) {
-            try {
-              file.deleteSync();
-              totalSize -= stat.size;
-              debugPrint('[CacheManager] LRU evicted stale cache file: ${file.path}');
-            } catch (_) {}
-          }
-
-          // If we were over the limit and now reduced below target, we can stop
-          if (exceedsLimit && totalSize <= targetReductionSize) {
-            break;
-          }
-        }
-      } catch (e) {
-        debugPrint('[CacheManager] Background eviction error: $e');
+    // Check throttle unless forced
+    if (!force) {
+      if (_lastEvictionTime != null && now.difference(_lastEvictionTime!).inHours < 24) {
+        return;
       }
-    });
+      try {
+        final box = Hive.isBoxOpen(SettingsManager.boxName) ? Hive.box(SettingsManager.boxName) : null;
+        final savedMs = box?.get('last_cache_eviction_ms') as int?;
+        if (savedMs != null) {
+          final savedTime = DateTime.fromMillisecondsSinceEpoch(savedMs);
+          if (now.difference(savedTime).inHours < 24) {
+            _lastEvictionTime = savedTime;
+            return;
+          }
+        }
+      } catch (_) {}
+    }
+
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final audioCacheDir = Directory('${tempDir.path}/just_audio_cache');
+      if (!audioCacheDir.existsSync()) {
+        _lastEvictionTime = now;
+        return;
+      }
+
+      const maxAgeDuration = Duration(days: maxCacheAgeDays);
+      int totalSize = 0;
+      final List<MapEntry<File, FileStat>> fileStats = [];
+
+      // Asynchronously inspect only the audio cache directory
+      await for (final entity in audioCacheDir.list(recursive: true, followLinks: false)) {
+        if (entity is File) {
+          try {
+            final stat = await entity.stat();
+            totalSize += stat.size;
+            fileStats.add(MapEntry(entity, stat));
+          } catch (_) {}
+        }
+      }
+
+      final exceedsLimit = totalSize > maxCacheSizeBytes;
+      AppLogger.log(
+        'CacheManager',
+        'Audio cache size: ${(totalSize / (1024 * 1024)).toStringAsFixed(2)} MB / ${SettingsManager.maxCacheSizeMb} MB limit (exceeds=$exceedsLimit)',
+      );
+
+      final int targetReductionSize = (maxCacheSizeBytes * 0.75).round();
+
+      // Sort files by modified date ascending (oldest first = true LRU)
+      fileStats.sort((a, b) => a.value.modified.compareTo(b.value.modified));
+
+      int evictedCount = 0;
+      for (final entry in fileStats) {
+        final file = entry.key;
+        final stat = entry.value;
+        final age = now.difference(stat.modified);
+
+        // Delete if older than 7 days OR if overall cache exceeds limit
+        if (age > maxAgeDuration || (exceedsLimit && totalSize > targetReductionSize)) {
+          try {
+            await file.delete();
+            totalSize -= stat.size;
+            evictedCount++;
+          } catch (_) {}
+        }
+
+        // If we reduced below target, stop
+        if (exceedsLimit && totalSize <= targetReductionSize) {
+          break;
+        }
+      }
+
+      _lastEvictionTime = now;
+      try {
+        if (Hive.isBoxOpen(SettingsManager.boxName)) {
+          await Hive.box(SettingsManager.boxName).put('last_cache_eviction_ms', now.millisecondsSinceEpoch);
+        }
+      } catch (_) {}
+
+      if (evictedCount > 0) {
+        AppLogger.log('CacheManager', 'Evicted $evictedCount stale/overflow audio cache files');
+      }
+    } catch (e, stack) {
+      AppLogger.recordError(e, stack, context: 'CacheManager.autoEvictOldCache');
+    }
   }
 
   /// Calculates a detailed breakdown of all storage used by the app

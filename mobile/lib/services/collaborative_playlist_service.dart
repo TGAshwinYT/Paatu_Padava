@@ -6,6 +6,7 @@ import '../domain/models/track_entity.dart';
 import '../models/song.dart';
 import 'playlist_manager.dart';
 import 'supabase_service.dart';
+import 'app_logger.dart';
 
 /// Real-time Collaborative Playlist Coordinator.
 /// Manages invite code generation, join flows, and live Supabase Realtime
@@ -104,7 +105,8 @@ class CollaborativePlaylistService {
           .select('id, user_id, title, cover_url, is_collaborative, invite_code, created_at, playlist_tracks(id, track_id, title, artist, artwork_url, stream_url, source_type, position, added_by)')
           .eq('invite_code', cleanCode)
           .limit(1);
-    } catch (_) {
+    } catch (e) {
+      AppLogger.log('CollaborativePlaylistService', 'Column added_by select fallback: $e');
       rows = await client
           .from('playlists')
           .select('id, user_id, title, cover_url, is_collaborative, invite_code, created_at, playlist_tracks(id, track_id, title, artist, artwork_url, stream_url, source_type, position)')
@@ -218,7 +220,8 @@ class CollaborativePlaylistService {
             .select('id, track_id, title, artist, artwork_url, stream_url, source_type, position, added_by')
             .eq('playlist_id', playlistId)
             .order('position', ascending: true);
-      } catch (_) {
+      } catch (e) {
+        AppLogger.log('CollaborativePlaylistService', 'playlist_tracks added_by select fallback: $e');
         trackRows = await client
             .from('playlist_tracks')
             .select('id, track_id, title, artist, artwork_url, stream_url, source_type, position')
@@ -258,6 +261,8 @@ class CollaborativePlaylistService {
     if (channel == null) return;
     try {
       SupabaseService.client?.removeChannel(channel);
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.log('CollaborativePlaylistService', 'Channel unsubscribe notice: $e');
+    }
   }
 }

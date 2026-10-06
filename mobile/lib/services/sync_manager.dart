@@ -9,6 +9,7 @@ import 'history_manager.dart';
 import 'playlist_manager.dart';
 import 'supabase_service.dart';
 import 'error_handler.dart';
+import 'app_logger.dart';
 
 enum SyncStatus { idle, syncing, synced, offline, error }
 
@@ -85,7 +86,8 @@ class SyncManager {
             .select('id, user_id, title, cover_url, is_collaborative, invite_code, created_at, playlist_tracks(id, track_id, title, artist, artwork_url, stream_url, source_type, added_at, position, added_by)')
             .eq('user_id', supaUser.id)
             .order('created_at', ascending: false);
-      } catch (_) {
+      } catch (e) {
+        AppLogger.log('SyncManager', 'Playlists added_by select fallback: $e');
         // Fallback for older schema without added_by column
         remotePlaylists = await client
             .from('playlists')

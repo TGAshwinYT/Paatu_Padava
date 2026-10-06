@@ -192,7 +192,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
       decoration: BoxDecoration(
         color: const Color(0xFF131B2E),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        border: Border(top: BorderSide(color: const Color(0xFF9333EA).withOpacity(0.4), width: 1.5)),
+        border: Border(top: BorderSide(color: const Color(0xFF9333EA).withValues(alpha: 0.4), width: 1.5)),
       ),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxHeight: maxSheetHeight),
@@ -270,7 +270,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
               icon: const Icon(Icons.tune_rounded, color: Color(0xFF1DB954), size: 18),
               label: Text('Edit Music Taste (Languages & Artists)', style: GoogleFonts.outfit(color: Colors.white)),
               style: OutlinedButton.styleFrom(
-                side: BorderSide(color: const Color(0xFF1DB954).withOpacity(0.4)),
+                side: BorderSide(color: const Color(0xFF1DB954).withValues(alpha: 0.4)),
                 padding: const EdgeInsets.symmetric(vertical: 13),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
               ),
@@ -284,7 +284,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
               icon: const Icon(Icons.logout, color: Colors.white70, size: 18),
               label: Text('Sign Out', style: GoogleFonts.outfit(color: Colors.white)),
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.redAccent.withOpacity(0.2),
+                backgroundColor: Colors.redAccent.withValues(alpha: 0.2),
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 elevation: 0,
@@ -301,7 +301,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF9333EA).withOpacity(0.35),
+                      color: const Color(0xFF9333EA).withValues(alpha: 0.35),
                       blurRadius: 14,
                       offset: const Offset(0, 4),
                     ),
@@ -332,7 +332,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
                 margin: const EdgeInsets.only(bottom: 14),
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.06),
+                  color: Colors.white.withValues(alpha: 0.06),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.white12),
                 ),
@@ -356,7 +356,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
                 onPressed: _isLoading ? null : _handleGoogleSignIn,
                 style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.white,
-                  side: BorderSide(color: Colors.white.withOpacity(0.15)),
+                  side: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
                   backgroundColor: const Color(0xFF0A0E1A),
                   padding: const EdgeInsets.symmetric(vertical: 13),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -371,12 +371,12 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
 
               Row(
                 children: [
-                  Expanded(child: Divider(color: Colors.white.withOpacity(0.08))),
+                  Expanded(child: Divider(color: Colors.white.withValues(alpha: 0.08))),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     child: Text('OR', style: GoogleFonts.outfit(color: Colors.white38, fontSize: 11)),
                   ),
-                  Expanded(child: Divider(color: Colors.white.withOpacity(0.08))),
+                  Expanded(child: Divider(color: Colors.white.withValues(alpha: 0.08))),
                 ],
               ),
               const SizedBox(height: 14),
@@ -389,7 +389,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
               decoration: BoxDecoration(
                 color: const Color(0xFF0A0E1A),
                 borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: Colors.white.withOpacity(0.08)),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
               ),
               child: Row(
                 children: [
@@ -409,7 +409,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
                           boxShadow: _tabController.index == 0
                               ? [
                                   BoxShadow(
-                                    color: const Color(0xFF9333EA).withOpacity(0.4),
+                                    color: const Color(0xFF9333EA).withValues(alpha: 0.4),
                                     blurRadius: 10,
                                     offset: const Offset(0, 2),
                                   ),
@@ -445,7 +445,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
                           boxShadow: _tabController.index == 1
                               ? [
                                   BoxShadow(
-                                    color: const Color(0xFF9333EA).withOpacity(0.4),
+                                    color: const Color(0xFF9333EA).withValues(alpha: 0.4),
                                     blurRadius: 10,
                                     offset: const Offset(0, 2),
                                   ),
@@ -475,7 +475,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
                 margin: const EdgeInsets.only(bottom: 12),
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.redAccent.withOpacity(0.15),
+                  color: Colors.redAccent.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
@@ -534,7 +534,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
               backgroundColor: const Color(0xFF9333EA),
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              shadowColor: const Color(0xFF9333EA).withOpacity(0.4),
+              shadowColor: const Color(0xFF9333EA).withValues(alpha: 0.4),
               elevation: 4,
             ),
             child: _isLoading
@@ -566,7 +566,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
               backgroundColor: const Color(0xFF9333EA),
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              shadowColor: const Color(0xFF9333EA).withOpacity(0.4),
+              shadowColor: const Color(0xFF9333EA).withValues(alpha: 0.4),
               elevation: 4,
             ),
             child: _isLoading

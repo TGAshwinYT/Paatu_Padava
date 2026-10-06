@@ -5,6 +5,7 @@ import '../../services/saavn_client.dart';
 import '../../services/api_client.dart';
 import '../../services/history_manager.dart';
 import '../../services/supabase_service.dart';
+import '../../services/app_logger.dart';
 
 /// Centralized repository for fetching, merging, and strictly deduplicating music feeds.
 class SongRepository {
@@ -182,7 +183,9 @@ class SongRepository {
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.log('SongRepository', 'Favorite artists fetch notice: $e');
+    }
 
     // 2. Supplement with top played artists from local History
     final history = HistoryManager.getHistory();
@@ -221,7 +224,9 @@ class SongRepository {
     try {
       final forYou = await ApiClient.fetchForYou();
       candidates.addAll(forYou);
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.log('SongRepository', 'ApiClient recommendations fallback: $e');
+    }
 
     // Fallback if candidates are scarce
     if (candidates.length < 8) {
@@ -389,12 +394,16 @@ class SongRepository {
             }
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.log('SongRepository', 'Enriching favorite artists fallback: $e');
+      }
 
       if (enriched.isNotEmpty) {
         return enriched;
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.log('SongRepository', 'getPopularArtists fallback: $e');
+    }
 
     // Verified fallback curated list for South Indian / Tamil music
     return _verifiedArtistAvatars.entries.map((e) {

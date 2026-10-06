@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../domain/models/track_entity.dart';
 import '../models/song.dart';
 import 'supabase_service.dart';
+import 'app_logger.dart';
 
 /// Unified Favorites Manager for Paatu Paadava.
 /// Supports zero-latency local Hive operations with bi-directional Supabase cloud sync (`liked_songs`).
@@ -28,7 +29,9 @@ class FavoritesManager {
       if (data != null && data is Map) {
         try {
           list.add(Song.fromMap(data));
-        } catch (_) {}
+        } catch (e) {
+          AppLogger.log('FavoritesManager', 'Corrupt favorite item ignored: $e');
+        }
       }
     }
     favoritesNotifier.value = list;

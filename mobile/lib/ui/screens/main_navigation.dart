@@ -81,9 +81,12 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       debugPrint('[MainNavigation] App resumed cleanly. Triggering connection check, sync, and cache audit...');
+      ConnectivityService.resumePolling();
       ConnectivityService.checkConnection();
       SyncManager.syncAll();
       CacheManager.autoEvictOldCache();
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+      ConnectivityService.pausePolling();
     }
   }
 
@@ -165,7 +168,7 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
             color: const Color(0xFF0F172A),
             border: Border(
               top: BorderSide(
-                color: Colors.white.withOpacity(0.06),
+                color: Colors.white.withValues(alpha: 0.06),
                 width: 1,
               ),
             ),

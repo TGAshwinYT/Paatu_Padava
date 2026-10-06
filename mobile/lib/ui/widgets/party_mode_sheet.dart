@@ -90,7 +90,7 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF6366F1).withOpacity(0.2),
+                  color: const Color(0xFF6366F1).withValues(alpha: 0.2),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(Icons.speaker_group_rounded, color: Color(0xFF818CF8), size: 24),
@@ -155,7 +155,7 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
           decoration: BoxDecoration(
             color: const Color(0xFF0A0E1A),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.3)),
+            border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.3)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -267,7 +267,7 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
       decoration: BoxDecoration(
         color: const Color(0xFF0A0E1A),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF10B981).withOpacity(0.4)),
+        border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -278,9 +278,9 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF10B981).withOpacity(0.2),
+                  color: const Color(0xFF10B981).withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFF10B981).withOpacity(0.4)),
+                  border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
                 ),
                 child: Row(
                   children: [
@@ -352,7 +352,7 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
                   return Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.04),
+                      color: Colors.white.withValues(alpha: 0.04),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(
@@ -423,7 +423,7 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
                 activeTrackColor: const Color(0xFF6366F1),
                 inactiveTrackColor: Colors.white12,
                 thumbColor: const Color(0xFF818CF8),
-                overlayColor: const Color(0xFF6366F1).withOpacity(0.2),
+                overlayColor: const Color(0xFF6366F1).withValues(alpha: 0.2),
               ),
               child: Slider(
                 value: delayMs.toDouble(),
@@ -457,7 +457,7 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF6366F1).withOpacity(0.2) : Colors.white.withOpacity(0.05),
+          color: isSelected ? const Color(0xFF6366F1).withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
             color: isSelected ? const Color(0xFF818CF8) : Colors.transparent,

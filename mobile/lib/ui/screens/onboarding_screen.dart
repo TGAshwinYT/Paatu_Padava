@@ -247,7 +247,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               decoration: BoxDecoration(
                 color: _step == 2
                     ? const Color(0xFF1DB954)
-                    : Colors.white.withOpacity(0.2),
+                    : Colors.white.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -309,13 +309,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
                           color: isSelected
-                              ? const Color(0xFF1DB954).withOpacity(0.16)
+                              ? const Color(0xFF1DB954).withValues(alpha: 0.16)
                               : const Color(0xFF131B2E),
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
                             color: isSelected
                                 ? const Color(0xFF1DB954)
-                                : Colors.white.withOpacity(0.08),
+                                : Colors.white.withValues(alpha: 0.08),
                             width: isSelected ? 2 : 1,
                           ),
                         ),
@@ -375,7 +375,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           decoration: BoxDecoration(
             color: const Color(0xFF0A0E1A),
             border: Border(
-              top: BorderSide(color: Colors.white.withOpacity(0.06)),
+              top: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
             ),
           ),
           child: SizedBox(
@@ -500,14 +500,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             decoration: BoxDecoration(
               color: const Color(0xFF182238),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white.withOpacity(0.08)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
             ),
             child: ListView.separated(
               shrinkWrap: true,
               itemCount: _searchResults.length,
               separatorBuilder: (_, __) => Divider(
                 height: 1,
-                color: Colors.white.withOpacity(0.06),
+                color: Colors.white.withValues(alpha: 0.06),
               ),
               itemBuilder: (context, i) {
                 final artist = _searchResults[i];
@@ -611,7 +611,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             height: 84,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: Colors.black.withOpacity(0.5),
+                              color: Colors.black.withValues(alpha: 0.5),
                             ),
                             child: const Center(
                               child: Icon(
@@ -646,7 +646,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           decoration: BoxDecoration(
             color: const Color(0xFF0A0E1A),
             border: Border(
-              top: BorderSide(color: Colors.white.withOpacity(0.06)),
+              top: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
             ),
           ),
           child: SizedBox(

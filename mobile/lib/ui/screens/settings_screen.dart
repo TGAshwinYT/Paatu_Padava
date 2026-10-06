@@ -179,67 +179,65 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildAccountCard() {
-    final isLoggedIn = AuthManager.isLoggedIn;
-    final user = AuthManager.user;
+    return ValueListenableBuilder<AuthUser?>(
+      valueListenable: AuthManager.authNotifier,
+      builder: (context, user, _) {
+        final isLoggedIn = user != null && !user.isGuest;
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF131B2E),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 26,
-            backgroundColor: const Color(0xFF6366F1),
-            child: Text(
-              isLoggedIn && user != null ? user.username.substring(0, 1).toUpperCase() : 'G',
-              style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
-            ),
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF131B2E),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  isLoggedIn && user != null ? user.username : 'Guest Session',
-                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  isLoggedIn && user != null ? user.email : 'Local offline mode active',
-                  style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
-                ),
-              ],
-            ),
-          ),
-          if (isLoggedIn)
-            TextButton(
-              onPressed: () async {
-                await AuthManager.logout();
-                setState(() {});
-              },
-              child: const Text('Sign Out', style: TextStyle(color: Color(0xFFEF4444))),
-            )
-          else
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 26,
                 backgroundColor: const Color(0xFF6366F1),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: Text(
+                  isLoggedIn && user.username.isNotEmpty ? user.username.substring(0, 1).toUpperCase() : 'G',
+                  style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                ),
               ),
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (context) => const AuthDialog(),
-                ).then((_) => setState(() {}));
-              },
-              child: const Text('Sign In', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            ),
-        ],
-      ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isLoggedIn ? user.username : 'Guest Session',
+                      style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isLoggedIn ? user.email : 'Local offline mode active',
+                      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+              if (isLoggedIn)
+                TextButton(
+                  onPressed: () async {
+                    await AuthManager.logout();
+                  },
+                  child: const Text('Sign Out', style: TextStyle(color: Color(0xFFEF4444))),
+                )
+              else
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6366F1),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () => AuthDialog.show(context),
+                  child: const Text('Sign In', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 

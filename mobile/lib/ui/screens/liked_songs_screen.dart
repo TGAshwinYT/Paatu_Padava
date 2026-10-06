@@ -61,13 +61,24 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.queue_music_rounded, color: Colors.white70),
+                leading: const Icon(Icons.playlist_play_rounded, color: Color(0xFF6366F1)),
                 title: const Text('Play Next', style: TextStyle(color: Colors.white)),
                 onTap: () {
                   Navigator.pop(ctx);
                   audioHandler.insertNext(song);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Playing "${song.title}" next!'), backgroundColor: const Color(0xFF6366F1)),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.queue_music_rounded, color: Colors.white70),
+                title: const Text('Add to Queue', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  audioHandler.addToQueue(song);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Added "${song.title}" to queue'), backgroundColor: const Color(0xFF6366F1)),
                   );
                 },
               ),
@@ -225,6 +236,19 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                                   onPressed: () {
                                     final shuffled = List<Song>.from(favorites)..shuffle();
                                     audioHandler.playSong(shuffled.first, queue: shuffled);
+                                  },
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.queue_music_rounded, color: Colors.white70, size: 24),
+                                  tooltip: 'Add All to Queue',
+                                  onPressed: () {
+                                    audioHandler.addAllToQueue(favorites);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('Added ${favorites.length} liked songs to queue'),
+                                        backgroundColor: const Color(0xFF6366F1),
+                                      ),
+                                    );
                                   },
                                 ),
                                 IconButton(

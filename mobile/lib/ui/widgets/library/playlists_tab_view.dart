@@ -258,9 +258,81 @@ class PlaylistsTabView extends StatelessWidget {
                           if (trackCount > 0)
                             IconButton(
                               icon: const Icon(Icons.play_circle_filled_rounded, color: Color(0xFF1DB954), size: 28),
+                              tooltip: 'Play Playlist',
                               onPressed: () => audioHandler.playSong(playlist.tracks.first, queue: playlist.tracks),
                             ),
-                          const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white30, size: 14),
+                          PopupMenuButton<String>(
+                            icon: const Icon(Icons.more_vert_rounded, color: Colors.white54, size: 20),
+                            color: const Color(0xFF1E293B),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            onSelected: (val) {
+                              if (val == 'play_all' && trackCount > 0) {
+                                audioHandler.playSong(playlist.tracks.first, queue: playlist.tracks);
+                              } else if (val == 'add_to_queue' && trackCount > 0) {
+                                audioHandler.addAllToQueue(playlist.tracks);
+                                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Row(
+                                      children: [
+                                        const Icon(Icons.queue_music_rounded, color: Color(0xFF818CF8), size: 18),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Text(
+                                            'Added "${playlist.title}" ($trackCount tracks) to queue',
+                                            style: const TextStyle(color: Colors.white),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    backgroundColor: const Color(0xFF1E293B),
+                                    behavior: SnackBarBehavior.floating,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    duration: const Duration(seconds: 2),
+                                  ),
+                                );
+                              } else if (val == 'delete') {
+                                PlaylistManager.deletePlaylist(playlist.id);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Deleted "${playlist.title}"')),
+                                );
+                              }
+                            },
+                            itemBuilder: (context) => [
+                              if (trackCount > 0) ...[
+                                const PopupMenuItem(
+                                  value: 'play_all',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.play_arrow_rounded, color: Color(0xFF1DB954), size: 20),
+                                      SizedBox(width: 10),
+                                      Text('Play All', style: TextStyle(color: Colors.white, fontSize: 13)),
+                                    ],
+                                  ),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'add_to_queue',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.queue_music_rounded, color: Colors.white70, size: 20),
+                                      SizedBox(width: 10),
+                                      Text('Add to Queue', style: TextStyle(color: Colors.white, fontSize: 13)),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              const PopupMenuItem(
+                                value: 'delete',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
+                                    SizedBox(width: 10),
+                                    Text('Delete Playlist', style: TextStyle(color: Colors.redAccent, fontSize: 13)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
                     );

@@ -539,5 +539,28 @@ void main() {
       expect(controller.isStandardActive, isFalse);
       expect(controller.isSmartActive, isFalse);
     });
+
+    test('15. addAllToQueue appends playlist tracks in natural sequential order', () async {
+      final baseQueue = [
+        makeSong(id: 'now_playing', title: 'Now Playing', streamUrl: 'https://stream.example.com/now.mp3'),
+        makeSong(id: 'playlist_next_1', title: 'Playlist Next 1', streamUrl: 'https://stream.example.com/p1.mp3'),
+      ];
+
+      await queueHandler.loadQueue(baseQueue, initialIndex: 0, autoPlay: true);
+      await Future<void>.delayed(tick);
+
+      final batchTracks = [
+        makeSong(id: 'batch_1', title: 'Batch 1', streamUrl: 'https://stream.example.com/b1.mp3'),
+        makeSong(id: 'batch_2', title: 'Batch 2', streamUrl: 'https://stream.example.com/b2.mp3'),
+        makeSong(id: 'batch_3', title: 'Batch 3', streamUrl: 'https://stream.example.com/b3.mp3'),
+      ];
+      await queueHandler.addAllToQueue(batchTracks);
+
+      expect(queueHandler.queue[0].id, equals('now_playing'));
+      expect(queueHandler.queue[1].id, equals('batch_1'));
+      expect(queueHandler.queue[2].id, equals('batch_2'));
+      expect(queueHandler.queue[3].id, equals('batch_3'));
+      expect(queueHandler.queue[4].id, equals('playlist_next_1'));
+    });
   });
 }

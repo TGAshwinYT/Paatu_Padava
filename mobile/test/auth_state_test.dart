@@ -62,6 +62,7 @@ void main() {
       AuthManager.authNotifier.value = authUser;
       expect(AuthManager.currentUser?.id, equals('supa_user_999'));
       expect(AuthManager.currentUser?.isGuest, isFalse);
+      expect(AuthManager.isLoggedIn, isTrue);
 
       // Transition to Logged Out (null)
       AuthManager.authNotifier.value = null;

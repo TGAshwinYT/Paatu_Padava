@@ -91,11 +91,13 @@ void main() {
       expect(AuthManager.currentUser?.id, equals('usr_real_789'));
       expect(AuthManager.token, equals('mock_jwt_token_123'));
       expect(AuthManager.currentUser?.isGuest, isFalse);
+      expect(AuthManager.isLoggedIn, isTrue);
       expect(AuthManager.currentUser?.preferredLanguages, contains('telugu'));
 
       // Logout transitions back to guest cleanly
       await AuthManager.loginAsGuest();
       expect(AuthManager.currentUser?.isGuest, isTrue);
+      expect(AuthManager.isLoggedIn, isFalse);
       expect(AuthManager.token, isNull);
     });
   });

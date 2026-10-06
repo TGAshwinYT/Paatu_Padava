@@ -361,6 +361,35 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                       onPressed: () => Navigator.pop(context),
                     ),
                     actions: [
+                      if (tracks.isNotEmpty)
+                        IconButton(
+                          icon: const Icon(Icons.queue_music_rounded, color: Colors.white70),
+                          tooltip: 'Add Playlist to Queue',
+                          onPressed: () {
+                            audioHandler.addAllToQueue(tracks);
+                            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Row(
+                                  children: [
+                                    const Icon(Icons.queue_music_rounded, color: Color(0xFF818CF8), size: 18),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        'Added ${tracks.length} ${tracks.length == 1 ? "track" : "tracks"} to queue',
+                                        style: const TextStyle(color: Colors.white),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                backgroundColor: const Color(0xFF1E293B),
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                duration: const Duration(seconds: 2),
+                              ),
+                            );
+                          },
+                        ),
                       IconButton(
                         icon: Icon(
                           isCollab ? Icons.group_rounded : Icons.group_add_outlined,
@@ -500,6 +529,41 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                                     onPressed: () {
                                       final shuffled = List<Song>.from(tracks)..shuffle();
                                       audioHandler.playSong(shuffled.first, queue: shuffled);
+                                    },
+                                  ),
+                                  const SizedBox(width: 12),
+                                  OutlinedButton.icon(
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.white70,
+                                      side: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                    ),
+                                    icon: const Icon(Icons.queue_music_rounded, size: 18),
+                                    label: const Text('Add to Queue'),
+                                    onPressed: () {
+                                      audioHandler.addAllToQueue(tracks);
+                                      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Row(
+                                            children: [
+                                              const Icon(Icons.queue_music_rounded, color: Color(0xFF818CF8), size: 18),
+                                              const SizedBox(width: 10),
+                                              Expanded(
+                                                child: Text(
+                                                  'Added ${tracks.length} ${tracks.length == 1 ? "track" : "tracks"} to queue',
+                                                  style: const TextStyle(color: Colors.white),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          backgroundColor: const Color(0xFF1E293B),
+                                          behavior: SnackBarBehavior.floating,
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                          duration: const Duration(seconds: 2),
+                                        ),
+                                      );
                                     },
                                   ),
                                   const SizedBox(width: 12),

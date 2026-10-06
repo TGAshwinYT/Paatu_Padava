@@ -430,6 +430,10 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _queueHandler.addToQueue(song);
   }
 
+  void addAllToQueue(List<Song> songs) {
+    _queueHandler.addAllToQueue(songs);
+  }
+
   void removeAt(int index) {
     _queueHandler.removeAt(index);
   }

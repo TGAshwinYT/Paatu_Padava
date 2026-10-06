@@ -94,5 +94,28 @@ void main() {
       expect(dismissible.direction, equals(DismissDirection.horizontal));
       expect(removeCalled, isFalse);
     });
+
+    testWidgets('SwipeableSongTile popup menu presents Add to Queue and Play Next options', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SwipeableSongTile(
+              song: testSong,
+              queue: [testSong],
+            ),
+          ),
+        ),
+      );
+
+      final popupBtn = find.byType(PopupMenuButton<String>);
+      expect(popupBtn, findsOneWidget);
+      await tester.tap(popupBtn);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Play Next'), findsOneWidget);
+      expect(find.text('Add to Queue'), findsOneWidget);
+      expect(find.text('Start Song Radio'), findsOneWidget);
+      expect(find.text('Add to Playlist'), findsOneWidget);
+    });
   });
 }

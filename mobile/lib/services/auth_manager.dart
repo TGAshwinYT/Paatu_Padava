@@ -99,7 +99,7 @@ class AuthManager {
   static AuthUser? get currentUser => authNotifier.value;
   static AuthUser? get user => currentUser;
   static String? get token => tokenNotifier.value;
-  static bool get isLoggedIn => SupabaseService.currentUser != null && !(currentUser?.isGuest ?? true);
+  static bool get isLoggedIn => currentUser != null && !currentUser!.isGuest;
 
   static Box get _box => Hive.box(boxName);
   static StreamSubscription? _authSub;
@@ -115,7 +115,7 @@ class AuthManager {
       await _loadCachedUserOrSupabase(supaUser);
     } else {
       final savedUser = _box.get('user_profile');
-      if (savedUser is Map && savedUser['is_guest'] == true) {
+      if (savedUser is Map) {
         authNotifier.value = AuthUser.fromJson(savedUser);
       } else {
         await loginAsGuest();

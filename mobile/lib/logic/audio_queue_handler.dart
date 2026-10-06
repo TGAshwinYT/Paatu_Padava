@@ -571,8 +571,26 @@ class AudioQueueHandler {
   Future<void> addToQueue(Song song) async {
     final queued = song.copyWith(isUserEnqueued: true);
     AppLogger.log('AudioQueueHandler', 'addToQueue (stack push): "${queued.title}" [id=${queued.id}]');
+    if (_queue.isEmpty || _currentIndex < 0) {
+      await loadQueue([queued], initialIndex: 0, autoPlay: true);
+      return;
+    }
     final insertIdx = (_currentIndex >= 0 && _currentIndex < _queue.length) ? _currentIndex + 1 : _queue.length;
     await insertAt(insertIdx, queued);
+  }
+
+  /// Add multiple tracks to queue sequentially maintaining playlist order
+  Future<void> addAllToQueue(List<Song> songs) async {
+    if (songs.isEmpty) return;
+    if (_queue.isEmpty || _currentIndex < 0) {
+      await loadQueue(songs, initialIndex: 0, autoPlay: true);
+      return;
+    }
+    int baseInsertIdx = (_currentIndex >= 0 && _currentIndex < _queue.length) ? _currentIndex + 1 : _queue.length;
+    for (int i = 0; i < songs.length; i++) {
+      final queued = songs[i].copyWith(isUserEnqueued: true);
+      await insertAt(baseInsertIdx + i, queued);
+    }
   }
 
   /// Insert track to play next (pushed onto top of queue stack)

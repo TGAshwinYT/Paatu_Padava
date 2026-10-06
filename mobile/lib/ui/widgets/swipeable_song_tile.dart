@@ -235,12 +235,56 @@ class SwipeableSongTile extends StatelessWidget {
               onSelected: (val) {
                 if (val == 'play_next') {
                   audioHandler.insertNext(song);
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Playing "${song.title}" next')),
+                    SnackBar(
+                      content: Row(
+                        children: [
+                          const Icon(Icons.queue_music_rounded, color: Color(0xFF818CF8), size: 18),
+                          const SizedBox(width: 10),
+                          Expanded(child: Text('Playing "${song.title}" next')),
+                        ],
+                      ),
+                      backgroundColor: const Color(0xFF1E293B),
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                } else if (val == 'add_to_queue') {
+                  audioHandler.addToQueue(song);
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Row(
+                        children: [
+                          const Icon(Icons.queue_music_rounded, color: Color(0xFF818CF8), size: 18),
+                          const SizedBox(width: 10),
+                          Expanded(child: Text('Added "${song.title}" to queue')),
+                        ],
+                      ),
+                      backgroundColor: const Color(0xFF1E293B),
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      duration: const Duration(seconds: 2),
+                    ),
                   );
                 } else if (val == 'start_radio') {
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Starting Radio for "${song.title}"...')),
+                    SnackBar(
+                      content: Row(
+                        children: [
+                          const Icon(Icons.radio_rounded, color: Color(0xFF818CF8), size: 18),
+                          const SizedBox(width: 10),
+                          Expanded(child: Text('Starting Radio for "${song.title}"...')),
+                        ],
+                      ),
+                      backgroundColor: const Color(0xFF1E293B),
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      duration: const Duration(seconds: 2),
+                    ),
                   );
                   audioHandler.startSongRadio(song);
                 } else if (val == 'add_to_playlist') {
@@ -251,22 +295,32 @@ class SwipeableSongTile extends StatelessWidget {
               },
               itemBuilder: (context) => [
                 const PopupMenuItem(
-                  value: 'start_radio',
-                  child: Row(
-                    children: [
-                      Icon(Icons.radio_rounded, color: Color(0xFF818CF8), size: 20),
-                      SizedBox(width: 10),
-                      Text('Start Song Radio', style: TextStyle(color: Colors.white, fontSize: 13)),
-                    ],
-                  ),
-                ),
-                const PopupMenuItem(
                   value: 'play_next',
                   child: Row(
                     children: [
                       Icon(Icons.playlist_play_rounded, color: Colors.white70, size: 20),
                       SizedBox(width: 10),
                       Text('Play Next', style: TextStyle(color: Colors.white, fontSize: 13)),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'add_to_queue',
+                  child: Row(
+                    children: [
+                      Icon(Icons.queue_music_rounded, color: Colors.white70, size: 20),
+                      SizedBox(width: 10),
+                      Text('Add to Queue', style: TextStyle(color: Colors.white, fontSize: 13)),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'start_radio',
+                  child: Row(
+                    children: [
+                      Icon(Icons.radio_rounded, color: Color(0xFF818CF8), size: 20),
+                      SizedBox(width: 10),
+                      Text('Start Song Radio', style: TextStyle(color: Colors.white, fontSize: 13)),
                     ],
                   ),
                 ),

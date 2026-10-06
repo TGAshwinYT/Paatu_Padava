@@ -557,7 +557,6 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   @override
   Future<void> pause() async {
     await _player.pause();
-    YouTubeClient.closeIdleClient();
     _queueHandler.startIdleTimer();
     _broadcastState();
   }

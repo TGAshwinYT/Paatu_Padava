@@ -216,11 +216,29 @@ async def resolve_single_stream(
             except Exception:
                 pass
 
+        yt_audio_url = None
+        if yt_id and len(yt_id) == 11:
+            try:
+                import yt_dlp
+                ydl_opts = {
+                    'format': 'bestaudio/best',
+                    'quiet': True,
+                    'no_warnings': True,
+                    'skip_download': True,
+                }
+                def _extract_stream():
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(f"https://www.youtube.com/watch?v={yt_id}", download=False)
+                        return info.get('url')
+                yt_audio_url = await asyncio.wait_for(asyncio.to_thread(_extract_stream), timeout=6.0)
+            except Exception as yt_err:
+                print(f"Backend yt_dlp stream resolution notice: {yt_err}")
+
         payload = {
             "song_id": song_id,
             "title": title,
-            "audio_url": None,
-            "download_urls": [],
+            "audio_url": yt_audio_url,
+            "download_urls": [yt_audio_url] if yt_audio_url else [],
             "youtube_id": yt_id,
             "engine": "youtube",
             "source": "youtube",

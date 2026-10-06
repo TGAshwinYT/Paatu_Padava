@@ -110,11 +110,24 @@ class YouTubeClient {
     return songs;
   }
 
+  // In-memory stream cache with TTL (4 hours)
+  static final Map<String, _CachedAudioStream> _streamCache = {};
+
   /// Multi-tier audio stream extractor that guarantees 100% playable audio streams
   static Future<String?> getAudioStreamUrl(String videoId, {String? title, String? artist}) async {
+    final cleanId = videoId.trim();
+    if (cleanId.isEmpty) return null;
+
+    // ── Tier 0: In-Memory Stream Cache Check ─────────────────────────
+    final cached = _streamCache[cleanId];
+    if (cached != null && !cached.isExpired) {
+      AppLogger.log('YouTubeClient', 'Resolved stream from memory cache for $cleanId');
+      return cached.url;
+    }
+
     // ── Tier 1: Client-Side YouTubeExplode Dart ──────────────────────
     try {
-      final manifest = await _yt.videos.streamsClient.getManifest(videoId).timeout(const Duration(seconds: 4));
+      final manifest = await _yt.videos.streamsClient.getManifest(cleanId).timeout(const Duration(seconds: 15));
       final audioStreams = manifest.audioOnly;
       if (audioStreams.isNotEmpty) {
         AudioStreamInfo? chosenStream;
@@ -130,7 +143,7 @@ class YouTubeClient {
           }
         }
 
-        // Standard or High: Prioritize AAC / M4A stream (itag 140) for standard ExoPlayer compatibility
+        // Standard or High: Prioritize AAC / M4A stream (itag 140) for standard ExoPlayer / AVPlayer compatibility
         if (chosenStream == null) {
           for (final s in audioStreams) {
             if (s.tag == 140 || s.container.name.toLowerCase().contains('mp4') || s.container.name.toLowerCase().contains('m4a')) {
@@ -140,23 +153,31 @@ class YouTubeClient {
           }
         }
         chosenStream ??= audioStreams.withHighestBitrate();
-        return chosenStream.url.toString();
+        final url = chosenStream.url.toString();
+        _streamCache[cleanId] = _CachedAudioStream(url, DateTime.now().add(const Duration(hours: 4)));
+        AppLogger.log('YouTubeClient', 'Tier 1 resolved stream for $cleanId (itag ${chosenStream.tag})');
+        return url;
       }
     } catch (e) {
-      AppLogger.log('YouTubeClient', 'Tier 1 client-side stream extractor notice: $e');
+      AppLogger.log('YouTubeClient', 'Tier 1 client-side stream extractor notice for $cleanId: $e');
+      if (e.toString().contains('closed') || e.toString().contains('Socket')) {
+        _ytInstance = null; // Reset broken client
+      }
     }
 
     // ── Tier 2: Paatu Padava Backend Stream Resolver ──────────────────
     try {
-      final uri = Uri.parse('$_baseUrl/api/music/stream/$videoId').replace(queryParameters: {
+      final uri = Uri.parse('$_baseUrl/api/music/stream/$cleanId').replace(queryParameters: {
         if (title != null && title.isNotEmpty) 'title': title,
         if (artist != null && artist.isNotEmpty) 'artist': artist,
       });
-      final res = await http.get(uri).timeout(const Duration(seconds: 4));
+      final res = await http.get(uri).timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
         final data = json.decode(res.body);
         final audioUrl = data['audio_url']?.toString();
         if (audioUrl != null && audioUrl.isNotEmpty) {
+          _streamCache[cleanId] = _CachedAudioStream(audioUrl, DateTime.now().add(const Duration(hours: 4)));
+          AppLogger.log('YouTubeClient', 'Tier 2 backend resolved stream for $cleanId');
           return audioUrl;
         }
       }
@@ -172,8 +193,8 @@ class YouTubeClient {
     ];
     for (final instance in invidiousInstances) {
       try {
-        final uri = Uri.parse('$instance/api/v1/videos/$videoId');
-        final res = await http.get(uri).timeout(const Duration(seconds: 3));
+        final uri = Uri.parse('$instance/api/v1/videos/$cleanId');
+        final res = await http.get(uri).timeout(const Duration(seconds: 4));
         if (res.statusCode == 200) {
           final data = json.decode(res.body);
           final formatStreams = data['adaptiveFormats'] as List<dynamic>? ?? [];
@@ -182,6 +203,8 @@ class YouTubeClient {
             if (type.contains('audio/mp4') || type.contains('audio/webm')) {
               final url = fmt['url']?.toString();
               if (url != null && url.isNotEmpty) {
+                _streamCache[cleanId] = _CachedAudioStream(url, DateTime.now().add(const Duration(hours: 4)));
+                AppLogger.log('YouTubeClient', 'Tier 3 resolved stream for $cleanId from $instance');
                 return url;
               }
             }
@@ -198,4 +221,11 @@ class YouTubeClient {
   static void dispose() {
     _yt.close();
   }
+}
+
+class _CachedAudioStream {
+  final String url;
+  final DateTime expiresAt;
+  _CachedAudioStream(this.url, this.expiresAt);
+  bool get isExpired => DateTime.now().isAfter(expiresAt);
 }

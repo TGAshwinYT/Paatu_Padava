@@ -253,13 +253,11 @@ class AudioQueueHandler {
       if (state.playing) {
         cancelIdleTimer();
       } else {
-        // Paused, completed, or idle: clean up idle YouTube sockets and begin 5-minute countdown
-        YouTubeClient.closeIdleClient();
+        // Paused, completed, or idle: begin 5-minute countdown
         startIdleTimer();
       }
 
       if (state.processingState == ProcessingState.completed) {
-        YouTubeClient.closeIdleClient();
         final current = currentSong;
         if (current != null) {
           final dur = player.duration ?? const Duration(seconds: 180);
@@ -897,7 +895,7 @@ class AudioQueueHandler {
     final sw = Stopwatch()..start();
     AppLogger.log('AudioQueueHandler', 'Resolving stream for: "${song.title}" (${song.artist}) [source=${song.source}, id=${song.id}]');
     try {
-      final url = await _resolveStreamUrlInternal(song).timeout(const Duration(seconds: 8));
+      final url = await _resolveStreamUrlInternal(song).timeout(const Duration(seconds: 20));
       sw.stop();
       if (url != null && url.isNotEmpty) {
         AppLogger.log('AudioQueueHandler', 'Resolved stream for "${song.title}" in ${sw.elapsedMilliseconds}ms');
@@ -914,6 +912,17 @@ class AudioQueueHandler {
 
   Future<String?> _resolveStreamUrlInternal(Song song) async {
     if (song.source == 'youtube' || song.id.length == 11) {
+      // 1. Direct YouTube stream resolution (User explicitly selected YouTube)
+      try {
+        final ytUrl = await YouTubeClient.getAudioStreamUrl(song.id, title: song.title, artist: song.artist);
+        if (ytUrl != null && ytUrl.isNotEmpty) {
+          return ytUrl;
+        }
+      } catch (e) {
+        AppLogger.log('AudioQueueHandler', 'Direct YouTube stream resolution notice: $e');
+      }
+
+      // 2. Fallback: Search JioSaavn if YouTube direct extraction failed
       try {
         final query = YouTubeClient.cleanTitle('${song.title} ${song.artist}');
         final saavnMatches = await SaavnClient.search(query, limit: 3);
@@ -923,12 +932,7 @@ class AudioQueueHandler {
           }
         }
       } catch (e) {
-        AppLogger.log('AudioQueueHandler', 'Saavn match resolution notice: $e');
-      }
-      try {
-        return await YouTubeClient.getAudioStreamUrl(song.id, title: song.title, artist: song.artist);
-      } catch (e) {
-        AppLogger.log('AudioQueueHandler', 'YouTube stream resolution notice: $e');
+        AppLogger.log('AudioQueueHandler', 'Saavn match fallback notice: $e');
       }
     } else {
       try {
@@ -943,6 +947,20 @@ class AudioQueueHandler {
         }
       } catch (e) {
         AppLogger.log('AudioQueueHandler', 'Direct Saavn stream resolution notice: $e');
+      }
+
+      // 3. Fallback: If JioSaavn has no stream, attempt to resolve via YouTube
+      try {
+        final query = '${song.title} ${song.artist} audio';
+        final ytMatches = await YouTubeClient.search(query, limit: 2);
+        if (ytMatches.isNotEmpty) {
+          final ytUrl = await YouTubeClient.getAudioStreamUrl(ytMatches.first.id, title: song.title, artist: song.artist);
+          if (ytUrl != null && ytUrl.isNotEmpty) {
+            return ytUrl;
+          }
+        }
+      } catch (e) {
+        AppLogger.log('AudioQueueHandler', 'Saavn to YouTube fallback notice: $e');
       }
     }
     return null;

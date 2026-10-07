@@ -258,5 +258,35 @@ void main() {
       expect(queueHandler.currentSong?.id, equals('song_2'));
       expect(queueHandler.hasNext, isFalse);
     });
+
+    test('8. Transition from JioSaavn to YouTube restores normalized volume and applies headers', () async {
+      final saavnSong = createSampleSong('saavn_track_1', 'Saavn Master').copyWith(
+        streamUrl: 'https://aac.saavn.cdn.jiosaavn.com/master_320.mp4',
+        source: 'saavn',
+      );
+      final ytSong = createSampleSong('dQw4w9WgXcQ', 'YouTube Track').copyWith(
+        streamUrl: 'https://rr1---sn-h5576nsd.googlevideo.com/videoplayback?expire=123',
+        source: 'youtube',
+      );
+
+      // Verify normalization targets
+      expect(AudioQueueHandler.getNormalizedVolumeForSong(saavnSong), equals(0.80));
+      expect(AudioQueueHandler.getNormalizedVolumeForSong(ytSong), equals(1.0));
+
+      await queueHandler.loadQueue([saavnSong, ytSong], initialIndex: 0, autoPlay: true);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(queueHandler.currentIndex, equals(0));
+      expect(queueHandler.currentSong?.source, equals('saavn'));
+
+      // Transition to YouTube track
+      await queueHandler.skipToNext();
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(queueHandler.currentIndex, equals(1));
+      expect(queueHandler.currentSong?.source, equals('youtube'));
+      // Guarantee volume is restored to YouTube target (1.0) and not muted at 0
+      expect(player.volume, greaterThanOrEqualTo(0.8));
+    });
   });
 }

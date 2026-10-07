@@ -110,8 +110,17 @@ class YouTubeClient {
     return songs;
   }
 
-  // In-memory stream cache with TTL (4 hours)
+  // In-memory stream cache with TTL (1 hour for client, 15 min for fallbacks)
   static final Map<String, _CachedAudioStream> _streamCache = {};
+
+  /// Invalidates cached stream URL for a given video ID (called when playback fails)
+  static void invalidateStream(String videoId) {
+    final cleanId = videoId.trim();
+    if (cleanId.isNotEmpty) {
+      _streamCache.remove(cleanId);
+      AppLogger.log('YouTubeClient', 'Invalidated stream cache for $cleanId');
+    }
+  }
 
   /// Multi-tier audio stream extractor that guarantees 100% playable audio streams
   static Future<String?> getAudioStreamUrl(String videoId, {String? title, String? artist}) async {
@@ -127,7 +136,7 @@ class YouTubeClient {
 
     // ── Tier 1: Client-Side YouTubeExplode Dart ──────────────────────
     try {
-      final manifest = await _yt.videos.streamsClient.getManifest(cleanId).timeout(const Duration(seconds: 15));
+      final manifest = await _yt.videos.streamsClient.getManifest(cleanId).timeout(const Duration(seconds: 25));
       final audioStreams = manifest.audioOnly;
       if (audioStreams.isNotEmpty) {
         AudioStreamInfo? chosenStream;
@@ -143,26 +152,46 @@ class YouTubeClient {
           }
         }
 
-        // Standard or High: Prioritize AAC / M4A stream (itag 140) for standard ExoPlayer / AVPlayer compatibility
+        // Standard or High: Strictly prioritize standard AAC / M4A stream (itag 140, 128kbps)
+        // This is 100% universally supported across Android ExoPlayer & iOS AVPlayer
         if (chosenStream == null) {
           for (final s in audioStreams) {
-            if (s.tag == 140 || s.container.name.toLowerCase().contains('mp4') || s.container.name.toLowerCase().contains('m4a')) {
+            if (s.tag == 140) {
               chosenStream = s;
               break;
             }
           }
         }
+
+        // Fallback to Opus in WebM (itag 251, ~160kbps)
+        if (chosenStream == null) {
+          for (final s in audioStreams) {
+            if (s.tag == 251) {
+              chosenStream = s;
+              break;
+            }
+          }
+        }
+
+        // Fallback to any other MP4 / M4A container
+        if (chosenStream == null) {
+          for (final s in audioStreams) {
+            if (s.container.name.toLowerCase().contains('mp4') || s.container.name.toLowerCase().contains('m4a')) {
+              chosenStream = s;
+              break;
+            }
+          }
+        }
+
         chosenStream ??= audioStreams.withHighestBitrate();
         final url = chosenStream.url.toString();
-        _streamCache[cleanId] = _CachedAudioStream(url, DateTime.now().add(const Duration(hours: 4)));
-        AppLogger.log('YouTubeClient', 'Tier 1 resolved stream for $cleanId (itag ${chosenStream.tag})');
+        _streamCache[cleanId] = _CachedAudioStream(url, DateTime.now().add(const Duration(hours: 1)));
+        AppLogger.log('YouTubeClient', 'Tier 1 resolved stream for $cleanId (itag ${chosenStream.tag}, ${chosenStream.container.name}, ${chosenStream.bitrate.kiloBitsPerSecond.round()}kbps)');
         return url;
       }
     } catch (e) {
       AppLogger.log('YouTubeClient', 'Tier 1 client-side stream extractor notice for $cleanId: $e');
-      if (e.toString().contains('closed') || e.toString().contains('Socket')) {
-        _ytInstance = null; // Reset broken client
-      }
+      closeIdleClient(); // Reset broken client/sockets so next query starts fresh
     }
 
     // ── Tier 2: Paatu Padava Backend Stream Resolver ──────────────────
@@ -176,7 +205,7 @@ class YouTubeClient {
         final data = json.decode(res.body);
         final audioUrl = data['audio_url']?.toString();
         if (audioUrl != null && audioUrl.isNotEmpty) {
-          _streamCache[cleanId] = _CachedAudioStream(audioUrl, DateTime.now().add(const Duration(hours: 4)));
+          _streamCache[cleanId] = _CachedAudioStream(audioUrl, DateTime.now().add(const Duration(minutes: 15)));
           AppLogger.log('YouTubeClient', 'Tier 2 backend resolved stream for $cleanId');
           return audioUrl;
         }
@@ -203,7 +232,7 @@ class YouTubeClient {
             if (type.contains('audio/mp4') || type.contains('audio/webm')) {
               final url = fmt['url']?.toString();
               if (url != null && url.isNotEmpty) {
-                _streamCache[cleanId] = _CachedAudioStream(url, DateTime.now().add(const Duration(hours: 4)));
+                _streamCache[cleanId] = _CachedAudioStream(url, DateTime.now().add(const Duration(minutes: 15)));
                 AppLogger.log('YouTubeClient', 'Tier 3 resolved stream for $cleanId from $instance');
                 return url;
               }

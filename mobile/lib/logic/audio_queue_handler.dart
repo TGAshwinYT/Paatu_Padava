@@ -48,12 +48,13 @@ class AudioQueueHandler {
   StreamSubscription<PlayerState>? _playerStateSub;
   StreamSubscription<SequenceState?>? _sequenceStateSub;
   StreamSubscription<Duration>? _positionSub;
+  StreamSubscription<PlaybackEvent>? _playbackEventSub;
   Timer? _idleTimeoutTimer;
 
   int _sessionToken = 0;
   bool _isLoading = false;
   bool _isDisposed = false;
-  bool _isFading = false;
+  int _fadeToken = 0;
   int _lastCrossfadeTimeMs = 0;
 
   AudioQueueHandler({
@@ -87,9 +88,10 @@ class AudioQueueHandler {
     return 1.0;
   }
 
-  /// Smoothly ramps player volume to [targetVolume] over [durationMs]
+  /// Smoothly ramps player volume to [targetVolume] over [durationMs] with token-guaranteed restoration
   Future<void> _fadeVolumeTo(double targetVolume, {int durationMs = 250}) async {
     if (_isDisposed) return;
+    final myToken = ++_fadeToken;
     final startVolume = player.volume;
     if ((startVolume - targetVolume).abs() < 0.02) {
       try {
@@ -98,18 +100,21 @@ class AudioQueueHandler {
       return;
     }
 
-    _isFading = true;
     const int steps = 8;
     final stepMs = (durationMs / steps).round();
     for (int i = 1; i <= steps; i++) {
-      if (_isDisposed || !_isFading) break;
+      if (_isDisposed || myToken != _fadeToken) return;
       final v = startVolume + (targetVolume - startVolume) * (i / steps);
       try {
         await player.setVolume(v.clamp(0.0, 1.0));
       } catch (_) {}
       await Future.delayed(Duration(milliseconds: stepMs));
     }
-    _isFading = false;
+    if (!_isDisposed && myToken == _fadeToken) {
+      try {
+        await player.setVolume(targetVolume);
+      } catch (_) {}
+    }
   }
 
   void _onNormalizationChanged() {
@@ -232,7 +237,13 @@ class AudioQueueHandler {
           final targetNorm = getNormalizedVolumeForSong(song);
           final crossfadeSec = SettingsManager.crossfadeSeconds;
           final fadeInMs = crossfadeSec > 0 ? (crossfadeSec * 600).clamp(250, 2000) : 150;
-          _fadeVolumeTo(targetNorm, durationMs: fadeInMs);
+          _fadeVolumeTo(targetNorm, durationMs: fadeInMs).then((_) {
+            if (!_isDisposed && player.volume < 0.1 && targetNorm >= 0.5) {
+              try {
+                player.setVolume(targetNorm);
+              } catch (_) {}
+            }
+          });
 
           // Preload upcoming tracks for instantaneous gapless transition
           preloadUpcomingTracks(_currentIndex);
@@ -245,6 +256,28 @@ class AudioQueueHandler {
         _handleCrossfade(pos);
       }
     });
+
+    // Underlying playback event listener: catches stream/decoder failure on active track
+    try {
+      _playbackEventSub = player.playbackEventStream.listen(
+        (_) {},
+        onError: (Object e, StackTrace st) {
+          AppLogger.recordError(e, st, context: 'AudioQueueHandler.playbackEventStream');
+          final current = currentSong;
+          if (current != null) {
+            AppLogger.log('AudioQueueHandler', 'Playback error on active track "${current.title}" (${current.id})');
+            current.streamUrl = null;
+            YouTubeClient.invalidateStream(current.id);
+            final appErr = ErrorHandler.resolve(e, stackTrace: st, context: 'Playback event on ${current.title}');
+            errorNotifier.value = appErr;
+            onError?.call(appErr);
+            if (isAudioHandlerInitialized) {
+              audioHandler.playbackErrorNotifier.value = appErr;
+            }
+          }
+        },
+      );
+    } catch (_) {}
 
     // Single source of truth for player completion & lifecycle
     _playerStateSub = player.playerStateStream.listen((state) {
@@ -415,7 +448,8 @@ class AudioQueueHandler {
       AppLogger.log('AudioQueueHandler', 'Preloading upcoming track [$targetIndex]: "${song.title}"');
 
       // Resolve stream URL if missing
-      if (song.streamUrl == null || song.streamUrl!.isEmpty) {
+      final wasMissingUrl = song.streamUrl == null || song.streamUrl!.isEmpty;
+      if (wasMissingUrl) {
         final url = await _resolveStreamUrl(song);
         if (token != _sessionToken) {
           AppLogger.log('AudioQueueHandler', 'Preload aborted: session changed during resolution for "${song.title}"');
@@ -442,9 +476,9 @@ class AudioQueueHandler {
       if (targetPlayerIndex < 0) return;
 
       if (targetPlayerIndex < _playlistSource.length) {
-        // ONLY replace if targetPlayerIndex is strictly greater than player's active index
+        // ONLY replace if targetPlayerIndex is strictly greater than player's active index AND URL was newly resolved
         final currentPlayerIndex = _currentIndex - _playlistBaseIndex;
-        if (targetPlayerIndex > currentPlayerIndex) {
+        if (targetPlayerIndex > currentPlayerIndex && wasMissingUrl) {
           try {
             await _playlistSource.removeAt(targetPlayerIndex);
             await _playlistSource.insert(targetPlayerIndex, source);
@@ -516,7 +550,13 @@ class AudioQueueHandler {
         _currentIndex = targetIndex;
         _syncState();
         onSongChanged?.call(targetSong);
-        _fadeVolumeTo(targetNorm, durationMs: crossfadeSec > 0 ? (crossfadeSec * 600).clamp(250, 2000) : 150);
+        _fadeVolumeTo(targetNorm, durationMs: crossfadeSec > 0 ? (crossfadeSec * 600).clamp(250, 2000) : 150).then((_) {
+          if (!_isDisposed && player.volume < 0.1 && targetNorm >= 0.5) {
+            try {
+              player.setVolume(targetNorm);
+            } catch (_) {}
+          }
+        });
         preloadUpcomingTracks(targetIndex);
         onQueueProgress?.call(_currentIndex, _queue.length);
         return;
@@ -558,7 +598,13 @@ class AudioQueueHandler {
       );
       if (token != _sessionToken) return;
       await player.play();
-      _fadeVolumeTo(targetNorm, durationMs: crossfadeSec > 0 ? (crossfadeSec * 600).clamp(250, 2000) : 150);
+      _fadeVolumeTo(targetNorm, durationMs: crossfadeSec > 0 ? (crossfadeSec * 600).clamp(250, 2000) : 150).then((_) {
+        if (!_isDisposed && player.volume < 0.1 && targetNorm >= 0.5) {
+          try {
+            player.setVolume(targetNorm);
+          } catch (_) {}
+        }
+      });
       preloadUpcomingTracks(targetIndex);
       onQueueProgress?.call(_currentIndex, _queue.length);
     } catch (e, stack) {
@@ -829,7 +875,7 @@ class AudioQueueHandler {
     }
 
     // Quality bitrate adjustments for JioSaavn
-    if (streamUrl.contains('jiosaavn') || streamUrl.contains('.mp4')) {
+    if (song.source == 'saavn' || song.source == 'jiosaavn' || streamUrl.contains('jiosaavn')) {
       final q = SettingsManager.streamingQuality;
       if (q == '96kbps') {
         streamUrl = streamUrl.replaceAll('_320.mp4', '_96.mp4').replaceAll('_160.mp4', '_96.mp4');
@@ -841,6 +887,14 @@ class AudioQueueHandler {
     }
     song.streamUrl = streamUrl;
 
+    // Headers for streaming reliability (essential for YouTube / googlevideo.com streams)
+    final headers = <String, String>{};
+    if (song.source == 'youtube' || streamUrl.contains('googlevideo.com') || song.id.length == 11) {
+      headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+      headers['Accept'] = '*/*';
+      headers['Connection'] = 'keep-alive';
+    }
+
     // 3. Cache verification
     try {
       final tempDir = await getTemporaryDirectory();
@@ -849,9 +903,17 @@ class AudioQueueHandler {
       if (cacheFile.existsSync() && cacheFile.lengthSync() > 100000) {
         return AudioSource.file(cacheFile.path, tag: song.toMediaItem());
       }
-      return AudioSource.uri(Uri.parse(streamUrl), tag: song.toMediaItem());
+      return AudioSource.uri(
+        Uri.parse(streamUrl),
+        headers: headers.isNotEmpty ? headers : null,
+        tag: song.toMediaItem(),
+      );
     } catch (_) {
-      return AudioSource.uri(Uri.parse(streamUrl), tag: song.toMediaItem());
+      return AudioSource.uri(
+        Uri.parse(streamUrl),
+        headers: headers.isNotEmpty ? headers : null,
+        tag: song.toMediaItem(),
+      );
     }
   }
 
@@ -986,8 +1048,9 @@ class AudioQueueHandler {
 
   void dispose() {
     _isDisposed = true;
-    _isFading = false;
+    _fadeToken++;
     SettingsManager.volumeNormalizationNotifier.removeListener(_onNormalizationChanged);
+    _playbackEventSub?.cancel();
     _positionSub?.cancel();
     cancelIdleTimer();
     _sequenceStateSub?.cancel();

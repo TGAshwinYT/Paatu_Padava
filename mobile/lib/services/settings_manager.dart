@@ -22,6 +22,8 @@ class SettingsManager {
       ValueNotifier<NextTrackStrategyMode>(NextTrackStrategyMode.spotifyStyle);
   static final ValueNotifier<int> maxCacheSizeMbNotifier = ValueNotifier<int>(500);
   static final ValueNotifier<int> bluetoothDelayMsNotifier = ValueNotifier<int>(0);
+  static final ValueNotifier<String> lyricsPreferredLanguageNotifier = ValueNotifier<String>('default');
+  static final ValueNotifier<bool> playerGesturesEnabledNotifier = ValueNotifier<bool>(true);
 
   static String get streamingQuality => streamingQualityNotifier.value;
   static String get downloadQuality => downloadQualityNotifier.value;
@@ -33,6 +35,8 @@ class SettingsManager {
   static NextTrackStrategyMode get nextTrackStrategy => nextTrackStrategyNotifier.value;
   static int get maxCacheSizeMb => maxCacheSizeMbNotifier.value;
   static int get bluetoothDelayMs => bluetoothDelayMsNotifier.value;
+  static String get lyricsPreferredLanguage => lyricsPreferredLanguageNotifier.value;
+  static bool get isPlayerGesturesEnabled => playerGesturesEnabledNotifier.value;
 
   /// Single coordinated preferred languages accessor:
   /// Uses AuthManager profile preferences as the source of truth,
@@ -86,6 +90,18 @@ class SettingsManager {
     );
     maxCacheSizeMbNotifier.value = (_box.get('max_cache_size_mb', defaultValue: 500) as num).toInt();
     bluetoothDelayMsNotifier.value = (_box.get('bluetooth_delay_ms', defaultValue: 0) as num).toInt();
+    lyricsPreferredLanguageNotifier.value = _box.get('lyrics_preferred_language', defaultValue: 'default') as String;
+    playerGesturesEnabledNotifier.value = _box.get('player_gestures_enabled', defaultValue: true) as bool;
+  }
+
+  static Future<void> setLyricsPreferredLanguage(String lang) async {
+    lyricsPreferredLanguageNotifier.value = lang;
+    await _box.put('lyrics_preferred_language', lang);
+  }
+
+  static Future<void> setPlayerGesturesEnabled(bool enabled) async {
+    playerGesturesEnabledNotifier.value = enabled;
+    await _box.put('player_gestures_enabled', enabled);
   }
 
   static Future<void> setBluetoothDelayMs(int ms) async {

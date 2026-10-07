@@ -13,6 +13,7 @@ import '../widgets/player/synced_lyrics_embed.dart';
 import '../widgets/player/player_download_button.dart';
 import '../widgets/player/player_equalizer_sheet.dart';
 import '../widgets/player/player_controls.dart';
+import '../widgets/player/player_gesture_detector.dart';
 
 class FullPlayerScreen extends StatefulWidget {
   const FullPlayerScreen({Key? key}) : super(key: key);
@@ -316,7 +317,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                               height: MediaQuery.of(context).size.width * 0.82,
                               child: _showLyrics
                                   ? _buildLyricsView(song)
-                                  : _buildArtworkView(song),
+                                  : PlayerGestureDetector(
+                                      child: _buildArtworkView(song),
+                                    ),
                             ),
 
                             // Song Title, Artist, and Favorite Row

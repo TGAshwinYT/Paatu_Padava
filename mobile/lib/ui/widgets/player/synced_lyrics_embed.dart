@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../../models/song.dart';
+import '../../../domain/models/lyrics_state.dart';
 import '../../../services/player_handler.dart';
 import '../../screens/lyrics_screen.dart';
 
@@ -300,10 +301,64 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
           Positioned(
             top: 8,
             right: 8,
-            child: IconButton(
-              icon: const Icon(Icons.fullscreen_rounded, color: Colors.white70, size: 24),
-              tooltip: 'Expand Bloomee Lyrics Page',
-              onPressed: () => LyricsScreen.open(context, song: widget.song),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ValueListenableBuilder<DualLyrics?>(
+                  valueListenable: audioHandler.dualLyricsNotifier,
+                  builder: (context, dualLyrics, _) {
+                    if (dualLyrics == null || !dualLyrics.hasMultipleVariants) {
+                      return const SizedBox.shrink();
+                    }
+                    return ValueListenableBuilder<LyricsLanguage>(
+                      valueListenable: audioHandler.lyricsLanguageNotifier,
+                      builder: (context, activeLang, _) {
+                        final isEnglish = activeLang == LyricsLanguage.english;
+                        final label = isEnglish ? 'EN' : 'Default';
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 4.0),
+                          child: InkWell(
+                            onTap: () {
+                              audioHandler.setLyricsLanguage(
+                                isEnglish ? LyricsLanguage.defaultLang : LyricsLanguage.english,
+                              );
+                            },
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1E293B).withValues(alpha: 0.8),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.translate_rounded, size: 12, color: Color(0xFF818CF8)),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    label,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.fullscreen_rounded, color: Colors.white70, size: 24),
+                  tooltip: 'Expand Bloomee Lyrics Page',
+                  onPressed: () => LyricsScreen.open(context, song: widget.song),
+                ),
+              ],
             ),
           ),
         ],

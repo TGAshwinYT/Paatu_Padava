@@ -234,6 +234,26 @@ class AudioQualitySettingsCard extends StatelessWidget {
               );
             },
           ),
+          Divider(color: Colors.white.withValues(alpha: 0.06), height: 1),
+          ValueListenableBuilder<bool>(
+            valueListenable: SettingsManager.playerGesturesEnabledNotifier,
+            builder: (context, gesturesEnabled, _) {
+              return SwitchListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                activeColor: const Color(0xFF6366F1),
+                title: const Text(
+                  'Player Touch Gestures',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                ),
+                subtitle: const Text(
+                  'Swipe left/right on cover art to skip songs, swipe up/down to adjust volume',
+                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                ),
+                value: gesturesEnabled,
+                onChanged: (val) => SettingsManager.setPlayerGesturesEnabled(val),
+              );
+            },
+          ),
         ],
       ),
     );

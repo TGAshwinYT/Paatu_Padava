@@ -1,6 +1,8 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../../../models/song.dart';
+import '../../../domain/models/lyrics_state.dart';
+import '../../../services/player_handler.dart';
 
 class LyricsTopBar extends StatelessWidget {
   final Song? song;
@@ -82,6 +84,82 @@ class LyricsTopBar extends StatelessWidget {
                     ),
                   ],
                 ),
+              ),
+
+              // Dual-Language Selector Pill (Default Script vs Romanized English)
+              ValueListenableBuilder<DualLyrics?>(
+                valueListenable: audioHandler.dualLyricsNotifier,
+                builder: (context, dualLyrics, _) {
+                  if (dualLyrics == null || !dualLyrics.hasMultipleVariants) {
+                    return const SizedBox.shrink();
+                  }
+
+                  return ValueListenableBuilder<LyricsLanguage>(
+                    valueListenable: audioHandler.lyricsLanguageNotifier,
+                    builder: (context, activeLang, _) {
+                      final isEnglish = activeLang == LyricsLanguage.english;
+                      final nativeLabel = switch (dualLyrics.detectedScript) {
+                        'tamil' => 'தமிழ்',
+                        'devanagari' => 'हिन्दी',
+                        'telugu' => 'తెలుగు',
+                        'malayalam' => 'മലയാളം',
+                        'kannada' => 'ಕನ್ನಡ',
+                        _ => 'Default',
+                      };
+
+                      return Container(
+                        margin: const EdgeInsets.only(right: 6),
+                        height: 30,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(15),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            GestureDetector(
+                              onTap: () => audioHandler.setLyricsLanguage(LyricsLanguage.defaultLang),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: !isEnglish ? const Color(0xFF6366F1) : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(15),
+                                ),
+                                child: Text(
+                                  nativeLabel,
+                                  style: TextStyle(
+                                    color: !isEnglish ? Colors.white : Colors.white60,
+                                    fontSize: 11,
+                                    fontWeight: !isEnglish ? FontWeight.bold : FontWeight.normal,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            GestureDetector(
+                              onTap: () => audioHandler.setLyricsLanguage(LyricsLanguage.english),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: isEnglish ? const Color(0xFF6366F1) : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(15),
+                                ),
+                                child: Text(
+                                  'English',
+                                  style: TextStyle(
+                                    color: isEnglish ? Colors.white : Colors.white60,
+                                    fontSize: 11,
+                                    fontWeight: isEnglish ? FontWeight.bold : FontWeight.normal,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
               ),
 
               // Button to reopen or toggle the Floating LyricsOffsetPill (ONLY for synced LRC)

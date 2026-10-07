@@ -10,6 +10,7 @@ import '../models/song.dart';
 import 'settings_manager.dart';
 import '../domain/models/app_error.dart';
 import '../domain/models/lyrics_state.dart';
+import '../logic/lyrics/indic_romanizer.dart';
 import 'error_handler.dart';
 import 'api_client.dart';
 import 'history_manager.dart';
@@ -50,6 +51,10 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   // Reactive State Notifiers for UI binding
   final ValueNotifier<String?> currentLyricsNotifier = ValueNotifier<String?>(null);
   final ValueNotifier<LyricsState> lyricsStateNotifier = ValueNotifier<LyricsState>(const LyricsState.idle());
+  final ValueNotifier<LyricsLanguage> lyricsLanguageNotifier = ValueNotifier<LyricsLanguage>(
+    SettingsManager.lyricsPreferredLanguage == 'english' ? LyricsLanguage.english : LyricsLanguage.defaultLang,
+  );
+  final ValueNotifier<DualLyrics?> dualLyricsNotifier = ValueNotifier<DualLyrics?>(null);
   final ValueNotifier<int> lyricsOffsetMsNotifier = ValueNotifier<int>(0);
   final ValueNotifier<Duration?> sleepTimerRemainingNotifier = ValueNotifier<Duration?>(null);
   final ValueNotifier<bool> isSmartShuffleNotifier = ValueNotifier<bool>(false);
@@ -231,18 +236,64 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _broadcastState();
   }
 
+  /// Sets user-selected lyrics language (Default vs English)
+  void setLyricsLanguage(LyricsLanguage lang) {
+    lyricsLanguageNotifier.value = lang;
+    SettingsManager.setLyricsPreferredLanguage(lang == LyricsLanguage.english ? 'english' : 'default');
+    final dual = dualLyricsNotifier.value;
+    if (dual != null) {
+      final selected = dual.getLyricsForLanguage(lang);
+      currentLyricsNotifier.value = selected;
+      lyricsStateNotifier.value = LyricsState.loaded(selected, dualLyrics: dual);
+    }
+  }
+
+  /// Sets custom lyrics directly (from search candidate or paste dialog)
+  void setCustomLyrics(String rawLyrics) {
+    final dual = _buildDualLyrics(rawLyrics);
+    dualLyricsNotifier.value = dual;
+    final selected = dual.getLyricsForLanguage(lyricsLanguageNotifier.value);
+    currentLyricsNotifier.value = selected;
+    lyricsStateNotifier.value = LyricsState.loaded(selected, dualLyrics: dual);
+  }
+
+  DualLyrics _buildDualLyrics(String rawLyrics) {
+    final isSynced = ApiClient.isSyncedLrc(rawLyrics);
+    final script = IndicRomanizer.detectScript(rawLyrics);
+    if (IndicRomanizer.hasIndicScript(rawLyrics)) {
+      final romanized = IndicRomanizer.romanizeLyrics(rawLyrics);
+      return DualLyrics(
+        defaultLyrics: rawLyrics,
+        englishLyrics: romanized,
+        detectedScript: script,
+        isSynced: isSynced,
+      );
+    } else {
+      return DualLyrics(
+        defaultLyrics: rawLyrics,
+        englishLyrics: rawLyrics,
+        detectedScript: 'latin',
+        isSynced: isSynced,
+      );
+    }
+  }
+
   /// Reloads lyrics for current or target song with multi-state resolution
   Future<void> reloadLyrics({Song? targetSong}) async {
     final song = targetSong ?? currentSong;
     if (song == null) {
       lyricsStateNotifier.value = const LyricsState.idle();
       currentLyricsNotifier.value = null;
+      dualLyricsNotifier.value = null;
       return;
     }
 
     if (song.lyrics != null && song.lyrics!.isNotEmpty) {
-      currentLyricsNotifier.value = song.lyrics;
-      lyricsStateNotifier.value = LyricsState.loaded(song.lyrics!);
+      final dual = _buildDualLyrics(song.lyrics!);
+      dualLyricsNotifier.value = dual;
+      final selected = dual.getLyricsForLanguage(lyricsLanguageNotifier.value);
+      currentLyricsNotifier.value = selected;
+      lyricsStateNotifier.value = LyricsState.loaded(selected, dualLyrics: dual);
       return;
     }
 
@@ -251,10 +302,14 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       final lyrics = await ApiClient.fetchLyrics(song);
       if (currentSong?.id != song.id) return;
       if (lyrics != null && lyrics.trim().isNotEmpty) {
-        currentLyricsNotifier.value = lyrics;
-        lyricsStateNotifier.value = LyricsState.loaded(lyrics);
+        final dual = _buildDualLyrics(lyrics);
+        dualLyricsNotifier.value = dual;
+        final selected = dual.getLyricsForLanguage(lyricsLanguageNotifier.value);
+        currentLyricsNotifier.value = selected;
+        lyricsStateNotifier.value = LyricsState.loaded(selected, dualLyrics: dual);
       } else {
         currentLyricsNotifier.value = null;
+        dualLyricsNotifier.value = null;
         lyricsStateNotifier.value = const LyricsState.notFound();
       }
     } catch (e, stack) {

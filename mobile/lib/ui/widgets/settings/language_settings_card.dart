@@ -64,6 +64,53 @@ class LanguageSettingsCard extends StatelessWidget {
                   );
                 }).toList(),
               ),
+              const SizedBox(height: 16),
+              const Divider(color: Colors.white10),
+              const SizedBox(height: 8),
+              const Text(
+                'Default Lyrics Display Mode:',
+                style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+              ),
+              const SizedBox(height: 8),
+              ValueListenableBuilder<String>(
+                valueListenable: SettingsManager.lyricsPreferredLanguageNotifier,
+                builder: (context, preferredLang, _) {
+                  final isEnglish = preferredLang == 'english';
+                  return Row(
+                    children: [
+                      ChoiceChip(
+                        label: const Text('Default / Native Script'),
+                        selected: !isEnglish,
+                        selectedColor: const Color(0xFF6366F1),
+                        backgroundColor: const Color(0xFF1E293B),
+                        labelStyle: TextStyle(
+                          color: !isEnglish ? Colors.white : Colors.white70,
+                          fontSize: 12,
+                          fontWeight: !isEnglish ? FontWeight.bold : FontWeight.normal,
+                        ),
+                        onSelected: (val) {
+                          if (val) SettingsManager.setLyricsPreferredLanguage('default');
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      ChoiceChip(
+                        label: const Text('Romanized English'),
+                        selected: isEnglish,
+                        selectedColor: const Color(0xFF6366F1),
+                        backgroundColor: const Color(0xFF1E293B),
+                        labelStyle: TextStyle(
+                          color: isEnglish ? Colors.white : Colors.white70,
+                          fontSize: 12,
+                          fontWeight: isEnglish ? FontWeight.bold : FontWeight.normal,
+                        ),
+                        onSelected: (val) {
+                          if (val) SettingsManager.setLyricsPreferredLanguage('english');
+                        },
+                      ),
+                    ],
+                  );
+                },
+              ),
             ],
           );
         },

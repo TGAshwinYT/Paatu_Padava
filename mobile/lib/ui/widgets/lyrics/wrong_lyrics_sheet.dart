@@ -156,7 +156,7 @@ class WrongLyricsSheet {
                               ),
                               onTap: () {
                                 if (chosen != null && chosen.trim().isNotEmpty) {
-                                  audioHandler.currentLyricsNotifier.value = chosen;
+                                  audioHandler.setCustomLyrics(chosen);
                                   Navigator.pop(context);
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(content: Text('Lyrics updated for track')),
@@ -204,7 +204,7 @@ class WrongLyricsSheet {
               onPressed: () {
                 final txt = pasteController.text.trim();
                 if (txt.isNotEmpty) {
-                  audioHandler.currentLyricsNotifier.value = txt;
+                  audioHandler.setCustomLyrics(txt);
                   Navigator.pop(dialogContext);
                 }
               },

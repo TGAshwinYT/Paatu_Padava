@@ -43,7 +43,9 @@ class SearchAllResultsView extends StatelessWidget {
       );
     }
 
-    return ListView(
+    final isWide = MediaQuery.of(context).size.width >= 720;
+
+    final content = ListView(
       padding: const EdgeInsets.only(bottom: 120),
       children: [
         if (state.didYouMean != null)
@@ -225,56 +227,70 @@ class SearchAllResultsView extends StatelessWidget {
                     width: 120,
                     margin: const EdgeInsets.symmetric(horizontal: 4),
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(14),
-                          child: SizedBox(
-                            width: 120,
-                            height: 120,
-                            child: CachedNetworkImage(
-                              imageUrl: img,
-                              fit: BoxFit.cover,
-                              errorWidget: (_, __, ___) => Container(color: AppColors.surfaceDark),
-                            ),
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: SizedBox(
+                          width: 120,
+                          height: 120,
+                          child: CachedNetworkImage(
+                            imageUrl: img,
+                            fit: BoxFit.cover,
+                            memCacheWidth: 200,
+                            memCacheHeight: 200,
+                            errorWidget: (_, __, ___) => Container(color: AppColors.surfaceDark),
                           ),
                         ),
-                        const SizedBox(height: 6),
-                        Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.outfit(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.outfit(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                    ],
                   ),
-                );
-              },
-            ),
-          ),
-        ],
-
-        // Songs Header & List
-        if (state.songs.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
-            child: Text(
-              'Songs',
-              style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ),
-          ...state.songs.map((Song song) => SearchSongTile(
-            song: song,
-            onTap: () {
-              onRecordClick(song);
-              onSongTap(song);
+                ),
+              );
             },
-            onShowOptions: () => onShowOptions(song),
-            onShowVersions: song.versions.isNotEmpty ? () => onShowVersions(song) : null,
-          )),
-        ],
+          ),
+        ),
       ],
+
+      // Songs Header & List
+      if (state.songs.isNotEmpty) ...[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
+          child: Text(
+            'Songs',
+            style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+        ),
+        ...state.songs.map((Song song) => SearchSongTile(
+          song: song,
+          onTap: () {
+            onRecordClick(song);
+            onSongTap(song);
+          },
+          onShowOptions: () => onShowOptions(song),
+          onShowVersions: song.versions.isNotEmpty ? () => onShowVersions(song) : null,
+        )),
+      ],
+    ],
+  );
+
+  if (isWide) {
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 840),
+        child: content,
+      ),
     );
   }
+
+  return content;
+}
 }

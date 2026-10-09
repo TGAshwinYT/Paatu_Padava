@@ -124,6 +124,8 @@ class HomeSongCard extends StatelessWidget {
                     child: CachedNetworkImage(
                       imageUrl: song.coverUrl,
                       fit: BoxFit.cover,
+                      memCacheWidth: 200,
+                      memCacheHeight: 200,
                       errorWidget: (_, __, ___) => Container(color: AppColors.surfaceElevated),
                     ),
                   ),

@@ -6,6 +6,7 @@ import '../services/radio_engine.dart';
 import '../services/saavn_client.dart';
 import '../services/settings_manager.dart';
 import '../services/youtube_client.dart';
+import '../services/queue_cooldown_manager.dart';
 
 abstract class NextTrackStrategy {
   String get id;
@@ -71,13 +72,16 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
       for (final s in queue) {
         exclusions.add(s.id);
         exclusions.add(s.canonicalBaseKey);
+        if (s.cleanTitleKey.isNotEmpty) exclusions.add(s.cleanTitleKey);
       }
       for (final s in history) {
         exclusions.add(s.id);
         exclusions.add(s.canonicalBaseKey);
+        if (s.cleanTitleKey.isNotEmpty) exclusions.add(s.cleanTitleKey);
       }
       exclusions.add(seedSong.id);
       exclusions.add(seedSong.canonicalBaseKey);
+      if (seedSong.cleanTitleKey.isNotEmpty) exclusions.add(seedSong.cleanTitleKey);
 
       final Set<String> seenKeys = {};
       final List<Song> filtered = [];
@@ -86,9 +90,14 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
       for (final c in allCandidates) {
         if (c.title.trim().isEmpty) continue;
         final baseKey = c.canonicalBaseKey;
+        final titleKey = c.cleanTitleKey;
 
-        // 1. Basic ID & Canonical Title Exclusion
-        if (exclusions.contains(c.id) || exclusions.contains(baseKey) || seenKeys.contains(baseKey)) {
+        // 1. Basic ID, Canonical Title & 75-song cooldown exclusion
+        if (exclusions.contains(c.id) ||
+            exclusions.contains(baseKey) ||
+            (titleKey.isNotEmpty && exclusions.contains(titleKey)) ||
+            seenKeys.contains(baseKey) ||
+            QueueCooldownManager.isCoolingDown(c)) {
           continue;
         }
 
@@ -199,13 +208,16 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
       for (final s in queue) {
         exclusions.add(s.id);
         exclusions.add(s.canonicalBaseKey);
+        if (s.cleanTitleKey.isNotEmpty) exclusions.add(s.cleanTitleKey);
       }
       for (final s in history) {
         exclusions.add(s.id);
         exclusions.add(s.canonicalBaseKey);
+        if (s.cleanTitleKey.isNotEmpty) exclusions.add(s.cleanTitleKey);
       }
       exclusions.add(seedSong.id);
       exclusions.add(seedSong.canonicalBaseKey);
+      if (seedSong.cleanTitleKey.isNotEmpty) exclusions.add(seedSong.cleanTitleKey);
 
       final Set<String> seenKeys = {};
       final List<Song> upcoming = [];
@@ -214,7 +226,12 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
       for (final s in candidatePool) {
         if (s.title.trim().isEmpty) continue;
         final baseKey = s.canonicalBaseKey;
-        if (exclusions.contains(s.id) || exclusions.contains(baseKey) || seenKeys.contains(baseKey)) {
+        final titleKey = s.cleanTitleKey;
+        if (exclusions.contains(s.id) ||
+            exclusions.contains(baseKey) ||
+            (titleKey.isNotEmpty && exclusions.contains(titleKey)) ||
+            seenKeys.contains(baseKey) ||
+            QueueCooldownManager.isCoolingDown(s)) {
           continue;
         }
 

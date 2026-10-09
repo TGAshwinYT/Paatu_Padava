@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../models/song.dart';
 import 'des_decrypt.dart';
 import 'app_logger.dart';
+import 'artist_sanitizer.dart';
 
 class SaavnClient {
   static const String baseUrl = 'https://www.jiosaavn.com/api.php';
@@ -17,84 +18,19 @@ class SaavnClient {
     if (img == null || img.isEmpty) {
       return 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&h=500&fit=crop';
     }
-    return img.replaceAll('50x50', '500x500').replaceAll('150x150', '500x500');
+    String highRes = img.replaceAll('50x50', '500x500').replaceAll('150x150', '500x500');
+    if (highRes.startsWith('http://')) {
+      highRes = highRes.replaceFirst('http://', 'https://');
+    }
+    return highRes;
   }
 
-  static const Set<String> _excludedArtistKeywords = {
-    'gospel',
-    'chuchutv',
-    'rhymes',
-    'nursery',
-    'lullaby',
-    'devotional',
-    'dialogue',
-    'comedy',
-    'scenes',
-    'trailer',
-    'teaser',
-    'remix',
-    'bgm',
-    'instrumental',
-    'soundtrack',
-    'records',
-    'music company',
-    'official',
-    'channel',
-    'kids',
-    'stories',
-    'poems',
-  };
-
-  static const Set<String> _nonMusicActors = {
-    'prakash raj',
-    'nasser',
-    'radha ravi',
-    'brahmanandam',
-    'goundamani',
-    'senthil',
-    'manivannan',
-    'ms bhaskar',
-    'kota srinivasa rao',
-    'ashish vidyarthi',
-  };
-
   static bool isActorOrCast(String name) {
-    final lower = name.toLowerCase().trim();
-    for (final actor in _nonMusicActors) {
-      if (lower == actor || lower.contains(actor)) return true;
-    }
-    return false;
+    return !ArtistSanitizer.isGenuineArtist(name);
   }
 
   static bool isGenuineMusicArtist(Map<dynamic, dynamic> item) {
-    final rawName = (item['name'] ?? item['title'] ?? '').toString().toLowerCase().trim();
-    if (rawName.isEmpty) return false;
-
-    // 1. Exclude generic non-artist tags (e.g. "Tamil Gospel", "ChuChuTV")
-    for (final kw in _excludedArtistKeywords) {
-      if (rawName.contains(kw)) return false;
-    }
-
-    // 2. Exclude known non-singer actors (e.g. Prakash Raj)
-    if (isActorOrCast(rawName)) return false;
-
-    // 3. Filter candidate artists by checking for 'music' or 'singers' roles
-    final role = (item['role'] ?? item['extra'] ?? item['subtitle'] ?? '').toString().toLowerCase().trim();
-    if (role.isNotEmpty) {
-      final isActor = role.contains('actor') || role.contains('starring') || role.contains('cast');
-      final isMusician = role.contains('music') ||
-          role.contains('singer') ||
-          role.contains('composer') ||
-          role.contains('director') ||
-          role.contains('lyricist') ||
-          role.contains('vocalist') ||
-          role.contains('artist');
-      if (isActor && !isMusician) {
-        return false;
-      }
-    }
-
-    return true;
+    return ArtistSanitizer.isGenuineArtist(item);
   }
 
   static Song _parseSongItem(Map<String, dynamic> item) {
@@ -116,7 +52,7 @@ class SaavnClient {
       if (valid.isNotEmpty) {
         final names = valid
             .map((a) => a['name']?.toString() ?? '')
-            .where((n) => n.isNotEmpty && !isActorOrCast(n))
+            .where((n) => n.isNotEmpty && ArtistSanitizer.isGenuineArtist(n))
             .toList();
         if (names.isNotEmpty) {
           resolvedArtist = names.join(', ');
@@ -124,10 +60,14 @@ class SaavnClient {
       }
     }
 
-    resolvedArtist ??= more['music']?.toString() ?? more['singers']?.toString();
+    final musicCandidate = more['music']?.toString() ?? more['singers']?.toString();
+    if (musicCandidate != null && ArtistSanitizer.isGenuineArtist(musicCandidate)) {
+      resolvedArtist ??= musicCandidate;
+    }
+
     if (resolvedArtist == null || resolvedArtist.isEmpty) {
       final subtitle = item['subtitle']?.toString() ?? '';
-      if (!isActorOrCast(subtitle)) {
+      if (ArtistSanitizer.isGenuineArtist(subtitle)) {
         resolvedArtist = subtitle;
       }
     }
@@ -214,17 +154,30 @@ class SaavnClient {
 
       final data = json.decode(response.body);
       final results = data['results'] as List<dynamic>? ?? [];
+      final validAlbums = <Map<String, dynamic>>[];
 
-      return results.map((item) {
+      for (final item in results) {
+        if (item is! Map) continue;
         final more = item['more_info'] ?? {};
-        return {
+        final songCount = int.tryParse(more['song_count']?.toString() ?? '0') ?? 0;
+        final title = (item['title'] ?? '').toString().toLowerCase();
+
+        // Strictly exclude single-song releases from Albums view
+        if (songCount == 1 || title.contains('single')) {
+          continue;
+        }
+
+        validAlbums.add({
           'id': item['id']?.toString() ?? '',
           'title': Song.sanitize(item['title'], fallback: 'Unknown Album'),
           'artist': Song.sanitize(more['music'] ?? item['subtitle'], fallback: 'Various Artists'),
           'image': _extractHighResImage(item['image']?.toString()),
           'year': item['year']?.toString() ?? more['year']?.toString() ?? '',
-        };
-      }).toList();
+          'song_count': songCount,
+        });
+      }
+
+      return validAlbums;
     } catch (e) {
       return [];
     }

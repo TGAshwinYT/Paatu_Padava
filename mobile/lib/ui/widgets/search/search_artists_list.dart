@@ -58,7 +58,7 @@ class SearchArtistsList extends StatelessWidget {
           leading: CircleAvatar(
             radius: 26,
             backgroundColor: AppColors.surfaceElevated,
-            backgroundImage: img.isNotEmpty ? CachedNetworkImageProvider(img) : null,
+            backgroundImage: img.isNotEmpty ? CachedNetworkImageProvider(img, maxWidth: 150, maxHeight: 150) : null,
           ),
           title: Text(
             name,

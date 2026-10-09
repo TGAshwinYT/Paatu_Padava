@@ -50,6 +50,8 @@ class SearchTopResultCard extends StatelessWidget {
                       ? CachedNetworkImage(
                           imageUrl: cover,
                           fit: BoxFit.cover,
+                          memCacheWidth: 240,
+                          memCacheHeight: 240,
                           errorWidget: (_, __, ___) => Container(color: AppColors.surfaceDark),
                         )
                       : Container(

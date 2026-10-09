@@ -57,6 +57,40 @@ class SearchResults {
   bool get hasError => error != null;
 }
 
+class SearchCache {
+  static const int _maxEntries = 60;
+  static final Map<String, SearchResults> _cache = {};
+  static final List<String> _lruOrder = [];
+
+  static SearchResults? get(String query, {String? language}) {
+    final key = '${query.trim().toLowerCase()}__${language?.toLowerCase() ?? ""}';
+    if (_cache.containsKey(key)) {
+      _lruOrder.remove(key);
+      _lruOrder.add(key);
+      return _cache[key];
+    }
+    return null;
+  }
+
+  static void put(String query, SearchResults results, {String? language}) {
+    if (results.isEmpty || results.hasError) return;
+    final key = '${query.trim().toLowerCase()}__${language?.toLowerCase() ?? ""}';
+    if (_cache.containsKey(key)) {
+      _lruOrder.remove(key);
+    } else if (_lruOrder.length >= _maxEntries) {
+      final oldest = _lruOrder.removeAt(0);
+      _cache.remove(oldest);
+    }
+    _cache[key] = results;
+    _lruOrder.add(key);
+  }
+
+  static void clear() {
+    _cache.clear();
+    _lruOrder.clear();
+  }
+}
+
 class SearchService {
   static const List<String> _knownLanguages = [
     'tamil',
@@ -90,6 +124,52 @@ class SearchService {
     'arabic kuthu': 'Arabic Kuthu',
     'arabik kuthu': 'Arabic Kuthu',
   };
+
+  /// Expands common South Indian, Tanglish, and phonetically variant queries
+  static String expandPhoneticQuery(String query) {
+    var text = query.trim().toLowerCase();
+    if (text.isEmpty) return query;
+
+    if (_tanglishIndex.containsKey(text)) {
+      return _tanglishIndex[text]!;
+    }
+
+    // Common phonetic swaps
+    text = text.replaceAll('aniruth', 'anirudh')
+               .replaceAll('ar rehman', 'ar rahman')
+               .replaceAll('rehman', 'rahman')
+               .replaceAll('yuvan shanker', 'yuvan shankar')
+               .replaceAll('ilayaraja', 'ilaiyaraaja')
+               .replaceAll('ilayaraaja', 'ilaiyaraaja')
+               .replaceAll('hukkum', 'hukum')
+               .replaceAll('hukm', 'hukum')
+               .replaceAll('nerupuda', 'neruppu da')
+               .replaceAll('kadaippoma', 'kadhaippoma')
+               .replaceAll('vaseegara', 'vaseegara')
+               .replaceAll('waseegara', 'vaseegara')
+               .replaceAll('mesaya muruku', 'meesaya murukku')
+               .replaceAll('oorum blood', 'oorum blood');
+
+    return text;
+  }
+
+  /// Strictly filters out single-song releases and fake albums
+  static List<Map<String, dynamic>> filterGenuineAlbums(List<Map<String, dynamic>> rawAlbums) {
+    final valid = <Map<String, dynamic>>[];
+    for (final alb in rawAlbums) {
+      final songCount = int.tryParse(alb['song_count']?.toString() ?? '0') ?? 0;
+      final title = (alb['title'] ?? '').toString().toLowerCase();
+      if (songCount == 1 || title.contains('single')) {
+        continue;
+      }
+      valid.add({
+        ...alb,
+        'type': 'Album',
+        'is_single': false,
+      });
+    }
+    return valid;
+  }
 
   /// Understands user query: detects script, explicit language override, and Tanglish transliteration.
   static QueryIntent understandQuery(String raw) {
@@ -146,6 +226,14 @@ class SearchService {
           didYouMean = transliterated;
           break;
         }
+      }
+    }
+
+    if (didYouMean == null) {
+      final phoneticExpanded = expandPhoneticQuery(cleanLower);
+      if (phoneticExpanded.toLowerCase() != cleanLower) {
+        transliterated = phoneticExpanded;
+        didYouMean = phoneticExpanded;
       }
     }
 
@@ -247,6 +335,12 @@ class SearchService {
     final effectiveLang = intent.explicitLanguage ??
         (language ?? (prefLangs.isNotEmpty ? prefLangs.first : 'Tamil'));
 
+    // Check fast LRU in-memory cache first (0ms)
+    final cached = SearchCache.get(rawQuery, language: effectiveLang);
+    if (cached != null) {
+      return cached;
+    }
+
     try {
       // 1. Parallel retrieval with timeouts: Query JioSaavn first
       final saavnFuture = SaavnClient.search(
@@ -320,17 +414,8 @@ class SearchService {
         }
       }
 
-      // Filter and label one-track albums
-      final labeledAlbums = rawAlbums.map((alb) {
-        final songCount = int.tryParse(alb['song_count']?.toString() ?? '0') ?? 0;
-        final title = (alb['title'] ?? '').toString().toLowerCase();
-        final isSingle = songCount == 1 || title.contains('single');
-        return {
-          ...alb,
-          'type': isSingle ? 'Single' : 'Album',
-          'is_single': isSingle,
-        };
-      }).toList();
+      // Filter and label multi-track genuine albums strictly
+      final labeledAlbums = filterGenuineAlbums(rawAlbums);
 
       // Set confidence bar for Top Result (>= 0.70 threshold)
       Map<String, dynamic>? topResult;
@@ -362,7 +447,7 @@ class SearchService {
       // Register with fuzzy index
       FuzzySearchService.registerSongs(rankedSaavn);
 
-      return SearchResults(
+      final searchBundle = SearchResults(
         songs: rankedSaavn,
         ytSongs: ytSongs,
         albums: labeledAlbums,
@@ -370,6 +455,11 @@ class SearchService {
         topResult: topResult,
         didYouMean: didYouMean,
       );
+
+      // Save to fast in-memory LRU cache
+      SearchCache.put(rawQuery, searchBundle, language: effectiveLang);
+
+      return searchBundle;
     } catch (e, stack) {
       debugPrint('[SearchService] Search error: $e');
       final appErr = ErrorHandler.resolve(e, stackTrace: stack, context: 'SearchService.searchUnified');

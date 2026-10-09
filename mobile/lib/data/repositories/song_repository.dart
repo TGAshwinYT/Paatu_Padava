@@ -67,6 +67,7 @@ class SongRepository {
   }
 
   /// Deduplicates songs by both unique ID and normalized `title + artist`.
+  /// Deduplicates songs by unique ID, normalized `title + artist`, AND cross-artist composition matching (`cleanTitleKey` + duration).
   /// If [existing] is provided, prevents appending duplicates to active lists/feeds.
   static List<Song> deduplicateSongs(
     Iterable<Song> songs, {
@@ -74,18 +75,23 @@ class SongRepository {
   }) {
     final Set<String> seenIds = {};
     final Set<String> seenKeys = {};
+    final Map<String, List<int>> seenCompositions = {};
     final List<Song> result = [];
+
+    void recordSongKeys(Song s) {
+      if (s.id.isNotEmpty) seenIds.add(s.id);
+      final key = '${normalizeTitle(s.title)}__${normalizeArtist(s.artist)}';
+      if (key.length > 3) seenKeys.add(key);
+      final titleKey = s.cleanTitleKey;
+      if (titleKey.length > 2) {
+        seenCompositions.putIfAbsent(titleKey, () => []).add(s.duration);
+      }
+    }
 
     // Pre-populate with existing items to prevent duplicates across pagination or state rebuilds
     if (existing != null) {
       for (final song in existing) {
-        if (song.id.isNotEmpty) {
-          seenIds.add(song.id);
-        }
-        final key = '${normalizeTitle(song.title)}__${normalizeArtist(song.artist)}';
-        if (key.length > 3) {
-          seenKeys.add(key);
-        }
+        recordSongKeys(song);
       }
     }
 
@@ -94,17 +100,30 @@ class SongRepository {
 
       final id = song.id.trim();
       final key = '${normalizeTitle(song.title)}__${normalizeArtist(song.artist)}';
+      final titleKey = song.cleanTitleKey;
 
-      // Duplicate check: unique id or identical normalized title + artist
+      // 1. Direct ID match
       if (id.isNotEmpty && seenIds.contains(id)) {
         continue;
       }
+
+      // 2. Exact normalized title + artist match
       if (key.length > 3 && seenKeys.contains(key)) {
         continue;
       }
 
-      if (id.isNotEmpty) seenIds.add(id);
-      if (key.length > 3) seenKeys.add(key);
+      // 3. Cross-artist composition match (same song composition title with matching duration)
+      if (titleKey.length > 2) {
+        final existingDurations = seenCompositions[titleKey];
+        if (existingDurations != null) {
+          final isDupe = existingDurations.any((d) =>
+            song.duration == 0 || d == 0 || (song.duration - d).abs() <= 12
+          );
+          if (isDupe) continue;
+        }
+      }
+
+      recordSongKeys(song);
       result.add(song);
     }
     return result;
@@ -238,58 +257,40 @@ class SongRepository {
     return ensureDistinctCovers(deduplicated);
   }
 
-  /// Ensures all tracks in "Made For You" have distinct covers.
-  /// If multiple consecutive or repeated tracks share the exact same artwork URL
-  /// (e.g. repeated "100% Melodies" compilation album covers), falls back to the
-  /// singer/artist avatar or high-res YouTube video thumbnail so every card has a distinct cover.
+  /// Ensures all tracks have valid, authentic artwork without stripping genuine album art.
+  /// If a track's artwork is completely empty, falls back to the high-res artist avatar
+  /// or high-res YouTube video thumbnail.
   static List<Song> ensureDistinctCovers(List<Song> songs) {
     if (songs.isEmpty) return songs;
 
-    final Set<String> seenArtworkUrls = {};
     final List<Song> distinct = [];
 
     for (final song in songs) {
-      String finalCover = song.coverUrl;
+      String finalCover = song.coverUrl.trim();
 
-      // If artwork is a duplicate or empty
-      if (seenArtworkUrls.contains(finalCover) || finalCover.isEmpty) {
+      // Only attempt fallback if the cover is completely missing/empty
+      if (finalCover.isEmpty) {
         final normArtist = normalizeArtist(song.artist);
         String? artistAvatar = _verifiedArtistAvatars[normArtist];
 
-        // If composite artist (e.g. "Anirudh Ravichander, Jonita Gandhi"), try first artist
         if (artistAvatar == null && song.artist.contains(',')) {
           final firstArtist = normalizeArtist(song.artist.split(',').first);
           artistAvatar = _verifiedArtistAvatars[firstArtist];
         }
 
-        if (artistAvatar != null && !seenArtworkUrls.contains(artistAvatar)) {
+        if (artistAvatar != null) {
           finalCover = artistAvatar;
         } else if (song.source == 'youtube' || song.id.length == 11) {
-          final ytCover = 'https://img.youtube.com/vi/${song.id}/hqdefault.jpg';
-          if (!seenArtworkUrls.contains(ytCover)) {
-            finalCover = ytCover;
-          }
+          finalCover = 'https://img.youtube.com/vi/${song.id}/hqdefault.jpg';
         }
       }
 
-      seenArtworkUrls.add(finalCover);
+      // Ensure HTTPS protocol
+      if (finalCover.startsWith('http://')) {
+        finalCover = finalCover.replaceFirst('http://', 'https://');
+      }
 
-      distinct.add(Song(
-        id: song.id,
-        title: song.title,
-        artist: song.artist,
-        album: song.album,
-        albumId: song.albumId,
-        artistId: song.artistId,
-        coverUrl: finalCover,
-        streamUrl: song.streamUrl,
-        duration: song.duration,
-        source: song.source,
-        language: song.language,
-        localFilePath: song.localFilePath,
-        lyrics: song.lyrics,
-        isSmartRecommended: song.isSmartRecommended,
-      ));
+      distinct.add(song.copyWith(coverUrl: finalCover));
     }
 
     return distinct;

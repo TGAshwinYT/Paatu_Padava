@@ -78,6 +78,8 @@ class SearchAlbumsGrid extends StatelessWidget {
                       child: CachedNetworkImage(
                         imageUrl: img,
                         fit: BoxFit.cover,
+                        memCacheWidth: 200,
+                        memCacheHeight: 200,
                         errorWidget: (_, __, ___) => Container(color: AppColors.surfaceDark),
                       ),
                     ),

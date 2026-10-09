@@ -13,6 +13,7 @@ import '../services/youtube_client.dart';
 import '../services/error_handler.dart';
 import '../services/player_handler.dart';
 import '../services/app_logger.dart';
+import '../services/queue_cooldown_manager.dart';
 import '../domain/models/app_error.dart';
 
 class AudioQueueHandler {
@@ -375,6 +376,7 @@ class AudioQueueHandler {
       if (state.processingState == ProcessingState.completed) {
         final current = currentSong;
         if (current != null) {
+          QueueCooldownManager.recordPlayed(current);
           final dur = player.duration ?? const Duration(seconds: 180);
           audioHandler.smartShuffleController.recordPlaybackFeedback(
             current,
@@ -781,13 +783,31 @@ class AudioQueueHandler {
   }
 
   /// Appends auto-suggested / recommended tracks to the end of the queue
+  /// Enforces cross-artist title deduplication and rolling 75-song cooldown.
   Future<void> addAutoSuggestions(List<Song> songs) async {
     if (songs.isEmpty) return;
-    AppLogger.log('AudioQueueHandler', 'addAutoSuggestions: ${songs.length} tracks');
+    final existingTitleKeys = _queue.map((s) => s.cleanTitleKey).where((k) => k.isNotEmpty).toSet();
+    final List<Song> deduplicated = [];
+
     for (final song in songs) {
-      final autoSong = song.copyWith(isSmartRecommended: true, isUserEnqueued: false);
-      _queue.add(autoSong);
-      _originalQueue.add(autoSong);
+      final key = song.cleanTitleKey;
+      if (key.isNotEmpty && existingTitleKeys.contains(key)) {
+        AppLogger.log('AudioQueueHandler', 'addAutoSuggestions dropped duplicate track: "${song.title}"');
+        continue;
+      }
+      if (QueueCooldownManager.isCoolingDown(song)) {
+        AppLogger.log('AudioQueueHandler', 'addAutoSuggestions dropped cooling down track: "${song.title}"');
+        continue;
+      }
+      if (key.isNotEmpty) existingTitleKeys.add(key);
+      deduplicated.add(song.copyWith(isSmartRecommended: true, isUserEnqueued: false));
+    }
+
+    if (deduplicated.isEmpty) return;
+    AppLogger.log('AudioQueueHandler', 'addAutoSuggestions: appending ${deduplicated.length} fresh tracks');
+    for (final song in deduplicated) {
+      _queue.add(song);
+      _originalQueue.add(song);
     }
     _syncState();
     preloadUpcomingTracks(_currentIndex);

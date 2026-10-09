@@ -129,6 +129,8 @@ class SwipeableSongTile extends StatelessWidget {
               child: song.coverUrl.isNotEmpty
                   ? CachedNetworkImage(
                       imageUrl: song.coverUrl,
+                      memCacheWidth: 150,
+                      memCacheHeight: 150,
                       width: 44,
                       height: 44,
                       fit: BoxFit.cover,

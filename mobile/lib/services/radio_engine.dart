@@ -5,6 +5,7 @@ import 'api_client.dart';
 import 'saavn_client.dart';
 import 'settings_manager.dart';
 import 'app_logger.dart';
+import 'queue_cooldown_manager.dart';
 
 class RadioEngine {
   /// Builds a curated 50-track discovery radio mix based on a seed song.
@@ -96,6 +97,7 @@ class RadioEngine {
       seedSong.id,
       seedSong.canonicalBaseKey,
       seedSong.canonicalSongKey,
+      if (seedSong.cleanTitleKey.isNotEmpty) seedSong.cleanTitleKey,
     };
 
     // Filter candidate pool with anti-repetition & artist diversity
@@ -104,7 +106,11 @@ class RadioEngine {
       if (radioTracks.length >= limit) break;
 
       final key = candidate.canonicalBaseKey;
-      if (seenKeys.contains(candidate.id) || seenKeys.contains(key)) {
+      final titleKey = candidate.cleanTitleKey;
+      if (seenKeys.contains(candidate.id) ||
+          seenKeys.contains(key) ||
+          (titleKey.isNotEmpty && seenKeys.contains(titleKey)) ||
+          QueueCooldownManager.isCoolingDown(candidate)) {
         continue;
       }
 

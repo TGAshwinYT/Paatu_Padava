@@ -5,6 +5,7 @@ import '../models/song.dart';
 import '../core/app_config.dart';
 import 'settings_manager.dart';
 import 'app_logger.dart';
+import 'artist_sanitizer.dart';
 
 class YouTubeClient {
   static YoutubeExplode? _ytInstance;
@@ -48,12 +49,19 @@ class YouTubeClient {
       final List<Song> songs = [];
 
       for (final video in searchResults.take(limit)) {
+        final rawAuthor = video.author;
+        final cleanAuthor = ArtistSanitizer.extractArtistFromVideo(video.title, rawAuthor);
+        final highThumb = video.thumbnails.highResUrl;
+        final safeThumb = (highThumb.isNotEmpty && highThumb.startsWith('http'))
+            ? (highThumb.startsWith('http://') ? highThumb.replaceFirst('http://', 'https://') : highThumb)
+            : 'https://img.youtube.com/vi/${video.id.value}/hqdefault.jpg';
+
         songs.add(Song(
           id: video.id.value,
           title: cleanTitle(video.title),
-          artist: Song.sanitize(video.author),
+          artist: Song.sanitize(cleanAuthor),
           album: 'YouTube Music',
-          coverUrl: video.thumbnails.highResUrl,
+          coverUrl: safeThumb,
           duration: video.duration?.inSeconds ?? 0,
           source: 'youtube',
         ));

@@ -12,6 +12,7 @@ import '../../services/player_handler.dart';
 import '../../services/search_history_manager.dart';
 import '../../services/settings_manager.dart';
 import '../../services/fuzzy_search_service.dart';
+import '../../services/artist_sanitizer.dart';
 import '../../services/search_service.dart';
 import '../../data/repositories/song_repository.dart';
 import '../theme/app_theme.dart';
@@ -233,21 +234,17 @@ class _SearchScreenState extends State<SearchScreen> {
       } else if (tab == 'Albums') {
         final albums = await SaavnClient.searchAlbums(clean, limit: 25);
         if (!mounted || currentRequestId != _searchRequestId) return;
-        final labeled = albums.map((alb) {
-          final songCount = int.tryParse(alb['song_count']?.toString() ?? '0') ?? 0;
-          final title = (alb['title'] ?? '').toString().toLowerCase();
-          final isSingle = songCount == 1 || title.contains('single');
-          return {
-            ...alb,
-            'type': isSingle ? 'Single' : 'Album',
-          };
-        }).toList();
-        _resultsNotifier.value = SearchResultsState(albums: labeled);
+        final genuineAlbums = SearchService.filterGenuineAlbums(albums);
+        _resultsNotifier.value = SearchResultsState(albums: genuineAlbums);
         _isSearchingNotifier.value = false;
       } else if (tab == 'Artists') {
         final artists = await SaavnClient.searchArtists(clean, limit: 25);
         if (!mounted || currentRequestId != _searchRequestId) return;
-        _resultsNotifier.value = SearchResultsState(artists: artists);
+        final genuineArtists = artists.where((a) {
+          final name = (a['name'] ?? a['title'] ?? '').toString();
+          return ArtistSanitizer.isGenuineArtist(name);
+        }).toList();
+        _resultsNotifier.value = SearchResultsState(artists: genuineArtists);
         _isSearchingNotifier.value = false;
       } else if (tab == 'YouTube') {
         final yt = await YouTubeClient.search(clean, limit: 25);

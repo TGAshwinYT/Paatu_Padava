@@ -6,6 +6,7 @@ import '../services/api_client.dart';
 import '../services/history_manager.dart';
 import '../services/saavn_client.dart';
 import '../services/settings_manager.dart';
+import '../services/queue_cooldown_manager.dart';
 import 'audio_queue_handler.dart';
 import 'next_track_strategy.dart';
 
@@ -100,6 +101,7 @@ class SmartShuffleController {
         exclusions.add(s.id);
         exclusions.add(s.canonicalBaseKey);
         exclusions.add(s.canonicalSongKey);
+        if (s.cleanTitleKey.isNotEmpty) exclusions.add(s.cleanTitleKey);
       }
     }
     exclusions.addAll(_sessionPlayedIds);
@@ -108,6 +110,7 @@ class SmartShuffleController {
       exclusions.add(s.id);
       exclusions.add(s.canonicalBaseKey);
       exclusions.add(s.canonicalSongKey);
+      if (s.cleanTitleKey.isNotEmpty) exclusions.add(s.cleanTitleKey);
     }
     return exclusions;
   }
@@ -246,10 +249,14 @@ class SmartShuffleController {
         final baseKey = c.canonicalBaseKey;
         final songKey = c.canonicalSongKey;
 
+        final titleKey = c.cleanTitleKey;
+
         if (exclusionKeys.contains(c.id) ||
             exclusionKeys.contains(baseKey) ||
             exclusionKeys.contains(songKey) ||
-            seenKeys.contains(baseKey)) {
+            (titleKey.isNotEmpty && exclusionKeys.contains(titleKey)) ||
+            seenKeys.contains(baseKey) ||
+            QueueCooldownManager.isCoolingDown(c)) {
           continue;
         }
 

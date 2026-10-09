@@ -82,10 +82,45 @@ class Song {
         .trim();
   }
 
+  /// Core song title key stripped of all film/video tags, brackets, and version markers.
+  /// Used for cross-source, cross-artist deduplication (e.g. matching tracks credited
+  /// to different singers/composers/labels).
+  String get cleanTitleKey {
+    var text = title.toLowerCase();
+    // Strip everything after pipe | (common YouTube format: Song | Movie | Artist)
+    text = text.replaceAll(RegExp(r'\|.*$'), ' ');
+    // Strip bracketed and parenthesized metadata
+    text = text.replaceAll(RegExp(r'\([^)]*\)'), ' ')
+               .replaceAll(RegExp(r'\[[^\]]*\]'), ' ');
+    // Strip metadata keywords
+    text = text.replaceAll(
+      RegExp(
+        r'\b(from|lyric|lyrical|lyrics|video|official|audio|single|song|remix|lofi|lo-fi|full video|hd|4k|teaser|trailer|ost|track|thalaivar alappara|promo)\b',
+        caseSensitive: false,
+      ),
+      ' ',
+    );
+    return text
+        .replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  /// Normalized album: strips brackets and punctuation
+  String get normalizedAlbum {
+    return album
+        .toLowerCase()
+        .replaceAll(RegExp(r'\([^)]*\)'), ' ')
+        .replaceAll(RegExp(r'\[[^\]]*\]'), ' ')
+        .replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
   /// Duration bucketed into 3-second bands (±3s tolerance)
   int get durationBand => (duration > 0) ? (duration / 3).round() * 3 : 0;
 
-  /// Base key for grouping all releases, dubs, and versions of the same song
+  /// Base key for grouping all releases, dubs, and versions of the same song (normalized title + primary artist)
   String get canonicalBaseKey => '${normalizedTitle}___$primaryArtist';
 
   /// Strict key for identical recording/track matching (normalized title + primary artist + duration ±3s)
@@ -117,29 +152,49 @@ class Song {
     if (canonicalBaseKey == other.canonicalBaseKey) return true;
     if (canonicalSongKey == other.canonicalSongKey) return true;
 
-    // Cross-language dub matching:
-    // If the composer / primary artist matches and the duration is within ±4 seconds,
-    // they represent the same musical piece released in alternate languages.
+    // 1. Cross-Artist Clean Title Match:
+    // If the core composition title is identical (e.g. "naa ready" == "naa ready"):
+    final bool sameTitle = cleanTitleKey.isNotEmpty &&
+        other.cleanTitleKey.isNotEmpty &&
+        cleanTitleKey == other.cleanTitleKey;
+
+    final bool durationMatch = duration > 0 &&
+        other.duration > 0 &&
+        (duration - other.duration).abs() <= 8;
+
+    final bool sameAlbum = normalizedAlbum.isNotEmpty &&
+        normalizedAlbum != 'unknown album' &&
+        normalizedAlbum == other.normalizedAlbum;
+
+    // If exact same cleaned title and (similar duration OR same album OR either is from YouTube), they are the same track!
+    if (sameTitle && (durationMatch || sameAlbum || source == 'youtube' || other.source == 'youtube')) {
+      return true;
+    }
+
+    // 2. Cross-language dub matching:
     final bool sameArtist = primaryArtist.isNotEmpty &&
         other.primaryArtist.isNotEmpty &&
         primaryArtist == other.primaryArtist;
-    final bool durationMatch = duration > 0 &&
+
+    final lowerTitle = cleanTitleKey;
+    final otherLower = other.cleanTitleKey;
+    final dubRegex = RegExp(r'\b(telugu|tamil|hindi|kannada|malayalam|dubbed|dub|version)\b');
+    final bool hasDubKeyword = dubRegex.hasMatch(title.toLowerCase()) ||
+        dubRegex.hasMatch(other.title.toLowerCase()) ||
+        dubRegex.hasMatch(album.toLowerCase()) ||
+        dubRegex.hasMatch(other.album.toLowerCase());
+
+    final bool substringTitleMatch = (lowerTitle.isNotEmpty && otherLower.isNotEmpty) &&
+        (lowerTitle.contains(otherLower) || otherLower.contains(lowerTitle));
+
+    final bool tightDuration = duration > 0 &&
         other.duration > 0 &&
         (duration - other.duration).abs() <= 4;
-    if (sameArtist && durationMatch) return true;
 
-    // Album match with duration within ±4 seconds
-    final bool sameAlbum = album.isNotEmpty &&
-        other.album.isNotEmpty &&
-        album.toLowerCase().trim() == other.album.toLowerCase().trim();
-    if (sameAlbum && durationMatch) return true;
-
-    // Title similarity for alternate language tags e.g. "(Telugu)", "(Hindi)", "(Tamil)"
-    final lowerTitle = title.toLowerCase();
-    final otherLower = other.title.toLowerCase();
-    final dubRegex = RegExp(r'\b(telugu|tamil|hindi|kannada|malayalam|dubbed|dub|version)\b');
-    if ((dubRegex.hasMatch(lowerTitle) || dubRegex.hasMatch(otherLower)) && durationMatch) {
-      return true;
+    if (sameArtist && (durationMatch || tightDuration)) {
+      if (substringTitleMatch || hasDubKeyword || sameAlbum) {
+        return true;
+      }
     }
 
     return false;

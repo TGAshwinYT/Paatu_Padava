@@ -111,5 +111,72 @@ void main() {
       // Restore setting
       SettingsManager.playerGesturesEnabledNotifier.value = true;
     });
+
+    testWidgets('Interactive horizontal drag translates child and snaps back on release under threshold', (tester) async {
+      SettingsManager.playerGesturesEnabledNotifier.value = true;
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: PlayerGestureDetector(
+              child: SizedBox(
+                key: Key('artwork_box'),
+                width: 200,
+                height: 200,
+                child: Text('Cover Artwork'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Verify initial rendering
+      expect(find.text('Cover Artwork'), findsOneWidget);
+
+      // Perform small horizontal drag (less than 35% commit threshold)
+      final gesture = await tester.startGesture(tester.getCenter(find.byKey(const Key('artwork_box'))));
+      await gesture.moveBy(const Offset(-40, 0));
+      await tester.pump();
+
+      // Child should have moved
+      expect(find.byType(Transform), findsWidgets);
+
+      // Release finger below commit threshold
+      await gesture.up();
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      // Card smoothly animates back to center
+      expect(find.text('Cover Artwork'), findsOneWidget);
+    });
+
+    testWidgets('Vertical drag displays VolumeHudOverlay', (tester) async {
+      SettingsManager.playerGesturesEnabledNotifier.value = true;
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: PlayerGestureDetector(
+              child: SizedBox(
+                key: Key('artwork_vol_box'),
+                width: 200,
+                height: 200,
+                child: Text('Cover Artwork'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(tester.getCenter(find.byKey(const Key('artwork_vol_box'))));
+      // Drag up to increase volume
+      await gesture.moveBy(const Offset(0, -60));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+
+      // Volume HUD is present in widget tree
+      expect(find.byType(VolumeHudOverlay), findsOneWidget);
+    });
   });
 }

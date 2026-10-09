@@ -56,6 +56,7 @@ class AudioQueueHandler {
   bool _isDisposed = false;
   int _fadeToken = 0;
   int _lastCrossfadeTimeMs = 0;
+  bool _hasRetriedCurrentTrack = false;
 
   AudioQueueHandler({
     required this.player,
@@ -112,6 +113,32 @@ class AudioQueueHandler {
   /// Calculates effective volume taking both user-selected master volume and song calibration into account
   double getEffectiveVolumeForSong(Song? song) {
     return (_userVolume * getNormalizedVolumeForSong(song)).clamp(0.0, 1.0);
+  }
+
+  /// Guarantees that the native Android/iOS AudioSession is active and holds audio focus
+  Future<void> _ensureAudioSessionActive() async {
+    try {
+      final session = await AudioSession.instance;
+      await session.setActive(true);
+    } catch (e) {
+      AppLogger.log('AudioQueueHandler', 'AudioSession.setActive(true) notice: $e');
+    }
+  }
+
+  /// Watchdog timer to ensure sound output is active and not stuck at 0.0 from race conditions
+  void _startVolumeWatchdog(Song? song) {
+    if (song == null) return;
+    Future.delayed(const Duration(milliseconds: 380), () {
+      if (!_isDisposed && player.playing) {
+        final targetNorm = getEffectiveVolumeForSong(song);
+        if (player.volume < 0.1 && targetNorm >= 0.2) {
+          AppLogger.log('AudioQueueHandler', 'Volume watchdog: Restoring stuck volume (${player.volume} -> $targetNorm)');
+          try {
+            player.setVolume(targetNorm);
+          } catch (_) {}
+        }
+      }
+    });
   }
 
   /// Smoothly ramps player volume to [targetVolume] over [durationMs] with token-guaranteed restoration
@@ -251,11 +278,13 @@ class AudioQueueHandler {
         if (actualIndex >= 0 && actualIndex < _queue.length && actualIndex != _currentIndex) {
           final oldIndex = _currentIndex;
           _currentIndex = actualIndex;
+          _hasRetriedCurrentTrack = false;
           _sessionToken++; // Invalidate in-flight preloads from the previous track so they cannot mutate active track
           _syncState();
 
           final song = _queue[_currentIndex];
           AppLogger.log('AudioQueueHandler', 'Track transition: index $oldIndex -> $actualIndex ("${song.title}" [id=${song.id}])');
+          _ensureAudioSessionActive();
           onSongChanged?.call(song);
           onQueueProgress?.call(_currentIndex, _queue.length);
 
@@ -270,6 +299,7 @@ class AudioQueueHandler {
               } catch (_) {}
             }
           });
+          _startVolumeWatchdog(song);
 
           // Preload upcoming tracks for instantaneous gapless transition
           preloadUpcomingTracks(_currentIndex);
@@ -287,13 +317,39 @@ class AudioQueueHandler {
     try {
       _playbackEventSub = player.playbackEventStream.listen(
         (_) {},
-        onError: (Object e, StackTrace st) {
+        onError: (Object e, StackTrace st) async {
           AppLogger.recordError(e, st, context: 'AudioQueueHandler.playbackEventStream');
           final current = currentSong;
           if (current != null) {
             AppLogger.log('AudioQueueHandler', 'Playback error on active track "${current.title}" (${current.id})');
             current.streamUrl = null;
             YouTubeClient.invalidateStream(current.id);
+
+            // Transparent auto-recovery: try to re-resolve fresh stream URL once if failed
+            if (!_hasRetriedCurrentTrack && !_isDisposed) {
+              _hasRetriedCurrentTrack = true;
+              AppLogger.log('AudioQueueHandler', 'Auto-recovery: re-resolving fresh stream for "${current.title}"');
+              final freshUrl = await _resolveStreamUrl(current);
+              if (freshUrl != null && freshUrl.isNotEmpty && !_isDisposed) {
+                current.streamUrl = freshUrl;
+                final freshSource = await _buildAudioSource(current, allowNetworkResolve: false);
+                if (freshSource != null && !_isDisposed) {
+                  try {
+                    await player.setAudioSource(freshSource);
+                    await _ensureAudioSessionActive();
+                    await player.play();
+                    final targetNorm = getEffectiveVolumeForSong(current);
+                    await player.setVolume(targetNorm);
+                    _startVolumeWatchdog(current);
+                    AppLogger.log('AudioQueueHandler', 'Auto-recovery successful for "${current.title}"');
+                    return;
+                  } catch (recoveryErr) {
+                    AppLogger.log('AudioQueueHandler', 'Auto-recovery play failed: $recoveryErr');
+                  }
+                }
+              }
+            }
+
             final appErr = ErrorHandler.resolve(e, stackTrace: st, context: 'Playback event on ${current.title}');
             errorNotifier.value = appErr;
             onError?.call(appErr);
@@ -438,16 +494,28 @@ class AudioQueueHandler {
         initialPosition: Duration.zero,
       );
 
-      if (token != _sessionToken) return;
+      if (token != _sessionToken) {
+        if (crossfadeSec > 0) {
+          try {
+            await player.setVolume(targetNorm);
+          } catch (_) {}
+        }
+        return;
+      }
 
       if (autoPlay) {
+        await _ensureAudioSessionActive();
         await player.play();
         if (crossfadeSec > 0) {
           _fadeVolumeTo(targetNorm, durationMs: (crossfadeSec * 600).clamp(250, 2000));
+        } else {
+          await player.setVolume(targetNorm);
         }
+        _startVolumeWatchdog(activeSong);
       }
 
       _isLoading = false;
+      _hasRetriedCurrentTrack = false;
       onQueueProgress?.call(_currentIndex, _queue.length);
 
       // Asynchronously preload immediate upcoming track
@@ -550,8 +618,8 @@ class AudioQueueHandler {
     final targetNorm = getEffectiveVolumeForSong(targetSong);
     final crossfadeSec = SettingsManager.crossfadeSeconds;
 
-    // Smooth micro fade-out before jumping if currently playing
-    if (player.playing && player.volume > 0.05) {
+    // Smooth micro fade-out before jumping ONLY if crossfade is enabled
+    if (player.playing && player.volume > 0.05 && crossfadeSec > 0) {
       await _fadeVolumeTo(0.0, durationMs: 120);
     }
 
@@ -570,19 +638,20 @@ class AudioQueueHandler {
     if (targetPlayerIndex >= 0 && targetPlayerIndex < _playlistSource.length) {
       try {
         await player.seek(Duration.zero, index: targetPlayerIndex);
+        await _ensureAudioSessionActive();
         if (!player.playing) {
           await player.play();
         }
         _currentIndex = targetIndex;
+        _hasRetriedCurrentTrack = false;
         _syncState();
         onSongChanged?.call(targetSong);
-        _fadeVolumeTo(targetNorm, durationMs: crossfadeSec > 0 ? (crossfadeSec * 600).clamp(250, 2000) : 150).then((_) {
-          if (!_isDisposed && player.volume < 0.1 && targetNorm >= 0.5) {
-            try {
-              player.setVolume(targetNorm);
-            } catch (_) {}
-          }
-        });
+        if (crossfadeSec > 0) {
+          _fadeVolumeTo(targetNorm, durationMs: (crossfadeSec * 600).clamp(250, 2000));
+        } else {
+          await player.setVolume(targetNorm);
+        }
+        _startVolumeWatchdog(targetSong);
         preloadUpcomingTracks(targetIndex);
         onQueueProgress?.call(_currentIndex, _queue.length);
         return;
@@ -594,6 +663,7 @@ class AudioQueueHandler {
     // Re-center _playlistSource window at targetIndex
     _playlistBaseIndex = targetIndex;
     _currentIndex = targetIndex;
+    _hasRetriedCurrentTrack = false;
     _syncState();
     onSongChanged?.call(targetSong);
 
@@ -622,15 +692,20 @@ class AudioQueueHandler {
         initialIndex: 0,
         initialPosition: Duration.zero,
       );
-      if (token != _sessionToken) return;
+      if (token != _sessionToken) {
+        try {
+          await player.setVolume(targetNorm);
+        } catch (_) {}
+        return;
+      }
+      await _ensureAudioSessionActive();
       await player.play();
-      _fadeVolumeTo(targetNorm, durationMs: crossfadeSec > 0 ? (crossfadeSec * 600).clamp(250, 2000) : 150).then((_) {
-        if (!_isDisposed && player.volume < 0.1 && targetNorm >= 0.5) {
-          try {
-            player.setVolume(targetNorm);
-          } catch (_) {}
-        }
-      });
+      if (crossfadeSec > 0) {
+        _fadeVolumeTo(targetNorm, durationMs: (crossfadeSec * 600).clamp(250, 2000));
+      } else {
+        await player.setVolume(targetNorm);
+      }
+      _startVolumeWatchdog(targetSong);
       preloadUpcomingTracks(targetIndex);
       onQueueProgress?.call(_currentIndex, _queue.length);
     } catch (e, stack) {

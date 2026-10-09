@@ -43,7 +43,9 @@ bool get isAudioHandlerInitialized => _audioHandlerInstance != null;
 /// App-lifetime audio background service handler coordinating playback,
 /// queue mutations, notification actions, and lock screen media session.
 class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
-  final AudioPlayer _player = AudioPlayer();
+  final AudioPlayer _player = AudioPlayer(
+    androidApplyAudioAttributes: true,
+  );
 
   late final AudioQueueHandler _queueHandler;
   late final SmartShuffleController _smartShuffleController;
@@ -65,6 +67,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   bool _hasRecordedListen = false;
   bool _isForegroundDowngraded = false;
   StreamSubscription? _becomingNoisySub;
+  StreamSubscription<AudioInterruptionEvent>? _interruptionSub;
   StreamSubscription<PlayerState>? _playerStateSub;
   StreamSubscription? _playbackEventSub;
   StreamSubscription? _throttledPositionSub;
@@ -201,6 +204,32 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       _becomingNoisySub = session.becomingNoisyEventStream.listen((_) {
         AppLogger.log('PlayerHandler', 'Audio becoming noisy (headset/BT unplugged) -> auto-pausing');
         pause();
+      });
+
+      // Handle external audio focus interruptions (phone calls, navigation, other media apps)
+      _interruptionSub = session.interruptionEventStream.listen((event) {
+        AppLogger.log('PlayerHandler', 'Audio interruption event: begin=${event.begin}, type=${event.type}');
+        if (event.begin) {
+          switch (event.type) {
+            case AudioInterruptionType.duck:
+              _player.setVolume((userVolume * 0.3).clamp(0.0, 1.0));
+              break;
+            case AudioInterruptionType.pause:
+            case AudioInterruptionType.unknown:
+              pause();
+              break;
+          }
+        } else {
+          switch (event.type) {
+            case AudioInterruptionType.duck:
+              _player.setVolume(userVolume);
+              break;
+            case AudioInterruptionType.pause:
+            case AudioInterruptionType.unknown:
+              session.setActive(true);
+              break;
+          }
+        }
       });
     } catch (e, stack) {
       AppLogger.recordError(e, stack, context: 'AudioSession setup');
@@ -636,6 +665,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   @override
   Future<void> stop() async {
     _becomingNoisySub?.cancel();
+    _interruptionSub?.cancel();
     _playerStateSub?.cancel();
     _queueHandler.cancelIdleTimer();
     YouTubeClient.closeIdleClient();
@@ -651,6 +681,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   Future<void> dispose() async {
     _becomingNoisySub?.cancel();
+    _interruptionSub?.cancel();
     _playerStateSub?.cancel();
     _queueHandler.dispose();
   }

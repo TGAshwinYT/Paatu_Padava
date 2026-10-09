@@ -313,13 +313,15 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                             ),
 
                             // Middle Content: Album Artwork or Lyrics View
-                            SizedBox(
-                              height: MediaQuery.of(context).size.width * 0.82,
-                              child: _showLyrics
-                                  ? _buildLyricsView(song)
-                                  : PlayerGestureDetector(
-                                      child: _buildArtworkView(song),
-                                    ),
+                            RepaintBoundary(
+                              child: SizedBox(
+                                height: MediaQuery.of(context).size.width * 0.82,
+                                child: _showLyrics
+                                    ? _buildLyricsView(song)
+                                    : PlayerGestureDetector(
+                                        child: _buildArtworkView(song),
+                                      ),
+                              ),
                             ),
 
                             // Song Title, Artist, and Favorite Row
@@ -378,58 +380,62 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                             ),
 
                             // Seek Bar & Timers
-                            StreamBuilder<Duration>(
-                              stream: audioHandler.throttledPositionStream,
-                              builder: (context, snapshot) {
-                                final position = snapshot.data ?? Duration.zero;
-                                final totalDuration = audioHandler.player.duration ?? Duration(seconds: song.duration);
-                                final posMs = position.inMilliseconds.toDouble();
-                                final totalMs = totalDuration.inMilliseconds.toDouble();
-                                final maxVal = (totalMs > posMs && totalMs > 0) ? totalMs : (posMs + 1);
+                            RepaintBoundary(
+                              child: StreamBuilder<Duration>(
+                                stream: audioHandler.throttledPositionStream,
+                                builder: (context, snapshot) {
+                                  final position = snapshot.data ?? Duration.zero;
+                                  final totalDuration = audioHandler.player.duration ?? Duration(seconds: song.duration);
+                                  final posMs = position.inMilliseconds.toDouble();
+                                  final totalMs = totalDuration.inMilliseconds.toDouble();
+                                  final maxVal = (totalMs > posMs && totalMs > 0) ? totalMs : (posMs + 1);
 
-                                return Column(
-                                  children: [
-                                    SliderTheme(
-                                      data: SliderTheme.of(context).copyWith(
-                                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                                        trackHeight: 4,
-                                        activeTrackColor: const Color(0xFF6366F1),
-                                        inactiveTrackColor: const Color(0xFF1E293B),
-                                        thumbColor: Colors.white,
+                                  return Column(
+                                    children: [
+                                      SliderTheme(
+                                        data: SliderTheme.of(context).copyWith(
+                                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                                          trackHeight: 4,
+                                          activeTrackColor: const Color(0xFF6366F1),
+                                          inactiveTrackColor: const Color(0xFF1E293B),
+                                          thumbColor: Colors.white,
+                                        ),
+                                        child: Slider(
+                                          min: 0,
+                                          max: maxVal,
+                                          value: posMs.clamp(0.0, maxVal),
+                                          onChanged: (val) {
+                                            audioHandler.seek(Duration(milliseconds: val.toInt()));
+                                          },
+                                        ),
                                       ),
-                                      child: Slider(
-                                        min: 0,
-                                        max: maxVal,
-                                        value: posMs.clamp(0.0, maxVal),
-                                        onChanged: (val) {
-                                          audioHandler.seek(Duration(milliseconds: val.toInt()));
-                                        },
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(
+                                              _formatDuration(position),
+                                              style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                                            ),
+                                            Text(
+                                              _formatDuration(totalDuration),
+                                              style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                                            ),
+                                          ],
+                                        ),
                                       ),
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                                      child: Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Text(
-                                            _formatDuration(position),
-                                            style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
-                                          ),
-                                          Text(
-                                            _formatDuration(totalDuration),
-                                            style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              },
+                                    ],
+                                  );
+                                },
+                              ),
                             ),
 
                             // Main Controls: Smart Shuffle, Prev, Play/Pause, Next, Repeat
-                            const PlayerControls(),
+                            const RepaintBoundary(
+                              child: PlayerControls(),
+                            ),
 
                             // Bottom Auto Radio Bar
                             InkWell(

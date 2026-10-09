@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'package:flutter/foundation.dart';
 import '../models/song.dart';
 import '../services/api_client.dart';
@@ -29,8 +30,9 @@ class SmartShuffleController {
   bool get isStandardActive => mode == SmartShuffleMode.standard;
 
   bool _isIngesting = false;
-  final List<String> _sessionPlayedIds = [];
-  final List<String> _sessionPlayedKeys = [];
+  bool _isProgressScheduled = false;
+  final LinkedHashSet<String> _sessionPlayedIds = LinkedHashSet<String>();
+  final LinkedHashSet<String> _sessionPlayedKeys = LinkedHashSet<String>();
   final Map<String, int> _negativeFeedback = {};
   final Map<String, int> _positiveFeedback = {};
 
@@ -40,16 +42,17 @@ class SmartShuffleController {
     queueHandler?.queueNotifier.addListener(_onQueueProgress);
   }
 
+  /// O(1) LRU insertion and maintenance of recently played session tracks
   void recordRecentlyPlayed(Song song) {
     _sessionPlayedIds.remove(song.id);
-    _sessionPlayedIds.insert(0, song.id);
+    _sessionPlayedIds.add(song.id);
     _sessionPlayedKeys.remove(song.canonicalBaseKey);
-    _sessionPlayedKeys.insert(0, song.canonicalBaseKey);
-    if (_sessionPlayedIds.length > 50) {
-      _sessionPlayedIds.removeLast();
+    _sessionPlayedKeys.add(song.canonicalBaseKey);
+    while (_sessionPlayedIds.length > 50) {
+      _sessionPlayedIds.remove(_sessionPlayedIds.first);
     }
-    if (_sessionPlayedKeys.length > 50) {
-      _sessionPlayedKeys.removeLast();
+    while (_sessionPlayedKeys.length > 50) {
+      _sessionPlayedKeys.remove(_sessionPlayedKeys.first);
     }
   }
 
@@ -109,13 +112,20 @@ class SmartShuffleController {
     return exclusions;
   }
 
+  /// Microtask-debounced queue progress listener avoids redundant triggers
+  /// when currentIndexNotifier and queueNotifier fire within the same frame
   void _onQueueProgress() {
-    if (queueHandler == null || _isIngesting) return;
-    if (isSmartActive && queueHandler!.upcomingCount < 3) {
-      ingestSmartRecommendations();
-    } else if (SettingsManager.isAutoplayEnabled && queueHandler!.upcomingCount < 2 && queueHandler!.queue.isNotEmpty) {
-      autoRefillUpcoming();
-    }
+    if (queueHandler == null || _isIngesting || _isProgressScheduled) return;
+    _isProgressScheduled = true;
+    scheduleMicrotask(() {
+      _isProgressScheduled = false;
+      if (queueHandler == null || _isIngesting) return;
+      if (isSmartActive && queueHandler!.upcomingCount < 3) {
+        ingestSmartRecommendations();
+      } else if (SettingsManager.isAutoplayEnabled && queueHandler!.upcomingCount < 2 && queueHandler!.queue.isNotEmpty) {
+        autoRefillUpcoming();
+      }
+    });
   }
 
   /// Cycles mode: Off -> Standard -> Smart -> Off

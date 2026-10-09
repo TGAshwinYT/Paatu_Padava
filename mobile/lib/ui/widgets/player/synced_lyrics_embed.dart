@@ -59,6 +59,7 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.lyrics != widget.lyrics) {
       _parseLyrics();
+      _onOffsetChanged();
     }
   }
 

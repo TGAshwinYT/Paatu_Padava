@@ -405,5 +405,6 @@ class SmartShuffleController {
   void dispose() {
     queueHandler?.currentIndexNotifier.removeListener(_onQueueProgress);
     queueHandler?.queueNotifier.removeListener(_onQueueProgress);
+    modeNotifier.dispose();
   }
 }

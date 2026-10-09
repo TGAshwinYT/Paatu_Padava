@@ -288,5 +288,40 @@ void main() {
       // Guarantee volume is restored to YouTube target (1.0) and not muted at 0
       expect(player.volume, greaterThanOrEqualTo(0.8));
     });
+
+    test('9. User master volume is preserved across track transitions and not overwritten', () async {
+      final saavnSong = createSampleSong('saavn_vol_1', 'Saavn Track').copyWith(
+        streamUrl: 'https://aac.saavn.cdn.jiosaavn.com/master_320.mp4',
+        source: 'saavn',
+      );
+      final ytSong = createSampleSong('yt_vol_2', 'YouTube Track').copyWith(
+        streamUrl: 'https://rr1---sn-h5576nsd.googlevideo.com/videoplayback?expire=456',
+        source: 'youtube',
+      );
+
+      await queueHandler.loadQueue([saavnSong, ytSong], initialIndex: 0, autoPlay: false);
+      expect(queueHandler.userVolume, equals(1.0));
+
+      // User lowers volume to 35% via touch gestures
+      await queueHandler.setUserVolume(0.35);
+      expect(queueHandler.userVolume, equals(0.35));
+      expect(queueHandler.getEffectiveVolumeForSong(saavnSong), closeTo(0.35 * 0.80, 0.001));
+      expect(queueHandler.getEffectiveVolumeForSong(ytSong), closeTo(0.35 * 1.0, 0.001));
+
+      // Skip to YouTube track - user's volume must NOT jump to 1.0
+      await queueHandler.skipToNext();
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(queueHandler.userVolume, equals(0.35));
+      expect(player.volume, closeTo(0.35, 0.05));
+    });
+
+    test('10. YouTube stream resolved under Saavn source is correctly calibrated to 1.0', () {
+      final fallbackSong = createSampleSong('fallback_1', 'Fallback Song').copyWith(
+        streamUrl: 'https://rr2---sn-4g5ednsl.googlevideo.com/videoplayback?id=123',
+        source: 'saavn',
+      );
+      expect(AudioQueueHandler.getNormalizedVolumeForSong(fallbackSong), equals(1.0));
+    });
   });
 }

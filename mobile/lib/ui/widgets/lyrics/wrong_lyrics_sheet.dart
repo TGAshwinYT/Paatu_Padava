@@ -6,10 +6,11 @@ import '../../../services/api_client.dart';
 class WrongLyricsSheet {
   static Future<void> show(BuildContext context, Song? song) async {
     final searchController = TextEditingController(text: song != null ? '${song.title} ${song.artist}' : '');
-    List<Map<String, dynamic>> searchResults = [];
-    bool isSearching = false;
+    try {
+      List<Map<String, dynamic>> searchResults = [];
+      bool isSearching = false;
 
-    await showModalBottomSheet(
+      await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: const Color(0xFF0F172A),
@@ -175,44 +176,51 @@ class WrongLyricsSheet {
         );
       },
     );
+    } finally {
+      searchController.dispose();
+    }
   }
 
   static Future<void> showPasteCustomLyricsDialog(BuildContext context, Song? song) async {
     final pasteController = TextEditingController();
-    await showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF0F172A),
-          title: const Text('Paste Custom Lyrics', style: TextStyle(color: Colors.white)),
-          content: TextField(
-            controller: pasteController,
-            maxLines: 8,
-            style: const TextStyle(color: Colors.white, fontSize: 13),
-            decoration: const InputDecoration(
-              hintText: 'Paste synced [mm:ss.xx] or plain lyrics here...',
-              hintStyle: TextStyle(color: Colors.white38),
-              border: OutlineInputBorder(),
+    try {
+      await showDialog(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF0F172A),
+            title: const Text('Paste Custom Lyrics', style: TextStyle(color: Colors.white)),
+            content: TextField(
+              controller: pasteController,
+              maxLines: 8,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+              decoration: const InputDecoration(
+                hintText: 'Paste synced [mm:ss.xx] or plain lyrics here...',
+                hintStyle: TextStyle(color: Colors.white38),
+                border: OutlineInputBorder(),
+              ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                final txt = pasteController.text.trim();
-                if (txt.isNotEmpty) {
-                  audioHandler.setCustomLyrics(txt);
-                  Navigator.pop(dialogContext);
-                }
-              },
-              child: const Text('Apply'),
-            ),
-          ],
-        );
-      },
-    );
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  final txt = pasteController.text.trim();
+                  if (txt.isNotEmpty) {
+                    audioHandler.setCustomLyrics(txt);
+                    Navigator.pop(dialogContext);
+                  }
+                },
+                child: const Text('Apply'),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      pasteController.dispose();
+    }
   }
 }

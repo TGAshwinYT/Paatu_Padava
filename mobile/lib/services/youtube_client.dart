@@ -60,6 +60,7 @@ class YouTubeClient {
       }
       return songs;
     } catch (e) {
+      closeIdleClient();
       return [];
     }
   }
@@ -91,7 +92,9 @@ class YouTubeClient {
           }
         }
       }
-    } catch (_) {}
+    } catch (_) {
+      closeIdleClient();
+    }
 
     // 2. Search YouTube for contextual radio mix
     if (songs.length < limit) {
@@ -230,8 +233,11 @@ class YouTubeClient {
           for (final fmt in formatStreams) {
             final type = fmt['type']?.toString() ?? '';
             if (type.contains('audio/mp4') || type.contains('audio/webm')) {
-              final url = fmt['url']?.toString();
+              var url = fmt['url']?.toString();
               if (url != null && url.isNotEmpty) {
+                if (url.startsWith('/')) {
+                  url = '$instance$url';
+                }
                 _streamCache[cleanId] = _CachedAudioStream(url, DateTime.now().add(const Duration(minutes: 15)));
                 AppLogger.log('YouTubeClient', 'Tier 3 resolved stream for $cleanId from $instance');
                 return url;

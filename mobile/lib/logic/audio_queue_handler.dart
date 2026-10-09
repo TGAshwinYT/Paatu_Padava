@@ -69,6 +69,18 @@ class AudioQueueHandler {
     SettingsManager.volumeNormalizationNotifier.addListener(_onNormalizationChanged);
   }
 
+  double _userVolume = 1.0;
+  double get userVolume => _userVolume;
+
+  /// Sets master playback volume (0.0 to 1.0) and applies song normalization
+  Future<void> setUserVolume(double volume) async {
+    _userVolume = volume.clamp(0.0, 1.0);
+    final effective = getEffectiveVolumeForSong(currentSong);
+    try {
+      await player.setVolume(effective);
+    } catch (_) {}
+  }
+
   /// Calculates target normalized volume (0.0 to 1.0)
   /// Balances uncompressed studio masters (JioSaavn) against normalized YouTube Opus audio (-14 LUFS)
   static double getNormalizedVolumeForSong(Song? song) {
@@ -76,6 +88,15 @@ class AudioQueueHandler {
       return 1.0;
     }
     if (song == null) return 1.0;
+
+    // YouTube streams are already loudness-normalized to -14 LUFS
+    if (song.source == 'youtube' ||
+        (song.streamUrl != null &&
+            (song.streamUrl!.contains('googlevideo.com') ||
+                song.streamUrl!.contains('webm') ||
+                song.streamUrl!.contains('youtube')))) {
+      return 1.0;
+    }
 
     final isHotStudioMaster = song.source == 'saavn' ||
         song.source == 'jiosaavn' ||
@@ -86,6 +107,11 @@ class AudioQueueHandler {
       return 0.80; // ~ -2.0 dB calibration to match YouTube's -14 LUFS reference
     }
     return 1.0;
+  }
+
+  /// Calculates effective volume taking both user-selected master volume and song calibration into account
+  double getEffectiveVolumeForSong(Song? song) {
+    return (_userVolume * getNormalizedVolumeForSong(song)).clamp(0.0, 1.0);
   }
 
   /// Smoothly ramps player volume to [targetVolume] over [durationMs] with token-guaranteed restoration
@@ -118,7 +144,7 @@ class AudioQueueHandler {
   }
 
   void _onNormalizationChanged() {
-    final target = getNormalizedVolumeForSong(currentSong);
+    final target = getEffectiveVolumeForSong(currentSong);
     _fadeVolumeTo(target, durationMs: 250);
   }
 
@@ -134,7 +160,7 @@ class AudioQueueHandler {
       if (now - _lastCrossfadeTimeMs < 100) return; // Throttle to max 10Hz
       _lastCrossfadeTimeMs = now;
 
-      final targetNorm = getNormalizedVolumeForSong(currentSong);
+      final targetNorm = getEffectiveVolumeForSong(currentSong);
       final ratio = (remaining.inMilliseconds / (crossfadeSec * 1000)).clamp(0.0, 1.0);
       final fadedVolume = targetNorm * ratio;
       try {
@@ -234,7 +260,7 @@ class AudioQueueHandler {
           onQueueProgress?.call(_currentIndex, _queue.length);
 
           // Smooth volume normalization and crossfade entry
-          final targetNorm = getNormalizedVolumeForSong(song);
+          final targetNorm = getEffectiveVolumeForSong(song);
           final crossfadeSec = SettingsManager.crossfadeSeconds;
           final fadeInMs = crossfadeSec > 0 ? (crossfadeSec * 600).clamp(250, 2000) : 150;
           _fadeVolumeTo(targetNorm, durationMs: fadeInMs).then((_) {
@@ -393,7 +419,7 @@ class AudioQueueHandler {
       useLazyPreparation: true,
     );
 
-    final targetNorm = getNormalizedVolumeForSong(activeSong);
+    final targetNorm = getEffectiveVolumeForSong(activeSong);
     final crossfadeSec = SettingsManager.crossfadeSeconds;
     if (crossfadeSec > 0) {
       try {
@@ -521,7 +547,7 @@ class AudioQueueHandler {
 
     final targetSong = _queue[targetIndex];
     AppLogger.log('AudioQueueHandler', 'jumpToIndex: targetIndex=$targetIndex ("${targetSong.title}")');
-    final targetNorm = getNormalizedVolumeForSong(targetSong);
+    final targetNorm = getEffectiveVolumeForSong(targetSong);
     final crossfadeSec = SettingsManager.crossfadeSeconds;
 
     // Smooth micro fade-out before jumping if currently playing
@@ -1056,5 +1082,9 @@ class AudioQueueHandler {
     _sequenceStateSub?.cancel();
     _currentIndexSub?.cancel();
     _playerStateSub?.cancel();
+    queueNotifier.dispose();
+    currentIndexNotifier.dispose();
+    currentSongNotifier.dispose();
+    errorNotifier.dispose();
   }
 }

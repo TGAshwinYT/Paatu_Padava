@@ -34,7 +34,7 @@ class _PlayerGestureDetectorState extends State<PlayerGestureDetector> {
   void initState() {
     super.initState();
     if (isAudioHandlerInitialized) {
-      _currentVolume = audioHandler.player.volume;
+      _currentVolume = audioHandler.userVolume;
     }
   }
 
@@ -105,7 +105,7 @@ class _PlayerGestureDetectorState extends State<PlayerGestureDetector> {
     if ((newVolume - _currentVolume).abs() > 0.005 || newVolume == 0.0 || newVolume == 1.0) {
       _currentVolume = newVolume;
       if (isAudioHandlerInitialized) {
-        audioHandler.player.setVolume(newVolume);
+        audioHandler.setUserVolume(newVolume);
       }
       _showVolumeHud(newVolume);
 

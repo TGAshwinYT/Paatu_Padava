@@ -447,8 +447,15 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       _smartShuffleController.modeNotifier.removeListener(_smartShuffleListener!);
       _smartShuffleListener = null;
     }
+    _smartShuffleController.dispose();
     _queueHandler.dispose();
   }
+
+  /// Master playback volume set by user (0.0 to 1.0)
+  double get userVolume => _queueHandler.userVolume;
+
+  /// Sets master playback volume and applies song normalization
+  Future<void> setUserVolume(double volume) => _queueHandler.setUserVolume(volume);
 
   /// Load and play a song with gapless ConcatenatingAudioSource preloading
   Future<void> playSong(Song song, {List<Song>? queue}) async {

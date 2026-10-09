@@ -99,14 +99,14 @@ class _BatterySettingsCardState extends State<BatterySettingsCard> {
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: Colors.amberAccent.withValues(alpha: 0.2)),
               ),
-              child: const Row(
+              child: Row(
                 children: [
-                  Icon(Icons.info_outline_rounded, color: Colors.amberAccent, size: 16),
-                  SizedBox(width: 8),
+                  const Icon(Icons.info_outline_rounded, color: Colors.amberAccent, size: 16),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'OxygenOS restricts background apps by default. Tap below to set Battery to "Unrestricted" so music keeps playing when locked.',
-                      style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 11, height: 1.4),
+                      '${_deviceManufacturer.isNotEmpty ? _deviceManufacturer : "The device"} restricts background apps by default. Tap below to set Battery to "Unrestricted" so music keeps playing when locked.',
+                      style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 11, height: 1.4),
                     ),
                   ),
                 ],

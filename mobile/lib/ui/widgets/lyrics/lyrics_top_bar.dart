@@ -119,6 +119,7 @@ class LyricsTopBar extends StatelessWidget {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             GestureDetector(
+                              behavior: HitTestBehavior.opaque,
                               onTap: () => audioHandler.setLyricsLanguage(LyricsLanguage.defaultLang),
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -137,6 +138,7 @@ class LyricsTopBar extends StatelessWidget {
                               ),
                             ),
                             GestureDetector(
+                              behavior: HitTestBehavior.opaque,
                               onTap: () => audioHandler.setLyricsLanguage(LyricsLanguage.english),
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

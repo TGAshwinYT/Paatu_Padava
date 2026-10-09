@@ -18,13 +18,14 @@ class YouTubeClient {
 
   /// Closes any idle YouTube HTTP sockets immediately to eliminate background battery drain
   static void closeIdleClient() {
-    if (_ytInstance != null) {
+    final client = _ytInstance;
+    _ytInstance = null;
+    if (client != null) {
       try {
-        _ytInstance!.close();
+        client.close();
       } catch (e) {
         AppLogger.log('YouTubeClient', 'closeIdleClient error: $e');
       }
-      _ytInstance = null;
     }
   }
 
@@ -32,6 +33,8 @@ class YouTubeClient {
 
   static String cleanTitle(String title) {
     var cleaned = Song.sanitize(title);
+    // Remove leading @handle mentions (e.g. "@SaiAbhyankkar - Pavazha Malli" -> "Pavazha Malli")
+    cleaned = cleaned.replaceAll(RegExp(r'^@[a-zA-Z0-9_.]+\s*[-:|~–—]?\s*'), '');
     // Remove bracketed info like [Official Video], (4K), | Lyrical
     cleaned = cleaned.replaceAll(RegExp(r'[\(\[\{].*?[\)\]\}]'), ' ');
     cleaned = cleaned.replaceAll(RegExp(r'\b(official|video|audio|lyric|lyrical|hd|4k|full video|song|teaser|trailer)\b', caseSensitive: false), ' ');
@@ -45,7 +48,7 @@ class YouTubeClient {
     if (clean.isEmpty) return [];
 
     try {
-      final searchResults = await _yt.search.search(clean);
+      final searchResults = await _yt.search.search(clean).timeout(const Duration(seconds: 10));
       final List<Song> songs = [];
 
       for (final video in searchResults.take(limit)) {
@@ -68,7 +71,10 @@ class YouTubeClient {
       }
       return songs;
     } catch (e) {
-      closeIdleClient();
+      AppLogger.log('YouTubeClient', 'YouTube search notice for "$clean": $e');
+      if (e.toString().contains('http-client was closed') || e is HttpClientClosedException) {
+        _ytInstance = null;
+      }
       return [];
     }
   }
@@ -100,8 +106,10 @@ class YouTubeClient {
           }
         }
       }
-    } catch (_) {
-      closeIdleClient();
+    } catch (e) {
+      if (e.toString().contains('http-client was closed') || e is HttpClientClosedException) {
+        _ytInstance = null;
+      }
     }
 
     // 2. Search YouTube for contextual radio mix
@@ -147,7 +155,7 @@ class YouTubeClient {
 
     // ── Tier 1: Client-Side YouTubeExplode Dart ──────────────────────
     try {
-      final manifest = await _yt.videos.streamsClient.getManifest(cleanId).timeout(const Duration(seconds: 25));
+      final manifest = await _yt.videos.streamsClient.getManifest(cleanId).timeout(const Duration(seconds: 8));
       final audioStreams = manifest.audioOnly;
       if (audioStreams.isNotEmpty) {
         AudioStreamInfo? chosenStream;
@@ -202,7 +210,9 @@ class YouTubeClient {
       }
     } catch (e) {
       AppLogger.log('YouTubeClient', 'Tier 1 client-side stream extractor notice for $cleanId: $e');
-      closeIdleClient(); // Reset broken client/sockets so next query starts fresh
+      if (e.toString().contains('http-client was closed') || e is HttpClientClosedException) {
+        _ytInstance = null;
+      }
     }
 
     // ── Tier 2: Paatu Padava Backend Stream Resolver ──────────────────
@@ -211,7 +221,7 @@ class YouTubeClient {
         if (title != null && title.isNotEmpty) 'title': title,
         if (artist != null && artist.isNotEmpty) 'artist': artist,
       });
-      final res = await http.get(uri).timeout(const Duration(seconds: 8));
+      final res = await http.get(uri).timeout(const Duration(seconds: 4));
       if (res.statusCode == 200) {
         final data = json.decode(res.body);
         final audioUrl = data['audio_url']?.toString();
@@ -228,13 +238,11 @@ class YouTubeClient {
     // ── Tier 3: Invidious Public Stream Fallback ──────────────────────
     final invidiousInstances = [
       'https://inv.nadeko.net',
-      'https://invidious.nerdvpn.de',
-      'https://vid.priv.au'
     ];
     for (final instance in invidiousInstances) {
       try {
         final uri = Uri.parse('$instance/api/v1/videos/$cleanId');
-        final res = await http.get(uri).timeout(const Duration(seconds: 4));
+        final res = await http.get(uri).timeout(const Duration(seconds: 3));
         if (res.statusCode == 200) {
           final data = json.decode(res.body);
           final formatStreams = data['adaptiveFormats'] as List<dynamic>? ?? [];

@@ -13,6 +13,7 @@ import '../services/youtube_client.dart';
 import '../services/error_handler.dart';
 import '../services/player_handler.dart';
 import '../services/app_logger.dart';
+import '../services/artist_sanitizer.dart';
 import '../services/queue_cooldown_manager.dart';
 import '../domain/models/app_error.dart';
 
@@ -458,18 +459,41 @@ class AudioQueueHandler {
     // Build ConcatenatingAudioSource starting from _currentIndex
     // Child 0 is GUARANTEED to be activeSong!
     final List<AudioSource> sources = [];
-    final activeSrc = await _buildAudioSource(activeSong, allowNetworkResolve: true);
+    final activeSrc = await _buildAudioSource(activeSong, allowNetworkResolve: false);
     if (activeSrc != null) {
       sources.add(activeSrc);
+      // Preload immediate next track if available
+      if (_currentIndex + 1 < _queue.length) {
+        final nextSong = _queue[_currentIndex + 1];
+        final nextSrc = await _buildAudioSource(nextSong, allowNetworkResolve: true);
+        if (nextSrc != null && token == _sessionToken) {
+          sources.add(nextSrc);
+        }
+      }
+    } else {
+      // Active song failed to resolve. Advance cleanly to the next available playable track.
+      AppLogger.log('AudioQueueHandler', 'Active song "${activeSong.title}" is unresolvable. Finding next playable track in queue.');
+      while (_currentIndex + 1 < _queue.length && sources.isEmpty) {
+        _currentIndex++;
+        final nextCandidate = _queue[_currentIndex];
+        final nextUrl = await _resolveStreamUrl(nextCandidate);
+        if (token != _sessionToken) return;
+        if (nextUrl != null && nextUrl.isNotEmpty) {
+          nextCandidate.streamUrl = nextUrl;
+          final candidateSrc = await _buildAudioSource(nextCandidate, allowNetworkResolve: false);
+          if (candidateSrc != null) {
+            sources.add(candidateSrc);
+            onSongChanged?.call(nextCandidate);
+            break;
+          }
+        }
+      }
     }
 
-    // Preload immediate next track if available
-    if (_currentIndex + 1 < _queue.length) {
-      final nextSong = _queue[_currentIndex + 1];
-      final nextSrc = await _buildAudioSource(nextSong, allowNetworkResolve: true);
-      if (nextSrc != null && token == _sessionToken) {
-        sources.add(nextSrc);
-      }
+    if (sources.isEmpty) {
+      _isLoading = false;
+      AppLogger.log('AudioQueueHandler', 'No playable tracks found in queue.');
+      return;
     }
 
     _playlistSource = ConcatenatingAudioSource(
@@ -1040,22 +1064,27 @@ class AudioQueueHandler {
 
   /// Verifies candidate audio track against target before playing (title, artist, duration)
   static bool verifyAudioMatch(Song candidate, Song target) {
-    // 1. Duration check: tolerance of 12 seconds when both durations are available
+    final normTargetTitle = _normalizeForComparison(target.title);
+    final normCandTitle = _normalizeForComparison(candidate.title);
+    if (normTargetTitle.isEmpty || normCandTitle.isEmpty) return false;
+
+    final bool isDirectTitleMatch = (normTargetTitle == normCandTitle ||
+        normTargetTitle.contains(normCandTitle) ||
+        normCandTitle.contains(normTargetTitle));
+
+    // 1. Duration check:
+    // If titles match directly or tracks are from YouTube, allow up to 45 seconds tolerance
+    // (YouTube music videos frequently include intros, outros, skits, and dialogue)
     if (target.duration > 0 && candidate.duration > 0) {
       final diff = (candidate.duration - target.duration).abs();
-      if (diff > 12) {
+      final allowedTolerance = (isDirectTitleMatch || target.source == 'youtube' || candidate.source == 'youtube') ? 45 : 15;
+      if (diff > allowedTolerance) {
         return false;
       }
     }
 
     // 2. Title similarity check
-    final normTargetTitle = _normalizeForComparison(target.title);
-    final normCandTitle = _normalizeForComparison(candidate.title);
-    if (normTargetTitle.isEmpty || normCandTitle.isEmpty) return false;
-
-    if (normTargetTitle == normCandTitle ||
-        normTargetTitle.contains(normCandTitle) ||
-        normCandTitle.contains(normTargetTitle)) {
+    if (isDirectTitleMatch) {
       return true;
     }
 
@@ -1085,6 +1114,7 @@ class AudioQueueHandler {
   static String _normalizeForComparison(String text) {
     return text
         .toLowerCase()
+        .replaceAll(RegExp(r'^@[a-z0-9_.]+\s*[-:|~–—]?\s*'), ' ')
         .replaceAll(RegExp(r'\([^)]*\)'), ' ')
         .replaceAll(RegExp(r'\[[^\]]*\]'), ' ')
         .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
@@ -1123,12 +1153,19 @@ class AudioQueueHandler {
         AppLogger.log('AudioQueueHandler', 'Direct YouTube stream resolution notice: $e');
       }
 
-      // 2. Fallback: Search JioSaavn if YouTube direct extraction failed
+      // 2. Fallback: Search JioSaavn if YouTube direct extraction failed or timed out
       try {
-        final query = YouTubeClient.cleanTitle('${song.title} ${song.artist}');
-        final saavnMatches = await SaavnClient.search(query, limit: 3);
+        final cleanTitle = YouTubeClient.cleanTitle(song.title);
+        final cleanArtist = (song.artist.isNotEmpty && !ArtistSanitizer.isRecordLabelOrChannel(song.artist))
+            ? song.artist
+            : '';
+        final query = cleanArtist.isNotEmpty ? '$cleanTitle $cleanArtist' : cleanTitle;
+        AppLogger.log('AudioQueueHandler', 'Attempting JioSaavn fallback for YouTube track "$cleanTitle" with query: "$query"');
+        final saavnMatches = await SaavnClient.search(query, limit: 5);
         for (final match in saavnMatches) {
-          if (match.streamUrl != null && verifyAudioMatch(match, song)) {
+          if (match.streamUrl != null && match.streamUrl!.isNotEmpty && verifyAudioMatch(match, song)) {
+            AppLogger.log('AudioQueueHandler', 'JioSaavn fallback matched for YouTube track "${song.title}": "${match.title}"');
+            song.streamUrl = match.streamUrl;
             return match.streamUrl;
           }
         }

@@ -16,6 +16,9 @@ class SongRepository {
     if (rawTitle.isEmpty) return '';
     var clean = _unescape.convert(Song.sanitize(rawTitle));
 
+    // Strip leading @handle mentions (e.g. "@SaiAbhyankkar - Pavazha Malli")
+    clean = clean.replaceAll(RegExp(r'^@[a-zA-Z0-9_.]+\s*[-:|~–—]?\s*'), '');
+
     // Remove: (From "Movie"), [From "Movie"], (From Movie)
     clean = clean.replaceAll(
       RegExp(r'\s*[\(\[][Ff]rom\s+["\u201c\u201d\u2018\u2019]?[^)\u201d\]]+["\u201c\u201d\u2018\u2019]?[\)\]]', caseSensitive: false),

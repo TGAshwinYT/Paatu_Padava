@@ -15,6 +15,8 @@ class ArtistSanitizer {
     'saregama',
     'think music',
     'thinkmusic',
+    'think indie',
+    'thinkindie',
     'zee music',
     'zeemusic',
     'lahari music',
@@ -207,6 +209,22 @@ class ArtistSanitizer {
   /// extracts genuine musical artists from delimiters in the video title,
   /// or falls back to "Soundtrack / Film Cast".
   static String extractArtistFromVideo(String videoTitle, String videoAuthor) {
+    final unescapedTitle = _unescape.convert(videoTitle).trim();
+
+    // 0. Detect leading @handle (e.g. "@SaiAbhyankkar - Pavazha Malli")
+    final handleMatch = RegExp(r'^@([a-zA-Z0-9_.]+)').firstMatch(unescapedTitle);
+    if (handleMatch != null) {
+      final rawHandle = handleMatch.group(1)!;
+      // Convert PascalCase / snake_case: "SaiAbhyankkar" -> "Sai Abhyankkar"
+      final formatted = rawHandle
+          .replaceAllMapped(RegExp(r'([a-z])([A-Z])'), (m) => '${m.group(1)} ${m.group(2)}')
+          .replaceAll(RegExp(r'[_.]'), ' ')
+          .trim();
+      if (formatted.isNotEmpty && !isRecordLabelOrChannel(formatted)) {
+        return formatted;
+      }
+    }
+
     final cleanAuthor = videoAuthor.trim();
     if (cleanAuthor.isNotEmpty && !isRecordLabelOrChannel(cleanAuthor)) {
       return cleanAuthor;
@@ -214,7 +232,6 @@ class ArtistSanitizer {
 
     // Author is a label/channel: parse title for artist indicators
     // Common patterns: "Song Name | Movie | Singer / Composer"
-    final unescapedTitle = _unescape.convert(videoTitle);
     final pipeParts = unescapedTitle.split('|').map((s) => s.trim()).toList();
     for (var i = pipeParts.length - 1; i >= 1; i--) {
       final candidate = pipeParts[i].replaceAll(RegExp(r'[\(\[\{].*?[\)\]\}]'), '').trim();

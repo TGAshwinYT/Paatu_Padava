@@ -140,6 +140,7 @@ class RadioEngine {
 
       seenKeys.add(candidate.id);
       seenKeys.add(key);
+      if (titleKey.isNotEmpty) seenKeys.add(titleKey);
       radioTracks.add(candidate.copyWith(language: targetLang));
     }
 

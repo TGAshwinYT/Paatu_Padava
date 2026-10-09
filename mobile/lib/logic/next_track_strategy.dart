@@ -95,7 +95,7 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
         // 1. Basic ID, Canonical Title & 75-song cooldown exclusion
         if (exclusions.contains(c.id) ||
             exclusions.contains(baseKey) ||
-            (titleKey.isNotEmpty && exclusions.contains(titleKey)) ||
+            (titleKey.isNotEmpty && (exclusions.contains(titleKey) || seenKeys.contains(titleKey))) ||
             seenKeys.contains(baseKey) ||
             QueueCooldownManager.isCoolingDown(c)) {
           continue;
@@ -129,6 +129,7 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
         }
 
         seenKeys.add(baseKey);
+        if (titleKey.isNotEmpty) seenKeys.add(titleKey);
         artistCounts[cArtist] = currentArtistCount + 1;
         filtered.add(c.copyWith(isSmartRecommended: true, language: targetLang));
         if (filtered.length >= count) break;
@@ -229,7 +230,7 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
         final titleKey = s.cleanTitleKey;
         if (exclusions.contains(s.id) ||
             exclusions.contains(baseKey) ||
-            (titleKey.isNotEmpty && exclusions.contains(titleKey)) ||
+            (titleKey.isNotEmpty && (exclusions.contains(titleKey) || seenKeys.contains(titleKey))) ||
             seenKeys.contains(baseKey) ||
             QueueCooldownManager.isCoolingDown(s)) {
           continue;
@@ -259,6 +260,7 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
         }
 
         seenKeys.add(baseKey);
+        if (titleKey.isNotEmpty) seenKeys.add(titleKey);
         artistCounts[artist] = countForArtist + 1;
         upcoming.add(s.copyWith(isSmartRecommended: true, language: targetLang));
         if (upcoming.length >= count) break;

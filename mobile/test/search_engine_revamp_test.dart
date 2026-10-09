@@ -3,6 +3,7 @@ import 'package:paatu_padava_mobile/models/song.dart';
 import 'package:paatu_padava_mobile/services/queue_cooldown_manager.dart';
 import 'package:paatu_padava_mobile/services/artist_sanitizer.dart';
 import 'package:paatu_padava_mobile/services/search_service.dart';
+import 'package:paatu_padava_mobile/services/youtube_client.dart';
 import 'package:paatu_padava_mobile/data/repositories/song_repository.dart';
 
 Song createTestSong({
@@ -250,6 +251,38 @@ void main() {
         'Sun TV',
       );
       expect(parsed2, equals('Anirudh Ravichander'));
+
+      final parsed3 = ArtistSanitizer.extractArtistFromVideo(
+        '@SaiAbhyankkar - Pavazha Malli (Official Music Video)',
+        'Think Indie',
+      );
+      expect(parsed3, equals('Sai Abhyankkar'));
+    });
+
+    test('YouTube handle extraction and clean title matching', () {
+      final ytTitleCleaned = YouTubeClient.cleanTitle('@SaiAbhyankkar - Pavazha Malli (Official Music Video) | Think Indie');
+      expect(ytTitleCleaned, equals('Pavazha Malli'));
+
+      final ytSong = createTestSong(
+        id: 'yt_1',
+        title: '@SaiAbhyankkar - Pavazha Malli',
+        artist: 'Think Indie',
+        source: 'youtube',
+        duration: 250,
+      );
+      final saavnSong = createTestSong(
+        id: 'saavn_1',
+        title: 'Pavazha Malli (From "Think Indie")',
+        artist: 'Sai Abhyankkar',
+        source: 'saavn',
+        duration: 248,
+      );
+
+      expect(ytSong.cleanTitleKey, equals('pavazha malli'));
+      expect(saavnSong.cleanTitleKey, equals('pavazha malli'));
+
+      final deduplicated = SongRepository.deduplicateSongs([ytSong, saavnSong]);
+      expect(deduplicated.length, equals(1));
     });
   });
 

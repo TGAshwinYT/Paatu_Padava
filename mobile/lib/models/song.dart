@@ -72,8 +72,9 @@ class Song {
 
   /// Normalized title: strips brackets, parentheses (From film, remix, lofi tags), punctuation
   String get normalizedTitle {
-    return title
-        .toLowerCase()
+    var text = title.toLowerCase();
+    text = text.replaceAll(RegExp(r'^@[a-z0-9_.]+\s*[-:|~–—]?\s*'), ' ');
+    return text
         .replaceAll(RegExp(r'\([^)]*\)'), ' ')
         .replaceAll(RegExp(r'\[[^\]]*\]'), ' ')
         .replaceAll(RegExp(r'\b(remix|lofi|lo-fi|live|acoustic|cover|soundtrack|ost)\b', caseSensitive: false), ' ')
@@ -87,6 +88,8 @@ class Song {
   /// to different singers/composers/labels).
   String get cleanTitleKey {
     var text = title.toLowerCase();
+    // Strip leading @handle mentions (e.g. "@SaiAbhyankkar - Pavazha Malli" -> "Pavazha Malli")
+    text = text.replaceAll(RegExp(r'^@[a-z0-9_.]+\s*[-:|~–—]?\s*'), ' ');
     // Strip everything after pipe | (common YouTube format: Song | Movie | Artist)
     text = text.replaceAll(RegExp(r'\|.*$'), ' ');
     // Strip bracketed and parenthesized metadata

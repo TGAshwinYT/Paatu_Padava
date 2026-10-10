@@ -8,25 +8,9 @@ import 'app_logger.dart';
 import 'artist_sanitizer.dart';
 
 class YouTubeClient {
-  static YoutubeExplode? _ytInstance;
-
-  /// Lazy instance: creates on demand and re-connects only when explicitly requested
-  static YoutubeExplode get _yt {
-    _ytInstance ??= YoutubeExplode();
-    return _ytInstance!;
-  }
-
-  /// Closes any idle YouTube HTTP sockets immediately to eliminate background battery drain
+  /// Closes any idle YouTube HTTP sockets (kept for backward compatibility with idle managers)
   static void closeIdleClient() {
-    final client = _ytInstance;
-    _ytInstance = null;
-    if (client != null) {
-      try {
-        client.close();
-      } catch (e) {
-        AppLogger.log('YouTubeClient', 'closeIdleClient error: $e');
-      }
-    }
+    // Isolated clients manage their own lifecycles, no global sockets to leak
   }
 
   static String get _baseUrl => AppConfig.backendUrl;
@@ -47,8 +31,9 @@ class YouTubeClient {
     final clean = query.trim();
     if (clean.isEmpty) return [];
 
+    final yt = YoutubeExplode();
     try {
-      final searchResults = await _yt.search.search(clean).timeout(const Duration(seconds: 10));
+      final searchResults = await yt.search.search(clean).timeout(const Duration(seconds: 10));
       final List<Song> songs = [];
 
       for (final video in searchResults.take(limit)) {
@@ -70,23 +55,23 @@ class YouTubeClient {
         ));
       }
       return songs;
-    } catch (e) {
-      AppLogger.log('YouTubeClient', 'YouTube search notice for "$clean": $e');
-      if (e.toString().contains('http-client was closed') || e is HttpClientClosedException) {
-        _ytInstance = null;
-      }
-      return [];
+    } catch (e, stack) {
+      AppLogger.recordError(e, stack, context: 'YouTubeClient.search("$clean")');
+      rethrow;
+    } finally {
+      yt.close();
     }
   }
 
   /// Fetches related YouTube Music autoplay tracks for a seed song
   static Future<List<Song>> getRelatedSongs(Song seedSong, {int limit = 10}) async {
     final List<Song> songs = [];
+    final yt = YoutubeExplode();
     try {
       // 1. If seed song is a YouTube video, attempt native related videos
       if (seedSong.source == 'youtube' && seedSong.id.isNotEmpty) {
-        final video = await _yt.videos.get(VideoId(seedSong.id)).timeout(const Duration(seconds: 4));
-        final related = await _yt.videos.getRelatedVideos(video).timeout(const Duration(seconds: 5));
+        final video = await yt.videos.get(VideoId(seedSong.id)).timeout(const Duration(seconds: 4));
+        final related = await yt.videos.getRelatedVideos(video).timeout(const Duration(seconds: 5));
         if (related != null) {
           for (final relVideo in related.take(limit)) {
             final dur = relVideo.duration?.inSeconds ?? 0;
@@ -107,9 +92,9 @@ class YouTubeClient {
         }
       }
     } catch (e) {
-      if (e.toString().contains('http-client was closed') || e is HttpClientClosedException) {
-        _ytInstance = null;
-      }
+      AppLogger.log('YouTubeClient', 'YouTube related tracks notice: $e');
+    } finally {
+      yt.close();
     }
 
     // 2. Search YouTube for contextual radio mix
@@ -154,8 +139,9 @@ class YouTubeClient {
     }
 
     // ── Tier 1: Client-Side YouTubeExplode Dart ──────────────────────
+    final yt = YoutubeExplode();
     try {
-      final manifest = await _yt.videos.streamsClient.getManifest(cleanId).timeout(const Duration(seconds: 8));
+      final manifest = await yt.videos.streamsClient.getManifest(cleanId).timeout(const Duration(seconds: 8));
       final audioStreams = manifest.audioOnly;
       if (audioStreams.isNotEmpty) {
         AudioStreamInfo? chosenStream;
@@ -210,9 +196,8 @@ class YouTubeClient {
       }
     } catch (e) {
       AppLogger.log('YouTubeClient', 'Tier 1 client-side stream extractor notice for $cleanId: $e');
-      if (e.toString().contains('http-client was closed') || e is HttpClientClosedException) {
-        _ytInstance = null;
-      }
+    } finally {
+      yt.close();
     }
 
     // ── Tier 2: Paatu Padava Backend Stream Resolver ──────────────────
@@ -229,48 +214,22 @@ class YouTubeClient {
           _streamCache[cleanId] = _CachedAudioStream(audioUrl, DateTime.now().add(const Duration(minutes: 15)));
           AppLogger.log('YouTubeClient', 'Tier 2 backend resolved stream for $cleanId');
           return audioUrl;
+        } else {
+          AppLogger.log('YouTubeClient', 'Tier 2 backend returned 200 without audio_url for $cleanId: ${res.body}');
         }
+      } else {
+        final bodySnippet = res.body.length > 200 ? '${res.body.substring(0, 200)}...' : res.body;
+        AppLogger.log('YouTubeClient', 'Tier 2 backend stream resolver failed for $cleanId: HTTP ${res.statusCode} (body: $bodySnippet)');
       }
     } catch (e) {
-      AppLogger.log('YouTubeClient', 'Tier 2 backend stream resolver notice: $e');
-    }
-
-    // ── Tier 3: Invidious Public Stream Fallback ──────────────────────
-    final invidiousInstances = [
-      'https://inv.nadeko.net',
-    ];
-    for (final instance in invidiousInstances) {
-      try {
-        final uri = Uri.parse('$instance/api/v1/videos/$cleanId');
-        final res = await http.get(uri).timeout(const Duration(seconds: 3));
-        if (res.statusCode == 200) {
-          final data = json.decode(res.body);
-          final formatStreams = data['adaptiveFormats'] as List<dynamic>? ?? [];
-          for (final fmt in formatStreams) {
-            final type = fmt['type']?.toString() ?? '';
-            if (type.contains('audio/mp4') || type.contains('audio/webm')) {
-              var url = fmt['url']?.toString();
-              if (url != null && url.isNotEmpty) {
-                if (url.startsWith('/')) {
-                  url = '$instance$url';
-                }
-                _streamCache[cleanId] = _CachedAudioStream(url, DateTime.now().add(const Duration(minutes: 15)));
-                AppLogger.log('YouTubeClient', 'Tier 3 resolved stream for $cleanId from $instance');
-                return url;
-              }
-            }
-          }
-        }
-      } catch (e) {
-        AppLogger.log('YouTubeClient', 'Tier 3 $instance stream fallback notice: $e');
-      }
+      AppLogger.log('YouTubeClient', 'Tier 2 backend stream resolver exception for $cleanId: $e');
     }
 
     return null;
   }
 
   static void dispose() {
-    _yt.close();
+    closeIdleClient();
   }
 }
 

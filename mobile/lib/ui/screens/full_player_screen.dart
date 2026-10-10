@@ -171,7 +171,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
         return ValueListenableBuilder<Song?>(
           valueListenable: audioHandler.currentSongNotifier,
           builder: (context, fallbackSong, _) {
-            final song = directSong ?? fallbackSong;
+            // Prioritize fallbackSong (currentSongNotifier) since it represents the actively selected
+            // song immediately, avoiding stale artwork/source chip while player loads the new audio source.
+            final song = fallbackSong ?? directSong;
             if (song == null) {
               return const Scaffold(
                 backgroundColor: Color(0xFF0A0E1A),

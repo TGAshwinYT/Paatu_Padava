@@ -152,9 +152,13 @@ async def resolve_single_stream(
             if cached:
                 data = json.loads(cached)
                 cached_title = data.get("title")
-                # If title is provided and cached entry has a mismatched title, re-resolve to avoid poisoned cache
-                if title and cached_title and not is_title_match(title, cached_title):
-                    pass
+                cached_audio_url = data.get("audio_url")
+                # If cached audio_url is missing/empty, or title is mismatched, discard poisoned entry
+                if not cached_audio_url or (title and cached_title and not is_title_match(title, cached_title)):
+                    try:
+                        await redis_client.delete(cache_key)
+                    except Exception:
+                        pass
                 else:
                     data["cached"] = True
                     return data
@@ -234,21 +238,30 @@ async def resolve_single_stream(
             except Exception as yt_err:
                 print(f"Backend yt_dlp stream resolution notice: {yt_err}")
 
+        if not yt_audio_url:
+            # Resolution failed across both JioSaavn and YouTube
+            # Strictly do NOT poison Redis cache with a null stream URL!
+            raise HTTPException(
+                status_code=404,
+                detail=f"Stream resolution unavailable for track '{title or song_id}'"
+            )
+
         payload = {
             "song_id": song_id,
             "title": title,
             "audio_url": yt_audio_url,
-            "download_urls": [yt_audio_url] if yt_audio_url else [],
+            "download_urls": [yt_audio_url],
             "youtube_id": yt_id,
             "engine": "youtube",
             "source": "youtube",
             "cached": False
         }
 
-    # 4. Save to Redis (24 hr TTL for native, 12 hr TTL for youtube fallback) with timeout protection
-    if redis_client:
+    # 4. Save to Redis (24 hr TTL for native, 12 hr TTL for youtube) with timeout protection
+    # Only cache if an active audio_url was verified
+    if redis_client and payload.get("audio_url"):
         try:
-            ttl = 86400 if audio_url else 43200
+            ttl = 86400 if payload.get("source") == "saavn" else 43200
             await asyncio.wait_for(redis_client.setex(cache_key, ttl, json.dumps(payload)), timeout=1.5)
         except Exception as e:
             print(f"Redis set stream warning: {e}")
@@ -289,11 +302,14 @@ async def download_track(
         audio_url = url
     elif song_id or title:
         # 2. Resolve via resolve_single_stream to find 320kbps JioSaavn stream
-        resolved = await resolve_single_stream(song_id or "download", title, artist, redis_client)
-        if resolved and resolved.get("audio_url"):
-            audio_url = resolved["audio_url"]
-        elif resolved and resolved.get("download_urls") and len(resolved["download_urls"]) > 0:
-            audio_url = resolved["download_urls"][-1]
+        try:
+            resolved = await resolve_single_stream(song_id or "download", title, artist, redis_client)
+            if resolved and resolved.get("audio_url"):
+                audio_url = resolved["audio_url"]
+            elif resolved and resolved.get("download_urls") and len(resolved["download_urls"]) > 0:
+                audio_url = resolved["download_urls"][-1]
+        except Exception:
+            pass
 
     # 3. Fallback: if audio_url is still missing and we have youtube_id or song_id
     if not audio_url and (song_id or title):

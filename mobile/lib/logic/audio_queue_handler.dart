@@ -54,6 +54,7 @@ class AudioQueueHandler {
   Timer? _idleTimeoutTimer;
 
   int _sessionToken = 0;
+  int _activeLoadSessionToken = 0;
   bool _isLoading = false;
   bool _isDisposed = false;
   int _fadeToken = 0;
@@ -424,140 +425,144 @@ class AudioQueueHandler {
 
     cancelIdleTimer();
     final token = ++_sessionToken;
+    _activeLoadSessionToken = token;
     _isLoading = true;
 
-    AppLogger.log('AudioQueueHandler', 'loadQueue: ${songs.length} songs, initialIndex=$initialIndex, autoPlay=$autoPlay');
-
     try {
-      await player.stop();
-    } catch (_) {}
+      AppLogger.log('AudioQueueHandler', 'loadQueue: ${songs.length} songs, initialIndex=$initialIndex, autoPlay=$autoPlay');
 
-    if (token != _sessionToken) return;
+      try {
+        await player.stop();
+      } catch (_) {}
 
-    _queue.clear();
-    _originalQueue.clear();
-    _queue.addAll(songs);
-    _originalQueue.addAll(songs);
-    _currentIndex = (initialIndex >= 0 && initialIndex < songs.length) ? initialIndex : 0;
-    _playlistBaseIndex = _currentIndex;
-
-    _syncState();
-
-    final activeSong = _queue[_currentIndex];
-    onSongChanged?.call(activeSong);
-
-    // Resolve active song first to guarantee immediate playback
-    if (activeSong.streamUrl == null || activeSong.streamUrl!.isEmpty) {
-      final resolvedUrl = await _resolveStreamUrl(activeSong);
       if (token != _sessionToken) return;
-      if (resolvedUrl != null && resolvedUrl.isNotEmpty) {
-        activeSong.streamUrl = resolvedUrl;
+
+      _queue.clear();
+      _originalQueue.clear();
+      _queue.addAll(songs);
+      _originalQueue.addAll(songs);
+      _currentIndex = (initialIndex >= 0 && initialIndex < songs.length) ? initialIndex : 0;
+
+      _syncState();
+
+      final activeSong = _queue[_currentIndex];
+      onSongChanged?.call(activeSong);
+
+      // Resolve active song first to guarantee immediate playback
+      if (activeSong.streamUrl == null || activeSong.streamUrl!.isEmpty) {
+        final resolvedUrl = await _resolveStreamUrl(activeSong);
+        if (token != _sessionToken) return;
+        if (resolvedUrl != null && resolvedUrl.isNotEmpty) {
+          activeSong.streamUrl = resolvedUrl;
+        } else {
+          AppLogger.log('AudioQueueHandler', 'Failed to resolve active song: "${activeSong.title}".');
+          final appErr = AppError.songUnavailable(
+            activeSong.title,
+            debugDetails: 'Active song stream resolution returned null in loadQueue',
+          );
+          errorNotifier.value = appErr;
+          onError?.call(appErr);
+          if (isAudioHandlerInitialized) {
+            audioHandler.playbackErrorNotifier.value = appErr;
+          }
+        }
+      }
+
+      // Build forward sliding window starting at _currentIndex: [ activeSong, nextSong ]
+      final List<AudioSource> sources = [];
+
+      final activeSrc = (activeSong.streamUrl != null && activeSong.streamUrl!.isNotEmpty)
+          ? await _buildAudioSource(activeSong, allowNetworkResolve: false)
+          : null;
+
+      if (activeSrc != null) {
+        sources.add(activeSrc);
+        // Preload immediate next track if available
+        if (_currentIndex + 1 < _queue.length) {
+          final nextSong = _queue[_currentIndex + 1];
+          final nextSrc = await _buildAudioSource(nextSong, allowNetworkResolve: true);
+          if (nextSrc != null && token == _sessionToken) {
+            sources.add(nextSrc);
+          }
+        }
       } else {
-        AppLogger.log('AudioQueueHandler', 'Failed to resolve active song: "${activeSong.title}".');
-        final appErr = AppError.songUnavailable(
-          activeSong.title,
-          debugDetails: 'Active song stream resolution returned null in loadQueue',
-        );
-        errorNotifier.value = appErr;
-        onError?.call(appErr);
-        if (isAudioHandlerInitialized) {
-          audioHandler.playbackErrorNotifier.value = appErr;
+        AppLogger.log('AudioQueueHandler', 'Active song "${activeSong.title}" could not be resolved.');
+        if (autoPlay && _currentIndex + 1 < _queue.length) {
+          AppLogger.log('AudioQueueHandler', 'Auto-advancing to next playable track in queue.');
+          await skipToNext();
+          return;
         }
       }
-    }
 
-    // Build ConcatenatingAudioSource starting from _currentIndex
-    // Child 0 is GUARANTEED to be activeSong!
-    final List<AudioSource> sources = [];
-    final activeSrc = (activeSong.streamUrl != null && activeSong.streamUrl!.isNotEmpty)
-        ? await _buildAudioSource(activeSong, allowNetworkResolve: false)
-        : null;
-
-    if (activeSrc != null) {
-      sources.add(activeSrc);
-      // Preload immediate next track if available
-      if (_currentIndex + 1 < _queue.length) {
-        final nextSong = _queue[_currentIndex + 1];
-        final nextSrc = await _buildAudioSource(nextSong, allowNetworkResolve: true);
-        if (nextSrc != null && token == _sessionToken) {
-          sources.add(nextSrc);
-        }
-      }
-    } else {
-      AppLogger.log('AudioQueueHandler', 'Active song "${activeSong.title}" could not be resolved.');
-      if (autoPlay && _currentIndex + 1 < _queue.length) {
-        AppLogger.log('AudioQueueHandler', 'Auto-advancing to next playable track in queue.');
-        _isLoading = false;
-        await skipToNext();
+      if (sources.isEmpty) {
+        AppLogger.log('AudioQueueHandler', 'No playable tracks found in audio source window.');
         return;
       }
-    }
 
-    if (sources.isEmpty) {
-      _isLoading = false;
-      AppLogger.log('AudioQueueHandler', 'No playable tracks found in audio source window.');
-      return;
-    }
+      _playlistBaseIndex = _currentIndex;
 
-    _playlistSource = ConcatenatingAudioSource(
-      children: sources,
-      useLazyPreparation: true,
-    );
-
-    final targetNorm = getEffectiveVolumeForSong(activeSong);
-    final crossfadeSec = SettingsManager.crossfadeSeconds;
-    if (crossfadeSec > 0) {
-      try {
-        await player.setVolume(0.0);
-      } catch (_) {}
-    } else {
-      try {
-        await player.setVolume(targetNorm);
-      } catch (_) {}
-    }
-
-    try {
-      await player.setAudioSource(
-        _playlistSource,
-        initialIndex: 0,
-        initialPosition: Duration.zero,
+      _playlistSource = ConcatenatingAudioSource(
+        children: sources,
+        useLazyPreparation: true,
       );
 
-      if (token != _sessionToken) {
-        if (crossfadeSec > 0) {
-          try {
-            await player.setVolume(targetNorm);
-          } catch (_) {}
-        }
-        return;
-      }
-
-      if (autoPlay) {
-        await _ensureAudioSessionActive();
-        await player.play();
-        if (crossfadeSec > 0) {
-          _fadeVolumeTo(targetNorm, durationMs: (crossfadeSec * 600).clamp(250, 2000));
-        } else {
+      final targetNorm = getEffectiveVolumeForSong(activeSong);
+      final crossfadeSec = SettingsManager.crossfadeSeconds;
+      if (crossfadeSec > 0) {
+        try {
+          await player.setVolume(0.0);
+        } catch (_) {}
+      } else {
+        try {
           await player.setVolume(targetNorm);
-        }
-        _startVolumeWatchdog(activeSong);
+        } catch (_) {}
       }
 
-      _isLoading = false;
-      _hasRetriedCurrentTrack = false;
-      onQueueProgress?.call(_currentIndex, _queue.length);
+      try {
+        await player.setAudioSource(
+          _playlistSource,
+          initialIndex: 0,
+          initialPosition: Duration.zero,
+        );
 
-      // Asynchronously preload immediate upcoming track
-      preloadUpcomingTracks(_currentIndex);
-    } catch (e, stack) {
-      _isLoading = false;
-      AppLogger.recordError(e, stack, context: 'AudioQueueHandler.loadQueue setAudioSource');
-      final appErr = ErrorHandler.resolve(e, stackTrace: stack, context: 'AudioQueueHandler.loadQueue');
-      audioHandler.playbackErrorNotifier.value = appErr;
-      if (hasNext) {
-        Future.delayed(const Duration(seconds: 2), () {
-          if (!_isDisposed && _queue.isNotEmpty) skipToNext();
-        });
+        if (token != _sessionToken) {
+          if (crossfadeSec > 0) {
+            try {
+              await player.setVolume(targetNorm);
+            } catch (_) {}
+          }
+          return;
+        }
+
+        if (autoPlay) {
+          await _ensureAudioSessionActive();
+          await player.play();
+          if (crossfadeSec > 0) {
+            _fadeVolumeTo(targetNorm, durationMs: (crossfadeSec * 600).clamp(250, 2000));
+          } else {
+            await player.setVolume(targetNorm);
+          }
+          _startVolumeWatchdog(activeSong);
+        }
+
+        _hasRetriedCurrentTrack = false;
+        onQueueProgress?.call(_currentIndex, _queue.length);
+
+        // Asynchronously preload upcoming tracks
+        preloadUpcomingTracks(_currentIndex);
+      } catch (e, stack) {
+        AppLogger.recordError(e, stack, context: 'AudioQueueHandler.loadQueue setAudioSource');
+        final appErr = ErrorHandler.resolve(e, stackTrace: stack, context: 'AudioQueueHandler.loadQueue');
+        audioHandler.playbackErrorNotifier.value = appErr;
+        if (hasNext) {
+          Future.delayed(const Duration(seconds: 2), () {
+            if (!_isDisposed && _queue.isNotEmpty) skipToNext();
+          });
+        }
+      }
+    } finally {
+      if (_activeLoadSessionToken == token) {
+        _isLoading = false;
       }
     }
   }
@@ -690,12 +695,6 @@ class AudioQueueHandler {
     }
 
     // Re-center _playlistSource window at targetIndex
-    _playlistBaseIndex = targetIndex;
-    _currentIndex = targetIndex;
-    _hasRetriedCurrentTrack = false;
-    _syncState();
-    onSongChanged?.call(targetSong);
-
     final List<AudioSource> sources = [];
     final activeSrc = (targetSong.streamUrl != null && targetSong.streamUrl!.isNotEmpty)
         ? await _buildAudioSource(targetSong, allowNetworkResolve: false)
@@ -711,6 +710,12 @@ class AudioQueueHandler {
         sources.add(nextSrc);
       }
     }
+
+    _playlistBaseIndex = targetIndex;
+    _currentIndex = targetIndex;
+    _hasRetriedCurrentTrack = false;
+    _syncState();
+    onSongChanged?.call(targetSong);
 
     _playlistSource = ConcatenatingAudioSource(
       children: sources,

@@ -26,19 +26,49 @@ class AlbumScreen extends StatefulWidget {
 class _AlbumScreenState extends State<AlbumScreen> {
   List<Song> _songs = [];
   bool _isLoading = true;
+  late String _currentImageUrl;
 
   @override
   void initState() {
     super.initState();
+    _currentImageUrl = widget.imageUrl;
     _loadAlbumDetails();
   }
 
   Future<void> _loadAlbumDetails() async {
     setState(() => _isLoading = true);
-    final details = await SaavnClient.getAlbumDetails(widget.albumId);
-    List<Song> songs = [];
 
+    String targetId = widget.albumId.trim();
+    // If albumId is empty or not a numeric Saavn ID (e.g. from an ad-hoc song extraction), resolve authentic ID
+    if (targetId.isEmpty || !RegExp(r'^\d+$').hasMatch(targetId)) {
+      try {
+        final searchAlbs = await SaavnClient.searchAlbums(widget.albumTitle, limit: 5);
+        if (searchAlbs.isNotEmpty) {
+          final cleanTitle = widget.albumTitle.toLowerCase().trim();
+          final match = searchAlbs.firstWhere(
+            (a) => (a['title'] ?? a['name'] ?? '').toString().toLowerCase().trim() == cleanTitle,
+            orElse: () => searchAlbs.first,
+          );
+          targetId = match['id']?.toString() ?? '';
+          final matchImg = match['image']?.toString() ?? '';
+          if (matchImg.isNotEmpty) {
+            _currentImageUrl = matchImg;
+          }
+        }
+      } catch (_) {}
+    }
+
+    Map<String, dynamic>? details;
+    if (targetId.isNotEmpty && RegExp(r'^\d+$').hasMatch(targetId)) {
+      details = await SaavnClient.getAlbumDetails(targetId);
+    }
+
+    List<Song> songs = [];
     if (details != null) {
+      final albImage = details['image']?.toString() ?? '';
+      if (albImage.isNotEmpty) {
+        _currentImageUrl = albImage;
+      }
       if (details['songs'] is List<Song>) {
         songs = details['songs'] as List<Song>;
       }
@@ -46,7 +76,15 @@ class _AlbumScreenState extends State<AlbumScreen> {
 
     // Fallback search if album details endpoint is empty
     if (songs.isEmpty) {
-      songs = await SaavnClient.search('${widget.albumTitle} songs', limit: 20);
+      final searchResults = await SaavnClient.search(widget.albumTitle, limit: 20);
+      final cleanAlbum = widget.albumTitle.toLowerCase().trim();
+      songs = searchResults.where((s) {
+        return s.album.toLowerCase().trim().contains(cleanAlbum) ||
+            cleanAlbum.contains(s.album.toLowerCase().trim());
+      }).toList();
+      if (songs.isEmpty) {
+        songs = searchResults;
+      }
     }
 
     if (mounted) {
@@ -86,7 +124,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
                     fit: StackFit.expand,
                     children: [
                       CachedNetworkImage(
-                        imageUrl: widget.imageUrl,
+                        imageUrl: _currentImageUrl.isNotEmpty ? _currentImageUrl : widget.imageUrl,
                         fit: BoxFit.cover,
                         errorWidget: (_, __, ___) => Container(color: const Color(0xFF1E293B)),
                       ),

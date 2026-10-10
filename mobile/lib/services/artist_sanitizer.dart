@@ -79,10 +79,17 @@ class ArtistSanitizer {
     'mythri movie makers',
     'geetha arts',
     'dvv entertainment',
+    'sithara entertainments',
+    'vels film international',
     'sun tv',
     'star vijay',
     'kalaignar tv',
     'zee tamil',
+    'divo movies',
+    'sony music south',
+    'saregama tamil',
+    't-series tamil',
+    'think music india',
   };
 
   /// Generic Non-Artist Audio Tags
@@ -105,16 +112,24 @@ class ArtistSanitizer {
     'status',
   };
 
-  /// Non-Musician Actors / Comedians (Pure cast members who do not sing or compose)
+  /// Non-Musician Actors / Comedians / Film Stars (Pure cast members who should not override composers/singers)
   static const Set<String> _nonMusicianActors = {
     'rajinikanth',
     'thalapathy vijay',
+    'vijay',
     'ajith',
     'ajith kumar',
     'suriya',
     'surya',
     'karthi',
+    'vikram',
+    'chiyaan vikram',
     'vijay sethupathi',
+    'sivakarthikeyan',
+    'jayam ravi',
+    'arya',
+    'jiiva',
+    'vishal',
     'vadivelu',
     'prakash raj',
     'nasser',
@@ -133,6 +148,32 @@ class ArtistSanitizer {
     'delhi ganesh',
     'vijayan',
     'raghuvaran',
+    'yogi babu',
+    'soori',
+    'santhanam',
+    'vivek',
+    'nayanthara',
+    'samantha',
+    'samantha ruth prabhu',
+    'trisha',
+    'trisha krishnan',
+    'keerthy suresh',
+    'rashmika mandanna',
+    'pooja hegde',
+    'ram charan',
+    'jr ntr',
+    'prabhas',
+    'allu arjun',
+    'mahesh babu',
+    'pawan kalyan',
+    'yash',
+    'darshan',
+    'mammootty',
+    'mohanlal',
+    'fahadh faasil',
+    'tovino thomas',
+    'dulquer salmaan',
+    'nivin pauly',
   };
 
   /// Validates whether a candidate map or name represents a genuine musical artist.
@@ -250,5 +291,23 @@ class ArtistSanitizer {
     }
 
     return 'Original Soundtrack';
+  }
+
+  /// Extracts the primary genuine musician (composer or playback singer)
+  /// from a composite artist credit string (e.g. "Anirudh Ravichander, Thalapathy Vijay" -> "Anirudh Ravichander")
+  static String extractPrimaryGenuineArtist(String artistString) {
+    final unescaped = _unescape.convert(artistString).trim();
+    if (unescaped.isEmpty) return 'Unknown Artist';
+
+    final parts = unescaped.split(RegExp(r'[,&/|]|\bfeat\.?\b|\bft\.?\b|\bwith\b', caseSensitive: false));
+    for (final part in parts) {
+      final clean = part.replaceAll(RegExp(r'[\(\[\{].*?[\)\]\}]'), '').trim();
+      if (clean.isNotEmpty && isGenuineArtist(clean)) {
+        return clean;
+      }
+    }
+
+    final first = parts.isNotEmpty ? parts.first.trim() : unescaped;
+    return first.isNotEmpty ? first : 'Unknown Artist';
   }
 }

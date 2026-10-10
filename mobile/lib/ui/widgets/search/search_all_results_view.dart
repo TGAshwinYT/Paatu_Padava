@@ -278,6 +278,43 @@ class SearchAllResultsView extends StatelessWidget {
           onShowVersions: song.versions.isNotEmpty ? () => onShowVersions(song) : null,
         )),
       ],
+
+      // YouTube Music Header & List
+      if (state.ytSongs.isNotEmpty) ...[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+          child: Row(
+            children: [
+              Text(
+                'YouTube Music',
+                style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.electricCyan.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: AppColors.electricCyan.withValues(alpha: 0.4)),
+                ),
+                child: Text(
+                  'YT',
+                  style: GoogleFonts.outfit(color: AppColors.electricCyan, fontSize: 10, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+        ),
+        ...state.ytSongs.take(8).map((Song song) => SearchSongTile(
+          song: song,
+          onTap: () {
+            onRecordClick(song);
+            onSongTap(song);
+          },
+          onShowOptions: () => onShowOptions(song),
+          onShowVersions: null,
+        )),
+      ],
     ],
   );
 

@@ -5,7 +5,9 @@ import 'package:just_audio/just_audio.dart';
 import '../../models/song.dart';
 import '../../services/player_handler.dart';
 import '../../services/favorites_manager.dart';
+import '../../services/artist_sanitizer.dart';
 import '../screens/full_player_screen.dart';
+import '../screens/artist_screen.dart';
 
 class MiniPlayer extends StatelessWidget {
   const MiniPlayer({Key? key}) : super(key: key);
@@ -122,13 +124,29 @@ class MiniPlayer extends StatelessWidget {
                                     ),
                                   ),
                                   const SizedBox(height: 2),
-                                  Text(
-                                    song.artist,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Color(0xFF94A3B8),
-                                      fontSize: 12,
+                                  GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () {
+                                      final genuineArtist = ArtistSanitizer.extractPrimaryGenuineArtist(song.artist);
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => ArtistScreen(
+                                            artistId: song.artistId ?? '',
+                                            artistName: genuineArtist,
+                                            imageUrl: song.coverUrl,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    child: Text(
+                                      song.artist,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Color(0xFF94A3B8),
+                                        fontSize: 12,
+                                      ),
                                     ),
                                   ),
                                 ],

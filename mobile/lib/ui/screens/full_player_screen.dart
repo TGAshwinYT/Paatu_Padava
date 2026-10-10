@@ -14,6 +14,8 @@ import '../widgets/player/player_download_button.dart';
 import '../widgets/player/player_equalizer_sheet.dart';
 import '../widgets/player/player_controls.dart';
 import '../widgets/player/player_gesture_detector.dart';
+import 'artist_screen.dart';
+import '../../services/artist_sanitizer.dart';
 
 class FullPlayerScreen extends StatefulWidget {
   const FullPlayerScreen({Key? key}) : super(key: key);
@@ -344,13 +346,31 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                         ),
                                       ),
                                       const SizedBox(height: 4),
-                                      Text(
-                                        song.artist,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          color: Color(0xFF94A3B8),
-                                          fontSize: 15,
+                                      GestureDetector(
+                                        behavior: HitTestBehavior.opaque,
+                                        onTap: () {
+                                          final genuineArtist = ArtistSanitizer.extractPrimaryGenuineArtist(song.artist);
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) => ArtistScreen(
+                                                artistId: song.artistId ?? '',
+                                                artistName: genuineArtist,
+                                                imageUrl: song.coverUrl,
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                        child: Text(
+                                          song.artist,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            color: Color(0xFF94A3B8),
+                                            fontSize: 15,
+                                            decoration: TextDecoration.underline,
+                                            decorationColor: Color(0x3394A3B8),
+                                          ),
                                         ),
                                       ),
                                     ],

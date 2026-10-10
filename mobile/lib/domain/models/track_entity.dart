@@ -292,22 +292,22 @@ class TrackEntity {
 
   factory TrackEntity.fromMap(Map<dynamic, dynamic> map) {
     return TrackEntity(
-      id: map['id']?.toString() ?? '',
+      id: map['id']?.toString() ?? map['song_id']?.toString() ?? '',
       title: sanitize(map['title'], fallback: 'Unknown Title'),
       artist: sanitize(map['artist'], fallback: 'Unknown Artist'),
       album: sanitize(map['album'], fallback: 'Unknown Album'),
-      albumId: map['albumId']?.toString(),
-      artistId: map['artistId']?.toString(),
-      coverUrl: map['coverUrl']?.toString() ?? '',
-      streamUrl: map['streamUrl']?.toString(),
+      albumId: map['albumId']?.toString() ?? map['album_id']?.toString(),
+      artistId: map['artistId']?.toString() ?? map['artist_id']?.toString(),
+      coverUrl: map['coverUrl']?.toString() ?? map['cover_url']?.toString() ?? map['image']?.toString() ?? '',
+      streamUrl: map['streamUrl']?.toString() ?? map['audio_url']?.toString(),
       duration: int.tryParse(map['duration']?.toString() ?? '0') ?? 0,
       isDownloaded: map['isDownloaded'] == true,
-      localFilePath: map['localFilePath']?.toString(),
-      downloadedAt: int.tryParse(map['downloadedAt']?.toString() ?? '0'),
+      localFilePath: map['localFilePath']?.toString() ?? map['local_file_path']?.toString(),
+      downloadedAt: int.tryParse(map['downloadedAt']?.toString() ?? map['downloaded_at']?.toString() ?? '0'),
       source: map['source']?.toString() ?? 'saavn',
       lyrics: map['lyrics'] != null ? sanitize(map['lyrics']) : null,
       language: map['language']?.toString(),
-      isSmartRecommended: map['isSmartRecommended'] == true,
+      isSmartRecommended: map['isSmartRecommended'] == true || map['is_smart_recommended'] == true,
     );
   }
 

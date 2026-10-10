@@ -42,20 +42,38 @@ class SaavnClient {
     // Do NOT treat actors or cast members (e.g. Prakash Raj) as music artists.
     // Check primary_artists, music_directors, or singers roles first.
     String? resolvedArtist;
+    String? resolvedArtistId;
     final artistMap = more['artistMap'];
     if (artistMap is Map) {
       final primary = artistMap['primary_artists'] as List<dynamic>? ?? [];
       final singers = artistMap['singers'] as List<dynamic>? ?? [];
       final musicDirs = artistMap['music_directors'] as List<dynamic>? ?? [];
 
-      final valid = primary.isNotEmpty ? primary : (singers.isNotEmpty ? singers : musicDirs);
-      if (valid.isNotEmpty) {
-        final names = valid
-            .map((a) => a['name']?.toString() ?? '')
-            .where((n) => n.isNotEmpty && ArtistSanitizer.isGenuineArtist(n))
-            .toList();
-        if (names.isNotEmpty) {
-          resolvedArtist = names.join(', ');
+      // Prioritize genuine music directors and playback singers over actors
+      final genuineMusicians = [...musicDirs, ...singers].where((a) {
+        final n = a['name']?.toString() ?? '';
+        return n.isNotEmpty && ArtistSanitizer.isGenuineArtist(n);
+      }).toList();
+
+      if (genuineMusicians.isNotEmpty) {
+        final seen = <String>{};
+        final names = <String>[];
+        for (final m in genuineMusicians) {
+          final n = m['name']?.toString() ?? '';
+          if (n.isNotEmpty && seen.add(n.toLowerCase())) {
+            names.add(n);
+          }
+        }
+        resolvedArtist = names.join(', ');
+        resolvedArtistId = genuineMusicians.first['id']?.toString();
+      } else {
+        final validPrimary = primary.where((a) {
+          final n = a['name']?.toString() ?? '';
+          return n.isNotEmpty && ArtistSanitizer.isGenuineArtist(n);
+        }).toList();
+        if (validPrimary.isNotEmpty) {
+          resolvedArtist = validPrimary.map((a) => a['name']?.toString() ?? '').where((n) => n.isNotEmpty).join(', ');
+          resolvedArtistId = validPrimary.first['id']?.toString();
         }
       }
     }
@@ -78,7 +96,7 @@ class SaavnClient {
       artist: Song.sanitize(resolvedArtist, fallback: 'Various Artists'),
       album: Song.sanitize(more['album'], fallback: 'Unknown Album'),
       albumId: more['album_id']?.toString() ?? item['albumid']?.toString(),
-      artistId: more['artistMap']?['primary_artists']?[0]?['id']?.toString() ?? item['artist_id']?.toString(),
+      artistId: resolvedArtistId ?? more['artistMap']?['primary_artists']?[0]?['id']?.toString() ?? item['artist_id']?.toString(),
       coverUrl: _extractHighResImage(item['image']?.toString()),
       streamUrl: audioUrl.isNotEmpty ? audioUrl : null,
       duration: int.tryParse(more['duration']?.toString() ?? '0') ?? 0,
@@ -237,17 +255,23 @@ class SaavnClient {
       if (response.statusCode != 200) return null;
 
       final data = json.decode(response.body);
+      final albumImage = _extractHighResImage(data['image']?.toString());
       final list = data['list'] as List<dynamic>? ?? [];
       final List<Song> songs = [];
       for (final item in list) {
-        songs.add(_parseSongItem(Map<String, dynamic>.from(item)));
+        final parsed = _parseSongItem(Map<String, dynamic>.from(item));
+        if (parsed.coverUrl.isEmpty && albumImage.isNotEmpty) {
+          songs.add(parsed.copyWith(coverUrl: albumImage));
+        } else {
+          songs.add(parsed);
+        }
       }
 
       return {
         'id': data['id']?.toString() ?? albumId,
         'title': Song.sanitize(data['title'] ?? data['name'], fallback: 'Unknown Album'),
         'artist': Song.sanitize(data['primary_artists'], fallback: 'Various Artists'),
-        'image': _extractHighResImage(data['image']?.toString()),
+        'image': albumImage,
         'year': data['year']?.toString() ?? '',
         'songs': songs,
       };

@@ -75,6 +75,9 @@
         "grep_search",
         "list_dir"
       ],
+      "skills": [
+        "anti-fallback-guardrails"
+      ],
       "skill_ref": ".antigravity/skills/backend-guidelines/SKILL.md"
     },
     {
@@ -141,6 +144,9 @@
         "run_command",
         "grep_search",
         "list_dir"
+      ],
+      "skills": [
+        "anti-fallback-guardrails"
       ],
       "skill_ref": ".antigravity/skills/mobile-guidelines/SKILL.md"
     }

@@ -9,7 +9,6 @@ import 'settings_manager.dart';
 import 'fuzzy_search_service.dart';
 import 'error_handler.dart';
 import '../data/repositories/song_repository.dart';
-import 'app_logger.dart';
 
 class QueryIntent {
   final String rawQuery;
@@ -362,18 +361,22 @@ class SearchService {
           .timeout(const Duration(seconds: 5), onTimeout: () => <Map<String, dynamic>>[]);
       final artistsFuture = SaavnClient.searchArtists(intent.cleanQuery, limit: 12)
           .timeout(const Duration(seconds: 5), onTimeout: () => <Map<String, dynamic>>[]);
+      final ytFuture = YouTubeClient.search(intent.cleanQuery, limit: limit)
+          .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
 
       final initialResults = await Future.wait([
         saavnFuture,
         transliteratedSaavnFuture,
         albumsFuture,
         artistsFuture,
+        ytFuture,
       ]);
 
       final rawSaavn = initialResults[0] as List<Song>;
       final transSaavn = initialResults[1] as List<Song>;
       final rawAlbums = initialResults[2] as List<Map<String, dynamic>>;
       final artists = initialResults[3] as List<Map<String, dynamic>>;
+      final rawYt = initialResults[4] as List<Song>;
 
       final List<Song> combinedSaavn = [];
       combinedSaavn.addAll(rawSaavn);
@@ -398,21 +401,9 @@ class SearchService {
       scoredSaavn.sort((a, b) => b.key.compareTo(a.key));
       final rankedSaavn = scoredSaavn.map((e) => e.value).toList();
 
-      // Retrieve YouTube only when JioSaavn results are weak (< 3 results or max score < 0.55)
-      List<Song> ytSongs = [];
-      final bool isSaavnWeak = rankedSaavn.length < 3 ||
-          (scoredSaavn.isNotEmpty && scoredSaavn.first.key < 0.55);
-
-      if (isSaavnWeak) {
-        try {
-          final rawYt = await YouTubeClient.search(intent.cleanQuery, limit: limit)
-              .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]);
-          final groupedYt = SongRepository.groupCanonicalSongs(rawYt, preferredLanguage: effectiveLang);
-          ytSongs = SongRepository.deduplicateSongs(groupedYt);
-        } catch (e) {
-          AppLogger.log('SearchService', 'Fallback YouTube search notice: $e');
-        }
-      }
+      // Process parallel YouTube songs
+      final groupedYt = SongRepository.groupCanonicalSongs(rawYt, preferredLanguage: effectiveLang);
+      final ytSongs = SongRepository.deduplicateSongs(groupedYt);
 
       // Filter and label multi-track genuine albums strictly
       final labeledAlbums = filterGenuineAlbums(rawAlbums);

@@ -232,19 +232,85 @@ class _SearchScreenState extends State<SearchScreen> {
         );
         _isSearchingNotifier.value = false;
       } else if (tab == 'Albums') {
-        final albums = await SaavnClient.searchAlbums(clean, limit: 25);
+        final albumsFuture = SaavnClient.searchAlbums(clean, limit: 25);
+        final songsFuture = SaavnClient.search(clean, limit: 15, language: prefLang);
+        final res = await Future.wait([albumsFuture, songsFuture]);
         if (!mounted || currentRequestId != _searchRequestId) return;
-        final genuineAlbums = SearchService.filterGenuineAlbums(albums);
+        final directAlbums = res[0] as List<Map<String, dynamic>>;
+        final songs = res[1] as List<Song>;
+
+        final List<Map<String, dynamic>> correlatedAlbums = [];
+        final Set<String> seenAlbumNames = {};
+
+        // 1. Correlate albums from matched songs (top relevance)
+        for (final song in songs) {
+          final albName = song.album.trim();
+          final albId = song.albumId?.trim() ?? '';
+          if (albName.isNotEmpty && albName.toLowerCase() != 'unknown album') {
+            final key = albName.toLowerCase();
+            if (!seenAlbumNames.contains(key)) {
+              seenAlbumNames.add(key);
+              correlatedAlbums.add({
+                'id': albId.isNotEmpty ? albId : 'alb_${song.id}',
+                'title': albName,
+                'image': song.coverUrl,
+                'year': '',
+                'artist': song.artist,
+              });
+            }
+          }
+        }
+
+        // 2. Append direct album search results
+        for (final alb in directAlbums) {
+          final title = (alb['title'] ?? alb['name'] ?? '').toString().trim();
+          if (title.isNotEmpty && !seenAlbumNames.contains(title.toLowerCase())) {
+            seenAlbumNames.add(title.toLowerCase());
+            correlatedAlbums.add(alb);
+          }
+        }
+
+        final genuineAlbums = SearchService.filterGenuineAlbums(correlatedAlbums);
         _resultsNotifier.value = SearchResultsState(albums: genuineAlbums);
         _isSearchingNotifier.value = false;
       } else if (tab == 'Artists') {
-        final artists = await SaavnClient.searchArtists(clean, limit: 25);
+        final artistsFuture = SaavnClient.searchArtists(clean, limit: 25);
+        final songsFuture = SaavnClient.search(clean, limit: 15, language: prefLang);
+        final res = await Future.wait([artistsFuture, songsFuture]);
         if (!mounted || currentRequestId != _searchRequestId) return;
-        final genuineArtists = artists.where((a) {
-          final name = (a['name'] ?? a['title'] ?? '').toString();
-          return ArtistSanitizer.isGenuineArtist(name);
-        }).toList();
-        _resultsNotifier.value = SearchResultsState(artists: genuineArtists);
+        final directArtists = res[0] as List<Map<String, dynamic>>;
+        final songs = res[1] as List<Song>;
+
+        final List<Map<String, dynamic>> correlatedArtists = [];
+        final Set<String> seenArtistNames = {};
+
+        // 1. Correlate genuine musicians from matched songs
+        for (final song in songs) {
+          final genuine = ArtistSanitizer.extractPrimaryGenuineArtist(song.artist);
+          if (genuine.isNotEmpty && ArtistSanitizer.isGenuineArtist(genuine)) {
+            final key = genuine.toLowerCase();
+            if (!seenArtistNames.contains(key)) {
+              seenArtistNames.add(key);
+              correlatedArtists.add({
+                'id': song.artistId ?? 'art_${song.id}',
+                'name': genuine,
+                'image': song.coverUrl,
+                'role': 'Artist',
+              });
+            }
+          }
+        }
+
+        // 2. Append direct artist search results that pass genuine check
+        for (final art in directArtists) {
+          final name = (art['name'] ?? art['title'] ?? '').toString().trim();
+          if (name.isNotEmpty && ArtistSanitizer.isGenuineArtist(name) && !seenArtistNames.contains(name.toLowerCase())) {
+            seenArtistNames.add(name.toLowerCase());
+            correlatedArtists.add(art);
+          }
+        }
+
+        _resultsNotifier.value = SearchResultsState(artists: correlatedArtists);
         _isSearchingNotifier.value = false;
       } else if (tab == 'YouTube') {
         final yt = await YouTubeClient.search(clean, limit: 25);

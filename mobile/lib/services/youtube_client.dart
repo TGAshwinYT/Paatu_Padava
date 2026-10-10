@@ -32,9 +32,9 @@ class YouTubeClient {
     if (clean.isEmpty) return [];
 
     final yt = YoutubeExplode();
+    final List<Song> songs = [];
     try {
       final searchResults = await yt.search.search(clean).timeout(const Duration(seconds: 10));
-      final List<Song> songs = [];
 
       for (final video in searchResults.take(limit)) {
         final rawAuthor = video.author;
@@ -57,7 +57,7 @@ class YouTubeClient {
       return songs;
     } catch (e, stack) {
       AppLogger.recordError(e, stack, context: 'YouTubeClient.search("$clean")');
-      rethrow;
+      return songs;
     } finally {
       yt.close();
     }
@@ -206,7 +206,7 @@ class YouTubeClient {
         if (title != null && title.isNotEmpty) 'title': title,
         if (artist != null && artist.isNotEmpty) 'artist': artist,
       });
-      final res = await http.get(uri).timeout(const Duration(seconds: 4));
+      final res = await http.get(uri).timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
         final data = json.decode(res.body);
         final audioUrl = data['audio_url']?.toString();

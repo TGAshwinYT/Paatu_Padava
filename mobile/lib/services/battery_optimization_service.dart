@@ -8,6 +8,18 @@ import 'app_logger.dart';
 class BatteryOptimizationService {
   static const MethodChannel _channel = MethodChannel('com.tamilgaming.paatupadava/battery');
 
+  /// Requests POST_NOTIFICATIONS runtime permission on Android 13+ (API 33+)
+  static Future<bool> requestNotificationPermission() async {
+    if (!Platform.isAndroid) return true;
+    try {
+      final granted = await _channel.invokeMethod<bool>('requestNotificationPermission');
+      return granted ?? true;
+    } catch (e) {
+      AppLogger.log('BatteryOpt', 'Failed to request notification permission: $e');
+      return true;
+    }
+  }
+
   /// Gets the hardware manufacturer (e.g. "OnePlus", "samsung", "Xiaomi")
   static Future<String> getDeviceManufacturer() async {
     if (!Platform.isAndroid) return '';

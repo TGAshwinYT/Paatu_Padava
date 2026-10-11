@@ -37,12 +37,27 @@ class MainActivity: AudioServiceActivity() {
                     enableLights(false)
                 }
                 notificationManager.createNotificationChannel(channel)
+        // Request POST_NOTIFICATIONS runtime permission on Android 13+ (API 33+) on launch
+        if (Build.VERSION.SDK_INT >= 33) {
+            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1002)
             }
         }
 
         // Battery optimization & manufacturer detection channel
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, BATTERY_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
+                "requestNotificationPermission" -> {
+                    if (Build.VERSION.SDK_INT >= 33) {
+                        val granted = checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                        if (!granted) {
+                            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1002)
+                        }
+                        result.success(granted)
+                    } else {
+                        result.success(true)
+                    }
+                }
                 "getDeviceManufacturer" -> {
                     result.success(Build.MANUFACTURER ?: "")
                 }

@@ -15,6 +15,7 @@ import 'services/player_handler.dart';
 import 'services/history_manager.dart';
 import 'services/supabase_service.dart';
 import 'services/cache_manager.dart';
+import 'services/battery_optimization_service.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/screens/main_navigation.dart';
 
@@ -90,6 +91,9 @@ Future<void> main() async {
       runApp(AudioFatalErrorApp(error: audioInitError));
       return;
     }
+
+    // Request Android 13+ POST_NOTIFICATIONS runtime permission for reliable media notifications
+    unawaited(BatteryOptimizationService.requestNotificationPermission());
 
     runApp(const PaatuPadavaApp());
   }, (error, stack) {

@@ -141,6 +141,9 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
 
           // Bluetooth Hardware Latency Slider
           _buildBluetoothOffsetSection(),
+
+          // Hardware Audio Output Latency Slider (-150ms to +150ms)
+          _buildHardwareLatencySection(),
         ],
       ),
     );
@@ -461,6 +464,99 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
             color: isSelected ? const Color(0xFF818CF8) : Colors.transparent,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.white60,
+            fontSize: 11,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHardwareLatencySection() {
+    return ValueListenableBuilder<int>(
+      valueListenable: SettingsManager.hardwareAudioLatencyMsNotifier,
+      builder: (context, latencyMs, _) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 18),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: const [
+                    Icon(Icons.tune_rounded, color: Color(0xFF34D399), size: 18),
+                    SizedBox(width: 8),
+                    Text(
+                      'Hardware DAC / AAudio Calibration',
+                      style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+                Text(
+                  '${latencyMs > 0 ? "+" : ""}${latencyMs}ms',
+                  style: TextStyle(
+                    color: latencyMs == 0 ? Colors.white70 : const Color(0xFF34D399),
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Compensates for per-device Android OpenSL ES / AAudio driver latency to eliminate acoustic phase cancellation.',
+              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+            ),
+            SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                activeTrackColor: const Color(0xFF10B981),
+                inactiveTrackColor: Colors.white12,
+                thumbColor: const Color(0xFF34D399),
+                overlayColor: const Color(0xFF10B981).withValues(alpha: 0.2),
+              ),
+              child: Slider(
+                value: latencyMs.toDouble(),
+                min: -150,
+                max: 150,
+                divisions: 60,
+                onChanged: (val) {
+                  SettingsManager.setHardwareAudioLatencyMs(val.round());
+                },
+              ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildHardwarePresetChip('-50ms (Low Latency)', -50, latencyMs),
+                _buildHardwarePresetChip('0ms (Calibrated)', 0, latencyMs),
+                _buildHardwarePresetChip('+50ms (Buffer Delay)', 50, latencyMs),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildHardwarePresetChip(String label, int value, int current) {
+    final isSelected = current == value;
+    return InkWell(
+      onTap: () => SettingsManager.setHardwareAudioLatencyMs(value),
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF10B981).withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF34D399) : Colors.transparent,
           ),
         ),
         child: Text(

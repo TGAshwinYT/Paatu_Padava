@@ -1,3 +1,4 @@
+import unicodedata
 from typing import List, Dict, Any, Optional
 
 class TrieNode:
@@ -10,14 +11,28 @@ class Trie:
     def __init__(self):
         self.root = TrieNode()
 
+    @staticmethod
+    def normalize_key(text: str) -> str:
+        """
+        Applies Unicode NFC normalization and lowercases text.
+        Guarantees consistent prefix matching across mixed script,
+        Tamil/Hindi combining characters, and transliterated search queries.
+        """
+        if not text:
+            return ""
+        return unicodedata.normalize("NFC", text).strip().lower()
+
     def insert(self, word: str, data: Optional[Dict[str, Any]] = None):
         """
-        Inserts a word into the trie with associated data.
+        Inserts a word into the trie with associated data using Unicode NFC normalization.
         """
+        if not word:
+            return
         if data is None:
             data = {"name": word, "title": word, "type": "artist"}
+        normalized = self.normalize_key(word)
         node = self.root
-        for char in word.lower():
+        for char in normalized:
             if char not in node.children:
                 node.children[char] = TrieNode()
             node = node.children[char]
@@ -26,10 +41,14 @@ class Trie:
 
     def search_prefix(self, prefix: str, limit: int = 5) -> List[Dict[str, Any]]:
         """
-        Searches for all words matching the prefix and returns up to 'limit' data payloads.
+        Searches for all words matching the prefix and returns up to 'limit' data payloads
+        using Unicode NFC normalization.
         """
+        if not prefix:
+            return []
+        normalized = self.normalize_key(prefix)
         node = self.root
-        for char in prefix.lower():
+        for char in normalized:
             if char not in node.children:
                 return []
             node = node.children[char]

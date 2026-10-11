@@ -15,6 +15,9 @@ class QueueCooldownManager {
   // Fast O(1) set for immediate containment checks
   static final Set<String> _cooldownKeys = <String>{};
 
+  // Ring buffer of clean artist names maintaining order of playback
+  static final Queue<String> _artistHistoryRing = Queue<String>();
+
   /// Records a track as recently played, adding it to the cooldown window.
   /// Evicts the oldest track once capacity reaches 75.
   static void recordPlayed(Song song) {
@@ -38,9 +41,18 @@ class QueueCooldownManager {
       }
     }
 
+    // Record primary artist for artist dispersion cooldown (last 4 tracks window)
+    final artist = song.primaryArtist.toLowerCase().trim();
+    if (artist.isNotEmpty && artist != 'various artists') {
+      _artistHistoryRing.addLast(artist);
+      while (_artistHistoryRing.length > maxCooldownCapacity) {
+        _artistHistoryRing.removeFirst();
+      }
+    }
+
     AppLogger.log(
       'QueueCooldownManager',
-      'Recorded "$titleKey" to cooldown buffer. Active cooling count: ${_historyRing.length}/$maxCooldownCapacity',
+      'Recorded "$titleKey" (artist: "$artist") to cooldown buffer. Active cooling count: ${_historyRing.length}/$maxCooldownCapacity',
     );
   }
 
@@ -55,6 +67,20 @@ class QueueCooldownManager {
   static bool isCoolingDownKey(String cleanTitleKey) {
     final norm = cleanTitleKey.toLowerCase().trim();
     return _cooldownKeys.contains(norm);
+  }
+
+  /// Checks if a candidate's primary artist has appeared in the last [window] played tracks (default 4).
+  /// Spotify / Apple Music standard: prevents repetitive single-artist runs in auto-generated queues.
+  static bool isArtistCoolingDown(String primaryArtist, {int window = 4}) {
+    final norm = primaryArtist.toLowerCase().replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), '').trim();
+    if (norm.isEmpty || norm == 'various artists') return false;
+    final recent = _artistHistoryRing.toList().reversed.take(window);
+    return recent.contains(norm);
+  }
+
+  /// Returns the most recent played primary artists (up to [window], newest first)
+  static List<String> getRecentArtists({int window = 4}) {
+    return _artistHistoryRing.toList().reversed.take(window).toList();
   }
 
   /// Filters out any candidates currently cooling down.
@@ -75,5 +101,6 @@ class QueueCooldownManager {
   static void clear() {
     _historyRing.clear();
     _cooldownKeys.clear();
+    _artistHistoryRing.clear();
   }
 }

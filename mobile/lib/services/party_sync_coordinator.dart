@@ -245,7 +245,7 @@ class PartySyncCoordinator {
       );
 
       pingsSent++;
-      if (pingsSent >= 5) {
+      if (pingsSent >= 8) {
         timer.cancel();
       }
     });
@@ -272,14 +272,14 @@ class PartySyncCoordinator {
     );
   }
 
-  /// Host: Scheduled Play trigger (broadcasting start at now + 500ms)
+  /// Host: Scheduled Play trigger (broadcasting start at now + 2000ms future epoch)
   static Future<void> hostPlaySong(Song song, {int positionMs = 0}) async {
     if (!isHost) {
       await audioHandler.playSong(song);
       return;
     }
 
-    const leadTimeMs = 500;
+    const leadTimeMs = 2000;
     final now = DateTime.now().millisecondsSinceEpoch;
     final startAtEpochMs = now + leadTimeMs;
 
@@ -343,23 +343,25 @@ class PartySyncCoordinator {
       final positionMs = payload['positionMs'] as int? ?? 0;
       final startAtEpochMs = payload['startAtEpochMs'] as int? ?? 0;
 
+      // Download / pre-buffer the media, enter paused state at position 0:00
+      await audioHandler.playSong(song, queue: [song]);
+      await audioHandler.pause();
+      if (positionMs > 0) {
+        await audioHandler.seek(Duration(milliseconds: positionMs));
+      } else {
+        await audioHandler.seek(Duration.zero);
+      }
+
       final delayMs = ScheduledPlaybackCalculator.calculateScheduledDelayMs(
         startAtEpochMs: startAtEpochMs,
         currentLocalEpochMs: DateTime.now().millisecondsSinceEpoch,
         clockOffsetMs: clockOffsetMs,
       );
 
-      // Preload song
-      await audioHandler.playSong(song, queue: [song]);
-      if (positionMs > 0) {
-        await audioHandler.seek(Duration(milliseconds: positionMs));
-      }
-
       if (delayMs > 0) {
-        await audioHandler.pause();
         await Future.delayed(Duration(milliseconds: delayMs));
-        await audioHandler.play();
       }
+      await audioHandler.play();
     } catch (e) {
       debugPrint('[PartySyncCoordinator] handleRemotePlay error: $e');
     }
@@ -389,6 +391,7 @@ class PartySyncCoordinator {
       currentLocalEpochMs: DateTime.now().millisecondsSinceEpoch,
       clockOffsetMs: clockOffsetMs,
       bluetoothDelayMs: SettingsManager.bluetoothDelayMs,
+      hardwareLatencyMs: SettingsManager.hardwareAudioLatencyMs,
       isPlaying: isHostPlaying,
     );
 
@@ -402,17 +405,25 @@ class PartySyncCoordinator {
     );
 
     if (action.isHardSeek && action.seekTargetMs != null) {
-      debugPrint('[PartySyncCoordinator] Hard seek reconciling drift of ${drift}ms to ${action.seekTargetMs}ms');
-      audioHandler.seek(Duration(milliseconds: action.seekTargetMs!));
-      audioHandler.setSpeed(1.0);
-      syncStatusDescription.value = 'Resyncing (hard-seek)';
+      debugPrint('[PartySyncCoordinator] Macro-drift hard seek of ${drift}ms to ${action.seekTargetMs}ms');
+      final priorVolume = audioHandler.player.volume;
+      // Macro-drift (>= 250ms): Mute audio output, execute hard seek, un-mute, and resume
+      audioHandler.player.setVolume(0.0).then((_) async {
+        try {
+          await audioHandler.seek(Duration(milliseconds: action.seekTargetMs!));
+          audioHandler.setSpeed(1.0);
+          syncStatusDescription.value = 'Resyncing (muted hard-seek)';
+        } finally {
+          await audioHandler.player.setVolume(priorVolume);
+        }
+      });
     } else if (action.isMicroAdjusting) {
       debugPrint('[PartySyncCoordinator] Micro speed adjustment: ${action.playbackSpeed}x for drift of ${drift}ms');
       audioHandler.setSpeed(action.playbackSpeed);
       syncStatusDescription.value = action.playbackSpeed > 1.0 ? 'Catching up (+2%)' : 'Slowing down (-2%)';
     } else {
       audioHandler.setSpeed(1.0);
-      syncStatusDescription.value = 'In Sync (|drift| < 50ms)';
+      syncStatusDescription.value = 'In Sync (|drift| < 10ms)';
     }
   }
 

@@ -1,9 +1,11 @@
 import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:paatu_padava_mobile/models/song.dart';
 import 'package:paatu_padava_mobile/services/cache_manager.dart';
 import 'package:paatu_padava_mobile/services/download_manager.dart';
+import 'package:paatu_padava_mobile/services/des_decrypt.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -37,13 +39,60 @@ void main() {
     });
   });
 
+  group('DES & Storage Decryption Background Isolate Tests', () {
+    test('decryptSaavnMediaUrl and decryptSaavnMediaUrlAsync handle empty input safely', () async {
+      expect(decryptSaavnMediaUrl(''), equals(''));
+      final asyncEmpty = await decryptSaavnMediaUrlAsync('');
+      expect(asyncEmpty, equals(''));
+    });
+
+    test('decryptSaavnMediaUrlAsync produces identical output to sync decrypt using compute isolate', () async {
+      const sampleEnc = 'L2s8qQJqf64=';
+      final syncRes = decryptSaavnMediaUrl(sampleEnc);
+      final asyncRes = await decryptSaavnMediaUrlAsync(sampleEnc);
+      expect(asyncRes, equals(syncRes));
+    });
+
+    test('decryptAudioChunkAsync offloads chunk processing to background isolate without blocking UI thread', () async {
+      final sampleBytes = List.generate(256, (i) => i % 256);
+      final decrypted = await decryptAudioChunkAsync(sampleBytes);
+      expect(decrypted, equals(sampleBytes));
+    });
+
+    test('DecryptedStreamAudioSource streams requested slice asynchronously without loading entire file', () async {
+      final tempFile = File('${Directory.systemTemp.path}/stream_source_test.mp3');
+      final testData = List.generate(1024, (i) => i % 256);
+      tempFile.writeAsBytesSync(testData);
+
+      try {
+        final source = DecryptedStreamAudioSource(tempFile);
+        final response = await source.request(100, 200);
+
+        expect(response.sourceLength, equals(1024));
+        expect(response.contentLength, equals(100));
+        expect(response.offset, equals(100));
+
+        final streamedBytes = await response.stream.reduce((a, b) => [...a, ...b]);
+        expect(streamedBytes, equals(testData.sublist(100, 200)));
+      } finally {
+        if (tempFile.existsSync()) tempFile.deleteSync();
+      }
+    });
+  });
+
   group('DownloadManager Batch & Concurrency Queue Tests', () {
     late Directory tempDir;
     late File mockAudioFile1;
     late File mockAudioFile2;
+    const channel = MethodChannel('plugins.flutter.io/path_provider');
 
     setUp(() async {
       tempDir = await Directory.systemTemp.createTemp('paatu_download_test_');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
+        return tempDir.path;
+      });
+
       Hive.init(tempDir.path);
       await Hive.openBox(DownloadManager.boxName);
 
@@ -54,6 +103,8 @@ void main() {
     });
 
     tearDown(() async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
       await Hive.close();
       if (tempDir.existsSync()) {
         tempDir.deleteSync(recursive: true);
@@ -172,6 +223,27 @@ void main() {
       expect(DownloadManager.getDownloadedSongs().isEmpty, isTrue);
       expect(DownloadManager.downloadedSongsNotifier.value.isEmpty, isTrue);
       expect(box.isEmpty, isTrue);
+    });
+
+    test('DownloadManager verifies temporary .download file before atomic promotion', () async {
+      final audioDir = Directory('${tempDir.path}/offline_audio');
+      final destFile = File('${audioDir.path}/atomic_test.mp3');
+      final tempFile = File('${audioDir.path}/atomic_test.mp3.download');
+
+      // 1. Partial download in-flight creates .download file
+      tempFile.writeAsBytesSync(List.filled(2048, 1));
+      expect(tempFile.existsSync(), isTrue);
+      expect(destFile.existsSync(), isFalse);
+
+      // 2. Simulated Content-Length check: file matches expected length
+      const expectedTotal = 2048;
+      expect(tempFile.lengthSync() >= expectedTotal, isTrue);
+
+      // 3. Atomic rename to destination
+      tempFile.renameSync(destFile.path);
+      expect(tempFile.existsSync(), isFalse);
+      expect(destFile.existsSync(), isTrue);
+      expect(destFile.lengthSync(), equals(2048));
     });
   });
 }

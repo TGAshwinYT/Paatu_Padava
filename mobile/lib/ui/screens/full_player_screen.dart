@@ -13,6 +13,7 @@ import '../widgets/player/synced_lyrics_embed.dart';
 import '../widgets/player/player_download_button.dart';
 import '../widgets/player/player_equalizer_sheet.dart';
 import '../widgets/player/player_controls.dart';
+import '../widgets/player/player_scrubber.dart';
 import '../widgets/player/player_gesture_detector.dart';
 import 'artist_screen.dart';
 import '../../services/artist_sanitizer.dart';
@@ -401,58 +402,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                               ],
                             ),
 
-                            // Seek Bar & Timers
-                            RepaintBoundary(
-                              child: StreamBuilder<Duration>(
-                                stream: audioHandler.throttledPositionStream,
-                                builder: (context, snapshot) {
-                                  final position = snapshot.data ?? Duration.zero;
-                                  final totalDuration = audioHandler.player.duration ?? Duration(seconds: song.duration);
-                                  final posMs = position.inMilliseconds.toDouble();
-                                  final totalMs = totalDuration.inMilliseconds.toDouble();
-                                  final maxVal = (totalMs > posMs && totalMs > 0) ? totalMs : (posMs + 1);
-
-                                  return Column(
-                                    children: [
-                                      SliderTheme(
-                                        data: SliderTheme.of(context).copyWith(
-                                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                                          trackHeight: 4,
-                                          activeTrackColor: const Color(0xFF6366F1),
-                                          inactiveTrackColor: const Color(0xFF1E293B),
-                                          thumbColor: Colors.white,
-                                        ),
-                                        child: Slider(
-                                          min: 0,
-                                          max: maxVal,
-                                          value: posMs.clamp(0.0, maxVal),
-                                          onChanged: (val) {
-                                            audioHandler.seek(Duration(milliseconds: val.toInt()));
-                                          },
-                                        ),
-                                      ),
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                                        child: Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Text(
-                                              _formatDuration(position),
-                                              style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
-                                            ),
-                                            Text(
-                                              _formatDuration(totalDuration),
-                                              style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  );
-                                },
-                              ),
-                            ),
+                            // Seek Bar & Timers (isolated scrubber with internal isDragging gate)
+                            PlayerScrubber(song: song),
 
                             // Main Controls: Smart Shuffle, Prev, Play/Pause, Next, Repeat
                             const RepaintBoundary(

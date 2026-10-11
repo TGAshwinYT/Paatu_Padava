@@ -481,6 +481,63 @@ async def logout():
     """
     return {"message": "Successfully logged out"}
 
+class RefreshTokenRequest(BaseModel):
+    refresh_token: Optional[str] = None
+
+@router.post("/refresh")
+async def refresh_token(
+    request: Request,
+    body: Optional[RefreshTokenRequest] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Stateless silent token refresh:
+    Extracts expired/current JWT token from Authorization header or body,
+    verifies identity, and issues a fresh JWT without interrupting user session.
+    """
+    from jose import jwt, JWTError
+    from auth_utils import SECRET_KEY, ALGORITHM, create_access_token
+
+    raw_token = None
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        raw_token = auth_header[7:].strip()
+    elif body and body.refresh_token:
+        raw_token = body.refresh_token.strip()
+
+    if not raw_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authorization token or refresh token required"
+        )
+
+    try:
+        # Decode token payload without enforcing expiration check so recently expired tokens can refresh
+        payload = jwt.decode(raw_token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_exp": False})
+        email: str = payload.get("sub")
+        if not email:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authorization token")
+
+    # Verify user exists in database
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account not found")
+
+    new_token = create_access_token(data={"sub": user.email})
+    return {
+        "access_token": new_token,
+        "token_type": "bearer",
+        "user": {
+            "id": str(user.id),
+            "email": user.email,
+            "username": user.username,
+            "avatar": user.avatar_url
+        }
+    }
+
 @router.patch("/preferences")
 async def update_preferences(artists: List[str], user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """

@@ -33,6 +33,23 @@ void main() {
       expect(filteredOffset, inInclusiveRange(49, 50));
     });
 
+    test('8 consecutive ping packets calculate offset by averaging lowest 4 RTT samples', () {
+      final samples = [
+        const NtpSample(t0: 1000, t1: 1040, t2: 1041, t3: 1011), // RTT: 10ms, offset: 35ms (Best 1)
+        const NtpSample(t0: 2000, t1: 2042, t2: 2043, t3: 2013), // RTT: 12ms, offset: 36ms (Best 2)
+        const NtpSample(t0: 3000, t1: 3043, t2: 3044, t3: 3014), // RTT: 13ms, offset: 36ms (Best 3)
+        const NtpSample(t0: 4000, t1: 4044, t2: 4045, t3: 4016), // RTT: 15ms, offset: 36ms (Best 4)
+        const NtpSample(t0: 5000, t1: 5060, t2: 5061, t3: 5035), // RTT: 34ms, skewed
+        const NtpSample(t0: 6000, t1: 6090, t2: 6091, t3: 6070), // RTT: 69ms, skewed
+        const NtpSample(t0: 7000, t1: 7120, t2: 7121, t3: 7105), // RTT: 104ms, skewed
+        const NtpSample(t0: 8000, t1: 8200, t2: 8201, t3: 8180), // RTT: 179ms, skewed
+      ];
+
+      // Averages lowest 4 RTT samples (offsets: 35, 36, 36, 36 -> average = 36ms)
+      final offset = NtpCalculator.calculateOffset(samples);
+      expect(offset, inInclusiveRange(35, 36));
+    });
+
     test('Estimates host and local epoch timestamps accurately', () {
       const localTime = 1700000000000;
       const clockOffset = 85; // Host is 85ms ahead
@@ -52,25 +69,25 @@ void main() {
   });
 
   group('Playback Drift Reconciliation & Micro Speed Adjustments', () {
-    test('Drift within deadband (< 50ms) maintains normal speed 1.0x', () {
+    test('Drift within deadband (< 10ms) maintains normal speed 1.0x', () {
       final actionAhead = DriftReconciler.reconcileDrift(
-        currentPositionMs: 15030,
-        expectedPositionMs: 15000, // drift = +30ms
+        currentPositionMs: 15006,
+        expectedPositionMs: 15000, // drift = +6ms
       );
       expect(actionAhead.type, equals(DriftActionType.inSync));
       expect(actionAhead.playbackSpeed, equals(1.0));
       expect(actionAhead.isInSync, isTrue);
 
       final actionBehind = DriftReconciler.reconcileDrift(
-        currentPositionMs: 14960,
-        expectedPositionMs: 15000, // drift = -40ms
+        currentPositionMs: 14992,
+        expectedPositionMs: 15000, // drift = -8ms
       );
       expect(actionBehind.type, equals(DriftActionType.inSync));
       expect(actionBehind.playbackSpeed, equals(1.0));
       expect(actionBehind.isInSync, isTrue);
     });
 
-    test('Drift between 50ms and 200ms ahead applies imperceptible slow-down (0.98x)', () {
+    test('Micro-drift between 10ms and 250ms ahead applies imperceptible slow-down (0.98x)', () {
       final action = DriftReconciler.reconcileDrift(
         currentPositionMs: 15120,
         expectedPositionMs: 15000, // drift = +120ms
@@ -81,7 +98,7 @@ void main() {
       expect(action.seekTargetMs, isNull);
     });
 
-    test('Drift between 50ms and 200ms behind applies imperceptible speed-up (1.02x)', () {
+    test('Micro-drift between 10ms and 250ms behind applies imperceptible speed-up (1.02x)', () {
       final action = DriftReconciler.reconcileDrift(
         currentPositionMs: 14880,
         expectedPositionMs: 15000, // drift = -120ms
@@ -92,7 +109,7 @@ void main() {
       expect(action.seekTargetMs, isNull);
     });
 
-    test('Large drift (> 200ms) triggers seamless hard seek', () {
+    test('Macro-drift (>= 250ms) triggers seamless hard seek', () {
       final action = DriftReconciler.reconcileDrift(
         currentPositionMs: 15450,
         expectedPositionMs: 15000, // drift = +450ms
@@ -104,11 +121,11 @@ void main() {
     });
   });
 
-  group('Scheduled Epoch Starts & Bluetooth Latency Compensation', () {
+  group('Scheduled Epoch Starts & Latency Compensation', () {
     test('Calculates delay until scheduled epoch start factoring in clock offset', () {
       const nowLocal = 1000000;
       const clockOffset = 50; // host is 50ms ahead (host time = 1000050)
-      const scheduledStart = 1000500; // start 500ms in host future
+      const scheduledStart = 1002000; // start 2000ms in host future
 
       final delay = ScheduledPlaybackCalculator.calculateScheduledDelayMs(
         startAtEpochMs: scheduledStart,
@@ -116,8 +133,8 @@ void main() {
         clockOffsetMs: clockOffset,
       );
 
-      // Remaining delay = 1000500 - (1000000 + 50) = 450ms
-      expect(delay, equals(450));
+      // Remaining delay = 1002000 - (1000000 + 50) = 1950ms
+      expect(delay, equals(1950));
     });
 
     test('Past scheduled epoch start returns 0ms delay without underflowing', () {
@@ -128,32 +145,33 @@ void main() {
       expect(delay, equals(0));
     });
 
-    test('Bluetooth audio delay offset shifts expected position correctly', () {
+    test('Bluetooth audio delay and hardware audio latency compensate expected position', () {
       const refHostEpoch = 1000000;
       const refTrackPos = 5000;
       const currentLocalEpoch = 1002000; // 2000ms elapsed
       const clockOffset = 0;
 
-      // Without Bluetooth delay (phone speaker)
+      // Without delays (uncalibrated speaker)
       final posSpeaker = ScheduledPlaybackCalculator.calculateExpectedPositionMs(
         referenceHostEpochMs: refHostEpoch,
         referenceTrackPositionMs: refTrackPos,
         currentLocalEpochMs: currentLocalEpoch,
         clockOffsetMs: clockOffset,
         bluetoothDelayMs: 0,
+        hardwareLatencyMs: 0,
       );
       expect(posSpeaker, equals(7000));
 
-      // With Bluetooth latency (+150ms DAC buffer)
-      final posBt = ScheduledPlaybackCalculator.calculateExpectedPositionMs(
+      // With Bluetooth latency (+150ms DAC buffer) and hardware latency (-30ms AAudio buffer)
+      final posCalibrated = ScheduledPlaybackCalculator.calculateExpectedPositionMs(
         referenceHostEpochMs: refHostEpoch,
         referenceTrackPositionMs: refTrackPos,
         currentLocalEpochMs: currentLocalEpoch,
         clockOffsetMs: clockOffset,
         bluetoothDelayMs: 150,
+        hardwareLatencyMs: -30,
       );
-      // Audio needs to be fed 150ms earlier into BT buffer
-      expect(posBt, equals(7150));
+      expect(posCalibrated, equals(7120));
     });
 
     test('Paused state preserves track position without accumulating elapsed time', () {

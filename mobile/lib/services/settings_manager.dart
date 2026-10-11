@@ -22,8 +22,15 @@ class SettingsManager {
       ValueNotifier<NextTrackStrategyMode>(NextTrackStrategyMode.spotifyStyle);
   static final ValueNotifier<int> maxCacheSizeMbNotifier = ValueNotifier<int>(500);
   static final ValueNotifier<int> bluetoothDelayMsNotifier = ValueNotifier<int>(0);
+  static final ValueNotifier<int> hardwareAudioLatencyMsNotifier = ValueNotifier<int>(0);
   static final ValueNotifier<String> lyricsPreferredLanguageNotifier = ValueNotifier<String>('default');
   static final ValueNotifier<bool> playerGesturesEnabledNotifier = ValueNotifier<bool>(true);
+  static final ValueNotifier<String> themeModeNotifier = ValueNotifier<String>('amoled');
+  static final ValueNotifier<bool> dynamicBackgroundNotifier = ValueNotifier<bool>(true);
+  static final ValueNotifier<bool> indicRomanizationNotifier = ValueNotifier<bool>(true);
+  static final ValueNotifier<bool> keepScreenAwakeNotifier = ValueNotifier<bool>(false);
+  static final ValueNotifier<bool> downloadWifiOnlyNotifier = ValueNotifier<bool>(false);
+  static final ValueNotifier<String> downloadPathNotifier = ValueNotifier<String>('Internal Storage');
 
   static String get streamingQuality => streamingQualityNotifier.value;
   static String get downloadQuality => downloadQualityNotifier.value;
@@ -35,8 +42,15 @@ class SettingsManager {
   static NextTrackStrategyMode get nextTrackStrategy => nextTrackStrategyNotifier.value;
   static int get maxCacheSizeMb => maxCacheSizeMbNotifier.value;
   static int get bluetoothDelayMs => bluetoothDelayMsNotifier.value;
+  static int get hardwareAudioLatencyMs => hardwareAudioLatencyMsNotifier.value;
   static String get lyricsPreferredLanguage => lyricsPreferredLanguageNotifier.value;
   static bool get isPlayerGesturesEnabled => playerGesturesEnabledNotifier.value;
+  static String get themeMode => themeModeNotifier.value;
+  static bool get isDynamicBackgroundEnabled => dynamicBackgroundNotifier.value;
+  static bool get isIndicRomanizationEnabled => indicRomanizationNotifier.value;
+  static bool get isKeepScreenAwakeEnabled => keepScreenAwakeNotifier.value;
+  static bool get isDownloadWifiOnlyEnabled => downloadWifiOnlyNotifier.value;
+  static String get downloadPath => downloadPathNotifier.value;
 
   /// Single coordinated preferred languages accessor:
   /// Uses AuthManager profile preferences as the source of truth,
@@ -90,8 +104,45 @@ class SettingsManager {
     );
     maxCacheSizeMbNotifier.value = (_box.get('max_cache_size_mb', defaultValue: 500) as num).toInt();
     bluetoothDelayMsNotifier.value = (_box.get('bluetooth_delay_ms', defaultValue: 0) as num).toInt();
+    hardwareAudioLatencyMsNotifier.value = (_box.get('hardware_audio_latency_ms', defaultValue: 0) as num).toInt().clamp(-150, 150);
     lyricsPreferredLanguageNotifier.value = _box.get('lyrics_preferred_language', defaultValue: 'default') as String;
     playerGesturesEnabledNotifier.value = _box.get('player_gestures_enabled', defaultValue: true) as bool;
+    themeModeNotifier.value = _box.get('theme_mode', defaultValue: 'amoled') as String;
+    dynamicBackgroundNotifier.value = _box.get('dynamic_background', defaultValue: true) as bool;
+    indicRomanizationNotifier.value = _box.get('indic_romanization', defaultValue: true) as bool;
+    keepScreenAwakeNotifier.value = _box.get('keep_screen_awake', defaultValue: false) as bool;
+    downloadWifiOnlyNotifier.value = _box.get('download_wifi_only', defaultValue: false) as bool;
+    downloadPathNotifier.value = _box.get('download_path', defaultValue: 'Internal Storage') as String;
+  }
+
+  static Future<void> setThemeMode(String mode) async {
+    themeModeNotifier.value = mode;
+    await _box.put('theme_mode', mode);
+  }
+
+  static Future<void> setDynamicBackground(bool enabled) async {
+    dynamicBackgroundNotifier.value = enabled;
+    await _box.put('dynamic_background', enabled);
+  }
+
+  static Future<void> setIndicRomanization(bool enabled) async {
+    indicRomanizationNotifier.value = enabled;
+    await _box.put('indic_romanization', enabled);
+  }
+
+  static Future<void> setKeepScreenAwake(bool enabled) async {
+    keepScreenAwakeNotifier.value = enabled;
+    await _box.put('keep_screen_awake', enabled);
+  }
+
+  static Future<void> setDownloadWifiOnly(bool enabled) async {
+    downloadWifiOnlyNotifier.value = enabled;
+    await _box.put('download_wifi_only', enabled);
+  }
+
+  static Future<void> setDownloadPath(String path) async {
+    downloadPathNotifier.value = path;
+    await _box.put('download_path', path);
   }
 
   static Future<void> setLyricsPreferredLanguage(String lang) async {
@@ -108,6 +159,12 @@ class SettingsManager {
     final clamped = ms.clamp(-500, 500);
     bluetoothDelayMsNotifier.value = clamped;
     await _box.put('bluetooth_delay_ms', clamped);
+  }
+
+  static Future<void> setHardwareAudioLatencyMs(int ms) async {
+    final clamped = ms.clamp(-150, 150);
+    hardwareAudioLatencyMsNotifier.value = clamped;
+    await _box.put('hardware_audio_latency_ms', clamped);
   }
 
   static Future<void> setMaxCacheSizeMb(int mb) async {

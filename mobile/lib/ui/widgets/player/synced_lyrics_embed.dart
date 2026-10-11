@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import '../../../models/song.dart';
 import '../../../domain/models/lyrics_state.dart';
 import '../../../services/player_handler.dart';
@@ -187,18 +188,22 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
       if (keyContext != null) {
         Scrollable.ensureVisible(
           keyContext,
-          alignment: 0.5,
-          duration: const Duration(milliseconds: 350),
+          alignment: 0.45,
+          duration: const Duration(milliseconds: 500),
           curve: Curves.easeOutCubic,
         );
       }
     });
   }
 
-  void _onUserScroll() {
+  void _onUserScrollStart() {
     _isUserScrolling = true;
     _userScrollResumeTimer?.cancel();
-    _userScrollResumeTimer = Timer(const Duration(seconds: 3), () {
+  }
+
+  void _onUserScrollEnd() {
+    _userScrollResumeTimer?.cancel();
+    _userScrollResumeTimer = Timer(const Duration(seconds: 4), () {
       if (mounted) {
         setState(() => _isUserScrolling = false);
         _scrollToActive(_activeIndex);
@@ -210,21 +215,25 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
   Widget build(BuildContext context) {
     if (!_isLrc) {
       return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         decoration: BoxDecoration(
           color: const Color(0xFF131B2E).withValues(alpha: 0.9),
           borderRadius: BorderRadius.circular(24),
           border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
         ),
         child: SingleChildScrollView(
-          child: Text(
-            Song.sanitize(widget.lyrics),
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              height: 1.9,
-              fontWeight: FontWeight.w500,
+          physics: const BouncingScrollPhysics(),
+          child: Center(
+            child: Text(
+              Song.sanitize(widget.lyrics),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                height: 2.1,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.3,
+              ),
             ),
           ),
         ),
@@ -241,8 +250,14 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
         children: [
           NotificationListener<ScrollNotification>(
             onNotification: (notification) {
-              if (notification is UserScrollNotification) {
-                _onUserScroll();
+              if (notification is ScrollStartNotification && notification.dragDetails != null) {
+                _onUserScrollStart();
+              } else if (notification is UserScrollNotification && notification.direction != ScrollDirection.idle) {
+                _onUserScrollStart();
+              } else if (notification is ScrollUpdateNotification && notification.dragDetails != null) {
+                _onUserScrollStart();
+              } else if (notification is ScrollEndNotification) {
+                _onUserScrollEnd();
               }
               return false;
             },

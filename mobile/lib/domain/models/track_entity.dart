@@ -29,6 +29,8 @@ class TrackEntity {
   final String? albumId;
   final String? artistId;
   final String coverUrl;
+  /// Ephemeral runtime stream URL. Never treated as permanent data.
+  /// Signed CDN URLs expire in 2-6 hours and must be resolved Just-In-Time (JIT) via StreamResolver.
   final String? streamUrl;
   final int duration;
   final bool isDownloaded;
@@ -38,6 +40,7 @@ class TrackEntity {
   final String? lyrics;
   final String? language;
   final bool isSmartRecommended;
+  final bool isUserEnqueued;
 
   TrackEntity({
     required this.id,
@@ -56,6 +59,7 @@ class TrackEntity {
     this.lyrics,
     this.language,
     this.isSmartRecommended = false,
+    this.isUserEnqueued = false,
     this.versions = const [],
   })  : title = sanitize(title, fallback: 'Unknown Title'),
         artist = sanitize(artist, fallback: 'Unknown Artist'),
@@ -82,6 +86,27 @@ class TrackEntity {
         .replaceAll(RegExp(r'\[[^\]]*\]'), ' ')
         .replaceAll(RegExp(r'\b(remix|lofi|lo-fi|live|acoustic|cover|soundtrack|ost)\b', caseSensitive: false), ' ')
         .replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  /// Core song title key stripped of all film/video tags, brackets, and version markers.
+  /// Used for cross-source, cross-artist deduplication.
+  String get cleanTitleKey {
+    var text = title.toLowerCase();
+    text = text.replaceAll(RegExp(r'^@[a-z0-9_.]+\s*[-:|~–—]?\s*'), ' ');
+    text = text.replaceAll(RegExp(r'\|.*$'), ' ');
+    text = text.replaceAll(RegExp(r'\([^)]*\)'), ' ')
+               .replaceAll(RegExp(r'\[[^\]]*\]'), ' ');
+    text = text.replaceAll(
+      RegExp(
+        r'\b(from|lyric|lyrical|lyrics|video|official|audio|single|song|remix|lofi|lo-fi|full video|hd|4k|teaser|trailer|ost|track|thalaivar alappara|promo)\b',
+        caseSensitive: false,
+      ),
+      ' ',
+    );
+    return text
+        .replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), '')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
   }
@@ -178,6 +203,7 @@ class TrackEntity {
         lyrics: primary.lyrics,
         language: primary.language,
         isSmartRecommended: primary.isSmartRecommended,
+        isUserEnqueued: primary.isUserEnqueued,
         versions: alternateVersions,
       ));
     }
@@ -204,6 +230,7 @@ class TrackEntity {
       lyrics: lyrics,
       language: language,
       isSmartRecommended: isSmartRecommended,
+      isUserEnqueued: isUserEnqueued,
       versions: versions.map((v) => v.toSong()).toList(),
     );
   }
@@ -227,6 +254,7 @@ class TrackEntity {
       lyrics: song.lyrics,
       language: song.language,
       isSmartRecommended: song.isSmartRecommended,
+      isUserEnqueued: song.isUserEnqueued,
       versions: song.versions.map((v) => TrackEntity.fromSong(v)).toList(),
     );
   }
@@ -246,6 +274,8 @@ class TrackEntity {
         'isDownloaded': isDownloaded,
         'localFilePath': localFilePath,
         'language': language,
+        'isSmartRecommended': isSmartRecommended,
+        'isUserEnqueued': isUserEnqueued,
         'deduplicationKey': deduplicationKey,
       },
     );
@@ -265,6 +295,8 @@ class TrackEntity {
       isDownloaded: item.extras?['isDownloaded'] == true,
       localFilePath: item.extras?['localFilePath']?.toString(),
       language: item.extras?['language']?.toString(),
+      isSmartRecommended: item.extras?['isSmartRecommended'] == true,
+      isUserEnqueued: item.extras?['isUserEnqueued'] == true,
     );
   }
 
@@ -286,6 +318,7 @@ class TrackEntity {
       'lyrics': lyrics,
       'language': language,
       'isSmartRecommended': isSmartRecommended,
+      'isUserEnqueued': isUserEnqueued,
       'deduplicationKey': deduplicationKey,
     };
   }
@@ -308,6 +341,7 @@ class TrackEntity {
       lyrics: map['lyrics'] != null ? sanitize(map['lyrics']) : null,
       language: map['language']?.toString(),
       isSmartRecommended: map['isSmartRecommended'] == true || map['is_smart_recommended'] == true,
+      isUserEnqueued: map['isUserEnqueued'] == true || map['is_user_enqueued'] == true,
     );
   }
 
@@ -332,6 +366,7 @@ class TrackEntity {
     String? lyrics,
     String? language,
     bool? isSmartRecommended,
+    bool? isUserEnqueued,
   }) {
     return TrackEntity(
       id: id ?? this.id,
@@ -350,6 +385,7 @@ class TrackEntity {
       lyrics: lyrics ?? this.lyrics,
       language: language ?? this.language,
       isSmartRecommended: isSmartRecommended ?? this.isSmartRecommended,
+      isUserEnqueued: isUserEnqueued ?? this.isUserEnqueued,
     );
   }
 

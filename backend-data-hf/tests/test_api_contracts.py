@@ -28,6 +28,7 @@ class TestBackendAPIContracts(unittest.TestCase):
         """Verify core music streaming, recommendation, and catalog endpoints."""
         expected_music_routes = [
             "/api/music/home",
+            "/api/music/home-feed",
             "/api/music/search",
             "/api/music/search/suggestions",
             "/api/music/stream/{song_id}",

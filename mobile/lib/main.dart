@@ -76,7 +76,7 @@ Future<void> main() async {
           androidNotificationChannelId: 'com.paatupaadava.music.channel.audio',
           androidNotificationChannelName: 'Paatu Padava Playback',
           androidNotificationOngoing: false,
-          androidStopForegroundOnPause: false,
+          androidStopForegroundOnPause: true,
           androidNotificationIcon: 'drawable/ic_notification',
         ),
       );

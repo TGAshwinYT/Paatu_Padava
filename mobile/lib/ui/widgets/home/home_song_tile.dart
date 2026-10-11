@@ -41,8 +41,8 @@ class HomeSongTile extends StatelessWidget {
                   height: 50,
                   child: CachedNetworkImage(
                     imageUrl: song.coverUrl,
-                    memCacheWidth: 150,
-                    memCacheHeight: 150,
+                    memCacheWidth: 120,
+                    memCacheHeight: 120,
                     fit: BoxFit.cover,
                     errorWidget: (_, __, ___) => Container(color: AppColors.surfaceElevated),
                   ),

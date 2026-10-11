@@ -3,7 +3,10 @@
   "project": "Paatu Padava",
   "orchestrator": {
     "role": "Lead Systems Architect & Autonomous Meta-Orchestrator",
-    "description": "Oversees end-to-end multi-agent execution, cross-layer dependency ordering, and architectural coherence across database, backend, web, and mobile."
+    "description": "Oversees end-to-end multi-agent execution, cross-layer dependency ordering, and architectural coherence across database, backend, web, and mobile.",
+    "skills": [
+      "anti-fallback-guardrails"
+    ]
   },
   "agents": [
     {

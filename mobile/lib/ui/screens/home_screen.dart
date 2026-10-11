@@ -310,8 +310,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
 
-                  // Loading State Indicator
-                  if (feedState.isLoading)
+                  // 3-Tier Loading State Machine: LoadingSkeleton -> PartialSuccess -> FullSuccess
+                  if (feedState.isLoading && feedState.isEmpty)
                     const SliverFillRemaining(
                       child: Center(
                         child: CircularProgressIndicator(color: AppColors.neonViolet),

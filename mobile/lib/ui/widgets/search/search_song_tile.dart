@@ -46,8 +46,8 @@ class SearchSongTile extends StatelessWidget {
                   child: CachedNetworkImage(
                     imageUrl: song.coverUrl,
                     fit: BoxFit.cover,
-                    memCacheWidth: 150,
-                    memCacheHeight: 150,
+                    memCacheWidth: 120,
+                    memCacheHeight: 120,
                     errorWidget: (_, __, ___) => Container(color: AppColors.surfaceDark),
                   ),
                 ),

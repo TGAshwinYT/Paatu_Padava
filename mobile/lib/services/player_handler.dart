@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:just_audio/just_audio.dart';
 import '../logic/audio_queue_handler.dart';
 import '../logic/smart_shuffle_controller.dart';
@@ -42,7 +43,7 @@ bool get isAudioHandlerInitialized => _audioHandlerInstance != null;
 
 /// App-lifetime audio background service handler coordinating playback,
 /// queue mutations, notification actions, and lock screen media session.
-class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
+class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler, WidgetsBindingObserver {
   final AudioPlayer _player = AudioPlayer(
     androidApplyAudioAttributes: true,
   );
@@ -66,6 +67,8 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   Timer? _countdownTicker;
   bool _hasRecordedListen = false;
   bool _isForegroundDowngraded = false;
+  bool _isAppInBackground = false;
+  bool _resumeOnInterruptionEnd = false;
   StreamSubscription? _becomingNoisySub;
   StreamSubscription<AudioInterruptionEvent>? _interruptionSub;
   StreamSubscription<PlayerState>? _playerStateSub;
@@ -92,16 +95,32 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   int get currentIndex => _queueHandler.currentIndex;
   Song? get currentSong => _queueHandler.currentSong;
 
-  /// Throttled position stream that updates no faster than once every 500ms
-  /// Eliminates rapid continuous wakeups to preserve Android Doze mode and battery.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    final inBackground = state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden;
+    if (_isAppInBackground != inBackground) {
+      _isAppInBackground = inBackground;
+      AppLogger.log(
+        'PaatuAudioHandler',
+        'Lifecycle state: $state. Background position stream throttling active: $inBackground',
+      );
+    }
+  }
+
+  /// Throttled position stream: updates every 500ms when in foreground,
+  /// or every 1.5 seconds when app is in background / screen off to allow CPU deep sleep (Doze mode).
   Stream<Duration> get throttledPositionStream {
     _throttledPositionStream ??= Stream<Duration>.multi((controller) {
       int lastEmitMs = 0;
       final sub = _player.positionStream.listen(
         (pos) {
           final now = DateTime.now().millisecondsSinceEpoch;
-          // Emit at most once per 500ms during active playback, or immediately on seek / pause
-          if (now - lastEmitMs >= 500 || !_player.playing) {
+          final intervalMs = _isAppInBackground ? 1500 : 500;
+          // Emit at most once per intervalMs during active playback, or immediately on seek / pause
+          if (now - lastEmitMs >= intervalMs || !_player.playing) {
             lastEmitMs = now;
             controller.add(pos);
           }
@@ -181,6 +200,10 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     // Connect 5-band equalizer directly to native audio session ID
     EqualizerService.bindToPlayerSession(_player.androidAudioSessionIdStream);
 
+    try {
+      WidgetsBinding.instance.addObserver(this);
+    } catch (_) {}
+
     _initAudioSession();
     _initStreams();
   }
@@ -200,33 +223,45 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     try {
       final session = await AudioSession.instance;
       await session.configure(const AudioSessionConfiguration.music());
-      // Handle onAudioBecomingNoisy (e.g. Bluetooth headphones disconnected / unplugged)
-      _becomingNoisySub = session.becomingNoisyEventStream.listen((_) {
-        AppLogger.log('PlayerHandler', 'Audio becoming noisy (headset/BT unplugged) -> auto-pausing');
-        pause();
+      // Handle ACTION_AUDIO_BECOMING_NOISY (immediately pause playback when headphones disconnected or BT unpairs)
+      _becomingNoisySub = session.becomingNoisyEventStream.listen((_) async {
+        AppLogger.log('PlayerHandler', 'ACTION_AUDIO_BECOMING_NOISY (headset/BT unplugged) -> auto-pausing immediately');
+        await pause();
       });
 
-      // Handle external audio focus interruptions (phone calls, navigation, other media apps)
-      _interruptionSub = session.interruptionEventStream.listen((event) {
+      // Handle external audio focus interruptions (phone calls, navigation alerts, transient sounds)
+      _interruptionSub = session.interruptionEventStream.listen((event) async {
         AppLogger.log('PlayerHandler', 'Audio interruption event: begin=${event.begin}, type=${event.type}');
         if (event.begin) {
           switch (event.type) {
             case AudioInterruptionType.duck:
-              _player.setVolume((userVolume * 0.3).clamp(0.0, 1.0));
+              // Transient Audio Focus: Duck volume to 20% during transient navigation alerts
+              await _player.setVolume((userVolume * 0.2).clamp(0.0, 1.0));
               break;
             case AudioInterruptionType.pause:
             case AudioInterruptionType.unknown:
-              pause();
+              // Pause cleanly on incoming phone calls; record playing state for auto-resume
+              _resumeOnInterruptionEnd = _player.playing;
+              await pause();
               break;
           }
         } else {
           switch (event.type) {
             case AudioInterruptionType.duck:
-              _player.setVolume(userVolume);
+              // Restore user master volume when transient alert finishes
+              await _player.setVolume(userVolume);
               break;
             case AudioInterruptionType.pause:
             case AudioInterruptionType.unknown:
-              session.setActive(true);
+              // Automatically resume playback when calls or external interruptions end
+              if (_resumeOnInterruptionEnd) {
+                _resumeOnInterruptionEnd = false;
+                try {
+                  final activeSession = await AudioSession.instance;
+                  await activeSession.setActive(true);
+                } catch (_) {}
+                await play();
+              }
               break;
           }
         }
@@ -237,7 +272,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   }
 
   void _handleIdleRelease() {
-    AppLogger.log('PlayerHandler', 'Downgrading foreground service notification after 5-minute timeout');
+    AppLogger.log('PaatuAudioHandler', '45-second idle timeout: downgrading notification & releasing WakeLocks');
     _isForegroundDowngraded = true;
     _broadcastState(downgradeNotification: true);
   }
@@ -428,7 +463,12 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   void _initStreams() {
     _playbackEventSub = _player.playbackEventStream.listen(
-      (event) => _broadcastState(),
+      (event) {
+        if (_player.duration != null && mediaItem.value != null && mediaItem.value?.duration != _player.duration) {
+          mediaItem.add(mediaItem.value!.copyWith(duration: _player.duration));
+        }
+        _broadcastState();
+      },
       onError: (Object e, StackTrace stack) {
         AppLogger.recordError(e, stack, context: 'AudioPlayer.playbackEventStream');
         final err = ErrorHandler.resolve(e, stackTrace: stack, context: 'AudioPlayer.playbackEventStream');
@@ -460,6 +500,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   /// Disposes background audio stream listeners and cleans up subscriptions.
   /// Note: PaatuAudioHandler is an app-lifetime singleton.
   Future<void> disposeAudioHandler() async {
+    try {
+      WidgetsBinding.instance.removeObserver(this);
+    } catch (_) {}
     _becomingNoisySub?.cancel();
     _becomingNoisySub = null;
     _playerStateSub?.cancel();
@@ -547,6 +590,18 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   // ================= Smart Shuffle & Recommendations ================= //
 
+  bool get isShuffleEnabled => _queueHandler.isShuffleEnabled;
+
+  Future<void> setShuffleModeEnabled(bool enabled) async {
+    await _queueHandler.setShuffleEnabled(enabled);
+  }
+
+  @override
+  Future<void> setShuffleMode(AudioServiceShuffleMode shuffleMode) async {
+    final enabled = shuffleMode != AudioServiceShuffleMode.none;
+    await _queueHandler.setShuffleEnabled(enabled);
+  }
+
   void toggleSmartShuffle() {
     _smartShuffleController.cycleMode();
   }
@@ -570,6 +625,37 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       debugPrint('[PlayerHandler] addRadioMix error: $e');
     }
     return _queueHandler.queue.length - beforeCount;
+  }
+
+  bool _isPrefetchingRecommendations = false;
+
+  /// Lookahead pre-fetching: invoked at 80% progress or <= 15s remaining before queue reaches EOF.
+  /// Pre-fetches recommendations and pre-resolves stream URLs so playback never stalls at EOF.
+  Future<void> prefetchNextRecommendations(Song seedSong) async {
+    if (_isPrefetchingRecommendations) return;
+    _isPrefetchingRecommendations = true;
+    try {
+      final strategy = NextTrackStrategyFactory.getStrategy(SettingsManager.nextTrackStrategy);
+      final count = 20;
+      AppLogger.log('PlayerHandler', 'Prefetching next recommendations via ${strategy.displayName} for "${seedSong.title}"');
+      final tracks = await strategy.getUpcomingTracks(
+        seedSong: seedSong,
+        queue: _queueHandler.queue,
+        history: HistoryManager.getHistory(),
+        count: count,
+      );
+      if (tracks.isNotEmpty && !_isForegroundDowngraded) {
+        await _queueHandler.addAutoSuggestions(tracks);
+        // Pre-resolve the stream URL for the newly added next track so it's ready before EOF!
+        if (_queueHandler.hasNext) {
+          await _queueHandler.preloadUpcomingTracks(_queueHandler.currentIndex);
+        }
+      }
+    } catch (e) {
+      debugPrint('[PlayerHandler] prefetchNextRecommendations error: $e');
+    } finally {
+      _isPrefetchingRecommendations = false;
+    }
   }
 
   /// Handles continuous endless playback when reaching the end of the queue
@@ -698,6 +784,23 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   }
 
   @override
+  Future<void> setRepeatMode(AudioServiceRepeatMode repeatMode) async {
+    switch (repeatMode) {
+      case AudioServiceRepeatMode.none:
+        await _player.setLoopMode(LoopMode.off);
+        break;
+      case AudioServiceRepeatMode.one:
+        await _player.setLoopMode(LoopMode.one);
+        break;
+      case AudioServiceRepeatMode.all:
+      case AudioServiceRepeatMode.group:
+        await _player.setLoopMode(LoopMode.all);
+        break;
+    }
+    _broadcastState();
+  }
+
+  @override
   Future<void> skipToNext() async {
     final current = currentSong;
     if (current != null) {
@@ -708,6 +811,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         listenedSeconds: pos.inSeconds,
         totalSeconds: dur.inSeconds,
       );
+      NextTrackStrategyFactory.recordSkip(current, listenedSeconds: pos.inSeconds);
     }
     await _queueHandler.skipToNext();
   }
@@ -723,6 +827,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         listenedSeconds: pos.inSeconds,
         totalSeconds: dur.inSeconds,
       );
+      NextTrackStrategyFactory.recordSkip(current, listenedSeconds: pos.inSeconds);
     }
     await _queueHandler.jumpToIndex(index);
   }

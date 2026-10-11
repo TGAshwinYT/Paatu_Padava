@@ -4,15 +4,17 @@ import '../../services/auth_manager.dart';
 import '../../services/cache_manager.dart';
 import '../../services/supabase_service.dart';
 import '../../services/party_sync_coordinator.dart';
+import '../../services/settings_manager.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/auth_dialog.dart';
-import '../widgets/party_mode_sheet.dart';
-import '../widgets/settings/audio_quality_settings_card.dart';
-import '../widgets/settings/equalizer_settings_card.dart';
 import '../widgets/settings/language_settings_card.dart';
 import '../widgets/settings/battery_settings_card.dart';
 import '../widgets/settings/diagnostics_settings_card.dart';
+import 'audio_quality_settings_screen.dart';
+import 'downloads_settings_screen.dart';
 import 'storage_settings_screen.dart';
+import 'appearance_settings_screen.dart';
+import 'party_sync_settings_screen.dart';
 import 'listening_recap_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -82,7 +84,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text(
-          'Settings & Audio',
+          'Settings',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
         ),
       ),
@@ -91,59 +93,193 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
             children: [
-              // User Account Header
+              // User Account Header Card
               _buildAccountCard(),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
 
-              // Audio Quality Section
-              _buildSectionHeader('AUDIO QUALITY & STREAMING', Icons.graphic_eq_rounded),
+              // AUDIO & PLAYBACK
+              _buildSectionHeader('AUDIO & PLAYBACK', Icons.headphones_rounded),
               const SizedBox(height: 10),
-              const AudioQualitySettingsCard(),
-              const SizedBox(height: 20),
+              _buildHubContainer([
+                ValueListenableBuilder<String>(
+                  valueListenable: SettingsManager.streamingQualityNotifier,
+                  builder: (context, quality, _) {
+                    final isNorm = SettingsManager.isVolumeNormalizationEnabled;
+                    return _buildNavigationTile(
+                      icon: Icons.graphic_eq_rounded,
+                      iconColor: const Color(0xFF6366F1),
+                      title: 'Audio Quality & Streaming',
+                      subtitle: '$quality • Loudness Normalization ${isNorm ? "On" : "Off"}',
+                      onTap: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const AudioQualitySettingsScreen()),
+                        );
+                        setState(() {});
+                      },
+                    );
+                  },
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                ValueListenableBuilder<String>(
+                  valueListenable: SettingsManager.eqPresetNotifier,
+                  builder: (context, preset, _) {
+                    return _buildNavigationTile(
+                      icon: Icons.tune_rounded,
+                      iconColor: const Color(0xFFA855F7),
+                      title: '5-Band Hardware Equalizer',
+                      subtitle: 'Preset: ${preset.toUpperCase()} • Frequency acoustic tuning',
+                      onTap: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const AudioQualitySettingsScreen()),
+                        );
+                        setState(() {});
+                      },
+                    );
+                  },
+                ),
+              ]),
+              const SizedBox(height: 24),
 
-              // Equalizer Section
-              _buildSectionHeader('5-BAND EQUALIZER', Icons.tune_rounded),
+              // DOWNLOADS & STORAGE
+              _buildSectionHeader('DOWNLOADS & STORAGE', Icons.download_for_offline_rounded),
               const SizedBox(height: 10),
-              const EqualizerSettingsCard(),
-              const SizedBox(height: 20),
+              _buildHubContainer([
+                ValueListenableBuilder<String>(
+                  valueListenable: SettingsManager.downloadQualityNotifier,
+                  builder: (context, quality, _) {
+                    final wifiOnly = SettingsManager.isDownloadWifiOnlyEnabled;
+                    return _buildNavigationTile(
+                      icon: Icons.download_done_rounded,
+                      iconColor: const Color(0xFF10B981),
+                      title: 'Downloads & Network Rules',
+                      subtitle: '$quality • ${wifiOnly ? "Wi-Fi Only" : "Wi-Fi & Cellular"} • Storage Path',
+                      onTap: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const DownloadsSettingsScreen()),
+                        );
+                        _calculateCacheSize();
+                      },
+                    );
+                  },
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                _buildNavigationTile(
+                  icon: Icons.storage_rounded,
+                  iconColor: const Color(0xFF06B6D4),
+                  title: 'Storage & Cache Management',
+                  subtitle: '$_cacheSizeStr temporary cache • Disk allocation & cleaners',
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const StorageSettingsScreen()),
+                    );
+                    _calculateCacheSize();
+                  },
+                ),
+              ]),
+              const SizedBox(height: 24),
 
-              // Languages Section
-              _buildSectionHeader('MUSIC PREFERENCES', Icons.language_rounded),
+              // DISPLAY & PREFERENCES
+              _buildSectionHeader('DISPLAY & PREFERENCES', Icons.palette_rounded),
               const SizedBox(height: 10),
-              const LanguageSettingsCard(),
-              const SizedBox(height: 20),
+              _buildHubContainer([
+                ValueListenableBuilder<String>(
+                  valueListenable: SettingsManager.themeModeNotifier,
+                  builder: (context, theme, _) {
+                    final romanize = SettingsManager.isIndicRomanizationEnabled;
+                    final dynamicBg = SettingsManager.isDynamicBackgroundEnabled;
+                    return _buildNavigationTile(
+                      icon: Icons.brush_rounded,
+                      iconColor: const Color(0xFFEC4899),
+                      title: 'Appearance & Display',
+                      subtitle: '${theme == "amoled" ? "AMOLED" : "Dark Slate"} • ${dynamicBg ? "Fluid Mesh" : "Static"} • Romanization ${romanize ? "On" : "Off"}',
+                      onTap: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const AppearanceSettingsScreen()),
+                        );
+                        setState(() {});
+                      },
+                    );
+                  },
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                _buildNavigationTile(
+                  icon: Icons.language_rounded,
+                  iconColor: const Color(0xFF38BDF8),
+                  title: 'Music Languages',
+                  subtitle: SettingsManager.preferredLanguages.join(', '),
+                  onTap: () => _showLanguageModal(context),
+                ),
+              ]),
+              const SizedBox(height: 24),
 
-              // Listen Together / Party Mode Section
-              _buildSectionHeader('LISTEN TOGETHER (PARTY MODE)', Icons.speaker_group_rounded),
+              // SOCIAL & PARTY
+              _buildSectionHeader('SOCIAL & PARTY SYNC', Icons.speaker_group_rounded),
               const SizedBox(height: 10),
-              _buildPartyModeCard(),
-              const SizedBox(height: 20),
+              _buildHubContainer([
+                ValueListenableBuilder<int>(
+                  valueListenable: SettingsManager.hardwareAudioLatencyMsNotifier,
+                  builder: (context, latency, _) {
+                    final role = PartySyncCoordinator.role;
+                    final statusStr = role == PartyRole.none ? 'Idle' : 'Active';
+                    return _buildNavigationTile(
+                      icon: Icons.sync_rounded,
+                      iconColor: const Color(0xFFF59E0B),
+                      title: 'Multi-Phone Party Sync & Latency',
+                      subtitle: 'Lockstep ($statusStr) • Latency: ${latency}ms • Live NTP Diagnostics',
+                      onTap: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const PartySyncSettingsScreen()),
+                        );
+                        setState(() {});
+                      },
+                    );
+                  },
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                _buildNavigationTile(
+                  icon: Icons.auto_awesome,
+                  iconColor: const Color(0xFFA855F7),
+                  title: 'Paatu Recap & Music Wrapped',
+                  subtitle: 'Relive your top songs, artists & listening persona',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const ListeningRecapScreen()),
+                    );
+                  },
+                ),
+              ]),
+              const SizedBox(height: 24),
 
-              // Storage & Cache Section
-              _buildSectionHeader('STORAGE & CACHE', Icons.storage_rounded),
+              // SYSTEM & DIAGNOSTICS
+              _buildSectionHeader('SYSTEM & DIAGNOSTICS', Icons.settings_suggest_rounded),
               const SizedBox(height: 10),
-              _buildStorageCard(),
-              const SizedBox(height: 20),
+              _buildHubContainer([
+                _buildNavigationTile(
+                  icon: Icons.battery_charging_full_rounded,
+                  iconColor: const Color(0xFF10B981),
+                  title: 'Battery & Background Playback',
+                  subtitle: 'WakeLock guardrails & unthrottled position listener',
+                  onTap: () => _showBatteryModal(context),
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                _buildNavigationTile(
+                  icon: Icons.bug_report_rounded,
+                  iconColor: const Color(0xFF94A3B8),
+                  title: 'Diagnostics & Telemetry Logs',
+                  subtitle: 'Crash dumps, stream health, and runtime isolate metrics',
+                  onTap: () => _showDiagnosticsModal(context),
+                ),
+              ]),
+              const SizedBox(height: 24),
 
-              // Listening Recap & Wrapped Section
-              _buildSectionHeader('YOUR STATS & WRAPPED', Icons.auto_awesome),
-              const SizedBox(height: 10),
-              _buildRecapCard(),
-              const SizedBox(height: 20),
-
-              // Battery & Background Playback Section
-              _buildSectionHeader('BACKGROUND PLAYBACK & BATTERY', Icons.battery_charging_full_rounded),
-              const SizedBox(height: 10),
-              const BatterySettingsCard(),
-              const SizedBox(height: 20),
-
-              // Diagnostics & Crash Logs Section
-              _buildSectionHeader('DIAGNOSTICS & CRASH LOGS', Icons.bug_report_rounded),
-              const SizedBox(height: 10),
-              const DiagnosticsSettingsCard(),
-              const SizedBox(height: 20),
-
-              // About Section
+              // ABOUT & CLOUD SYNC
               _buildSectionHeader('ABOUT', Icons.info_outline_rounded),
               const SizedBox(height: 10),
               _buildAboutCard(),
@@ -163,18 +299,87 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildSectionHeader(String title, IconData icon) {
     return Row(
       children: [
-        Icon(icon, color: const Color(0xFF6366F1), size: 18),
+        Icon(icon, color: const Color(0xFF6366F1), size: 16),
         const SizedBox(width: 8),
         Text(
           title,
           style: const TextStyle(
             color: Color(0xFF818CF8),
-            fontSize: 12,
+            fontSize: 11,
             fontWeight: FontWeight.bold,
             letterSpacing: 1.1,
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildHubContainer(List<Widget> children) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF131B2E),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      ),
+      child: Column(children: children),
+    );
+  }
+
+  Widget _buildNavigationTile({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  color: iconColor.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: iconColor, size: 20),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: Color(0xFF94A3B8),
+                        fontSize: 12,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: Color(0xFF64748B), size: 22),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -241,200 +446,106 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildPartyModeCard() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF131B2E),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+  void _showLanguageModal(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0F172A),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF6366F1).withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(Icons.sync_rounded, color: Color(0xFF818CF8), size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Multi-Phone Lockstep Sync',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                    ),
-                    ValueListenableBuilder<PartyRole>(
-                      valueListenable: PartySyncCoordinator.roleNotifier,
-                      builder: (context, role, _) {
-                        final statusText = role == PartyRole.none
-                            ? 'Not connected'
-                            : (role == PartyRole.host
-                                ? 'Hosting ${PartySyncCoordinator.partyCode}'
-                                : 'Connected to ${PartySyncCoordinator.partyCode}');
-                        return Text(
-                          statusText,
-                          style: TextStyle(
-                            color: role == PartyRole.none ? const Color(0xFF94A3B8) : const Color(0xFF34D399),
-                            fontSize: 12,
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF6366F1),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                ),
-                onPressed: () => PartyModeSheet.show(context),
-                child: const Text('Open', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            'Syncs audio playback in real time across multiple phones with NTP clock offset compensation and Bluetooth latency adjustment.',
-            style: TextStyle(color: Color(0xFF64748B), fontSize: 11),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStorageCard() {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF131B2E),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () async {
-            await Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const StorageSettingsScreen()),
-            );
-            _calculateCacheSize();
-          },
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF6366F1).withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(Icons.storage_rounded, color: Color(0xFF818CF8), size: 22),
+                const Text(
+                  'Music Languages',
+                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                 ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Storage & Offline Downloads',
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        'Temporary cache: $_cacheSizeStr • Tap to manage space',
-                        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
-                      ),
-                    ],
-                  ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                  onPressed: () => Navigator.pop(ctx),
                 ),
-                const Icon(Icons.chevron_right_rounded, color: Color(0xFF64748B), size: 22),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRecapCard() {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            const Color(0xFF6366F1).withValues(alpha: 0.18),
-            const Color(0xFFEC4899).withValues(alpha: 0.12),
-            const Color(0xFF131B2E),
+            const SizedBox(height: 12),
+            const LanguageSettingsCard(),
           ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF818CF8).withValues(alpha: 0.3)),
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const ListeningRecapScreen()),
-            );
-          },
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
+    );
+  }
+
+  void _showBatteryModal(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0F172A),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF6366F1), Color(0xFFEC4899)],
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF6366F1).withValues(alpha: 0.4),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: const Icon(Icons.auto_awesome, color: Colors.white, size: 22),
+                const Text(
+                  'Battery & Background Playback',
+                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                 ),
-                const SizedBox(width: 14),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Paatu Recap & Music Wrapped',
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                      ),
-                      SizedBox(height: 3),
-                      Text(
-                        'Relive your top songs, artists & listening persona in story mode',
-                        style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
-                      ),
-                    ],
-                  ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                  onPressed: () => Navigator.pop(ctx),
                 ),
-                const Icon(Icons.arrow_forward_ios_rounded, color: Color(0xFFA5B4FC), size: 16),
               ],
             ),
-          ),
+            const SizedBox(height: 12),
+            const BatterySettingsCard(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDiagnosticsModal(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0F172A),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Diagnostics & Crash Logs',
+                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                  onPressed: () => Navigator.pop(ctx),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const DiagnosticsSettingsCard(),
+          ],
         ),
       ),
     );

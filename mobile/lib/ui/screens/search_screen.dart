@@ -594,7 +594,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   );
                 }
 
-                if (state.hasError && !isSearching) {
+                if (state.hasError && state.isEmpty && !isSearching) {
                   return SearchErrorView(
                     error: state.error!,
                     onRetry: () {

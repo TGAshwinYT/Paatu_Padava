@@ -3,9 +3,12 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/rendering.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/song.dart';
 import '../../services/player_handler.dart';
+import '../../services/settings_manager.dart';
 import '../../domain/models/lyrics_state.dart';
 import '../widgets/lyrics_offset_pill.dart';
 import '../widgets/lyrics/bgm_pulse_indicator.dart';
@@ -13,6 +16,7 @@ import '../widgets/lyrics/lyrics_playback_bar.dart';
 import '../widgets/lyrics/wrong_lyrics_sheet.dart';
 import '../widgets/lyrics/lyrics_top_bar.dart';
 import '../widgets/lyrics/lyrics_empty_states.dart';
+import '../widgets/fluid_mesh_gradient.dart';
 
 class _LrcLine {
   final Duration timestamp;
@@ -246,18 +250,22 @@ class _LyricsScreenState extends State<LyricsScreen> {
       if (keyContext != null) {
         Scrollable.ensureVisible(
           keyContext,
-          alignment: 0.5, // Centers active line directly in the viewport
-          duration: const Duration(milliseconds: 350),
+          alignment: 0.45, // Centers active line smoothly at 45% eye-level
+          duration: const Duration(milliseconds: 500),
           curve: Curves.easeOutCubic,
         );
       }
     });
   }
 
-  void _onUserScroll() {
+  void _onUserScrollStart() {
     _isUserScrolling = true;
     _userScrollResumeTimer?.cancel();
-    _userScrollResumeTimer = Timer(const Duration(seconds: 3), () {
+  }
+
+  void _onUserScrollEnd() {
+    _userScrollResumeTimer?.cancel();
+    _userScrollResumeTimer = Timer(const Duration(seconds: 4), () {
       if (mounted) {
         setState(() => _isUserScrolling = false);
         _scrollToActive(_activeIndex);
@@ -277,126 +285,137 @@ class _LyricsScreenState extends State<LyricsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<Song?>(
-      valueListenable: audioHandler.currentSongNotifier,
-      builder: (context, song, _) {
-        final currentSong = song ?? widget.initialSong;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarDividerColor: Colors.transparent,
+        systemNavigationBarIconBrightness: Brightness.light,
+      ),
+      child: ValueListenableBuilder<Song?>(
+        valueListenable: audioHandler.currentSongNotifier,
+        builder: (context, song, _) {
+          final currentSong = song ?? widget.initialSong;
 
-        return Scaffold(
-          backgroundColor: const Color(0xFF060B14),
-          body: Stack(
-            children: [
-              // 1. Dynamic Blurred Artwork Background
-              Positioned.fill(
-                child: _buildArtworkBackground(currentSong),
-              ),
-
-              // 2. Main Synced Lyrics List View
-              Positioned.fill(
-                child: _buildLyricsBody(currentSong),
-              ),
-
-              // 3. Top Navigation & Action Header (Hidden in Fullscreen)
-              if (!_isFullscreen)
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: LyricsTopBar(
-                    song: currentSong,
-                    isLrc: _isLrc,
-                    showOffsetPill: _showOffsetPill,
-                    manualOffsetMs: _manualOffsetMs,
-                    isFullscreen: _isFullscreen,
-                    onToggleOffsetPill: () => setState(() => _showOffsetPill = !_showOffsetPill),
-                    onOpenWrongLyricsPicker: () => WrongLyricsSheet.show(context, currentSong),
-                    onToggleFullscreen: () => setState(() => _isFullscreen = !_isFullscreen),
-                    onCollapse: () => Navigator.of(context).pop(),
-                  ),
+          return Scaffold(
+            extendBodyBehindAppBar: true,
+            extendBody: true,
+            backgroundColor: const Color(0xFF060B14),
+            body: Stack(
+              children: [
+                // 1. Dynamic Blurred Fluid Mesh Artwork Background
+                Positioned.fill(
+                  child: _buildArtworkBackground(currentSong),
                 ),
 
-              // 4. Floating LyricsOffsetPill Stacked Above Bottom Playback Controls
-              if (_isLrc && !_isFullscreen)
-                Positioned(
-                  bottom: 125,
-                  left: 0,
-                  right: 0,
-                  child: AnimatedSlide(
-                    duration: const Duration(milliseconds: 260),
-                    curve: Curves.easeOutCubic,
-                    offset: _showOffsetPill ? Offset.zero : const Offset(0, 1.4),
-                    child: AnimatedOpacity(
-                      duration: const Duration(milliseconds: 220),
-                      opacity: _showOffsetPill ? 1.0 : 0.0,
-                      child: Center(
-                        child: LyricsOffsetPill(
-                          offsetMs: _manualOffsetMs,
-                          onOffsetChanged: (newMs) {
-                            setState(() {
-                              _manualOffsetMs = newMs;
-                            });
-                            audioHandler.lyricsOffsetMsNotifier.value = newMs;
-                            _updateActiveIndexForPosition(audioHandler.player.position);
-                          },
-                          onClose: () {
-                            setState(() {
-                              _showOffsetPill = false;
-                            });
-                          },
-                          onReset: () {
-                            setState(() {
-                              _manualOffsetMs = 0;
-                            });
-                            audioHandler.lyricsOffsetMsNotifier.value = 0;
-                            _updateActiveIndexForPosition(audioHandler.player.position);
-                          },
-                        ),
-                      ),
+                // 2. Main Synced Lyrics List View
+                Positioned.fill(
+                  child: _buildLyricsBody(currentSong),
+                ),
+
+                // 3. Top Navigation & Action Header (Hidden in Fullscreen)
+                if (!_isFullscreen)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: LyricsTopBar(
+                      song: currentSong,
+                      isLrc: _isLrc,
+                      showOffsetPill: _showOffsetPill,
+                      manualOffsetMs: _manualOffsetMs,
+                      isFullscreen: _isFullscreen,
+                      onToggleOffsetPill: () => setState(() => _showOffsetPill = !_showOffsetPill),
+                      onOpenWrongLyricsPicker: () => WrongLyricsSheet.show(context, currentSong),
+                      onToggleFullscreen: () => setState(() => _isFullscreen = !_isFullscreen),
+                      onCollapse: () => Navigator.of(context).pop(),
                     ),
                   ),
-                ),
 
-              // 5. Glassmorphic Bottom Playback Controls (Hidden in Fullscreen)
-              if (!_isFullscreen)
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: LyricsPlaybackBar(song: currentSong),
-                ),
-
-              // 6. Floating Exit-Fullscreen Button
-              if (_isFullscreen)
-                Positioned(
-                  top: MediaQuery.of(context).padding.top + 10,
-                  right: 16,
-                  child: SafeArea(
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => setState(() => _isFullscreen = false),
-                        borderRadius: BorderRadius.circular(20),
-                        child: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF0F172A).withValues(alpha: 0.7),
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
-                          ),
-                          child: const Icon(
-                            Icons.fullscreen_exit_rounded,
-                            color: Colors.white,
-                            size: 24,
+                // 4. Floating LyricsOffsetPill Stacked Above Bottom Playback Controls
+                if (_isLrc && !_isFullscreen)
+                  Positioned(
+                    bottom: 125,
+                    left: 0,
+                    right: 0,
+                    child: AnimatedSlide(
+                      duration: const Duration(milliseconds: 260),
+                      curve: Curves.easeOutCubic,
+                      offset: _showOffsetPill ? Offset.zero : const Offset(0, 1.4),
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 220),
+                        opacity: _showOffsetPill ? 1.0 : 0.0,
+                        child: Center(
+                          child: LyricsOffsetPill(
+                            offsetMs: _manualOffsetMs,
+                            onOffsetChanged: (newMs) {
+                              setState(() {
+                                _manualOffsetMs = newMs;
+                              });
+                              audioHandler.lyricsOffsetMsNotifier.value = newMs;
+                              _updateActiveIndexForPosition(audioHandler.player.position);
+                            },
+                            onClose: () {
+                              setState(() {
+                                _showOffsetPill = false;
+                              });
+                            },
+                            onReset: () {
+                              setState(() {
+                                _manualOffsetMs = 0;
+                              });
+                              audioHandler.lyricsOffsetMsNotifier.value = 0;
+                              _updateActiveIndexForPosition(audioHandler.player.position);
+                            },
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
-            ],
-          ),
-        );
-      },
+
+                // 5. Glassmorphic Bottom Playback Controls (Hidden in Fullscreen)
+                if (!_isFullscreen)
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    child: LyricsPlaybackBar(song: currentSong),
+                  ),
+
+                // 6. Floating Exit-Fullscreen Button
+                if (_isFullscreen)
+                  Positioned(
+                    top: MediaQuery.of(context).padding.top + 10,
+                    right: 16,
+                    child: SafeArea(
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () => setState(() => _isFullscreen = false),
+                          borderRadius: BorderRadius.circular(20),
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0F172A).withValues(alpha: 0.7),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                            ),
+                            child: const Icon(
+                              Icons.fullscreen_exit_rounded,
+                              color: Colors.white,
+                              size: 24,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -406,22 +425,28 @@ class _LyricsScreenState extends State<LyricsScreen> {
     }
 
     final hasLocal = song.isDownloaded && song.localFilePath != null && File(song.localFilePath!).existsSync();
+    final isDynamic = SettingsManager.isDynamicBackgroundEnabled;
 
     return Stack(
       fit: StackFit.expand,
       children: [
-        if (hasLocal)
-          Image.file(File(song.localFilePath!), fit: BoxFit.cover)
-        else if (song.coverUrl.isNotEmpty)
-          CachedNetworkImage(imageUrl: song.coverUrl, fit: BoxFit.cover)
-        else
-          Container(color: const Color(0xFF1E293B)),
+        FluidMeshGradient(
+          imageUrl: song.coverUrl,
+          blurSigma: 65.0,
+          opacity: 0.65,
+          animate: isDynamic,
+          child: hasLocal
+              ? Image.file(File(song.localFilePath!), fit: BoxFit.cover)
+              : song.coverUrl.isNotEmpty
+                  ? CachedNetworkImage(imageUrl: song.coverUrl, fit: BoxFit.cover)
+                  : Container(color: const Color(0xFF1E293B)),
+        ),
 
         // Glassmorphic deep blur filter
         BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 50, sigmaY: 50),
+          filter: ImageFilter.blur(sigmaX: 45, sigmaY: 45),
           child: Container(
-            color: const Color(0xFF060B14).withValues(alpha: 0.85),
+            color: const Color(0xFF060B14).withValues(alpha: 0.70),
           ),
         ),
 
@@ -433,7 +458,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
               end: Alignment.bottomCenter,
               colors: [
                 Color(0xCC060B14),
-                Color(0x99060B14),
+                Color(0x77060B14),
                 Color(0xF0060B14),
               ],
             ),
@@ -472,51 +497,55 @@ class _LyricsScreenState extends State<LyricsScreen> {
     }
 
     if (!_isLrc) {
-      // Plain text unsynced lyrics (e.g. 'Hukum')
-      return NotificationListener<ScrollNotification>(
-        onNotification: (_) => false,
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          padding: EdgeInsets.fromLTRB(
-            28,
-            _isFullscreen ? (MediaQuery.of(context).padding.top + 40) : (MediaQuery.of(context).size.height * 0.14),
-            28,
-            _isFullscreen ? 60 : (MediaQuery.of(context).size.height * 0.22),
-          ),
-          child: Column(
-            children: [
-              Text(
-                Song.sanitize(lyrics),
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  height: 2.1,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: 0.25,
-                ),
+      // Plain text unsynced lyrics: clean, beautifully spaced typography across full screen
+      return SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(
+          28,
+          _isFullscreen ? (MediaQuery.of(context).padding.top + 40) : (MediaQuery.of(context).padding.top + 80),
+          28,
+          _isFullscreen ? 60 : (MediaQuery.of(context).size.height * 0.22),
+        ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 680),
+            child: Text(
+              Song.sanitize(lyrics),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                height: 2.2,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.35,
               ),
-            ],
+            ),
           ),
         ),
       );
     }
 
-    // Synced LRC View with Center-Scrolling
+    // Synced LRC View with Center-Scrolling at eye-level (0.45)
     final screenHeight = MediaQuery.of(context).size.height;
 
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
-        if (notification is UserScrollNotification) {
-          _onUserScroll();
+        if (notification is ScrollStartNotification && notification.dragDetails != null) {
+          _onUserScrollStart();
+        } else if (notification is UserScrollNotification && notification.direction != ScrollDirection.idle) {
+          _onUserScrollStart();
+        } else if (notification is ScrollUpdateNotification && notification.dragDetails != null) {
+          _onUserScrollStart();
+        } else if (notification is ScrollEndNotification) {
+          _onUserScrollEnd();
         }
         return false;
       },
       child: ListView.builder(
         controller: _scrollController,
         padding: EdgeInsets.only(
-          top: screenHeight * 0.38,
-          bottom: screenHeight * 0.44,
+          top: screenHeight * 0.42,
+          bottom: screenHeight * 0.48,
           left: 24,
           right: 24,
         ),

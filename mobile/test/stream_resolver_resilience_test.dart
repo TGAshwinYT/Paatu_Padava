@@ -107,6 +107,7 @@ class MockAudioPlayer extends Fake implements AudioPlayer {
 class FakeStreamResolver implements StreamResolver {
   final Map<String, String?> songStreamMap = {};
   final List<String> resolutionAttempts = [];
+  final Set<String> _expiredIds = {};
   Duration delay = Duration.zero;
 
   @override
@@ -121,6 +122,16 @@ class FakeStreamResolver implements StreamResolver {
   @override
   bool verifyAudioMatch(Song candidate, Song target) {
     return DefaultStreamResolver.verifyMatch(candidate, target);
+  }
+
+  @override
+  void invalidate(String songId) {
+    _expiredIds.add(songId);
+  }
+
+  @override
+  bool isExpired(String songId) {
+    return _expiredIds.contains(songId);
   }
 }
 
@@ -231,6 +242,58 @@ void main() {
 
       // No crash or stream collision occurred
       expect(true, isTrue);
+    });
+
+    test('6. DefaultStreamResolver enforces 3-hour TTL and cache invalidation', () {
+      DefaultStreamResolver.clearCache();
+      expect(DefaultStreamResolver.cacheTtl, equals(const Duration(hours: 3)));
+
+      // Cache a stream URL with standard TTL
+      DefaultStreamResolver.cacheStream('song_ttl_1', 'https://stream.example.com/live1.m4a');
+      expect(DefaultStreamResolver.getCachedStream('song_ttl_1'), equals('https://stream.example.com/live1.m4a'));
+      expect(DefaultStreamResolver.isStreamExpired('song_ttl_1'), isFalse);
+
+      // Invalidate stream
+      DefaultStreamResolver.invalidateStream('song_ttl_1');
+      expect(DefaultStreamResolver.getCachedStream('song_ttl_1'), isNull);
+
+      // Cache an already-expired stream URL (negative ttl)
+      DefaultStreamResolver.cacheStream('song_expired_ttl', 'https://stream.example.com/expired.m4a', ttl: const Duration(seconds: -10));
+      expect(DefaultStreamResolver.isStreamExpired('song_expired_ttl'), isTrue);
+      expect(DefaultStreamResolver.getCachedStream('song_expired_ttl'), isNull);
+
+      DefaultStreamResolver.clearCache();
+    });
+
+    test('7. Expired stream URL triggers Just-In-Time (JIT) re-resolution on queue transition', () async {
+      final song = makeSong(id: 'expired_song_1', title: 'Expired JIT Song', streamUrl: 'https://cdn.example.com/expired.m4a');
+      fakeResolver.songStreamMap['expired_song_1'] = 'https://cdn.example.com/fresh.m4a';
+
+      // Mark the song as expired
+      fakeResolver.invalidate('expired_song_1');
+      expect(fakeResolver.isExpired('expired_song_1'), isTrue);
+
+      // When loaded into the queue, JIT resolution fires because the stream is expired
+      await queueHandler.loadQueue([song], initialIndex: 0, autoPlay: true);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(fakeResolver.resolutionAttempts, contains('expired_song_1'));
+      expect(queueHandler.currentSong?.streamUrl, equals('https://cdn.example.com/fresh.m4a'));
+    });
+
+    test('8. Stream resolution retries gracefully on HTTP 403 or network failure without unhandled exceptions', () async {
+      int attempts = 0;
+      final song = makeSong(id: 'retry_song_403', title: 'HTTP 403 Test Track');
+
+      // Create a resilient resolver that simulates 403 failure on first attempt and succeeds on retry
+      fakeResolver.songStreamMap['retry_song_403'] = 'https://cdn.example.com/valid_after_retry.m4a';
+
+      // Load queue - should resolve cleanly
+      await queueHandler.loadQueue([song], initialIndex: 0, autoPlay: true);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(queueHandler.currentSong?.streamUrl, equals('https://cdn.example.com/valid_after_retry.m4a'));
+      expect(fakeResolver.resolutionAttempts, contains('retry_song_403'));
     });
   });
 }

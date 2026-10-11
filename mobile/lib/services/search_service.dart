@@ -319,9 +319,50 @@ class SearchService {
     return score;
   }
 
+  /// Interleaves primary (JioSaavn) and secondary (YouTube) search candidates,
+  /// deduplicating across providers and ensuring fallback ranker resilience.
+  static List<Song> interleaveRankedResults(
+    List<Song> primarySongs,
+    List<Song> secondarySongs,
+  ) {
+    if (primarySongs.isEmpty) return secondarySongs;
+    if (secondarySongs.isEmpty) return primarySongs;
+
+    final List<Song> merged = [];
+    final Set<String> seenKeys = {};
+
+    for (final song in primarySongs) {
+      final key = song.cleanTitleKey;
+      if (key.isNotEmpty) seenKeys.add(key);
+    }
+
+    final List<Song> distinctSecondary = [];
+    for (final song in secondarySongs) {
+      final key = song.cleanTitleKey;
+      if (key.isEmpty || !seenKeys.contains(key)) {
+        if (key.isNotEmpty) seenKeys.add(key);
+        distinctSecondary.add(song);
+      }
+    }
+
+    int primIdx = 0;
+    int secIdx = 0;
+
+    while (primIdx < primarySongs.length || secIdx < distinctSecondary.length) {
+      for (int i = 0; i < 2 && primIdx < primarySongs.length; i++) {
+        merged.add(primarySongs[primIdx++]);
+      }
+      if (secIdx < distinctSecondary.length) {
+        merged.add(distinctSecondary[secIdx++]);
+      }
+    }
+
+    return merged;
+  }
+
   /// High-precision progressive search across JioSaavn & YouTube Music.
   /// Applies script detection, Tanglish transliteration, canonical grouping,
-  /// composite scoring, and Top Result confidence thresholding.
+  /// composite scoring, fault isolation, and interleaved fallback ranking.
   static Future<SearchResults> searchUnified(
     String rawQuery, {
     String? language,
@@ -341,28 +382,68 @@ class SearchService {
     }
 
     try {
-      // 1. Parallel retrieval with timeouts: Query JioSaavn first
-      final saavnFuture = SaavnClient.search(
-        intent.cleanQuery,
-        limit: limit,
-        language: effectiveLang,
-      ).timeout(const Duration(seconds: 5));
+      // 1. Fault-isolated parallel upstream queries
+      bool saavnFailed = false;
+      bool ytFailed = false;
 
-      final transliteratedSaavnFuture = (intent.transliteratedQuery != intent.cleanQuery)
-          ? SaavnClient.search(
-              intent.transliteratedQuery,
-              limit: limit,
-              language: effectiveLang,
-            ).timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
-          : Future.value(<Song>[]);
+      final Future<List<Song>> saavnFuture = () async {
+        try {
+          return await SaavnClient.search(
+            intent.cleanQuery,
+            limit: limit,
+            language: effectiveLang,
+          ).timeout(const Duration(seconds: 5));
+        } catch (e) {
+          saavnFailed = true;
+          debugPrint('[SearchService] Upstream Saavn primary search fault isolated: $e');
+          return <Song>[];
+        }
+      }();
 
-      // Lazily retrieve albums and artists in parallel
-      final albumsFuture = SaavnClient.searchAlbums(intent.cleanQuery, limit: 12)
-          .timeout(const Duration(seconds: 5), onTimeout: () => <Map<String, dynamic>>[]);
-      final artistsFuture = SaavnClient.searchArtists(intent.cleanQuery, limit: 12)
-          .timeout(const Duration(seconds: 5), onTimeout: () => <Map<String, dynamic>>[]);
-      final ytFuture = YouTubeClient.search(intent.cleanQuery, limit: limit)
-          .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
+      final Future<List<Song>> transliteratedSaavnFuture = () async {
+        if (intent.transliteratedQuery == intent.cleanQuery) return <Song>[];
+        try {
+          return await SaavnClient.search(
+            intent.transliteratedQuery,
+            limit: limit,
+            language: effectiveLang,
+          ).timeout(const Duration(seconds: 5));
+        } catch (e) {
+          debugPrint('[SearchService] Upstream Saavn transliterated search fault isolated: $e');
+          return <Song>[];
+        }
+      }();
+
+      final Future<List<Map<String, dynamic>>> albumsFuture = () async {
+        try {
+          return await SaavnClient.searchAlbums(intent.cleanQuery, limit: 12)
+              .timeout(const Duration(seconds: 5));
+        } catch (e) {
+          debugPrint('[SearchService] Upstream Saavn albums search fault isolated: $e');
+          return <Map<String, dynamic>>[];
+        }
+      }();
+
+      final Future<List<Map<String, dynamic>>> artistsFuture = () async {
+        try {
+          return await SaavnClient.searchArtists(intent.cleanQuery, limit: 12)
+              .timeout(const Duration(seconds: 5));
+        } catch (e) {
+          debugPrint('[SearchService] Upstream Saavn artists search fault isolated: $e');
+          return <Map<String, dynamic>>[];
+        }
+      }();
+
+      final Future<List<Song>> ytFuture = () async {
+        try {
+          return await YouTubeClient.search(intent.cleanQuery, limit: limit)
+              .timeout(const Duration(seconds: 6));
+        } catch (e) {
+          ytFailed = true;
+          debugPrint('[SearchService] Upstream YouTube search fault isolated: $e');
+          return <Song>[];
+        }
+      }();
 
       final initialResults = await Future.wait([
         saavnFuture,
@@ -405,6 +486,19 @@ class SearchService {
       final groupedYt = SongRepository.groupCanonicalSongs(rawYt, preferredLanguage: effectiveLang);
       final ytSongs = SongRepository.deduplicateSongs(groupedYt);
 
+      // Score YouTube songs
+      final scoredYt = ytSongs.map((s) {
+        final score = scoreSong(s, intent, preferredLanguages: prefLangs);
+        return MapEntry(score, s);
+      }).toList();
+      scoredYt.sort((a, b) => b.key.compareTo(a.key));
+      final rankedYt = scoredYt.map((e) => e.value).toList();
+
+      // Interleaved Fallback Ranker:
+      // If Saavn returned empty (upstream error or timeout), seamlessly fall back to YouTube results
+      // If both succeeded, interleave results cleanly without duplicates
+      final List<Song> mergedSongs = interleaveRankedResults(rankedSaavn, rankedYt);
+
       // Filter and label multi-track genuine albums strictly
       final labeledAlbums = filterGenuineAlbums(rawAlbums);
 
@@ -425,6 +519,20 @@ class SearchService {
           'score': scoredSaavn.first.key,
           'versions': top.versions.map((v) => v.toMap()).toList(),
         };
+      } else if (rankedSaavn.isEmpty && scoredYt.isNotEmpty && scoredYt.first.key >= 0.70) {
+        // Fallback top result from YouTube
+        final top = scoredYt.first.value;
+        topResult = {
+          'type': 'song',
+          'id': top.id,
+          'title': top.title,
+          'artist': top.artist,
+          'cover_url': top.coverUrl,
+          'duration': top.duration,
+          'source': top.source,
+          'score': scoredYt.first.key,
+          'versions': top.versions.map((v) => v.toMap()).toList(),
+        };
       } else {
         // Did not clear confidence bar: offer "Did you mean..." instead of a false positive
         final correction = FuzzySearchService.findCorrection(intent.cleanQuery);
@@ -436,15 +544,22 @@ class SearchService {
       }
 
       // Register with fuzzy index
-      FuzzySearchService.registerSongs(rankedSaavn);
+      FuzzySearchService.registerSongs(mergedSongs);
+
+      // Only report error if ALL upstream providers failed and zero results were obtained
+      AppError? searchError;
+      if (mergedSongs.isEmpty && ytSongs.isEmpty && labeledAlbums.isEmpty && artists.isEmpty && (saavnFailed && ytFailed)) {
+        searchError = AppError.offline(debugDetails: 'All upstream providers failed for "${intent.cleanQuery}"');
+      }
 
       final searchBundle = SearchResults(
-        songs: rankedSaavn,
+        songs: mergedSongs,
         ytSongs: ytSongs,
         albums: labeledAlbums,
         artists: artists,
         topResult: topResult,
         didYouMean: didYouMean,
+        error: searchError,
       );
 
       // Save to fast in-memory LRU cache

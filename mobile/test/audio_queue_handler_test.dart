@@ -16,6 +16,15 @@ class MockAudioPlayer extends Fake implements AudioPlayer {
   final Duration _duration = const Duration(minutes: 3);
   AudioSource? _audioSource;
   int? _sourceIndex;
+  LoopMode _loopMode = LoopMode.off;
+
+  @override
+  LoopMode get loopMode => _loopMode;
+
+  @override
+  Future<void> setLoopMode(LoopMode mode) async {
+    _loopMode = mode;
+  }
 
   @override
   Stream<int?> get currentIndexStream => _currentIndexController.stream;

@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/services.dart';
+import 'package:audio_session/audio_session.dart';
 import 'app_logger.dart';
 
 /// Service to detect device OEM (e.g. OnePlus / OxygenOS) and manage
@@ -48,5 +49,39 @@ class BatteryOptimizationService {
   static Future<bool> isAggressiveBatteryOEM() async {
     final mfg = (await getDeviceManufacturer()).toLowerCase();
     return mfg.contains('oneplus') || mfg.contains('oppo') || mfg.contains('realme');
+  }
+
+  /// Explicitly detaches foreground service notification during prolonged pauses
+  static Future<bool> detachForeground() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final success = await _channel.invokeMethod<bool>('detachForeground');
+      return success ?? false;
+    } catch (e) {
+      AppLogger.log('BatteryOpt', 'detachForeground error: $e');
+      return false;
+    }
+  }
+
+  /// Explicitly releases native CPU WakeLocks by deactivating audio session
+  static Future<void> releaseWakeLock() async {
+    try {
+      final session = await AudioSession.instance;
+      await session.setActive(false);
+      AppLogger.log('BatteryOpt', 'Explicitly released CPU WakeLock & audio focus');
+    } catch (e) {
+      AppLogger.log('BatteryOpt', 'releaseWakeLock notice: $e');
+    }
+  }
+
+  /// Re-acquires native CPU WakeLocks upon explicit play or resume
+  static Future<void> acquireWakeLock() async {
+    try {
+      final session = await AudioSession.instance;
+      await session.setActive(true);
+      AppLogger.log('BatteryOpt', 'Re-acquired CPU WakeLock & audio session');
+    } catch (e) {
+      AppLogger.log('BatteryOpt', 'acquireWakeLock notice: $e');
+    }
   }
 }

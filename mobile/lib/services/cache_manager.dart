@@ -46,15 +46,30 @@ class StorageBreakdown {
 /// Enforces size-capped LRU cache eviction and deletes files older than 7 days
 /// in the background without blocking the UI thread.
 class CacheManager {
-  static int get maxCacheSizeBytes => SettingsManager.maxCacheSizeMb * 1024 * 1024;
+  static const int maxCacheSizeBytesCap = 100 * 1024 * 1024; // 100 MB LRU eviction threshold cap
+  static const int maxMemoryImageCacheSizeBytes = 100 * 1024 * 1024; // 100 MB memory image cache cap
+
+  static int get maxCacheSizeBytes {
+    final configured = SettingsManager.maxCacheSizeMb * 1024 * 1024;
+    return (configured > maxCacheSizeBytesCap || configured <= 0) ? maxCacheSizeBytesCap : configured;
+  }
   static const int maxCacheAgeDays = 7;
 
   static DateTime? _lastEvictionTime;
+
+  /// Restricts Flutter image cache memory usage to 100 MB.
+  static void configureMemoryLimits() {
+    try {
+      PaintingBinding.instance.imageCache.maximumSizeBytes = maxMemoryImageCacheSizeBytes;
+      PaintingBinding.instance.imageCache.maximumSize = 1000;
+    } catch (_) {}
+  }
 
   /// Runs background cache audit and true LRU eviction.
   /// Throttled to run at most once every 24 hours, or immediately if [force] is true.
   /// Strictly restricted to the audio cache folder to avoid touching other app assets.
   static Future<void> autoEvictOldCache({bool force = false}) async {
+    configureMemoryLimits();
     final now = DateTime.now();
 
     // Check throttle unless forced

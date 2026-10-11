@@ -587,4 +587,25 @@ class ApiClient {
     }
     return songs;
   }
+
+  /// Fetches consolidated home feed payload from /api/music/home-feed.
+  /// Returns a single payload containing madeForYou, trending, newReleases,
+  /// featuredAlbums, and popularArtists.
+  static Future<Map<String, dynamic>?> getHomeFeed(String language) async {
+    try {
+      final uri = Uri.parse('$baseUrl/api/music/home-feed?language=${Uri.encodeComponent(language)}');
+      final response = await UnifiedHttpClient.get(
+        uri,
+        headers: _headers,
+        timeout: const Duration(seconds: 8),
+      );
+      if (response.statusCode == 200) {
+        return json.decode(response.body) as Map<String, dynamic>;
+      }
+    } catch (e) {
+      AppLogger.log('ApiClient', 'getHomeFeed error: $e');
+    }
+    return null;
+  }
 }
+

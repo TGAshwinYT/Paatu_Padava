@@ -15,6 +15,15 @@ class YouTubeClient {
 
   static String get _baseUrl => AppConfig.backendUrl;
 
+  /// High-integrity HTTP headers for Googlevideo CDN streams.
+  /// Enforces byte range requests and modern User-Agent to avoid the 30-second bandwidth throttle.
+  static Map<String, String> get streamingHeaders => const {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Range': 'bytes=0-',
+    'Accept': '*/*',
+    'Connection': 'keep-alive',
+  };
+
   static String cleanTitle(String title) {
     var cleaned = Song.sanitize(title);
     // Remove leading @handle mentions (e.g. "@SaiAbhyankkar - Pavazha Malli" -> "Pavazha Malli")
@@ -61,6 +70,161 @@ class YouTubeClient {
     } finally {
       yt.close();
     }
+  }
+
+  /// Walks the native YouTube Radio graph (RDAMVM$videoId) and applies Audio-First Master Filtering:
+  /// - Topic channel prioritization (- Topic, VEVO, official release metadata)
+  /// - Excludes live recordings and fan covers
+  /// - Excludes tracks with significant duration deviations (<60s, >600s, or >120s delta from seed)
+  /// - Filters out skipped artists/keys (skip reactivity)
+  static Future<List<Song>> getRadioTracks(
+    Song seedSong, {
+    int limit = 20,
+    Set<String>? excludedArtists,
+    Set<String>? excludedKeys,
+  }) async {
+    final List<Song> results = [];
+    final yt = YoutubeExplode();
+    try {
+      String? seedVideoId;
+      if (seedSong.source == 'youtube' && seedSong.id.isNotEmpty) {
+        seedVideoId = seedSong.id;
+      } else {
+        // Resolve seed song to YouTube video ID via search
+        final query = '${cleanTitle(seedSong.title)} ${seedSong.primaryArtist} audio';
+        final searchResults = await search(query, limit: 5);
+        if (searchResults.isNotEmpty) {
+          // Prioritize Topic channels or official releases
+          final topic = searchResults.firstWhere(
+            (s) => s.artist.endsWith(' - Topic') || s.artist.toLowerCase().contains('topic'),
+            orElse: () => searchResults.first,
+          );
+          seedVideoId = topic.id;
+        }
+      }
+
+      if (seedVideoId != null && seedVideoId.isNotEmpty) {
+        final List<Video> candidateVideos = [];
+
+        // 1. Radio Graph Walking: Native Related Videos of seed (RDAMVM graph node)
+        try {
+          final video = await yt.videos.get(VideoId(seedVideoId)).timeout(const Duration(seconds: 4));
+          final related = await yt.videos.getRelatedVideos(video).timeout(const Duration(seconds: 6));
+          if (related != null) {
+            candidateVideos.addAll(related);
+          }
+        } catch (e) {
+          AppLogger.log('YouTubeClient', 'Radio graph initial step notice: $e');
+        }
+
+        // 2. Second-tier walk: If candidate count is low, walk the graph one step deeper
+        if (candidateVideos.length < limit && candidateVideos.isNotEmpty) {
+          try {
+            final nextNode = candidateVideos.firstWhere(
+              (v) => v.author.endsWith(' - Topic'),
+              orElse: () => candidateVideos.first,
+            );
+            final deeper = await yt.videos.getRelatedVideos(nextNode).timeout(const Duration(seconds: 4));
+            if (deeper != null) {
+              for (final dv in deeper) {
+                if (!candidateVideos.any((cv) => cv.id.value == dv.id.value)) {
+                  candidateVideos.add(dv);
+                }
+              }
+            }
+          } catch (_) {}
+        }
+
+        // 3. Audio-First Master Filtering:
+        final liveRegex = RegExp(r'\b(live|unplugged|in concert|concert|live at|live from)\b', caseSensitive: false);
+        final coverRegex = RegExp(r'\b(cover|fan made|tribute|karaoke|acoustic cover|cover song)\b', caseSensitive: false);
+
+        // Score and filter candidate videos
+        final List<MapEntry<int, Song>> scoredCandidates = [];
+
+        for (final video in candidateVideos) {
+          final vId = video.id.value;
+          final title = video.title;
+          final author = video.author;
+          final dur = video.duration?.inSeconds ?? 0;
+
+          // Duration sanity check: 60s to 600s
+          if (dur < 60 || dur > 600) continue;
+
+          // Duration delta check: if seed has valid duration, reject if > 120s delta
+          if (seedSong.duration >= 60 && (dur - seedSong.duration).abs() > 120) {
+            continue;
+          }
+
+          // Exclude live recordings
+          if (liveRegex.hasMatch(title)) continue;
+
+          // Exclude fan covers
+          if (coverRegex.hasMatch(title)) continue;
+
+          final cleanedTitle = cleanTitle(title);
+          final cleanedAuthor = Song.sanitize(ArtistSanitizer.extractArtistFromVideo(title, author));
+
+          if (excludedKeys != null && excludedKeys.contains(vId)) continue;
+          final songObj = Song(
+            id: vId,
+            title: cleanedTitle,
+            artist: cleanedAuthor,
+            album: 'YouTube Music',
+            coverUrl: video.thumbnails.highResUrl,
+            duration: dur,
+            source: 'youtube',
+            language: seedSong.language,
+          );
+
+          if (excludedKeys != null && excludedKeys.contains(songObj.cleanTitleKey)) continue;
+          if (excludedArtists != null && excludedArtists.contains(songObj.primaryArtist.toLowerCase().trim())) {
+            continue;
+          }
+
+          // Scoring:
+          // Priority 3: Topic channel
+          // Priority 2: VEVO / Official label
+          // Priority 1: Other
+          int priority = 1;
+          final authorLower = author.toLowerCase();
+          if (author.endsWith(' - Topic') || authorLower.contains('release - topic')) {
+            priority = 3;
+          } else if (authorLower.endsWith('vevo') || authorLower.contains('official') || title.toLowerCase().contains('official')) {
+            priority = 2;
+          }
+
+          scoredCandidates.add(MapEntry(priority, songObj));
+        }
+
+        // Sort by priority descending
+        scoredCandidates.sort((a, b) => b.key.compareTo(a.key));
+
+        for (final entry in scoredCandidates) {
+          if (!results.any((r) => r.id == entry.value.id || r.canonicalBaseKey == entry.value.canonicalBaseKey)) {
+            results.add(entry.value);
+            if (results.length >= limit) break;
+          }
+        }
+      }
+    } catch (e, st) {
+      AppLogger.recordError(e, st, context: 'YouTubeClient.getRadioTracks');
+    } finally {
+      yt.close();
+    }
+
+    // Fallback: If results are still empty or small, supplement with getRelatedSongs
+    if (results.length < limit) {
+      final relatedFallback = await getRelatedSongs(seedSong, limit: limit);
+      for (final s in relatedFallback) {
+        if (!results.any((r) => r.id == s.id || r.canonicalBaseKey == s.canonicalBaseKey)) {
+          results.add(s);
+          if (results.length >= limit) break;
+        }
+      }
+    }
+
+    return results;
   }
 
   /// Fetches related YouTube Music autoplay tracks for a seed song

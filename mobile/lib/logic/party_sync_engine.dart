@@ -33,8 +33,8 @@ class NtpSample {
 /// NTP-style clock offset calculator with outlier rejection.
 class NtpCalculator {
   /// Computes a robust clock offset from multiple NTP exchange samples.
-  /// Sorts samples by RTT and averages the lowest 50% lowest-latency samples
-  /// to eliminate network jitter and queuing delays.
+  /// Sorts samples by RTT and averages the lowest 4 samples (out of 8 ping rounds)
+  /// or lowest 50% to eliminate network jitter and queuing delays.
   static int calculateOffset(List<NtpSample> samples) {
     if (samples.isEmpty) return 0;
     if (samples.length == 1) return samples.first.offset;
@@ -42,8 +42,9 @@ class NtpCalculator {
     // Sort by RTT ascending (cleanest network paths first)
     final sorted = List<NtpSample>.from(samples)..sort((a, b) => a.rtt.compareTo(b.rtt));
 
-    // Keep top 50% lowest RTT samples (at least 1)
-    final countToKeep = max(1, (sorted.length * 0.5).ceil());
+    // When 8 consecutive ping packets are sent, average the lowest 4 RTT samples.
+    // Otherwise keep lowest 50%.
+    final countToKeep = sorted.length >= 8 ? 4 : max(1, (sorted.length * 0.5).ceil());
     final bestSamples = sorted.take(countToKeep).toList();
 
     final sumOffset = bestSamples.fold<int>(0, (sum, s) => sum + s.offset);
@@ -94,16 +95,17 @@ class DriftAction {
 class DriftReconciler {
   /// Reconciles local playback position against expected host position.
   ///
-  /// - |drift| < [deadbandMs] (e.g. 50ms): in sync, speed = 1.0x (no-op).
-  /// - [deadbandMs] <= |drift| <= [microAdjustMaxMs] (e.g. 50ms - 200ms):
+  /// - |drift| < [deadbandMs] (default 10ms): in sync, speed = 1.0x (no-op).
+  /// - [deadbandMs] <= |drift| < [microAdjustMaxMs] (default 10ms - 250ms):
   ///   - drift > 0 (local ahead): soft slow down (speed = 0.98x).
   ///   - drift < 0 (local behind): soft catch up (speed = 1.02x).
-  /// - |drift| > [microAdjustMaxMs] (e.g. > 200ms): hard seek to target position.
+  /// - |drift| >= [microAdjustMaxMs] (default >= 250ms): macro-drift hard seek to target position.
   static DriftAction reconcileDrift({
     required int currentPositionMs,
     required int expectedPositionMs,
-    int deadbandMs = 50,
-    int microAdjustMaxMs = 200,
+    int deadbandMs = 10,
+    int microAdjustMaxMs = 250,
+    int seekLatencyMs = 0,
   }) {
     final drift = currentPositionMs - expectedPositionMs;
 
@@ -115,7 +117,7 @@ class DriftReconciler {
       );
     }
 
-    if (drift.abs() <= microAdjustMaxMs) {
+    if (drift.abs() < microAdjustMaxMs) {
       if (drift > 0) {
         // Local is ahead: gently slow down to 0.98x
         return DriftAction(
@@ -133,12 +135,13 @@ class DriftReconciler {
       }
     }
 
-    // Large drift: hard seek directly to expected position
+    // Macro-drift (>= 250ms): hard seek directly to anticipated future position
+    final target = expectedPositionMs + seekLatencyMs;
     return DriftAction(
       type: DriftActionType.hardSeek,
       playbackSpeed: 1.0,
       driftMs: drift,
-      seekTargetMs: max(0, expectedPositionMs),
+      seekTargetMs: max(0, target),
     );
   }
 }
@@ -158,27 +161,31 @@ class ScheduledPlaybackCalculator {
   }
 
   /// Calculates expected track playback position at the current moment,
-  /// factoring in elapsed time, host clock offset, and manual Bluetooth audio delay.
+  /// factoring in elapsed time, host clock offset, manual Bluetooth audio delay,
+  /// and device-specific hardware audio driver latency.
   ///
   /// [bluetoothDelayMs]: Manual user adjustment (-500ms to +500ms) to compensate
   /// for Bluetooth headphone/speaker hardware DAC buffer latency (A2DP typical 100-250ms).
+  /// [hardwareLatencyMs]: Manual calibration adjustment (-150ms to +150ms) to compensate
+  /// for Android chipset OpenSL ES / AAudio buffer differences.
   static int calculateExpectedPositionMs({
     required int referenceHostEpochMs,
     required int referenceTrackPositionMs,
     required int currentLocalEpochMs,
     int clockOffsetMs = 0,
     int bluetoothDelayMs = 0,
+    int hardwareLatencyMs = 0,
     double speed = 1.0,
     bool isPlaying = true,
   }) {
     if (!isPlaying) {
-      return max(0, referenceTrackPositionMs + bluetoothDelayMs);
+      return max(0, referenceTrackPositionMs + bluetoothDelayMs + hardwareLatencyMs);
     }
 
     final currentEstimatedHostTime = currentLocalEpochMs + clockOffsetMs;
     final elapsedMs = ((currentEstimatedHostTime - referenceHostEpochMs) * speed).round();
     final rawExpected = referenceTrackPositionMs + elapsedMs;
 
-    return max(0, rawExpected + bluetoothDelayMs);
+    return max(0, rawExpected + bluetoothDelayMs + hardwareLatencyMs);
   }
 }

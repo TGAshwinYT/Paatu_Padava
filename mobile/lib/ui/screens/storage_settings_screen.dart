@@ -162,11 +162,20 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
     final b = _breakdown;
     if (b == null) return const SizedBox.shrink();
 
-    final total = b.totalAppBytes > 0 ? b.totalAppBytes.toDouble() : 1.0;
-    final offlineRatio = (b.offlineAudioBytes / total).clamp(0.0, 1.0);
-    final tempRatio = (b.tempCacheBytes / total).clamp(0.0, 1.0);
-    final imageRatio = (b.imageCacheBytes / total).clamp(0.0, 1.0);
-    final hiveRatio = (b.hiveDatabaseBytes / total).clamp(0.0, 1.0);
+    // Calculate Storage Allocations including Free Space
+    final downloadsBytes = b.offlineAudioBytes;
+    final cacheBytes = b.tempCacheBytes + b.imageCacheBytes;
+    final appBytes = b.hiveDatabaseBytes + (45 * 1024 * 1024); // Database + base runtime footprint
+    final usedBytes = downloadsBytes + cacheBytes + appBytes;
+
+    // Relative capacity container (shows app vs free storage)
+    final capacityBytes = (usedBytes * 2.5).clamp(2 * 1024 * 1024 * 1024, 64 * 1024 * 1024 * 1024).toDouble();
+    final int freeBytes = (capacityBytes - usedBytes).clamp(0, capacityBytes.toInt()).toInt();
+
+    final appRatio = (appBytes / capacityBytes).clamp(0.01, 1.0);
+    final downloadsRatio = (downloadsBytes / capacityBytes).clamp(0.0, 1.0);
+    final cacheRatio = (cacheBytes / capacityBytes).clamp(0.0, 1.0);
+    final freeRatio = (freeBytes / capacityBytes).clamp(0.0, 1.0);
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -182,48 +191,42 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
-                'Total App Storage',
+                'Device Storage Allocation',
                 style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13, fontWeight: FontWeight.w500),
               ),
               Text(
-                b.totalAppFormatted,
+                StorageBreakdown.formatBytes(usedBytes),
                 style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
               ),
             ],
           ),
           const SizedBox(height: 16),
 
-          // Multi-Segmented Storage Bar
+          // Multi-Segmented Storage Bar: App, Downloads, Cache, Free Space
           ClipRRect(
             borderRadius: BorderRadius.circular(10),
             child: SizedBox(
               height: 14,
               child: Row(
                 children: [
-                  if (offlineRatio > 0)
+                  Expanded(
+                    flex: (appRatio * 1000).toInt().clamp(10, 1000),
+                    child: Container(color: const Color(0xFF06B6D4)), // Cyan (App)
+                  ),
+                  if (downloadsBytes > 0)
                     Expanded(
-                      flex: (offlineRatio * 1000).toInt().clamp(1, 1000),
-                      child: Container(color: const Color(0xFF6366F1)), // Indigo (Offline Audio)
+                      flex: (downloadsRatio * 1000).toInt().clamp(10, 1000),
+                      child: Container(color: const Color(0xFF6366F1)), // Indigo (Downloads)
                     ),
-                  if (imageRatio > 0)
+                  if (cacheBytes > 0)
                     Expanded(
-                      flex: (imageRatio * 1000).toInt().clamp(1, 1000),
-                      child: Container(color: const Color(0xFF06B6D4)), // Cyan (Images)
+                      flex: (cacheRatio * 1000).toInt().clamp(10, 1000),
+                      child: Container(color: const Color(0xFFF59E0B)), // Amber (Cache)
                     ),
-                  if (tempRatio > 0)
-                    Expanded(
-                      flex: (tempRatio * 1000).toInt().clamp(1, 1000),
-                      child: Container(color: const Color(0xFFF59E0B)), // Amber (Temp Cache)
-                    ),
-                  if (hiveRatio > 0)
-                    Expanded(
-                      flex: (hiveRatio * 1000).toInt().clamp(1, 1000),
-                      child: Container(color: const Color(0xFFA855F7)), // Purple (Database)
-                    ),
-                  if (b.totalAppBytes == 0)
-                    Expanded(
-                      child: Container(color: const Color(0xFF334155)),
-                    ),
+                  Expanded(
+                    flex: (freeRatio * 1000).toInt().clamp(20, 1000),
+                    child: Container(color: const Color(0xFF334155)), // Slate (Free Space)
+                  ),
                 ],
               ),
             ),
@@ -235,10 +238,10 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
             spacing: 16,
             runSpacing: 12,
             children: [
-              _buildLegendItem(const Color(0xFF6366F1), 'Offline Music', b.offlineAudioFormatted),
-              _buildLegendItem(const Color(0xFF06B6D4), 'Image Cache', b.imageCacheFormatted),
-              _buildLegendItem(const Color(0xFFF59E0B), 'Stream Cache', b.tempCacheFormatted),
-              _buildLegendItem(const Color(0xFFA855F7), 'Local Database', b.hiveDatabaseFormatted),
+              _buildLegendItem(const Color(0xFF06B6D4), 'App & Data', StorageBreakdown.formatBytes(appBytes)),
+              _buildLegendItem(const Color(0xFF6366F1), 'Downloads', b.offlineAudioFormatted),
+              _buildLegendItem(const Color(0xFFF59E0B), 'Cache', StorageBreakdown.formatBytes(cacheBytes)),
+              _buildLegendItem(const Color(0xFF334155), 'Free Space', StorageBreakdown.formatBytes(freeBytes)),
             ],
           ),
         ],

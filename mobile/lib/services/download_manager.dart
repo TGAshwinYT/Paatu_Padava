@@ -235,18 +235,22 @@ class DownloadManager {
 
       final safeName = song.id.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
       final filePath = '${audioDir.path}/$safeName.mp3';
+      final tempFilePath = '$filePath.download';
 
-      // 3. Track active progress
+      // 3. Track active progress & expected size
       activeDownloads.value = {
         ...activeDownloads.value,
         song.id: 0.0,
       };
 
+      int expectedTotalBytes = -1;
+
       await _dio.download(
         audioUrl,
-        filePath,
+        tempFilePath,
         cancelToken: cancelToken,
         onReceiveProgress: (received, total) {
+          if (total > 0) expectedTotalBytes = total;
           if (total > 0 && !cancelToken.isCancelled) {
             final p = received / total;
             activeDownloads.value = {
@@ -259,11 +263,47 @@ class DownloadManager {
       );
 
       if (cancelToken.isCancelled) {
-        // Clean up partial file if cancelled
-        final partial = File(filePath);
+        // Clean up partial temporary file if cancelled
+        final partial = File(tempFilePath);
         if (partial.existsSync()) partial.deleteSync();
         return false;
       }
+
+      // Download Atomic Verification: check temp file and compare with HTTP Content-Length
+      final tempFile = File(tempFilePath);
+      if (!tempFile.existsSync()) {
+        throw AppError(
+          category: AppErrorCategory.songUnavailable,
+          userMessage: 'Download verification failed: File not written to storage.',
+          errorCode: 'ERR_DOWNLOAD_FILE_MISSING',
+        );
+      }
+
+      final downloadedBytes = tempFile.lengthSync();
+      if (expectedTotalBytes > 0 && downloadedBytes < expectedTotalBytes) {
+        tempFile.deleteSync();
+        throw AppError(
+          category: AppErrorCategory.songUnavailable,
+          userMessage: 'Download verification failed: Truncated stream ($downloadedBytes/$expectedTotalBytes bytes).',
+          errorCode: 'ERR_DOWNLOAD_CORRUPTED',
+        );
+      }
+
+      if (downloadedBytes < 1024) {
+        tempFile.deleteSync();
+        throw AppError(
+          category: AppErrorCategory.songUnavailable,
+          userMessage: 'Download verification failed: Media stream is corrupt or empty.',
+          errorCode: 'ERR_DOWNLOAD_TOO_SMALL',
+        );
+      }
+
+      // Atomic promotion: Replace target file only after verification succeeds
+      final finalFile = File(filePath);
+      if (finalFile.existsSync()) {
+        finalFile.deleteSync();
+      }
+      tempFile.renameSync(filePath);
 
       // 4. Save metadata to Hive
       final downloadedSong = song.copyWith(

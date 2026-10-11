@@ -223,18 +223,8 @@ async def resolve_single_stream(
         yt_audio_url = None
         if yt_id and len(yt_id) == 11:
             try:
-                import yt_dlp
-                ydl_opts = {
-                    'format': 'bestaudio/best',
-                    'quiet': True,
-                    'no_warnings': True,
-                    'skip_download': True,
-                }
-                def _extract_stream():
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(f"https://www.youtube.com/watch?v={yt_id}", download=False)
-                        return info.get('url')
-                yt_audio_url = await asyncio.wait_for(asyncio.to_thread(_extract_stream), timeout=6.0)
+                from services import youtube as yt_service
+                yt_audio_url = await asyncio.wait_for(yt_service.get_audio_stream_url(yt_id), timeout=7.0)
             except Exception as yt_err:
                 print(f"Backend yt_dlp stream resolution notice: {yt_err}")
 
@@ -494,6 +484,105 @@ async def get_home_feed(
                 "topArtists": youtube.CURATED_TOP_ARTISTS,
                 "personalized": False
             }
+
+
+@router.get("/home-feed")
+async def get_consolidated_home_feed(
+    request: Request,
+    language: Optional[str] = Query(None),
+    user: models.User = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db),
+    redis_client: UpstashRedis = Depends(get_redis)
+):
+    """
+    Consolidated single-payload home feed returning all sections:
+    - madeForYou
+    - trending / trendingMerged
+    - newReleases
+    - featuredAlbums
+    - popularArtists
+    Eliminates waterfall HTTP requests and client layout reflows.
+    """
+    user_langs = get_user_search_languages(user)
+    primary_lang = language or (user_langs.split(",")[0].capitalize() if user_langs else "Tamil")
+
+    cache_key = f"home_feed_consolidated_v1_{primary_lang}_{user.id if user else 'guest'}"
+    try:
+        cached = await redis_client.get(cache_key)
+        if cached:
+            return json.loads(cached)
+    except Exception as cache_err:
+        print(f"Redis Cache Warning (home-feed get): {cache_err}")
+
+    try:
+        from services import saavn
+
+        # Parallel fetch of all home feed sections
+        recommender_coro = (
+            personal_recommender.get_cold_start_recommendations(db, user, preferred_languages=primary_lang, limit=15)
+            if not user else asyncio.to_thread(
+                personal_recommender.get_personal_recommendations,
+                str(user.id), preferred_languages=primary_lang, limit=15
+            )
+        )
+
+        tasks = [
+            recommender_coro,
+            youtube.get_trending_youtube(region=primary_lang),
+            saavn.search_saavn_direct(f"Latest {primary_lang} Releases", limit=15),
+            saavn.search_saavn_albums_direct(f"{primary_lang} Hit Albums", limit=12),
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        made_for_you = results[0] if not isinstance(results[0], Exception) and results[0] else []
+        if not made_for_you:
+            try:
+                made_for_you = await saavn.search_saavn_direct(f"{primary_lang} Melodies Hits", limit=15)
+            except Exception:
+                made_for_you = []
+
+        trending = results[1] if not isinstance(results[1], Exception) and results[1] else []
+        if not trending:
+            try:
+                trending = await saavn.search_saavn_direct(f"{primary_lang} Trending Hits", limit=15)
+            except Exception:
+                trending = []
+
+        new_releases = results[2] if not isinstance(results[2], Exception) and results[2] else []
+        featured_albums = results[3] if not isinstance(results[3], Exception) and results[3] else []
+        popular_artists = youtube.CURATED_TOP_ARTISTS
+
+        payload = {
+            "madeForYou": made_for_you,
+            "trending": trending,
+            "trendingMerged": trending,
+            "newReleases": new_releases,
+            "featuredAlbums": featured_albums,
+            "popularArtists": popular_artists,
+            "language": primary_lang,
+            "personalized": bool(user and results[0] and not isinstance(results[0], Exception)),
+        }
+
+        try:
+            await redis_client.setex(cache_key, 1800, json.dumps(payload))
+        except Exception as cache_err:
+            print(f"Redis Cache Warning (home-feed set): {cache_err}")
+
+        return payload
+    except Exception as e:
+        print(f"Consolidated Home Feed Error: {e}")
+        return {
+            "madeForYou": [],
+            "trending": [],
+            "trendingMerged": [],
+            "newReleases": [],
+            "featuredAlbums": [],
+            "popularArtists": youtube.CURATED_TOP_ARTISTS,
+            "language": primary_lang,
+            "personalized": False,
+        }
+
+
 
 import re
 

@@ -766,4 +766,35 @@ async def get_album_details_youtube(browse_id):
         logger.error(f"YTMusic album details error: {e}")
         return {}
 
+def get_audio_stream_url_sync(video_id: str):
+    """
+    Extracts high-fidelity audio stream URL prioritizing adaptive audio formats:
+    - itag 140 (AAC 128kbps, m4a container)
+    - itag 251 (Opus 160kbps, webm container)
+    Injects Range byte request and modern User-Agent headers to eliminate Googlevideo 30s throttling.
+    """
+    try:
+        import yt_dlp
+        ydl_opts = {
+            'format': '140/251/bestaudio[ext=m4a]/bestaudio/best',
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Range': 'bytes=0-',
+                'Accept': '*/*',
+            }
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+            return info.get('url')
+    except Exception as e:
+        logger.warning(f"yt_dlp get_audio_stream_url error for {video_id}: {e}")
+        return None
+
+async def get_audio_stream_url(video_id: str):
+    return await asyncio.to_thread(get_audio_stream_url_sync, video_id)
+
+
 

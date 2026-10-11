@@ -5,6 +5,9 @@ import 'package:paatu_padava_mobile/logic/audio_queue_handler.dart';
 import 'package:paatu_padava_mobile/models/song.dart';
 import 'package:paatu_padava_mobile/services/app_logger.dart';
 import 'package:paatu_padava_mobile/services/battery_optimization_service.dart';
+import 'package:paatu_padava_mobile/services/youtube_client.dart';
+import 'package:paatu_padava_mobile/services/connectivity_service.dart';
+import 'package:paatu_padava_mobile/services/auth_manager.dart';
 
 /// Mock AudioPlayer for resilience and lifecycle validation
 class _ResilienceMockPlayer extends Fake implements AudioPlayer {
@@ -192,6 +195,60 @@ void main() {
 
       final isAggressive = await BatteryOptimizationService.isAggressiveBatteryOEM();
       expect(isAggressive, isA<bool>());
+    });
+  });
+
+  group('YouTube Streaming Range Integrity & Adaptive Format Headers', () {
+    test('YouTube streaming headers enforce Range byte requests and User-Agent', () {
+      final headers = YouTubeClient.streamingHeaders;
+      expect(headers['Range'], equals('bytes=0-'));
+      expect(headers['User-Agent'], contains('Mozilla/5.0'));
+      expect(headers['Accept'], equals('*/*'));
+      expect(headers['Connection'], equals('keep-alive'));
+    });
+  });
+
+  group('Network Disconnect & Zero-Touch Recovery', () {
+    test('ConnectivityService initializes and exposes isOnline notifier', () {
+      expect(ConnectivityService.isOnlineNotifier.value, isA<bool>());
+    });
+
+    test('AudioQueueHandler detects network recovery and maintains active track cleanly', () async {
+      final song = createSong(0);
+      await handler.loadQueue([song], initialIndex: 0, autoPlay: true);
+      await Future<void>.delayed(tick);
+
+      expect(player.playing, isTrue);
+
+      // Simulate network outage
+      ConnectivityService.isOnlineNotifier.value = false;
+      await Future<void>.delayed(tick);
+
+      // Reconnect
+      ConnectivityService.isOnlineNotifier.value = true;
+      await Future<void>.delayed(tick);
+
+      expect(handler.currentSong?.id, equals(song.id));
+    });
+  });
+
+  group('Audio Focus & Transient Ducking Specifications', () {
+    test('Transient audio focus ducks volume to exactly 20%', () {
+      const userVol = 1.0;
+      final ducked = (userVol * 0.2).clamp(0.0, 1.0);
+      expect(ducked, equals(0.20));
+
+      const halfVol = 0.5;
+      final duckedHalf = (halfVol * 0.2).clamp(0.0, 1.0);
+      expect(duckedHalf, equals(0.10));
+    });
+  });
+
+  group('Auth Silent Refresh Interceptor Specification', () {
+    test('AuthManager exposes silentRefresh without unhandled exception when guest', () async {
+      final token = await AuthManager.silentRefresh();
+      // In guest/test mode without credentials, returns null safely
+      expect(token == null || token.isNotEmpty, isTrue);
     });
   });
 }

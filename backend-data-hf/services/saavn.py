@@ -9,9 +9,19 @@ except ImportError:
     from cryptography.hazmat.primitives.ciphers.algorithms import TripleDES
 from cryptography.hazmat.primitives.ciphers import Cipher, modes
 
-from graph import recommendation_graph
 from typing import List, Dict, Any, Optional
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.inmemory import InMemoryBackend
 from fastapi_cache.decorator import cache
+
+# Ensure FastAPICache has at least a fallback in-memory backend if uninitialized
+try:
+    FastAPICache.get_prefix()
+except Exception:
+    try:
+        FastAPICache.init(InMemoryBackend(), prefix="paatu-cache")
+    except Exception:
+        pass
 
 logger = logging.getLogger(__name__)
 

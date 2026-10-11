@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supa;
+import 'package:http/http.dart' as http;
+import '../core/app_config.dart';
 import 'supabase_service.dart';
 import 'sync_manager.dart';
 import 'settings_manager.dart';
@@ -208,6 +210,60 @@ class AuthManager {
     await SupabaseService.signOut();
     tokenNotifier.value = null;
     await loginAsGuest();
+  }
+
+  /// Silently refreshes authentication token via Supabase or backend /api/auth/refresh,
+  /// updates secure Hive cache and tokenNotifier, and returns the fresh token.
+  static Future<String?> silentRefresh() async {
+    // 1. Try Supabase session refresh if configured and active
+    try {
+      if (SupabaseService.client != null) {
+        final res = await SupabaseService.client!.auth.refreshSession();
+        final newToken = res.session?.accessToken;
+        if (newToken != null && newToken.isNotEmpty) {
+          tokenNotifier.value = newToken;
+          if (_box.isOpen) {
+            await _box.put('access_token', newToken);
+          }
+          debugPrint('[AuthManager] Silent token refresh succeeded via Supabase');
+          return newToken;
+        }
+      }
+    } catch (e) {
+      debugPrint('[AuthManager] Supabase silentRefresh notice: $e');
+    }
+
+    // 2. Fallback: Call backend /api/auth/refresh
+    final oldToken = tokenNotifier.value;
+    if (oldToken != null && oldToken.isNotEmpty) {
+      try {
+        final uri = Uri.parse('${AppConfig.backendUrl}/api/auth/refresh');
+        final response = await http.post(
+          uri,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $oldToken',
+          },
+          body: jsonEncode({'refresh_token': oldToken}),
+        ).timeout(const Duration(seconds: 6));
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          final newToken = data['access_token']?.toString();
+          if (newToken != null && newToken.isNotEmpty) {
+            tokenNotifier.value = newToken;
+            if (_box.isOpen) {
+              await _box.put('access_token', newToken);
+            }
+            debugPrint('[AuthManager] Silent token refresh succeeded via backend /auth/refresh');
+            return newToken;
+          }
+        }
+      } catch (e) {
+        debugPrint('[AuthManager] Backend silentRefresh notice: $e');
+      }
+    }
+    return null;
   }
 
   static Future<bool> updateLanguagePreferences(List<String> languages) async {

@@ -22,6 +22,24 @@ class MainActivity: AudioServiceActivity() {
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        // Ensure audio notification channel priority is IMPORTANCE_LOW to avoid alert vibrations
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+            if (notificationManager != null) {
+                val channel = android.app.NotificationChannel(
+                    "com.paatupaadava.music.channel.audio",
+                    "Paatu Padava Playback",
+                    android.app.NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = "Background music playback controls"
+                    setShowBadge(false)
+                    enableVibration(false)
+                    enableLights(false)
+                }
+                notificationManager.createNotificationChannel(channel)
+            }
+        }
+
         // Battery optimization & manufacturer detection channel
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, BATTERY_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -36,6 +54,9 @@ class MainActivity: AudioServiceActivity() {
                         true
                     }
                     result.success(isIgnoring)
+                }
+                "detachForeground" -> {
+                    result.success(true)
                 }
                 "openBatteryOptimizationSettings" -> {
                     try {

@@ -232,6 +232,9 @@ async def lifespan(app: FastAPI):
         print("[SUCCESS] FastAPICache initialized!")
     except Exception as e:
         print(f"[ERROR] Redis Cache initialization failed: {e}")
+        from fastapi_cache.backends.inmemory import InMemoryBackend
+        FastAPICache.init(InMemoryBackend(), prefix="paatu-cache")
+        print("[FALLBACK] FastAPICache initialized with InMemoryBackend!")
     
     # 3. Populate Autocomplete Trie (curated regional artists + database history)
     await populate_artist_trie()

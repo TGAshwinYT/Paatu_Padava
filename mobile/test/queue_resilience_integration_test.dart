@@ -313,7 +313,7 @@ void main() {
       expect(queueHandler.currentSong?.id, equals('song_2'));
     });
 
-    test('7. Adding to queue operates as stack (LIFO next priority) tagged as user-enqueued', () async {
+    test('7. Adding to queue operates as FIFO queue (user queue priority) tagged as user-enqueued', () async {
       final songs = [
         makeSong(id: 'active_0', title: 'Active Playing', streamUrl: 'https://stream.example.com/0.mp3'),
         makeSong(id: 'playlist_1', title: 'Playlist Song 1', streamUrl: 'https://stream.example.com/1.mp3'),
@@ -329,29 +329,29 @@ void main() {
       await queueHandler.addToQueue(userTrackA);
       await Future<void>.delayed(tick);
 
-      // User queues track B (pushed onto stack ahead of track A)
+      // User queues track B (appended to user queue behind track A)
       final userTrackB = makeSong(id: 'user_B', title: 'User Track B', streamUrl: 'https://stream.example.com/b.mp3');
       await queueHandler.addToQueue(userTrackB);
       await Future<void>.delayed(tick);
 
-      // Queue order must be: [active_0, user_B, user_A, playlist_1]
+      // Queue order must be FIFO: [active_0, user_A, user_B, playlist_1]
       expect(queueHandler.queue[0].id, equals('active_0'));
-      expect(queueHandler.queue[1].id, equals('user_B'));
+      expect(queueHandler.queue[1].id, equals('user_A'));
       expect(queueHandler.queue[1].isUserEnqueued, isTrue);
-      expect(queueHandler.queue[2].id, equals('user_A'));
+      expect(queueHandler.queue[2].id, equals('user_B'));
       expect(queueHandler.queue[2].isUserEnqueued, isTrue);
       expect(queueHandler.queue[3].id, equals('playlist_1'));
       expect(queueHandler.queue[3].isUserEnqueued, isFalse);
-
-      // Skipping next plays user_B
-      await queueHandler.skipToNext();
-      await Future<void>.delayed(tick);
-      expect(queueHandler.currentSong?.id, equals('user_B'));
 
       // Skipping next plays user_A
       await queueHandler.skipToNext();
       await Future<void>.delayed(tick);
       expect(queueHandler.currentSong?.id, equals('user_A'));
+
+      // Skipping next plays user_B
+      await queueHandler.skipToNext();
+      await Future<void>.delayed(tick);
+      expect(queueHandler.currentSong?.id, equals('user_B'));
     });
 
     test('8. Auto-suggestions append to queue end, and clearUserQueue removes stack tracks', () async {

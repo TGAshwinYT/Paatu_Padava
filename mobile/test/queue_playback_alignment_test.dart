@@ -19,7 +19,10 @@ class _MockPlayer extends Fake implements AudioPlayer {
   final Duration _dur = const Duration(minutes: 3);
   AudioSource? _audioSource;
   int? _sourceIndex;
+  LoopMode _loopMode = LoopMode.off;
 
+  @override LoopMode get loopMode => _loopMode;
+  @override Future<void> setLoopMode(LoopMode mode) async => _loopMode = mode;
   @override Stream<int?> get currentIndexStream => _indexCtrl.stream;
   @override Stream<PlayerState> get playerStateStream => _stateCtrl.stream;
   @override Stream<SequenceState?> get sequenceStateStream => _seqCtrl.stream;
@@ -209,6 +212,76 @@ void main() {
       await handler.insertNext(newSong);
       await Future<void>.delayed(tick);
       assertNotifiersInSync('After insertNext');
+    });
+
+    test('Shuffle toggles maintain queue reference parity and restore original playlist sequence', () async {
+      final songs = List.generate(10, (i) => song(i));
+      await handler.loadQueue(songs, initialIndex: 4, autoPlay: false);
+      await Future<void>.delayed(tick);
+
+      // 1. Initial State: playing song index 4 ("q_4")
+      expect(handler.currentIndex, equals(4));
+      expect(handler.currentSong?.id, equals('q_4'));
+      expect(handler.queue[handler.currentIndex].id, equals(handler.currentSong?.id));
+      expect(handler.isShuffleEnabled, isFalse);
+
+      // 2. Enable Shuffle: Current song MUST stay pinned at index 0 without interruption
+      await handler.setShuffleEnabled(true);
+      await Future<void>.delayed(tick);
+
+      expect(handler.isShuffleEnabled, isTrue);
+      expect(handler.currentIndex, equals(0), reason: 'Current song should be at index 0 in shuffled view');
+      expect(handler.currentSong?.id, equals('q_4'), reason: 'Current song must not change when enabling shuffle');
+      expect(handler.queue[handler.currentIndex].id, equals(handler.currentSong?.id));
+      expect(handler.queue.length, equals(10));
+      expect(handler.shuffleIndices.first, equals(4));
+
+      // Verify all raw songs are represented in shuffleIndices
+      expect(handler.shuffleIndices.toSet().length, equals(10));
+
+      // 3. Skip to next track in shuffle mode
+      await handler.skipToNext();
+      await Future<void>.delayed(tick);
+
+      expect(handler.currentIndex, equals(1));
+      final nextShuffledSongId = handler.currentSong?.id;
+      expect(nextShuffledSongId, isNotNull);
+      expect(nextShuffledSongId, isNot(equals('q_4')));
+      expect(handler.queue[handler.currentIndex].id, equals(handler.currentSong?.id));
+
+      // Skip again
+      await handler.skipToNext();
+      await Future<void>.delayed(tick);
+      expect(handler.currentIndex, equals(2));
+      final thirdShuffledSong = handler.currentSong;
+      expect(handler.queue[handler.currentIndex].id, equals(thirdShuffledSong?.id));
+
+      // 4. Disable Shuffle: Current track must be mapped back to its original raw index in _rawQueue
+      await handler.setShuffleEnabled(false);
+      await Future<void>.delayed(tick);
+
+      expect(handler.isShuffleEnabled, isFalse);
+      expect(handler.currentSong?.id, equals(thirdShuffledSong?.id),
+          reason: 'Disabling shuffle must keep the active song unchanged');
+      expect(handler.queue[handler.currentIndex].id, equals(thirdShuffledSong?.id));
+
+      // Verify the restored queue is the original 0..9 sequence
+      for (int i = 0; i < 10; i++) {
+        expect(handler.queue[i].id, equals('q_$i'), reason: 'Original playlist order must be restored');
+      }
+
+      final rawIndex = int.parse(thirdShuffledSong!.id.replaceAll('q_', ''));
+      expect(handler.currentIndex, equals(rawIndex),
+          reason: 'Current index must match the song raw index in the original queue');
+
+      // 5. Subsequent skip follows sequential original order
+      if (handler.hasNext) {
+        await handler.skipToNext();
+        await Future<void>.delayed(tick);
+        expect(handler.currentIndex, equals(rawIndex + 1));
+        expect(handler.currentSong?.id, equals('q_${rawIndex + 1}'));
+        expect(handler.queue[handler.currentIndex].id, equals(handler.currentSong?.id));
+      }
     });
   });
 }

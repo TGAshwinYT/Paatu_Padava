@@ -17,6 +17,17 @@ if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 from mcp.server.mcpserver import MCPServer
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.inmemory import InMemoryBackend
+
+# Ensure FastAPICache is initialized for standalone MCP execution
+try:
+    FastAPICache.get_prefix()
+except Exception:
+    try:
+        FastAPICache.init(InMemoryBackend(), prefix="paatu-mcp-cache")
+    except Exception:
+        pass
 
 # Import core Paatu Padava services
 from services.saavn import search_saavn

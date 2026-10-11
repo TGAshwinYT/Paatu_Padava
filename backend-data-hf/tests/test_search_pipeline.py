@@ -101,6 +101,45 @@ class TestSearchPipelineAndTrust(unittest.IsolatedAsyncioTestCase):
         user = await _resolve_user_from_token(None, mock_db)
         self.assertIsNone(user)
 
+    def test_trie_unicode_nfc_normalization(self):
+        """Verify Trie normalizes Unicode to NFC so decomposed/composed strings match."""
+        import unicodedata
+        from trie import Trie
+
+        trie = Trie()
+        # Decomposed Tamil string (NFD)
+        tamil_word_nfd = unicodedata.normalize("NFD", "மீசைய முறுக்கு")
+        trie.insert(tamil_word_nfd, {"title": "Meesaya Murukku", "type": "song"})
+
+        # Search using canonical NFC representation
+        tamil_query_nfc = unicodedata.normalize("NFC", "மீசைய")
+        results = trie.search_prefix(tamil_query_nfc)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["title"], "Meesaya Murukku")
+
+        # Mixed script test
+        trie.insert("A.R. Rahman - ரோஜா", {"title": "Roja", "type": "song"})
+        mixed_results = trie.search_prefix("a.r. rahman - ரோ")
+        self.assertEqual(len(mixed_results), 1)
+        self.assertEqual(mixed_results[0]["title"], "Roja")
+
+    async def test_auth_refresh_token_generation(self):
+        """Verify auth token refresh parses expired token and creates fresh JWT."""
+        from auth_utils import create_access_token, SECRET_KEY, ALGORITHM
+        from datetime import timedelta
+
+        # Create expired token (negative delta)
+        expired_token = create_access_token(data={"sub": "listener@paatupaadava.com"}, expires_delta=timedelta(seconds=-60))
+        
+        # jose.jwt decode with verify_exp=False allows recovering subject
+        payload = jwt.decode(expired_token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_exp": False})
+        self.assertEqual(payload.get("sub"), "listener@paatupaadava.com")
+
+        # Generate fresh token
+        refreshed_token = create_access_token(data={"sub": payload.get("sub")})
+        fresh_payload = jwt.decode(refreshed_token, SECRET_KEY, algorithms=[ALGORITHM])
+        self.assertEqual(fresh_payload.get("sub"), "listener@paatupaadava.com")
+
 
 if __name__ == "__main__":
     unittest.main()

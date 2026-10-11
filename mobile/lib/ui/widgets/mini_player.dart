@@ -14,6 +14,10 @@ class MiniPlayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!isAudioHandlerInitialized) {
+      return const SizedBox.shrink();
+    }
+
     return ValueListenableBuilder<Song?>(
       valueListenable: audioHandler.currentSongNotifier,
       builder: (context, song, _) {

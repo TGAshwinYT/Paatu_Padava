@@ -22,6 +22,7 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
+          cache: 'gradle'
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -117,7 +118,26 @@ jobs:
 
           echo "Building APK with Git commit: $SHORT_SHA ($BUILD_TIME)..."
 
-          flutter build apk --release -t lib/main.dart --android-skip-build-dependency-validation --dart-define=SUPABASE_URL="$CLEAN_URL" --dart-define=SUPABASE_ANON_KEY="$CLEAN_KEY" --dart-define=GIT_COMMIT="$SHORT_SHA" --dart-define=BUILD_TIME="$BUILD_TIME"
+          MAX_RETRIES=3
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i of $MAX_RETRIES: Building release APK..."
+            if flutter build apk --release -t lib/main.dart --android-skip-build-dependency-validation \
+                --dart-define=SUPABASE_URL="$CLEAN_URL" \
+                --dart-define=SUPABASE_ANON_KEY="$CLEAN_KEY" \
+                --dart-define=GIT_COMMIT="$SHORT_SHA" \
+                --dart-define=BUILD_TIME="$BUILD_TIME"; then
+              echo "✅ APK built successfully on attempt $i!"
+              break
+            else
+              if [ "$i" -lt "$MAX_RETRIES" ]; then
+                echo "⚠️ Build attempt $i failed (likely transient network/CDN timeout). Retrying in 10s..."
+                sleep 10
+              else
+                echo "❌ Build failed after $MAX_RETRIES attempts."
+                exit 1
+              fi
+            fi
+          done
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

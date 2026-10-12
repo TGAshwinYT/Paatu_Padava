@@ -15,7 +15,7 @@ import 'app_logger.dart';
 class HistoryManager {
   static const String boxName = 'history_box';
   static const String pendingBoxName = 'pending_history_box';
-  static const int maxHistoryLimit = 200;
+  static const int maxHistoryLimit = 100;
 
   /// Reactive notifiers for UI binding
   static final ValueNotifier<List<HistoryEntry>> historyEntriesNotifier = ValueNotifier<List<HistoryEntry>>([]);
@@ -40,7 +40,6 @@ class HistoryManager {
   /// Internal reload and cache synchronization
   static void _refreshList() {
     final List<HistoryEntry> entries = [];
-    int fallbackIndex = 0;
     for (final key in _box.keys) {
       final data = _box.get(key);
       if (data != null && data is Map) {
@@ -86,8 +85,8 @@ class HistoryManager {
   /// 1. Checks if a [HistoryEntry] with `entry.track.id == track.id` exists within the last 24 hours.
   /// 2. If present, removes the prior entry.
   /// 3. Inserts the new [HistoryEntry(track: track, playedAt: DateTime.now())] at index 0.
-  /// 4. Enforces a 200-item ceiling using LRU eviction.
-  /// 5. Persists to Hive and synchronizes with cloud services.
+  /// 4. Enforces a 100-item ceiling using LRU eviction.
+  /// 5. Persists to Hive (preserving play_count and timestamps) and synchronizes with cloud services.
   static Future<void> addToHistory(TrackEntity track) async {
     try {
       final now = DateTime.now();
@@ -99,13 +98,16 @@ class HistoryManager {
 
       if (existingIndex != -1) {
         currentList.removeAt(existingIndex);
+      } else {
+        // Also remove older entries of same track to avoid duplicates
+        currentList.removeWhere((e) => e.track.id == track.id);
       }
 
       // Insert new entry at index 0 (hoisting)
       final newEntry = HistoryEntry(track: track, playedAt: now);
       currentList.insert(0, newEntry);
 
-      // LRU eviction: Cap at 200 items max
+      // LRU eviction: Cap at 100 items max
       if (currentList.length > maxHistoryLimit) {
         currentList.removeRange(maxHistoryLimit, currentList.length);
       }
@@ -113,28 +115,51 @@ class HistoryManager {
       historyEntriesNotifier.value = List.unmodifiable(currentList);
       historyNotifier.value = List.unmodifiable(currentList.map((e) => e.track.toSong()).toList());
 
-      // Persist to local Hive storage: clean out existing key for same track
-      final keysToDelete = <dynamic>[];
-      for (final key in _box.keys) {
-        final data = _box.get(key);
-        if (data != null && data is Map) {
-          final id = data['track']?['id'] ?? data['id'];
-          if (id == track.id) {
-            keysToDelete.add(key);
+      // Persist to local Hive storage if open
+      if (Hive.isBoxOpen(boxName)) {
+        int playCount = 1;
+        List<int> timestamps = [];
+        final keysToDelete = <dynamic>[];
+        for (final key in _box.keys) {
+          final data = _box.get(key);
+          if (data != null && data is Map) {
+            final id = data['track']?['id'] ?? data['id'];
+            if (id == track.id) {
+              keysToDelete.add(key);
+              if (data['play_count'] is num) {
+                playCount = (data['play_count'] as num).toInt() + 1;
+              } else {
+                playCount = 2;
+              }
+              if (data['timestamps'] is List) {
+                timestamps = (data['timestamps'] as List).map((e) => (e as num).toInt()).toList();
+              }
+            }
           }
         }
-      }
-      for (final k in keysToDelete) {
-        await _box.delete(k);
-      }
+        for (final k in keysToDelete) {
+          await _box.delete(k);
+        }
 
-      while (_box.length >= maxHistoryLimit) {
-        final oldestKey = _box.keys.first;
-        await _box.delete(oldestKey);
-      }
+        while (_box.length >= maxHistoryLimit) {
+          final oldestKey = _box.keys.first;
+          await _box.delete(oldestKey);
+        }
 
-      final key = 'h_${now.millisecondsSinceEpoch}_${track.id}';
-      await _box.put(key, newEntry.toJson());
+        final nowMs = now.millisecondsSinceEpoch;
+        timestamps.add(nowMs);
+
+        final entryMap = Map<String, dynamic>.from(track.toMap());
+        entryMap['id'] = track.id;
+        entryMap['track'] = track.toMap();
+        entryMap['playedAt'] = now.toIso8601String();
+        entryMap['played_at'] = nowMs;
+        entryMap['play_count'] = playCount;
+        entryMap['timestamps'] = timestamps;
+
+        final key = 'h_${nowMs}_${track.id}';
+        await _box.put(key, entryMap);
+      }
 
       // Coordinated Cloud Persistence Path
       final song = track.toSong();
@@ -253,8 +278,14 @@ class HistoryManager {
               ? (DateTime.tryParse(playedAtStr)?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch)
               : DateTime.now().millisecondsSinceEpoch;
           final key = 'h_${epochMs}_$songId';
-          final entry = HistoryEntry(track: track, playedAt: DateTime.fromMillisecondsSinceEpoch(epochMs));
-          await _box.put(key, entry.toJson());
+          final entryMap = Map<String, dynamic>.from(track.toMap());
+          entryMap['id'] = songId;
+          entryMap['track'] = track.toMap();
+          entryMap['playedAt'] = DateTime.fromMillisecondsSinceEpoch(epochMs).toIso8601String();
+          entryMap['played_at'] = epochMs;
+          entryMap['play_count'] = 1;
+          entryMap['timestamps'] = [epochMs];
+          await _box.put(key, entryMap);
           localIds.add(songId);
         }
       }

@@ -1,52 +1,57 @@
 import axios from 'axios';
+import api from './api';
 import type { SpotifyTrack } from '../types';
 
-// ─────────────────────────────────────────────
-// Spotify App Credentials (Client Credentials flow – no user login required)
-// Set these in .env.local:
-//   VITE_SPOTIFY_CLIENT_ID=your_client_id
-//   VITE_SPOTIFY_CLIENT_SECRET=your_client_secret
-// ─────────────────────────────────────────────
-const CLIENT_ID     = import.meta.env.VITE_SPOTIFY_CLIENT_ID     as string | undefined;
-const CLIENT_SECRET = import.meta.env.VITE_SPOTIFY_CLIENT_SECRET as string | undefined;
+interface RawSpotifyArtist {
+  id: string;
+  name: string;
+}
+
+interface RawSpotifyImage {
+  url: string;
+  width?: number;
+  height?: number;
+}
+
+interface RawSpotifyItem {
+  id: string;
+  name: string;
+  duration_ms: number;
+  explicit?: boolean;
+  artists?: RawSpotifyArtist[];
+  album?: {
+    id?: string;
+    name?: string;
+    images?: RawSpotifyImage[];
+  };
+  preview_url?: string | null;
+}
 
 // In-memory token cache
 let cachedToken: string | null = null;
 let tokenExpiresAt: number = 0;
 
 /**
- * Fetches (or returns cached) a Spotify Client Credentials access token.
- * Returns null if credentials are not configured.
+ * Fetches (or returns cached) a Spotify Client Credentials access token
+ * securely proxied through the Paatu Padava FastAPI backend.
+ * Never exposes SPOTIFY_CLIENT_SECRET to the client browser.
  */
 export const getSpotifyToken = async (): Promise<string | null> => {
-  if (!CLIENT_ID || !CLIENT_SECRET) {
-    console.warn('[SpotifyAPI] VITE_SPOTIFY_CLIENT_ID / VITE_SPOTIFY_CLIENT_SECRET not set.');
-    return null;
-  }
-
   // Return cached token if still valid (with 30s buffer)
   if (cachedToken && Date.now() < tokenExpiresAt - 30_000) {
     return cachedToken;
   }
 
   try {
-    const credentials = btoa(`${CLIENT_ID}:${CLIENT_SECRET}`);
-    const response = await axios.post(
-      'https://accounts.spotify.com/api/token',
-      new URLSearchParams({ grant_type: 'client_credentials' }),
-      {
-        headers: {
-          Authorization: `Basic ${credentials}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-      }
-    );
-
-    cachedToken = response.data.access_token;
-    tokenExpiresAt = Date.now() + response.data.expires_in * 1000;
-    return cachedToken;
+    const response = await api.get<{ access_token: string; expires_in: number }>('/api/music/spotify-token');
+    if (response.data?.access_token) {
+      cachedToken = response.data.access_token;
+      tokenExpiresAt = Date.now() + (response.data.expires_in || 3600) * 1000;
+      return cachedToken;
+    }
+    return null;
   } catch (error) {
-    console.error('[SpotifyAPI] Token fetch failed:', error);
+    console.warn('[SpotifyAPI] Backend token proxy unavailable:', error);
     cachedToken = null;
     tokenExpiresAt = 0;
     return null;
@@ -77,7 +82,7 @@ export const searchSpotify = async (
       },
     });
 
-    const items: any[] = response.data?.tracks?.items ?? [];
+    const items: RawSpotifyItem[] = response.data?.tracks?.items ?? [];
 
     return items
       .filter(Boolean)
@@ -86,23 +91,24 @@ export const searchSpotify = async (
         name:        item.name,
         durationMs:  item.duration_ms,
         explicit:    item.explicit ?? false,
-        artists:     (item.artists ?? []).map((a: any) => ({
+        artists:     (item.artists ?? []).map((a) => ({
           id:   a.id,
           name: a.name,
         })),
         album: {
           id:     item.album?.id ?? '',
           name:   item.album?.name ?? '',
-          images: (item.album?.images ?? []).map((img: any) => ({
+          images: (item.album?.images ?? []).map((img) => ({
             url:    img.url,
-            width:  img.width,
-            height: img.height,
+            width:  img.width ?? 0,
+            height: img.height ?? 0,
           })),
         },
         previewUrl: item.preview_url ?? null,
       }));
-  } catch (error: any) {
-    const errorMsg = error.response?.data?.error?.message || error.response?.data || error.message;
+  } catch (error: unknown) {
+    const axiosErr = error as { response?: { data?: { error?: { message?: string } } }; message?: string };
+    const errorMsg = axiosErr.response?.data?.error?.message || axiosErr.message;
     console.error('[SpotifyAPI] Search failed:', errorMsg);
     throw new Error(errorMsg || 'Spotify search failed');
   }

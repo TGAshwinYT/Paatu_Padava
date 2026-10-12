@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { searchSpotify } from '../services/spotifyApi';
+import { searchSpotify, getSpotifyToken } from '../services/spotifyApi';
 import type { SpotifyTrack } from '../types';
 import useDebounce from './useDebounce';
 
@@ -23,14 +23,20 @@ const useSpotifySearch = (query: string): UseSpotifySearchResult => {
   const debouncedQuery = useDebounce(query, 500);
 
   useEffect(() => {
-    // Check credentials exist
-    const clientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
-    const clientSecret = import.meta.env.VITE_SPOTIFY_CLIENT_SECRET;
-    if (!clientId || !clientSecret) {
-      setHasCredentials(false);
-      return;
-    }
-    setHasCredentials(true);
+    let active = true;
+    getSpotifyToken().then((token) => {
+      if (active) {
+        setHasCredentials(Boolean(token));
+      }
+    }).catch(() => {
+      if (active) {
+        setHasCredentials(false);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -50,9 +56,10 @@ const useSpotifySearch = (query: string): UseSpotifySearchResult => {
         if (!cancelled) {
           setResults(tracks);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (!cancelled) {
-          setError(err?.message || 'Spotify search failed.');
+          const errObj = err as { message?: string };
+          setError(errObj?.message || 'Spotify search failed.');
           setResults([]);
         }
       } finally {

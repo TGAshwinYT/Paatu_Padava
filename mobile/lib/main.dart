@@ -38,12 +38,12 @@ Future<void> main() async {
       return true; // Mark as handled to prevent abrupt native teardown where possible
     };
 
-    // Set system UI overlay style (dark status bar)
+    // Set system UI overlay style (dark status bar and harmonized navigation bar)
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
         statusBarIconBrightness: Brightness.light,
-        systemNavigationBarColor: Color(0xFF0F172A),
+        systemNavigationBarColor: Color(0xFF0D0B14),
         systemNavigationBarIconBrightness: Brightness.light,
       ),
     );

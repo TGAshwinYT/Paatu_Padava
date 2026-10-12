@@ -22,6 +22,7 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=True)
     google_id = Column(String, unique=True, index=True, nullable=True)
+    supabase_uid = Column(String(100), unique=True, index=True, nullable=True)
     avatar_url = Column(String, nullable=True)
     is_verified = Column(Boolean, default=False)
     verification_token = Column(String, nullable=True)
@@ -30,11 +31,11 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     followed_artists = relationship("Artist", secondary=user_followed_artists, back_populates="followers")
-    history = relationship("ListeningHistory", back_populates="user")
-    liked_songs = relationship("LikedSong", back_populates="user")
-    search_history = relationship("SearchHistory", back_populates="user")
-    search_click_history = relationship("SearchClickHistory", back_populates="user")
-    playlists = relationship("Playlist", back_populates="user")
+    history = relationship("ListeningHistory", back_populates="user", cascade="all, delete-orphan")
+    liked_songs = relationship("LikedSong", back_populates="user", cascade="all, delete-orphan")
+    search_history = relationship("SearchHistory", back_populates="user", cascade="all, delete-orphan")
+    search_click_history = relationship("SearchClickHistory", back_populates="user", cascade="all, delete-orphan")
+    playlists = relationship("Playlist", back_populates="user", cascade="all, delete-orphan")
 
 class Artist(Base):
     __tablename__ = "artists"

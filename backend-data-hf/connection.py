@@ -53,14 +53,29 @@ import ssl
 # Supabase / PostgreSQL Setup
 # Convert postgresql:// to postgresql+asyncpg:// for SQLAlchemy async
 DB_URL_RAW = os.getenv("DATABASE_URL", "")
-print(f"[*] RAW DATABASE_URL from .env: {repr(DB_URL_RAW)}")
-DB_URL = DB_URL_RAW.replace("postgresql://", "postgresql+asyncpg://")
-print(f"[*] Processed DB_URL for SQLAlchemy: {repr(DB_URL)}")
+if DB_URL_RAW:
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(DB_URL_RAW)
+        safe_host = parsed.hostname or "unknown"
+        safe_db = parsed.path.lstrip('/') or "unknown"
+        print(f"[*] PostgreSQL target configured: host={safe_host}, database={safe_db}")
+    except Exception:
+        print("[*] PostgreSQL DATABASE_URL is configured.")
+else:
+    print("[ERROR] DATABASE_URL is missing or empty!")
 
-# 1. Create a custom SSL context that ignores verification (for MSYS/Local dev issues)
+DB_URL = DB_URL_RAW.replace("postgresql://", "postgresql+asyncpg://")
+
+# 1. Create a custom SSL context
+ssl_verify = os.getenv("DB_SSL_VERIFY", "false").lower() in ("true", "1")
 ctx = ssl.create_default_context()
-ctx.check_hostname = False
-ctx.verify_mode = ssl.CERT_NONE
+if ssl_verify:
+    ctx.check_hostname = True
+    ctx.verify_mode = ssl.CERT_REQUIRED
+else:
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
 
 # 2. Inject the custom context into the engine
 if not DB_URL or DB_URL == "postgresql+asyncpg://":

@@ -85,6 +85,43 @@ class TestSecurityAudits(unittest.TestCase):
         for lang in invalid_sample:
             self.assertNotIn(lang, SUPPORTED_LANGUAGES)
 
+    def test_ssrf_safe_audio_url_validator(self):
+        """Test that only authorized audio CDNs are permitted and SSRF targets are blocked."""
+        from routers.music import is_safe_audio_url
+
+        # Legitimate music CDN URLs
+        self.assertTrue(is_safe_audio_url("https://aac.saavncdn.com/123/master.mp3"))
+        self.assertTrue(is_safe_audio_url("https://snoidcdnems01.cdns.jio.com/audio/sample.mp4"))
+        self.assertTrue(is_safe_audio_url("https://rr1---sn-4g5ednls.googlevideo.com/videoplayback?id=123"))
+
+        # Block internal / private / cloud metadata SSRF vectors
+        self.assertFalse(is_safe_audio_url("http://127.0.0.1:6379/"))
+        self.assertFalse(is_safe_audio_url("http://localhost:8000/api/users/export"))
+        self.assertFalse(is_safe_audio_url("http://169.254.169.254/latest/meta-data/"))
+        self.assertFalse(is_safe_audio_url("http://10.0.0.5/admin"))
+        self.assertFalse(is_safe_audio_url("http://192.168.1.1/"))
+
+        # Block unauthorized domains and non-http schemes
+        self.assertFalse(is_safe_audio_url("https://evil-attacker.com/payload.mp3"))
+        self.assertFalse(is_safe_audio_url("file:///etc/passwd"))
+        self.assertFalse(is_safe_audio_url(""))
+        self.assertFalse(is_safe_audio_url(None))
+
+    def test_client_ip_forwarded_header(self):
+        """Test that get_client_ip properly extracts leftmost client IP from X-Forwarded-For."""
+        from limiter_config import get_client_ip
+        from unittest.mock import MagicMock
+
+        # Proxy with X-Forwarded-For
+        req_proxied = MagicMock()
+        req_proxied.headers = {"x-forwarded-for": "203.0.113.195, 70.41.3.18, 150.172.238.178"}
+        self.assertEqual(get_client_ip(req_proxied), "203.0.113.195")
+
+        # Direct connection with X-Real-IP
+        req_real = MagicMock()
+        req_real.headers = {"x-real-ip": "198.51.100.42"}
+        self.assertEqual(get_client_ip(req_real), "198.51.100.42")
+
 
 if __name__ == "__main__":
     unittest.main()

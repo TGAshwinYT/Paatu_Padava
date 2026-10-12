@@ -53,25 +53,55 @@ class GoogleLoginRequest(BaseModel):
 @router.post("/google")
 async def google_login(request: GoogleLoginRequest, db: AsyncSession = Depends(get_db)):
     """
-    Verifies a Google ID token. If the user doesn't exist, creates an account.
-    Returns access token and user info.
+    Verifies a Google ID token or OAuth token with Google's tokeninfo API.
+    Validates audience (aud) and email verification before authenticating user.
     """
     import httpx
-    
+    import os
+
+    google_client_id = os.getenv("GOOGLE_CLIENT_ID")
+    user_info = None
+
     try:
-        # Verify the token with Google
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                "https://www.googleapis.com/oauth2/v3/userinfo",
-                headers={"Authorization": f"Bearer {request.credential}"}
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # 1. First attempt verification via Google ID token endpoint
+            id_resp = await client.get(
+                f"https://oauth2.googleapis.com/tokeninfo?id_token={request.credential}"
             )
-            
-        if response.status_code != 200:
+            if id_resp.status_code == 200:
+                user_info = id_resp.json()
+            else:
+                # 2. Fall back to userinfo endpoint with access token
+                userinfo_resp = await client.get(
+                    "https://www.googleapis.com/oauth2/v3/userinfo",
+                    headers={"Authorization": f"Bearer {request.credential}"}
+                )
+                if userinfo_resp.status_code == 200:
+                    user_info = userinfo_resp.json()
+                    # Also query tokeninfo with access token to verify aud/azp
+                    access_tokeninfo_resp = await client.get(
+                        f"https://oauth2.googleapis.com/tokeninfo?access_token={request.credential}"
+                    )
+                    if access_tokeninfo_resp.status_code == 200:
+                        ati_data = access_tokeninfo_resp.json()
+                        user_info["aud"] = ati_data.get("aud") or ati_data.get("azp")
+
+        if not user_info:
             raise HTTPException(status_code=400, detail="Invalid Google token")
-            
-        user_info = response.json()
+
+        # 3. Verify audience if GOOGLE_CLIENT_ID is configured
+        if google_client_id:
+            token_aud = user_info.get("aud") or user_info.get("azp")
+            allowed_ids = [cid.strip() for cid in google_client_id.split(",") if cid.strip()]
+            if token_aud and not any(token_aud == cid or token_aud.startswith(cid) for cid in allowed_ids):
+                raise HTTPException(status_code=401, detail="Google token was not issued for this application")
+
+        # 4. Verify email is verified by Google
+        email_verified = user_info.get("email_verified")
+        if email_verified is False or str(email_verified).lower() == "false":
+            raise HTTPException(status_code=403, detail="Google account email is not verified")
+
         email = user_info.get("email")
-        
         if not email:
             raise HTTPException(status_code=400, detail="Google token didn't contain an email")
             
@@ -333,7 +363,7 @@ async def register(
         # 3. Send mock verification email
         send_verification_email(new_user.email, verification_token)
 
-        return {"message": "User registered successfully. Please check your terminal for the verification link.", "user_id": str(new_user.id)}
+        return {"message": "User registered successfully. Please check your email for the verification link.", "user_id": str(new_user.id)}
     except HTTPException as he:
         raise he
     except Exception as e:
@@ -512,11 +542,22 @@ async def refresh_token(
         )
 
     try:
+        from datetime import datetime, timezone
         # Decode token payload without enforcing expiration check so recently expired tokens can refresh
         payload = jwt.decode(raw_token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_exp": False})
         email: str = payload.get("sub")
         if not email:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
+
+        # Enforce max 48-hour renewal window from expiration timestamp
+        exp = payload.get("exp")
+        if exp is not None:
+            now_ts = datetime.now(timezone.utc).timestamp()
+            if now_ts - float(exp) > 172800:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Refresh token expired beyond renewal grace period (48h). Please log in again."
+                )
     except JWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authorization token")
 

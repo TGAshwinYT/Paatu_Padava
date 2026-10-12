@@ -28,9 +28,9 @@ const SpotifyResultsPanel: React.FC<SpotifyResultsPanelProps> = ({ query, onPlay
         <AlertCircle size={40} className="text-amber-500 opacity-70" />
         <p className="text-lg font-bold text-white/60">Spotify credentials not configured</p>
         <p className="text-sm text-center max-w-xs">
-          Add <code className="bg-white/10 px-1.5 py-0.5 rounded text-amber-400">VITE_SPOTIFY_CLIENT_ID</code> and{' '}
-          <code className="bg-white/10 px-1.5 py-0.5 rounded text-amber-400">VITE_SPOTIFY_CLIENT_SECRET</code>{' '}
-          to your <code className="bg-white/10 px-1.5 py-0.5 rounded">.env.local</code> file.
+          Spotify search requires backend integration. Ensure <code className="bg-white/10 px-1.5 py-0.5 rounded text-amber-400">SPOTIFY_CLIENT_ID</code> and{' '}
+          <code className="bg-white/10 px-1.5 py-0.5 rounded text-amber-400">SPOTIFY_CLIENT_SECRET</code>{' '}
+          are configured in your backend environment.
         </p>
       </div>
     );

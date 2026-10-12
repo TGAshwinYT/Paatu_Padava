@@ -178,9 +178,10 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                 ),
               );
             }
-
-        return Scaffold(
-          backgroundColor: const Color(0xFF0A0E1A),
+            return PopScope(
+              canPop: true,
+              child: Scaffold(
+                backgroundColor: const Color(0xFF0A0E1A),
           body: FluidMeshGradient(
             imageUrl: song.coverUrl,
             child: SafeArea(
@@ -434,10 +435,11 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                   ],
                 ),
               ),
-            ),
+                ),
+              ),
+            );
+          },
         );
-      },
-    );
       },
     );
   }

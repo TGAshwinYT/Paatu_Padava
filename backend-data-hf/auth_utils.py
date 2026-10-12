@@ -1,6 +1,6 @@
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import os
 from typing import Optional
 from dotenv import load_dotenv
@@ -27,7 +27,7 @@ def get_password_hash(password: str):
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -36,7 +36,7 @@ def create_reset_password_token(email: str):
     Creates a JWT token for password reset that expires in 15 minutes.
     """
     to_encode = {"sub": email, "type": "reset_password"}
-    expire = datetime.utcnow() + timedelta(minutes=15)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=15)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -69,12 +69,15 @@ async def _resolve_user_from_token(
 
     sub = None
     email = None
+    is_supabase = False
+    email_confirmed = False
 
     # 1. Attempt verification with application SECRET_KEY
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email = payload.get("sub") or payload.get("email")
         sub = payload.get("id") or (payload.get("sub") if "@" not in str(payload.get("sub", "")) else None)
+        email_confirmed = True
     except JWTError:
         # 2. Attempt cryptographic verification with SUPABASE_JWT_SECRET
         if SUPABASE_JWT_SECRET:
@@ -87,14 +90,16 @@ async def _resolve_user_from_token(
                 )
                 email = payload.get("email")
                 sub = payload.get("sub")
+                is_supabase = True
+                email_confirmed = bool(payload.get("email_confirmed_at"))
             except JWTError:
                 return None
         else:
             return None
 
-    # 3. Lookup user by verified Email
-    if email:
-        result = await db.execute(select(User).where(User.email == email))
+    # 3. If Supabase token, check matching by supabase_uid first
+    if is_supabase and sub:
+        result = await db.execute(select(User).where(User.supabase_uid == str(sub)))
         user = result.scalars().first()
         if user:
             return user
@@ -110,17 +115,47 @@ async def _resolve_user_from_token(
         except Exception:
             pass
 
-    # 5. Auto-provision in public.users if cryptographically verified via Supabase
-    if email or sub:
+    # 5. Lookup user by verified Email
+    if email:
+        result = await db.execute(select(User).where(User.email == email))
+        user = result.scalars().first()
+        if user:
+            # If Supabase login, only link account if Supabase email is confirmed
+            if is_supabase:
+                if not email_confirmed:
+                    # Prevent account takeover via unconfirmed Supabase email
+                    return None
+                if not user.supabase_uid and sub:
+                    user.supabase_uid = str(sub)
+                    try:
+                        await db.commit()
+                        await db.refresh(user)
+                    except Exception:
+                        await db.rollback()
+            return user
+
+    # 6. Auto-provision in public.users if cryptographically verified via Supabase
+    if is_supabase and (email or sub):
         try:
-            user_id = uuid.UUID(sub) if sub else uuid.uuid4()
+            user_id = uuid.UUID(sub) if (sub and len(sub) == 36) else uuid.uuid4()
             user_email = email or f"user_{str(user_id)[:8]}@supabase.user"
             username = email.split('@')[0] if email else f"user_{str(user_id)[:8]}"
+
+            base_username = username
+            idx = 1
+            while True:
+                u_check = await db.execute(select(User).where(User.username == username))
+                if not u_check.scalars().first():
+                    break
+                username = f"{base_username}{idx}"
+                idx += 1
+
             new_user = User(
                 id=user_id,
                 email=user_email,
                 username=username,
-                is_verified=True,
+                supabase_uid=str(sub) if sub else None,
+                is_verified=email_confirmed,
             )
             db.add(new_user)
             await db.commit()

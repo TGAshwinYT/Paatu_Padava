@@ -4,6 +4,9 @@ import asyncio
 import httpx
 import re
 import urllib.parse
+import ipaddress
+import socket
+import logging
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 from services import youtube
@@ -15,13 +18,69 @@ from connection import get_db, get_redis
 from upstash_redis.asyncio import Redis as UpstashRedis
 import models
 from auth_utils import get_current_user, get_current_user_optional
+from limiter_config import limiter
 import json
 from utils.location import get_search_languages, resolve_user_languages, get_user_search_languages
 from graph import recommendation_graph
 from .history import get_user_top_artists
 
+logger = logging.getLogger(__name__)
+
+ALLOWED_STREAM_DOMAINS = (
+    "saavncdn.com",
+    "googlevideo.com",
+    "youtube.com",
+    "jio.com",
+    "akamaized.net"
+)
+
+
+def is_safe_audio_url(url_str: str) -> bool:
+    """
+    Validates that a URL is a legitimate, public audio streaming CDN
+    and blocks private/loopback/cloud metadata SSRF vectors.
+    """
+    if not url_str or not isinstance(url_str, str):
+        return False
+    try:
+        parsed = urllib.parse.urlparse(url_str)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        host = (parsed.hostname or "").lower().strip()
+        if not host:
+            return False
+
+        # Must end with or equal one of the whitelisted music CDN domains
+        if not any(host == d or host.endswith("." + d) for d in ALLOWED_STREAM_DOMAINS):
+            return False
+
+        # Ensure hostname is not an internal/private IP or resolving to one
+        try:
+            ip_obj = ipaddress.ip_address(host)
+            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_multicast or ip_obj.is_reserved:
+                return False
+        except ValueError:
+            # Domain name: verify DNS resolution does not pivot to private/internal CIDRs
+            try:
+                for addrinfo in socket.getaddrinfo(host, None):
+                    resolved_ip = addrinfo[4][0]
+                    ip_obj = ipaddress.ip_address(resolved_ip)
+                    if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_multicast or ip_obj.is_reserved:
+                        return False
+            except socket.gaierror:
+                # Hostname cannot currently be resolved (e.g. offline test environment).
+                # The domain suffix whitelist check above ensures it belongs to authorized CDNs.
+                pass
+            except Exception:
+                return False
+
+        return True
+    except Exception:
+        return False
+
 
 router = APIRouter(prefix="/api/music", tags=["music"])
+
 
 
 class ShuffleOrderRequest(BaseModel):
@@ -274,21 +333,27 @@ async def get_stream_url(
 
 
 @router.get("/download")
+@limiter.limit("10/minute")
 async def download_track(
+    request: Request,
     song_id: Optional[str] = Query(None),
     title: Optional[str] = Query(None),
     artist: Optional[str] = Query(None),
     url: Optional[str] = Query(None),
+    user: Optional[models.User] = Depends(get_current_user_optional),
     redis_client: UpstashRedis = Depends(get_redis)
 ):
     """
     Streams the highest quality 320kbps MP3 audio file with Content-Disposition attachment header
     for pristine offline downloading.
+    Strictly validates audio stream URLs against public CDNs to prevent SSRF.
     """
     audio_url = None
 
     # 1. If explicit audio URL passed (e.g. already playing or resolved)
     if url and url.startswith("http"):
+        if not is_safe_audio_url(url):
+            raise HTTPException(status_code=400, detail="Invalid or untrusted download audio URL")
         audio_url = url
     elif song_id or title:
         # 2. Resolve via resolve_single_stream to find 320kbps JioSaavn stream
@@ -324,10 +389,13 @@ async def download_track(
                         return info.get('url')
                 audio_url = await asyncio.to_thread(_extract)
         except Exception as yt_err:
-            print(f"yt_dlp download extract error: {yt_err}")
+            logger.warning("yt_dlp download extract error: %s", yt_err)
 
     if not audio_url:
         raise HTTPException(status_code=404, detail="Could not resolve audio stream for downloading")
+
+    if not is_safe_audio_url(audio_url):
+        raise HTTPException(status_code=403, detail="Resolved audio stream domain is not authorized for download")
 
     # Clean filename
     clean_title = re.sub(r'[^\w\s-]', '', title or 'Track').strip() or 'Track'
@@ -335,17 +403,42 @@ async def download_track(
     filename = f"{clean_title} - {clean_artist}.mp3"
     quoted_filename = urllib.parse.quote(filename)
 
-    client = httpx.AsyncClient(follow_redirects=True, timeout=120.0)
+    client = httpx.AsyncClient(follow_redirects=False, timeout=60.0)
     try:
-        req = client.build_request("GET", audio_url)
-        resp = await client.send(req, stream=True)
-        if resp.status_code != 200:
+        # Secure redirect resolution (max 3 hops, each hop verified against domain whitelist)
+        current_target_url = audio_url
+        hops = 0
+        resp = None
+
+        while hops < 3:
+            req = client.build_request("GET", current_target_url)
+            resp = await client.send(req, stream=True)
+            if resp.status_code in (301, 302, 303, 307, 308):
+                loc = resp.headers.get("Location")
+                await resp.aclose()
+                if not loc or not is_safe_audio_url(loc):
+                    await client.aclose()
+                    raise HTTPException(status_code=400, detail="Disallowed redirect from upstream audio source")
+                current_target_url = loc
+                hops += 1
+                continue
+            break
+
+        if not resp or resp.status_code != 200:
+            if resp:
+                await resp.aclose()
             await client.aclose()
             raise HTTPException(status_code=502, detail="Failed to fetch upstream audio stream")
 
+        MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024  # 50MB ceiling
+
         async def stream_generator():
+            bytes_streamed = 0
             try:
                 async for chunk in resp.aiter_bytes(chunk_size=65536):
+                    bytes_streamed += len(chunk)
+                    if bytes_streamed > MAX_DOWNLOAD_BYTES:
+                        break
                     yield chunk
             finally:
                 await resp.aclose()
@@ -366,11 +459,12 @@ async def download_track(
             headers=headers,
             media_type="audio/mpeg"
         )
+    except HTTPException:
+        raise
     except Exception as e:
         await client.aclose()
-        print(f"Download stream error: {e}")
+        logger.error("Download stream error: %s", e)
         raise HTTPException(status_code=500, detail=f"Download streaming error: {str(e)}")
-
 
 
 @router.post("/prefetch-stream")
@@ -392,40 +486,133 @@ async def prefetch_streams_endpoint(
 
 @router.post("/player-state")
 async def save_player_state(
+    request: Request,
     body: PlayerStateRequest,
-    user: models.User = Depends(get_current_user_optional),
+    user: Optional[models.User] = Depends(get_current_user_optional),
     redis_client: UpstashRedis = Depends(get_redis)
 ):
     """
     Saves active player state & queue in Redis for seamless session restore.
+    Guest sessions are isolated using X-Session-ID header with a 2-hour TTL.
     """
-    uid = str(user.id) if user else "guest_session"
-    key = f"player_state:{uid}"
+    if user:
+        key = f"player_state:user:{user.id}"
+        ttl = 86400 * 7
+    else:
+        session_id = request.headers.get("x-session-id")
+        if not session_id:
+            return {"saved": False, "detail": "X-Session-ID header required for guest sessions"}
+        clean_session = re.sub(r'[^a-zA-Z0-9_-]', '', session_id)[:64]
+        if not clean_session:
+            return {"saved": False}
+        key = f"player_state:guest:{clean_session}"
+        ttl = 7200  # 2 hours
+
     try:
-        await redis_client.setex(key, 86400 * 7, json.dumps(body.dict()))
+        await redis_client.setex(key, ttl, json.dumps(body.dict()))
         return {"saved": True}
     except Exception as e:
-        print(f"Redis save player state error: {e}")
+        logger.warning("Redis save player state error: %s", e)
         return {"saved": False}
 
 
 @router.get("/player-state")
 async def get_player_state(
-    user: models.User = Depends(get_current_user_optional),
+    request: Request,
+    user: Optional[models.User] = Depends(get_current_user_optional),
     redis_client: UpstashRedis = Depends(get_redis)
 ):
     """
     Retrieves the last saved active player state from Redis.
+    Guest sessions look up player_state:guest:{x-session-id}.
     """
-    uid = str(user.id) if user else "guest_session"
-    key = f"player_state:{uid}"
+    if user:
+        key = f"player_state:user:{user.id}"
+    else:
+        session_id = request.headers.get("x-session-id")
+        if not session_id:
+            return {"current_track": None, "queue": []}
+        clean_session = re.sub(r'[^a-zA-Z0-9_-]', '', session_id)[:64]
+        if not clean_session:
+            return {"current_track": None, "queue": []}
+        key = f"player_state:guest:{clean_session}"
+
     try:
         cached = await redis_client.get(key)
         if cached:
             return json.loads(cached)
     except Exception as e:
-        print(f"Redis get player state error: {e}")
+        logger.warning("Redis get player state error: %s", e)
     return {"current_track": None, "queue": []}
+
+
+@router.get("/spotify-token")
+@router.post("/spotify-token")
+@limiter.limit("20/minute")
+async def get_spotify_token(
+    request: Request,
+    redis_client: UpstashRedis = Depends(get_redis)
+):
+    """
+    Secure server-side proxy for Spotify Client Credentials token.
+    Prevents leaking SPOTIFY_CLIENT_SECRET to client browsers.
+    """
+    import base64
+    import os
+
+    client_id = os.getenv("SPOTIFY_CLIENT_ID")
+    client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        raise HTTPException(
+            status_code=503,
+            detail="Spotify client credentials are not configured on the backend server."
+        )
+
+    cache_key = "spotify:client_credentials_token"
+    if redis_client:
+        try:
+            cached_token = await redis_client.get(cache_key)
+            if cached_token:
+                return json.loads(cached_token)
+        except Exception as err:
+            logger.warning("[SPOTIFY] Redis get failed: %s", err)
+
+    credentials = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                "https://accounts.spotify.com/api/token",
+                data={"grant_type": "client_credentials"},
+                headers={
+                    "Authorization": f"Basic {credentials}",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+            )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail="Failed to obtain Spotify access token from upstream.")
+        token_data = resp.json()
+        access_token = token_data.get("access_token")
+        expires_in = token_data.get("expires_in", 3600)
+
+        result_payload = {
+            "access_token": access_token,
+            "token_type": "Bearer",
+            "expires_in": expires_in,
+        }
+
+        if redis_client and access_token:
+            try:
+                # Buffer expiration by 60 seconds
+                await redis_client.setex(cache_key, max(60, expires_in - 60), json.dumps(result_payload))
+            except Exception as err:
+                logger.warning("[SPOTIFY] Redis set failed: %s", err)
+
+        return result_payload
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Spotify token retrieval error: {str(e)}")
+
 
 
 @router.get("/home")

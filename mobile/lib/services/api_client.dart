@@ -366,32 +366,7 @@ class ApiClient {
     final cleanedArtist = song.artist.replaceAll(RegExp(r'\b(topic|vevo)\b', caseSensitive: false), '').trim();
     String? fallbackPlainLyrics;
 
-    // 1. Stage 1: Try Backend LRCLIB synced endpoint
-    try {
-      final uri = Uri.parse('$baseUrl/api/music/lyrics').replace(queryParameters: {
-        'title': cleanedTitle,
-        'artist': cleanedArtist,
-        if (song.duration > 0) 'duration': song.duration.toString(),
-        if (song.language != null && song.language!.isNotEmpty) 'language': song.language!,
-      });
-
-      final response = await UnifiedHttpClient.get(uri, headers: _headers, timeout: const Duration(seconds: 5));
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final synced = data['syncedLyrics']?.toString();
-        if (synced != null && synced.trim().isNotEmpty && isSyncedLrc(synced)) {
-          return Song.sanitize(synced.trim());
-        }
-        final plain = (data['plainLyrics'] ?? data['lyrics'])?.toString();
-        if (plain != null && plain.trim().isNotEmpty) {
-          fallbackPlainLyrics ??= Song.sanitize(plain.trim());
-        }
-      }
-    } catch (e) {
-      debugPrint('[ApiClient] Backend lyrics stage notice: $e');
-    }
-
-    // 2. Stage 2: Try Direct LRCLIB Public API for Synced LRC
+    // 1. Stage 1: Primary Direct LRCLIB Public API for Synced LRC (0 API Keys, Instant)
     try {
       final uri = Uri.parse('https://lrclib.net/api/get').replace(queryParameters: {
         'track_name': cleanedTitle,
@@ -399,7 +374,10 @@ class ApiClient {
         if (song.duration > 0) 'duration': song.duration.toString(),
       });
 
-      final response = await UnifiedHttpClient.get(uri, timeout: const Duration(seconds: 5));
+      final response = await http.get(uri, headers: {
+        'User-Agent': 'PaatuPadava/2.1.0 (https://github.com/TGAshwinYT/Paatu_Padava)',
+      }).timeout(const Duration(seconds: 4));
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final synced = data['syncedLyrics']?.toString();
@@ -407,15 +385,43 @@ class ApiClient {
           return Song.sanitize(synced.trim());
         }
         final plain = data['plainLyrics']?.toString();
-        if (plain != null && plain.trim().isNotEmpty && fallbackPlainLyrics == null) {
-          fallbackPlainLyrics = Song.sanitize(plain.trim());
+        if (plain != null && plain.trim().isNotEmpty) {
+          fallbackPlainLyrics ??= Song.sanitize(plain.trim());
         }
       }
     } catch (e) {
-      debugPrint('[ApiClient] Direct LRCLIB stage notice: $e');
+      debugPrint('[ApiClient] Stage 1 Direct LRCLIB notice: $e');
     }
 
-    // 3. Stage 3: Try Direct JioSaavn Regional Lyrics API
+    // 1.5. Stage 1.5: Direct LRCLIB Fuzzy Search fallback
+    if (fallbackPlainLyrics == null) {
+      try {
+        final searchUri = Uri.parse('https://lrclib.net/api/search').replace(queryParameters: {
+          'q': '$cleanedTitle $cleanedArtist'.trim(),
+        });
+        final searchRes = await http.get(searchUri, headers: {
+          'User-Agent': 'PaatuPadava/2.1.0 (https://github.com/TGAshwinYT/Paatu_Padava)',
+        }).timeout(const Duration(seconds: 3));
+
+        if (searchRes.statusCode == 200) {
+          final List list = json.decode(searchRes.body);
+          for (final item in list) {
+            final synced = item['syncedLyrics']?.toString();
+            if (synced != null && synced.trim().isNotEmpty && isSyncedLrc(synced)) {
+              return Song.sanitize(synced.trim());
+            }
+            final plain = item['plainLyrics']?.toString();
+            if (plain != null && plain.trim().isNotEmpty) {
+              fallbackPlainLyrics ??= Song.sanitize(plain.trim());
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('[ApiClient] Stage 1.5 LRCLIB search notice: $e');
+      }
+    }
+
+    // 2. Stage 2: Try Direct JioSaavn Regional Lyrics API
     if (song.source != 'youtube' && song.id.isNotEmpty && song.id.length != 11) {
       try {
         final uri = Uri.parse('https://www.jiosaavn.com/api.php').replace(queryParameters: {
@@ -427,7 +433,7 @@ class ApiClient {
           'lyrics_id': song.id,
         });
 
-        final response = await UnifiedHttpClient.get(uri, timeout: const Duration(seconds: 5));
+        final response = await UnifiedHttpClient.get(uri, timeout: const Duration(seconds: 4));
         if (response.statusCode == 200) {
           final data = json.decode(response.body);
           final lyrics = data['lyrics']?.toString();
@@ -445,6 +451,31 @@ class ApiClient {
       }
     }
 
+    // 3. Stage 3: Backend Fallback (non-blocking 2.5s timeout)
+    try {
+      final uri = Uri.parse('$baseUrl/api/music/lyrics').replace(queryParameters: {
+        'title': cleanedTitle,
+        'artist': cleanedArtist,
+        if (song.duration > 0) 'duration': song.duration.toString(),
+        if (song.language != null && song.language!.isNotEmpty) 'language': song.language!,
+      });
+
+      final response = await UnifiedHttpClient.get(uri, headers: _headers, timeout: const Duration(milliseconds: 2500));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final synced = data['syncedLyrics']?.toString();
+        if (synced != null && synced.trim().isNotEmpty && isSyncedLrc(synced)) {
+          return Song.sanitize(synced.trim());
+        }
+        final plain = (data['plainLyrics'] ?? data['lyrics'])?.toString();
+        if (plain != null && plain.trim().isNotEmpty) {
+          fallbackPlainLyrics ??= Song.sanitize(plain.trim());
+        }
+      }
+    } catch (e) {
+      debugPrint('[ApiClient] Backend lyrics stage notice: $e');
+    }
+
     // 4. Return best fallback plain lyrics or embedded plain lyrics
     return fallbackPlainLyrics ?? song.lyrics;
   }
@@ -455,7 +486,9 @@ class ApiClient {
       final uri = Uri.parse('https://lrclib.net/api/search').replace(queryParameters: {
         'q': query.trim(),
       });
-      final response = await http.get(uri).timeout(const Duration(seconds: 5));
+      final response = await http.get(uri, headers: {
+        'User-Agent': 'PaatuPadava/2.1.0 (https://github.com/TGAshwinYT/Paatu_Padava)',
+      }).timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) {
         final List data = json.decode(response.body);
         return data.whereType<Map<String, dynamic>>().toList();

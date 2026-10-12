@@ -8,6 +8,7 @@ import '../models/song.dart';
 import 'saavn_client.dart';
 import 'youtube_client.dart';
 import 'app_logger.dart';
+import '../core/app_config.dart';
 
 /// Single Spotify Track representation extracted from Spotify Web API or Embed
 class SpotifyTrackItem {
@@ -228,6 +229,85 @@ class SpotifyImportService {
     return null;
   }
 
+  static String? _cachedAccessToken;
+  static DateTime? _tokenExpiresAt;
+
+  /// Retrieves a valid Spotify Access Token.
+  /// Tier 1: In-memory cached token (refreshed 5 min before expiry).
+  /// Tier 2: Official Spotify OAuth2 Client Credentials flow via direct Accounts API.
+  /// Tier 3: Paatu Padava FastAPI backend token proxy (/api/music/spotify-token).
+  /// Tier 4: Anonymous Spotify Web Player token.
+  static Future<String?> getSpotifyAccessToken() async {
+    // Return cached token if still valid (with 5 minute safety buffer)
+    if (_cachedAccessToken != null &&
+        _tokenExpiresAt != null &&
+        DateTime.now().isBefore(_tokenExpiresAt!)) {
+      return _cachedAccessToken;
+    }
+
+    // ── Tier 1: Secure Backend Token Proxy (Zero Client Secrets) ──
+    try {
+      final backendUri = Uri.parse('${AppConfig.backendUrl}/api/music/spotify-token');
+      final response = await http.get(backendUri, headers: _webHeaders).timeout(const Duration(seconds: 6));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body) as Map<String, dynamic>;
+        final token = data['access_token']?.toString();
+        final int expiresIn = data['expires_in'] is int ? data['expires_in'] as int : 3600;
+        if (token != null && token.isNotEmpty) {
+          _cachedAccessToken = token;
+          _tokenExpiresAt = DateTime.now().add(Duration(seconds: (expiresIn - 300).clamp(60, 3600)));
+          AppLogger.log('SpotifyImportService', 'Acquired Spotify token via secure backend proxy');
+          return token;
+        }
+      }
+    } catch (e) {
+      AppLogger.log('SpotifyImportService', 'Backend token proxy notice: $e');
+    }
+
+    // ── Tier 2: Direct Client Credentials (Only if passed via build-time --dart-define) ──
+    final clientId = AppConfig.spotifyClientId.trim();
+    final clientSecret = AppConfig.spotifyClientSecret.trim();
+
+    if (clientId.isNotEmpty && clientSecret.isNotEmpty) {
+      try {
+        final basicAuth = base64Encode(utf8.encode('$clientId:$clientSecret'));
+        final response = await http.post(
+          Uri.parse('https://accounts.spotify.com/api/token'),
+          headers: {
+            'Authorization': 'Basic $basicAuth',
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: {'grant_type': 'client_credentials'},
+        ).timeout(const Duration(seconds: 8));
+
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body) as Map<String, dynamic>;
+          final token = data['access_token']?.toString();
+          final int expiresIn = data['expires_in'] is int ? data['expires_in'] as int : 3600;
+
+          if (token != null && token.isNotEmpty) {
+            _cachedAccessToken = token;
+            final validSeconds = (expiresIn - 300).clamp(60, 3600);
+            _tokenExpiresAt = DateTime.now().add(Duration(seconds: validSeconds));
+            return token;
+          }
+        }
+      } catch (e) {
+        AppLogger.log('SpotifyImportService', 'Direct token exchange failed: $e');
+      }
+    }
+
+    // ── Tier 3: Anonymous Web Player Fallback ──
+    final anon = await _getAnonymousSpotifyToken();
+    if (anon != null) {
+      _cachedAccessToken = anon;
+      _tokenExpiresAt = DateTime.now().add(const Duration(minutes: 20));
+      return anon;
+    }
+
+    return null;
+  }
+
   /// Fetches an anonymous temporary Web Player Bearer Token from Spotify
   static Future<String?> _getAnonymousSpotifyToken() async {
     try {
@@ -256,7 +336,7 @@ class SpotifyImportService {
 
     // ── Tier A: Official Spotify Web API with Recursive Offset Pagination ──
     try {
-      final token = await _getAnonymousSpotifyToken();
+      final token = await getSpotifyAccessToken();
       if (token != null && token.isNotEmpty) {
         final authHeaders = {
           ..._webHeaders,
@@ -431,6 +511,37 @@ class SpotifyImportService {
           if (entity != null) {
             final title = Song.sanitize(entity['title'] ?? entity['name'] ?? 'Spotify Playlist');
             final coverUrl = entity['coverArt']?['sources']?[0]?['url']?.toString();
+
+            // Handle single track
+            if (type == 'track') {
+              final rawTitle = entity['title']?.toString() ?? entity['name']?.toString() ?? '';
+              final artists = entity['artists'] as List<dynamic>? ?? [];
+              final artistName = artists.isNotEmpty ? artists[0]['name']?.toString() ?? '' : (entity['subtitle']?.toString() ?? 'Artist');
+              final durationSec = parseDurationSeconds(entity['duration']);
+              String? trackCover = coverUrl;
+              if (trackCover == null) {
+                final images = entity['visualIdentity']?['image'] as List<dynamic>? ?? [];
+                if (images.isNotEmpty) {
+                  trackCover = images.last['url']?.toString();
+                }
+              }
+
+              if (rawTitle.isNotEmpty) {
+                final item = SpotifyTrackItem(
+                  title: Song.sanitize(rawTitle),
+                  artist: Song.sanitize(artistName),
+                  durationSeconds: durationSec,
+                  coverUrl: trackCover,
+                );
+                return SpotifyPlaylistMetadata(
+                  title: item.title,
+                  coverUrl: trackCover,
+                  totalTracks: 1,
+                  tracks: [item],
+                );
+              }
+            }
+
             final trackList = entity['trackList'] as List<dynamic>? ?? [];
 
             final List<SpotifyTrackItem> tracks = [];

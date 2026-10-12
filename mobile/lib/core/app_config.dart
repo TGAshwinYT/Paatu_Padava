@@ -10,12 +10,24 @@ class AppConfig {
   /// App Version String
   static const String appVersion = String.fromEnvironment(
     'APP_VERSION',
-    defaultValue: '2.1.0',
+    defaultValue: '2.2.0',
   );
 
   /// Enable Google Sign In
   static const bool enableGoogleSignIn = bool.fromEnvironment(
     'ENABLE_GOOGLE_SIGN_IN',
     defaultValue: false,
+  );
+
+  /// Optional build-time override for Spotify Client ID (empty by default for security)
+  static const String spotifyClientId = String.fromEnvironment(
+    'SPOTIFY_CLIENT_ID',
+    defaultValue: '',
+  );
+
+  /// Optional build-time override for Spotify Client Secret (empty by default for security)
+  static const String spotifyClientSecret = String.fromEnvironment(
+    'SPOTIFY_CLIENT_SECRET',
+    defaultValue: '',
   );
 }

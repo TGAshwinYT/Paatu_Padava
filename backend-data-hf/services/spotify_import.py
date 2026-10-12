@@ -1,3 +1,6 @@
+import os
+import base64
+import time
 import re
 import json
 import asyncio
@@ -14,6 +17,48 @@ SPOTIFY_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.5",
 }
+
+_cached_spotify_token: Optional[str] = None
+_token_expiry_timestamp: float = 0.0
+
+
+async def get_spotify_access_token() -> Optional[str]:
+    """
+    Retrieves a cached or fresh Spotify access token using Client Credentials.
+    """
+    global _cached_spotify_token, _token_expiry_timestamp
+    if _cached_spotify_token and time.time() < (_token_expiry_timestamp - 300):
+        return _cached_spotify_token
+
+    client_id = os.getenv("SPOTIFY_CLIENT_ID", "").strip()
+    client_secret = os.getenv("SPOTIFY_CLIENT_SECRET", "").strip()
+    if not client_id or not client_secret or client_id.startswith("REPLACE_"):
+        return None
+
+    try:
+        credentials = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.post(
+                "https://accounts.spotify.com/api/token",
+                data={"grant_type": "client_credentials"},
+                headers={
+                    "Authorization": f"Basic {credentials}",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                token = data.get("access_token")
+                expires_in = data.get("expires_in", 3600)
+                if token:
+                    _cached_spotify_token = token
+                    _token_expiry_timestamp = time.time() + expires_in
+                    logger.info("[SpotifyImport] Acquired official Spotify access token")
+                    return token
+    except Exception as e:
+        logger.warning(f"[SpotifyImport] Failed to obtain official access token: {e}")
+
+    return None
 
 
 async def parse_spotify_playlist_id(input_str: str) -> Optional[str]:
@@ -60,9 +105,10 @@ async def parse_spotify_playlist_id(input_str: str) -> Optional[str]:
 async def fetch_spotify_playlist_metadata(playlist_id: str, raw_url: Optional[str] = None) -> Dict[str, Any]:
     """
     Extracts full playlist/album details and tracklist using a multi-tier fallback architecture:
-    1. Jina Reader Markdown extractor (100% resilient against Spotify client SPA changes)
-    2. Public Spotify oEmbed API
-    3. Direct Embed HTML scraper
+    1. Official Spotify Web API (if credentials configured & app owner has premium)
+    2. Direct Embed HTML scraper (__NEXT_DATA__ - 100% resilient & instant)
+    3. Public Spotify oEmbed API (for metadata)
+    4. Jina Reader Markdown extractor (deep fallback)
     """
     entity_type = "album" if raw_url and "album" in raw_url.lower() else "playlist"
     canonical_url = f"https://open.spotify.com/{entity_type}/{playlist_id}"
@@ -72,62 +118,86 @@ async def fetch_spotify_playlist_metadata(playlist_id: str, raw_url: Optional[st
     cover_url = ""
     extracted_tracks: List[Dict[str, Any]] = []
 
-    # ── Tier 1: Jina Reader Markdown Extractor ─────────────────────────
+    # ── Tier 1: Official Spotify Web API ──────────────────────────────
     try:
-        jina_url = f"https://r.jina.ai/{canonical_url}"
-        async with httpx.AsyncClient(headers={"Accept": "text/plain"}, timeout=14.0) as client:
-            res = await client.get(jina_url)
-            if res.status_code == 200 and res.text:
-                text = res.text
+        token = await get_spotify_access_token()
+        if token:
+            api_headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+            api_url = f"https://api.spotify.com/v1/{entity_type}s/{playlist_id}"
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(api_url, headers=api_headers)
+                if resp.status_code == 200:
+                    api_data = resp.json()
+                    title = api_data.get("name") or title
+                    description = api_data.get("description") or description
+                    images = api_data.get("images") or []
+                    if images:
+                        cover_url = images[0].get("url") or ""
 
-                # 1. Title extraction
-                tm = re.search(r'Title:\s*([^|\n]+)', text)
-                if tm and tm.group(1).strip():
-                    title = tm.group(1).strip()
-                elif "# " in text:
-                    for line in text.splitlines():
-                        if line.startswith("# ") and "main-view" not in line:
-                            title = line.replace("# ", "").strip()
+                    # Paginated tracks extraction
+                    tracks_data = api_data.get("tracks", {})
+                    items = tracks_data.get("items", [])
+                    total_tracks = tracks_data.get("total", len(items))
+
+                    for item in items:
+                        t = item.get("track") if entity_type == "playlist" else item
+                        if not t:
+                            continue
+                        t_name = t.get("name", "").strip()
+                        artists = t.get("artists", [])
+                        t_artist = artists[0].get("name", "").strip() if artists else ""
+                        duration_ms = t.get("duration_ms", 0)
+                        if t_name:
+                            extracted_tracks.append({
+                                "title": t_name,
+                                "artist": t_artist,
+                                "album": t.get("album", {}).get("name", title) if entity_type == "playlist" else title,
+                                "duration": int(duration_ms) // 1000 if duration_ms else 0,
+                                "uri": t.get("uri", "")
+                            })
+
+                    # If remaining pages exist, fetch up to 200 tracks
+                    offset = len(items)
+                    while offset < total_tracks and offset < 200:
+                        page_url = f"https://api.spotify.com/v1/{entity_type}s/{playlist_id}/tracks?offset={offset}&limit=50"
+                        page_resp = await client.get(page_url, headers=api_headers)
+                        if page_resp.status_code != 200:
                             break
+                        page_data = page_resp.json()
+                        page_items = page_data.get("items", [])
+                        if not page_items:
+                            break
+                        for item in page_items:
+                            t = item.get("track") if entity_type == "playlist" else item
+                            if not t:
+                                continue
+                            t_name = t.get("name", "").strip()
+                            artists = t.get("artists", [])
+                            t_artist = artists[0].get("name", "").strip() if artists else ""
+                            duration_ms = t.get("duration_ms", 0)
+                            if t_name:
+                                extracted_tracks.append({
+                                    "title": t_name,
+                                    "artist": t_artist,
+                                    "album": t.get("album", {}).get("name", title) if entity_type == "playlist" else title,
+                                    "duration": int(duration_ms) // 1000 if duration_ms else 0,
+                                    "uri": t.get("uri", "")
+                                })
+                        offset += len(page_items)
 
-                # 2. Cover image extraction
-                cm = re.search(r'!\[.*?\]\((https://i\.scdn\.co/image/[^\)]+)\)', text)
-                if cm:
-                    cover_url = cm.group(1)
-
-                # 3. Track extraction: [Title](.../track/...) followed by [Artist](.../artist/...)
-                track_pattern = re.findall(
-                    r'\[([^\]]+)\]\(https://open\.spotify\.com/track/[^\)]+\)\s*\n\s*\[([^\]]+)\]\(https://open\.spotify\.com/artist/[^\)]+\)',
-                    text
-                )
-                for t_title, t_artist in track_pattern:
-                    t_title_clean = t_title.strip()
-                    t_artist_clean = t_artist.strip()
-                    if t_title_clean and not any(t["title"] == t_title_clean and t["artist"] == t_artist_clean for t in extracted_tracks):
-                        extracted_tracks.append({
-                            "title": t_title_clean,
-                            "artist": t_artist_clean,
-                            "album": title if entity_type == "album" else "",
-                            "duration": 0,
-                            "uri": ""
-                        })
+                    if extracted_tracks:
+                        return {
+                            "spotify_id": playlist_id,
+                            "title": title or "Imported Spotify Playlist",
+                            "description": description or f"Imported Spotify {entity_type.capitalize()} ({len(extracted_tracks)} tracks)",
+                            "cover_url": cover_url,
+                            "total_tracks": len(extracted_tracks),
+                            "tracks": extracted_tracks,
+                        }
     except Exception as e:
-        logger.debug(f"[SpotifyImport] Jina reader fallback triggered: {e}")
+        logger.debug(f"[SpotifyImport] Official Web API notice: {e}")
 
-    # ── Tier 2: Spotify oEmbed API Fallback for Metadata ──────────────
-    if not cover_url or title == "Spotify Playlist":
-        try:
-            oembed_url = f"https://open.spotify.com/oembed?url={canonical_url}"
-            async with httpx.AsyncClient(timeout=8.0) as client:
-                res = await client.get(oembed_url)
-                if res.status_code == 200:
-                    oembed_data = res.json()
-                    title = oembed_data.get("title") or title
-                    cover_url = oembed_data.get("thumbnail_url") or cover_url
-        except Exception as e:
-            logger.debug(f"[SpotifyImport] oEmbed fallback triggered: {e}")
-
-    # ── Tier 3: Direct Embed HTML Scraper Fallback ────────────────────
+    # ── Tier 2: Direct Embed HTML Scraper (__NEXT_DATA__) ────────────
     if not extracted_tracks:
         try:
             embed_url = f"https://open.spotify.com/embed/{entity_type}/{playlist_id}"
@@ -148,7 +218,6 @@ async def fetch_spotify_playlist_metadata(playlist_id: str, raw_url: Optional[st
                         match_init = re.search(r'<script id="initial-state" type="text/plain">(.*?)</script>', response.text, re.DOTALL)
                         if match_init:
                             try:
-                                import base64
                                 raw_text = match_init.group(1).strip()
                                 try:
                                     decoded = base64.b64decode(raw_text).decode('utf-8')
@@ -188,6 +257,62 @@ async def fetch_spotify_playlist_metadata(playlist_id: str, raw_url: Optional[st
                                 })
         except Exception as e:
             logger.debug(f"[SpotifyImport] Embed HTML fallback error: {e}")
+
+    # ── Tier 3: Spotify oEmbed API Fallback for Metadata ──────────────
+    if not cover_url or title == "Spotify Playlist":
+        try:
+            oembed_url = f"https://open.spotify.com/oembed?url={canonical_url}"
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                res = await client.get(oembed_url)
+                if res.status_code == 200:
+                    oembed_data = res.json()
+                    title = oembed_data.get("title") or title
+                    cover_url = oembed_data.get("thumbnail_url") or cover_url
+        except Exception as e:
+            logger.debug(f"[SpotifyImport] oEmbed fallback triggered: {e}")
+
+    # ── Tier 4: Jina Reader Markdown Extractor ─────────────────────────
+    if not extracted_tracks:
+        try:
+            jina_url = f"https://r.jina.ai/{canonical_url}"
+            async with httpx.AsyncClient(headers={"Accept": "text/plain"}, timeout=14.0) as client:
+                res = await client.get(jina_url)
+                if res.status_code == 200 and res.text:
+                    text = res.text
+
+                    # 1. Title extraction
+                    tm = re.search(r'Title:\s*([^|\n]+)', text)
+                    if tm and tm.group(1).strip():
+                        title = tm.group(1).strip()
+                    elif "# " in text:
+                        for line in text.splitlines():
+                            if line.startswith("# ") and "main-view" not in line:
+                                title = line.replace("# ", "").strip()
+                                break
+
+                    # 2. Cover image extraction
+                    cm = re.search(r'!\[.*?\]\((https://i\.scdn\.co/image/[^\)]+)\)', text)
+                    if cm and not cover_url:
+                        cover_url = cm.group(1)
+
+                    # 3. Track extraction
+                    track_pattern = re.findall(
+                        r'\[([^\]]+)\]\(https://open\.spotify\.com/track/[^\)]+\)\s*\n\s*\[([^\]]+)\]\(https://open\.spotify\.com/artist/[^\)]+\)',
+                        text
+                    )
+                    for t_title, t_artist in track_pattern:
+                        t_title_clean = t_title.strip()
+                        t_artist_clean = t_artist.strip()
+                        if t_title_clean and not any(t["title"] == t_title_clean and t["artist"] == t_artist_clean for t in extracted_tracks):
+                            extracted_tracks.append({
+                                "title": t_title_clean,
+                                "artist": t_artist_clean,
+                                "album": title if entity_type == "album" else "",
+                                "duration": 0,
+                                "uri": ""
+                            })
+        except Exception as e:
+            logger.debug(f"[SpotifyImport] Jina reader fallback triggered: {e}")
 
     return {
         "spotify_id": playlist_id,

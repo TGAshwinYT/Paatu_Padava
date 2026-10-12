@@ -16,12 +16,29 @@ import 'services/history_manager.dart';
 import 'services/supabase_service.dart';
 import 'services/cache_manager.dart';
 import 'services/battery_optimization_service.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/screens/main_navigation.dart';
 
 Future<void> main() async {
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
+
+    // 0. Initialize Google Firebase services
+    try {
+      if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS)) {
+        final options = DefaultFirebaseOptions.currentPlatform;
+        if (options.apiKey.isNotEmpty) {
+          await Firebase.initializeApp(options: options);
+        } else {
+          await Firebase.initializeApp();
+        }
+        AppLogger.log('AppInit', 'Firebase successfully connected');
+      }
+    } catch (e, stack) {
+      AppLogger.recordError(e, stack, context: 'Firebase.initializeApp');
+    }
 
     // 1. Initialize persistent disk logger for crash and lifecycle tracing
     await AppLogger.init();

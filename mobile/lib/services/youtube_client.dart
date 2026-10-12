@@ -8,18 +8,22 @@ import 'app_logger.dart';
 import 'artist_sanitizer.dart';
 
 class YouTubeClient {
-  /// Closes any idle YouTube HTTP sockets (kept for backward compatibility with idle managers)
+  static YoutubeExplode? _ytInstance;
+  static YoutubeExplode get _yt => _ytInstance ??= YoutubeExplode();
+
+  /// Closes any idle YouTube HTTP sockets and resets client instance
   static void closeIdleClient() {
-    // Isolated clients manage their own lifecycles, no global sockets to leak
+    _ytInstance?.close();
+    _ytInstance = null;
   }
 
   static String get _baseUrl => AppConfig.backendUrl;
 
   /// High-integrity HTTP headers for Googlevideo CDN streams.
-  /// Enforces byte range requests and modern User-Agent to avoid the 30-second bandwidth throttle.
+  /// Enforces modern User-Agent and keep-alive to avoid connection drops.
   static Map<String, String> get streamingHeaders => const {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Range': 'bytes=0-',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': '*/*',
     'Connection': 'keep-alive',
   };
@@ -40,10 +44,9 @@ class YouTubeClient {
     final clean = query.trim();
     if (clean.isEmpty) return [];
 
-    final yt = YoutubeExplode();
     final List<Song> songs = [];
     try {
-      final searchResults = await yt.search.search(clean).timeout(const Duration(seconds: 10));
+      final searchResults = await _yt.search.search(clean).timeout(const Duration(seconds: 15));
 
       for (final video in searchResults.take(limit)) {
         final rawAuthor = video.author;
@@ -67,8 +70,6 @@ class YouTubeClient {
     } catch (e, stack) {
       AppLogger.recordError(e, stack, context: 'YouTubeClient.search("$clean")');
       return songs;
-    } finally {
-      yt.close();
     }
   }
 
@@ -90,7 +91,6 @@ class YouTubeClient {
     Set<String>? excludedKeys,
   }) async {
     final List<Song> results = [];
-    final yt = YoutubeExplode();
     try {
       String? seedVideoId;
       if (seedSong.source == 'youtube' && seedSong.id.isNotEmpty) {
@@ -114,8 +114,8 @@ class YouTubeClient {
 
         // 1. Radio Graph Walking: Native Related Videos of seed (RDAMVM graph node)
         try {
-          final video = await yt.videos.get(VideoId(seedVideoId)).timeout(const Duration(seconds: 4));
-          final related = await yt.videos.getRelatedVideos(video).timeout(const Duration(seconds: 6));
+          final video = await _yt.videos.get(VideoId(seedVideoId)).timeout(const Duration(seconds: 8));
+          final related = await _yt.videos.getRelatedVideos(video).timeout(const Duration(seconds: 8));
           if (related != null) {
             candidateVideos.addAll(related);
           }
@@ -130,7 +130,7 @@ class YouTubeClient {
               (v) => v.author.endsWith(' - Topic'),
               orElse: () => candidateVideos.first,
             );
-            final deeper = await yt.videos.getRelatedVideos(nextNode).timeout(const Duration(seconds: 4));
+            final deeper = await _yt.videos.getRelatedVideos(nextNode).timeout(const Duration(seconds: 8));
             if (deeper != null) {
               for (final dv in deeper) {
                 if (!candidateVideos.any((cv) => cv.id.value == dv.id.value)) {
@@ -215,8 +215,6 @@ class YouTubeClient {
       }
     } catch (e, st) {
       AppLogger.recordError(e, st, context: 'YouTubeClient.getRadioTracks');
-    } finally {
-      yt.close();
     }
 
     // Fallback: If results are still empty or small, supplement with getRelatedSongs
@@ -236,12 +234,11 @@ class YouTubeClient {
   /// Fetches related YouTube Music autoplay tracks for a seed song
   static Future<List<Song>> getRelatedSongs(Song seedSong, {int limit = 10}) async {
     final List<Song> songs = [];
-    final yt = YoutubeExplode();
     try {
       // 1. If seed song is a YouTube video, attempt native related videos
       if (seedSong.source == 'youtube' && seedSong.id.isNotEmpty) {
-        final video = await yt.videos.get(VideoId(seedSong.id)).timeout(const Duration(seconds: 4));
-        final related = await yt.videos.getRelatedVideos(video).timeout(const Duration(seconds: 5));
+        final video = await _yt.videos.get(VideoId(seedSong.id)).timeout(const Duration(seconds: 8));
+        final related = await _yt.videos.getRelatedVideos(video).timeout(const Duration(seconds: 8));
         if (related != null) {
           for (final relVideo in related.take(limit)) {
             final dur = relVideo.duration?.inSeconds ?? 0;
@@ -263,8 +260,6 @@ class YouTubeClient {
       }
     } catch (e) {
       AppLogger.log('YouTubeClient', 'YouTube related tracks notice: $e');
-    } finally {
-      yt.close();
     }
 
     // 2. Search YouTube for contextual radio mix
@@ -309,9 +304,22 @@ class YouTubeClient {
     }
 
     // ── Tier 1: Client-Side YouTubeExplode Dart ──────────────────────
-    final yt = YoutubeExplode();
     try {
-      final manifest = await yt.videos.streamsClient.getManifest(cleanId).timeout(const Duration(seconds: 8));
+      StreamManifest? manifest;
+      try {
+        // Fast direct manifest extraction (requireWatchPage: false avoids heavy HTML/JS downloads, ~5s instead of ~40s)
+        manifest = await _yt.videos.streamsClient.getManifest(
+          cleanId,
+          requireWatchPage: false,
+        ).timeout(const Duration(seconds: 15));
+      } catch (fastErr) {
+        AppLogger.log('YouTubeClient', 'Fast manifest extraction notice for $cleanId: $fastErr. Falling back to full extraction.');
+        manifest = await _yt.videos.streamsClient.getManifest(
+          cleanId,
+          requireWatchPage: true,
+        ).timeout(const Duration(seconds: 20));
+      }
+
       final audioStreams = manifest.audioOnly;
       if (audioStreams.isNotEmpty) {
         AudioStreamInfo? chosenStream;
@@ -366,8 +374,6 @@ class YouTubeClient {
       }
     } catch (e) {
       AppLogger.log('YouTubeClient', 'Tier 1 client-side stream extractor notice for $cleanId: $e');
-    } finally {
-      yt.close();
     }
 
     // ── Tier 2: Paatu Padava Backend Stream Resolver ──────────────────

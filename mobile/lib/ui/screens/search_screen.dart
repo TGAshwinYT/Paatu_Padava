@@ -13,6 +13,7 @@ import '../../services/search_history_manager.dart';
 import '../../services/settings_manager.dart';
 import '../../services/fuzzy_search_service.dart';
 import '../../services/artist_sanitizer.dart';
+import '../../services/audius_client.dart';
 import '../../services/search_service.dart';
 import '../../data/repositories/song_repository.dart';
 import '../theme/app_theme.dart';
@@ -319,6 +320,11 @@ class _SearchScreenState extends State<SearchScreen> {
         final cleanYt = SongRepository.deduplicateSongs(groupedYt);
         _resultsNotifier.value = SearchResultsState(ytSongs: cleanYt);
         _isSearchingNotifier.value = false;
+      } else if (tab == 'Audius') {
+        final audiusTracks = await AudiusClient.search(clean, limit: 25);
+        if (!mounted || currentRequestId != _searchRequestId) return;
+        _resultsNotifier.value = SearchResultsState(songs: audiusTracks);
+        _isSearchingNotifier.value = false;
       }
 
       if (mounted && currentRequestId == _searchRequestId && _resultsNotifier.value.isEmpty && !_resultsNotifier.value.hasError && correction != null) {
@@ -516,7 +522,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   return ListView(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     scrollDirection: Axis.horizontal,
-                    children: ['All', 'Songs', 'Albums', 'Artists', 'YouTube'].map((tab) {
+                    children: ['All', 'Songs', 'Albums', 'Artists', 'YouTube', 'Audius'].map((tab) {
                       final isSelected = currentTab == tab;
                       return Padding(
                         padding: const EdgeInsets.only(right: 8.0),
@@ -654,6 +660,8 @@ class _SearchScreenState extends State<SearchScreen> {
                       );
                     } else if (currentTab == 'YouTube') {
                       return _buildSongsList(state.ytSongs);
+                    } else if (currentTab == 'Audius') {
+                      return _buildSongsList(state.songs);
                     }
                     return const SizedBox.shrink();
                   },

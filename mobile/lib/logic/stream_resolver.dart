@@ -3,6 +3,7 @@ import '../models/song.dart';
 import '../services/app_logger.dart';
 import '../services/youtube_client.dart';
 import '../services/saavn_client.dart';
+import '../services/audius_client.dart';
 import '../services/artist_sanitizer.dart';
 
 /// Representation of an in-memory cached stream URL with a strict Time-To-Live (TTL).
@@ -119,6 +120,14 @@ class DefaultStreamResolver implements StreamResolver {
   }
 
   Future<String?> _resolveStreamUrlInternal(Song song) async {
+    if (song.source == 'audius') {
+      final audiusUrl = (song.streamUrl != null && song.streamUrl!.isNotEmpty)
+          ? song.streamUrl!
+          : AudiusClient.getStreamUrl(song.id);
+      song.streamUrl = audiusUrl;
+      return audiusUrl;
+    }
+
     if (song.source == 'youtube' || song.id.length == 11) {
       // 1. Direct YouTube stream resolution (User explicitly selected YouTube)
       try {

@@ -1591,7 +1591,6 @@ class AudioQueueHandler {
     final headers = <String, String>{};
     if (song.source == 'youtube' || streamUrl.contains('googlevideo.com') || song.id.length == 11) {
       headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-      headers['Range'] = 'bytes=0-';
       headers['Accept'] = '*/*';
       headers['Connection'] = 'keep-alive';
     }

@@ -72,6 +72,12 @@ class YouTubeClient {
     }
   }
 
+  /// Fetches YouTube Music trending highlights for the specified language.
+  static Future<List<Song>> getTrendingTracks({String language = 'Tamil', int limit = 15}) async {
+    final query = '$language trending music songs';
+    return search(query, limit: limit);
+  }
+
   /// Walks the native YouTube Radio graph (RDAMVM$videoId) and applies Audio-First Master Filtering:
   /// - Topic channel prioritization (- Topic, VEVO, official release metadata)
   /// - Excludes live recordings and fan covers

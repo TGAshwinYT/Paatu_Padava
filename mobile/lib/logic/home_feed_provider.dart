@@ -242,7 +242,12 @@ class HomeFeedProvider extends ChangeNotifier {
           (unifiedFeed['madeForYou'] is List || unifiedFeed['trending'] is List)) {
         final madeForYou = _decodeSongList(unifiedFeed['madeForYou']);
         final trending = _decodeSongList(unifiedFeed['trendingMerged'] ?? unifiedFeed['trending']);
-        final youtubeTrending = _decodeSongList(unifiedFeed['youtubeTrending']);
+        var youtubeTrending = _decodeSongList(unifiedFeed['youtubeTrending']);
+        if (youtubeTrending.isEmpty) {
+          try {
+            youtubeTrending = await YouTubeClient.getTrendingTracks(language: lang, limit: 15);
+          } catch (_) {}
+        }
         final newReleases = _decodeSongList(unifiedFeed['newReleases']);
         final popularArtists = (unifiedFeed['popularArtists'] as List<dynamic>?)
                 ?.map((e) => Map<String, dynamic>.from(e as Map))
@@ -276,7 +281,7 @@ class HomeFeedProvider extends ChangeNotifier {
         SongRepository.getNewReleases(language: lang),
         SongRepository.getPopularArtists(language: lang),
         SaavnClient.searchAlbums('$lang Hit Albums', limit: 12),
-        YouTubeClient.search('$lang trending audio', limit: 15),
+        YouTubeClient.getTrendingTracks(language: lang, limit: 15),
       ]);
 
       final trendingMerged = results[0] as List<Song>;

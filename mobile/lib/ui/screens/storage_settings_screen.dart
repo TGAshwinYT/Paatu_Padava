@@ -131,7 +131,7 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
           _isLoading
               ? const Center(child: CircularProgressIndicator(color: Color(0xFF6366F1)))
               : ListView(
-                  padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 100),
+                  padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 110),
                   children: [
                     _buildOverviewCard(),
                     const SizedBox(height: 24),

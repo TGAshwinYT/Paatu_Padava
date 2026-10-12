@@ -356,7 +356,7 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                   else
                     // Songs List
                     SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 100),
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 110),
                       sliver: SliverList(
                         delegate: SliverChildBuilderDelegate(
                           (context, index) {

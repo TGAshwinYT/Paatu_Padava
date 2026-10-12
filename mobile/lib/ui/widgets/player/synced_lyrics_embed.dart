@@ -50,13 +50,31 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
     });
   }
 
+  int _findActiveLineIndex(Duration effectivePosition) {
+    if (_lines.isEmpty) return 0;
+    final effectiveMs = effectivePosition.inMilliseconds;
+    int low = 0;
+    int high = _lines.length - 1;
+    int idx = 0;
+
+    while (low <= high) {
+      final mid = (low + high) >> 1;
+      if (_lines[mid].timestamp.inMilliseconds <= effectiveMs) {
+        idx = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    return idx;
+  }
+
   void _onOffsetChanged() {
     if (mounted && _isLrc && _lines.isNotEmpty) {
       final pos = audioHandler.player.position;
       final manualOffsetMs = audioHandler.lyricsOffsetMsNotifier.value;
       final effectivePosition = pos + Duration(milliseconds: manualOffsetMs);
-      int idx = _lines.lastIndexWhere((l) => l.timestamp <= effectivePosition);
-      if (idx == -1) idx = 0;
+      final idx = _findActiveLineIndex(effectivePosition);
       if (idx != _activeIndex) {
         setState(() => _activeIndex = idx);
         _scrollToActive(idx);
@@ -114,26 +132,26 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
 
     parsed.sort((a, b) => a.timestamp.compareTo(b.timestamp));
 
-    // Automatic duration-scaling multiplier: stretches/compresses timestamps when 0.95 <= R <= 1.05
+    // Proportional auto-stretching: normalizes line timestamps when ratio is between 0.94 and 1.06
     if (parsed.isNotEmpty) {
-      final lastTimestamp = parsed.last.timestamp;
-      final effectiveTrackDuration = audioHandler.player.duration ??
-          (widget.song.duration > 0
-              ? Duration(seconds: widget.song.duration)
-              : (audioHandler.currentSong?.duration != null && audioHandler.currentSong!.duration > 0
-                  ? Duration(seconds: audioHandler.currentSong!.duration)
-                  : null));
+      final lastLyricLineTimestampMs = parsed.last.timestamp.inMilliseconds;
+      final totalAudioDurationMs = (audioHandler.player.duration?.inMilliseconds ?? 0) > 0
+          ? audioHandler.player.duration!.inMilliseconds
+          : (widget.song.duration > 0
+              ? widget.song.duration * 1000
+              : ((audioHandler.currentSong?.duration != null && audioHandler.currentSong!.duration > 0)
+                  ? audioHandler.currentSong!.duration * 1000
+                  : 0));
 
-      if (effectiveTrackDuration != null &&
-          effectiveTrackDuration.inMilliseconds > 0 &&
-          lastTimestamp.inMilliseconds > 0) {
-        final ratio = effectiveTrackDuration.inMilliseconds / lastTimestamp.inMilliseconds;
-        if (ratio >= 0.95 && ratio <= 1.05) {
+      if (totalAudioDurationMs > 0 && lastLyricLineTimestampMs > 0) {
+        final double ratio = totalAudioDurationMs / lastLyricLineTimestampMs;
+        if (ratio >= 0.94 && ratio <= 1.06) {
           for (int i = 0; i < parsed.length; i++) {
             final orig = parsed[i];
-            final scaledTs = Duration(milliseconds: (orig.timestamp.inMilliseconds * ratio).round());
+            final rawMs = orig.timestamp.inMilliseconds;
+            final adjustedMs = (rawMs * ratio).round();
             parsed[i] = _LrcLine(
-              timestamp: scaledTs,
+              timestamp: Duration(milliseconds: adjustedMs),
               text: orig.text,
               isBgm: orig.isBgm,
             );
@@ -192,8 +210,7 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
 
       final manualOffsetMs = audioHandler.lyricsOffsetMsNotifier.value;
       final effectivePosition = pos + Duration(milliseconds: manualOffsetMs);
-      int idx = _lines.lastIndexWhere((l) => l.timestamp <= effectivePosition);
-      if (idx == -1) idx = 0;
+      final idx = _findActiveLineIndex(effectivePosition);
 
       if (idx != _activeIndex) {
         setState(() => _activeIndex = idx);

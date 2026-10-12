@@ -158,9 +158,9 @@ class HistoryTabView extends StatelessWidget {
               ),
             ],
 
-            // Enforce bottom padding of 100 so widgets never hide behind MiniPlayer
+            // Enforce bottom padding of 110 so widgets never hide behind MiniPlayer
             const SliverToBoxAdapter(
-              child: SizedBox(height: 100),
+              child: SizedBox(height: 110),
             ),
           ],
         );

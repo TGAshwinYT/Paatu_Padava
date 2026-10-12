@@ -23,7 +23,7 @@ class SearchPreContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 110),
       children: [
         // Spotify Import Quick Action
         Container(

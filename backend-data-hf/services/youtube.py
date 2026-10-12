@@ -766,32 +766,117 @@ async def get_album_details_youtube(browse_id):
         logger.error(f"YTMusic album details error: {e}")
         return {}
 
+import random
+from typing import Optional
+
+ROTATING_USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0",
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0",
+]
+
+def _generate_client_headers():
+    ua = random.choice(ROTATING_USER_AGENTS)
+    ip_prefix = random.choice(["49.37.", "106.193.", "157.48.", "182.72."])
+    spoofed_ip = f"{ip_prefix}{random.randint(1, 254)}.{random.randint(1, 254)}"
+    return {
+        'User-Agent': ua,
+        'X-Forwarded-For': spoofed_ip,
+        'Client-IP': spoofed_ip,
+        'Accept': '*/*',
+        'Accept-Language': 'en-IN,en;q=0.9,ta;q=0.8',
+        'Range': 'bytes=0-',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+    }
+
+def _fetch_mirror_stream_url(video_id: str) -> Optional[str]:
+    """
+    Fallback mirror audio stream resolver querying public Piped & Invidious API mirrors
+    when cloud datacenter IPs are blocked by YouTube (HTTP 429).
+    """
+    import urllib.request
+    import json
+    
+    mirror_endpoints = [
+        f"https://api.piped.private.coffee/streams/{video_id}",
+        f"https://pipedapi.kavin.rocks/streams/{video_id}",
+        f"https://inv.nadeko.net/api/v1/videos/{video_id}",
+    ]
+    
+    for url in mirror_endpoints:
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={'User-Agent': random.choice(ROTATING_USER_AGENTS)}
+            )
+            with urllib.request.urlopen(req, timeout=3.5) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode('utf-8'))
+                    # Piped format: audioStreams list
+                    if "audioStreams" in data and isinstance(data["audioStreams"], list):
+                        for stream in data["audioStreams"]:
+                            stream_url = stream.get("url")
+                            if stream_url:
+                                return stream_url
+                    # Invidious format: adaptiveFormats list
+                    if "adaptiveFormats" in data and isinstance(data["adaptiveFormats"], list):
+                        for fmt in data["adaptiveFormats"]:
+                            if "audio" in fmt.get("type", "") and fmt.get("url"):
+                                return fmt["url"]
+        except Exception as me:
+            logger.debug(f"Mirror stream fallback {url} failed: {me}")
+            continue
+    return None
+
 def get_audio_stream_url_sync(video_id: str):
     """
     Extracts high-fidelity audio stream URL prioritizing adaptive audio formats:
     - itag 140 (AAC 128kbps, m4a container)
     - itag 251 (Opus 160kbps, webm container)
-    Injects Range byte request and modern User-Agent headers to eliminate Googlevideo 30s throttling.
+    Injects User-Agent rotation, residential spoofing headers, android/ios player client
+    extractor args, and mirror fallbacks to eliminate HTTP 429 IP blocking on cloud hosts.
     """
     try:
         import yt_dlp
+        headers = _generate_client_headers()
         ydl_opts = {
             'format': '140/251/bestaudio[ext=m4a]/bestaudio/best',
             'quiet': True,
             'no_warnings': True,
             'skip_download': True,
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Range': 'bytes=0-',
-                'Accept': '*/*',
+            'http_headers': headers,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'ios', 'web', 'mweb']
+                }
             }
         }
+        proxy = os.getenv('YOUTUBE_PROXY') or os.getenv('HTTPS_PROXY') or os.getenv('HTTP_PROXY')
+        if proxy:
+            ydl_opts['proxy'] = proxy
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
-            return info.get('url')
+            url = info.get('url')
+            if url:
+                return url
     except Exception as e:
-        logger.warning(f"yt_dlp get_audio_stream_url error for {video_id}: {e}")
-        return None
+        logger.warning(f"yt_dlp get_audio_stream_url error for {video_id}: {e}. Trying fallback mirrors...")
+
+    # Fallback to mirror endpoints if direct cloud extraction is blocked
+    try:
+        mirror_url = _fetch_mirror_stream_url(video_id)
+        if mirror_url:
+            logger.info(f"Successfully resolved fallback mirror stream for {video_id}")
+            return mirror_url
+    except Exception as me:
+        logger.warning(f"Fallback mirror resolver failed for {video_id}: {me}")
+
+    return None
 
 async def get_audio_stream_url(video_id: str):
     return await asyncio.to_thread(get_audio_stream_url_sync, video_id)

@@ -249,8 +249,8 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
         } else {
           switch (event.type) {
             case AudioInterruptionType.duck:
-              // Restore user master volume when transient alert finishes
-              await _player.setVolume(userVolume);
+              // Restore user master volume with ReplayGain normalization when transient alert finishes
+              await applyVolumeNormalization();
               break;
             case AudioInterruptionType.pause:
             case AudioInterruptionType.unknown:
@@ -540,6 +540,22 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   /// Sets master playback volume and applies song normalization
   Future<void> setUserVolume(double volume) => _queueHandler.setUserVolume(volume);
 
+  /// Applies ReplayGain / Loudness Normalization: computes track gain and adjusts
+  /// _player.setVolume() to balance loudness between YouTube (-14 LUFS) and JioSaavn tracks.
+  Future<void> applyVolumeNormalization([Song? targetSong]) async {
+    final song = targetSong ?? currentSong;
+    final effectiveVolume = _queueHandler.getEffectiveVolumeForSong(song);
+    try {
+      await _player.setVolume(effectiveVolume);
+      AppLogger.log(
+        'PlayerHandler',
+        'ReplayGain volume normalization applied: ${effectiveVolume.toStringAsFixed(2)} for "${song?.title}" [${song?.source}]',
+      );
+    } catch (e) {
+      debugPrint('[PlayerHandler] applyVolumeNormalization error: $e');
+    }
+  }
+
   /// Launch a standalone track without any surrounding context queue.
   /// Used by History and Search to ensure historical or unplayed tracks never leak into the queue.
   Future<void> playTrack(TrackEntity track) async {
@@ -818,8 +834,18 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     _broadcastState();
   }
 
+  int _lastSkipTimeMs = 0;
+  static const int _skipDebounceMs = 300;
+
   @override
   Future<void> skipToNext() async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastSkipTimeMs < _skipDebounceMs) {
+      AppLogger.log('PlayerHandler', 'skipToNext ignored due to 300ms debounce lock');
+      return;
+    }
+    _lastSkipTimeMs = now;
+
     final current = currentSong;
     if (current != null) {
       final pos = _player.position;
@@ -836,6 +862,13 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
 
   @override
   Future<void> skipToQueueItem(int index) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastSkipTimeMs < _skipDebounceMs) {
+      AppLogger.log('PlayerHandler', 'skipToQueueItem ignored due to 300ms debounce lock');
+      return;
+    }
+    _lastSkipTimeMs = now;
+
     final current = currentSong;
     if (current != null) {
       final pos = _player.position;
@@ -852,6 +885,13 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
 
   @override
   Future<void> skipToPrevious() async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastSkipTimeMs < _skipDebounceMs) {
+      AppLogger.log('PlayerHandler', 'skipToPrevious ignored due to 300ms debounce lock');
+      return;
+    }
+    _lastSkipTimeMs = now;
+
     await _queueHandler.skipToPrevious();
   }
 

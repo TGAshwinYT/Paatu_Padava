@@ -405,7 +405,7 @@ class HistoryScreen extends StatelessWidget {
 
               // Prevent clipping under MiniPlayer
               const SliverToBoxAdapter(
-                child: SizedBox(height: 100),
+                child: SizedBox(height: 110),
               ),
             ],
           );

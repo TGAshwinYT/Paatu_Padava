@@ -74,76 +74,90 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Row(
-                            children: [
-                              Container(
-                                width: 42,
-                                height: 42,
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(12),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: AppColors.neonViolet.withValues(alpha: 0.4),
-                                      blurRadius: 16,
-                                      offset: const Offset(0, 4),
-                                    ),
-                                    BoxShadow(
-                                      color: AppColors.electricCyan.withValues(alpha: 0.2),
-                                      blurRadius: 10,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ],
-                                ),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: Image.asset('assets/logo.png', fit: BoxFit.cover),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Paatu Padava',
-                                    style: GoogleFonts.outfit(
-                                      color: Colors.white,
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: -0.5,
-                                    ),
-                                  ),
-                                  Row(
-                                    children: [
-                                      Container(
-                                        width: 6,
-                                        height: 6,
-                                        decoration: const BoxDecoration(
-                                          color: AppColors.electricCyan,
-                                          shape: BoxShape.circle,
-                                        ),
+                          Expanded(
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(12),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: AppColors.neonViolet.withValues(alpha: 0.4),
+                                        blurRadius: 16,
+                                        offset: const Offset(0, 4),
                                       ),
-                                      const SizedBox(width: 5),
-                                      Text(
-                                        'Lossless Studio & YouTube Stream',
-                                        style: GoogleFonts.outfit(
-                                          color: AppColors.textSecondary,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w500,
-                                        ),
+                                      BoxShadow(
+                                        color: AppColors.electricCyan.withValues(alpha: 0.2),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 2),
                                       ),
                                     ],
                                   ),
-                                ],
-                              ),
-                            ],
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: Image.asset('assets/logo.png', fit: BoxFit.cover),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        'Paatu Padava',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: GoogleFonts.outfit(
+                                          color: Colors.white,
+                                          fontSize: 20,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: -0.5,
+                                        ),
+                                      ),
+                                      Row(
+                                        children: [
+                                          Container(
+                                            width: 6,
+                                            height: 6,
+                                            decoration: const BoxDecoration(
+                                              color: AppColors.electricCyan,
+                                              shape: BoxShape.circle,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 5),
+                                          Flexible(
+                                            child: Text(
+                                              'Lossless Studio & YouTube Stream',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: GoogleFonts.outfit(
+                                                color: AppColors.textSecondary,
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
+                          const SizedBox(width: 8),
                           // Action icons: Cloud Sync + Settings + Account Profile
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               const SyncStatusIndicator(),
-                              const SizedBox(width: 4),
+                              const SizedBox(width: 2),
                               IconButton(
+                                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                                padding: const EdgeInsets.all(6),
                                 icon: const Icon(Icons.settings_outlined, color: Colors.white, size: 22),
                                 tooltip: 'Settings & Equalizer',
                                 onPressed: () {
@@ -153,7 +167,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   );
                                 },
                               ),
-                              const SizedBox(width: 4),
+                              const SizedBox(width: 2),
                               const AccountBarButton(),
                             ],
                           ),
@@ -378,7 +392,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     return HomeSongCard(
                                       song: song,
                                       width: cardWidth,
-                                      onTap: () => audioHandler.playSong(song, queue: displayHistory),
+                                      onTap: () => audioHandler.playSong(song),
                                     );
                                   },
                                 ),

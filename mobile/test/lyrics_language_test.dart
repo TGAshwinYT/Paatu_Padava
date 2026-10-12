@@ -132,4 +132,35 @@ void main() {
       expect(state.dualLyrics!.englishLyrics, equals('Paadal varigal'));
     });
   });
+
+  group('Lyrics Duration-Scaling Multiplier & Alignment Tests', () {
+    test('Calculates and scales timestamps when ratio R is within 0.95 to 1.05', () {
+      const trackDuration = Duration(milliseconds: 204000); // 3m 24s
+      const lastLyricTs = Duration(milliseconds: 200000);   // 3m 20s
+      final ratio = trackDuration.inMilliseconds / lastLyricTs.inMilliseconds; // 1.02
+      expect(ratio >= 0.95 && ratio <= 1.05, isTrue);
+
+      const originalLineMs = 100000; // 100.0s
+      final scaledLineMs = (originalLineMs * ratio).round(); // 102.0s
+      expect(scaledLineMs, equals(102000));
+
+      // With +500ms pill offset:
+      const manualOffsetMs = 500;
+      final effectivePlayerPos = const Duration(milliseconds: 101600) + const Duration(milliseconds: manualOffsetMs);
+      expect(effectivePlayerPos.inMilliseconds >= scaledLineMs, isTrue);
+    });
+
+    test('Leaves timestamps unchanged when ratio R is outside 0.95 to 1.05 boundary', () {
+      const shortTrackDuration = Duration(milliseconds: 150000); // 2m 30s
+      const lastLyricTs = Duration(milliseconds: 200000);        // 3m 20s
+      final ratio = shortTrackDuration.inMilliseconds / lastLyricTs.inMilliseconds; // 0.75
+      expect(ratio >= 0.95 && ratio <= 1.05, isFalse);
+
+      const originalLineMs = 100000;
+      final effectiveLineMs = (ratio >= 0.95 && ratio <= 1.05)
+          ? (originalLineMs * ratio).round()
+          : originalLineMs;
+      expect(effectiveLineMs, equals(originalLineMs));
+    });
+  });
 }

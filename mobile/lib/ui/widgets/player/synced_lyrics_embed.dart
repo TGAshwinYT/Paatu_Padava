@@ -27,6 +27,7 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
   final List<GlobalKey> _lineKeys = [];
   StreamSubscription<Duration>? _posSub;
   StreamSubscription<bool>? _playingSub;
+  StreamSubscription<Duration?>? _durationSub;
   int _lastPositionUpdateMs = 0;
   int _activeIndex = -1;
   bool _isUserScrolling = false;
@@ -39,6 +40,14 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
     _parseLyrics();
     _subscribePosition();
     audioHandler.lyricsOffsetMsNotifier.addListener(_onOffsetChanged);
+    _durationSub = audioHandler.player.durationStream.listen((_) {
+      if (mounted && _isLrc) {
+        setState(() {
+          _parseLyrics();
+          _onOffsetChanged();
+        });
+      }
+    });
   }
 
   void _onOffsetChanged() {
@@ -66,6 +75,7 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
 
   @override
   void dispose() {
+    _durationSub?.cancel();
     _playingSub?.cancel();
     audioHandler.lyricsOffsetMsNotifier.removeListener(_onOffsetChanged);
     _posSub?.cancel();
@@ -103,6 +113,34 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
     }
 
     parsed.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+    // Automatic duration-scaling multiplier: stretches/compresses timestamps when 0.95 <= R <= 1.05
+    if (parsed.isNotEmpty) {
+      final lastTimestamp = parsed.last.timestamp;
+      final effectiveTrackDuration = audioHandler.player.duration ??
+          (widget.song.duration > 0
+              ? Duration(seconds: widget.song.duration)
+              : (audioHandler.currentSong?.duration != null && audioHandler.currentSong!.duration > 0
+                  ? Duration(seconds: audioHandler.currentSong!.duration)
+                  : null));
+
+      if (effectiveTrackDuration != null &&
+          effectiveTrackDuration.inMilliseconds > 0 &&
+          lastTimestamp.inMilliseconds > 0) {
+        final ratio = effectiveTrackDuration.inMilliseconds / lastTimestamp.inMilliseconds;
+        if (ratio >= 0.95 && ratio <= 1.05) {
+          for (int i = 0; i < parsed.length; i++) {
+            final orig = parsed[i];
+            final scaledTs = Duration(milliseconds: (orig.timestamp.inMilliseconds * ratio).round());
+            parsed[i] = _LrcLine(
+              timestamp: scaledTs,
+              text: orig.text,
+              isBgm: orig.isBgm,
+            );
+          }
+        }
+      }
+    }
 
     // Detect BGM / Instrumental pauses > 6 seconds
     if (parsed.isNotEmpty) {

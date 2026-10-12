@@ -73,6 +73,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
   bool _isFullscreen = false;
   int _manualOffsetMs = 0;
   StreamSubscription<bool>? _playingSub;
+  StreamSubscription<Duration?>? _durationSub;
   int _lastPositionUpdateMs = 0;
 
   @override
@@ -88,12 +89,22 @@ class _LyricsScreenState extends State<LyricsScreen> {
     // Listen to manual offset changes from other components
     audioHandler.lyricsOffsetMsNotifier.addListener(_onOffsetNotifierChanged);
 
+    // Update scale multiplier when player duration metadata is received
+    _durationSub = audioHandler.player.durationStream.listen((_) {
+      if (mounted && _isLrc) {
+        setState(() {
+          _parseLyrics(audioHandler.currentLyricsNotifier.value);
+        });
+      }
+    });
+
     // Subscribe to position stream with effective offset calculation
     _subscribePosition();
   }
 
   @override
   void dispose() {
+    _durationSub?.cancel();
     _playingSub?.cancel();
     _posSub?.cancel();
     _userScrollResumeTimer?.cancel();
@@ -155,6 +166,34 @@ class _LyricsScreenState extends State<LyricsScreen> {
     }
 
     parsed.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+    // Automatic duration-scaling multiplier: stretches/compresses timestamps when 0.95 <= R <= 1.05
+    if (parsed.isNotEmpty) {
+      final lastTimestamp = parsed.last.timestamp;
+      final effectiveTrackDuration = audioHandler.player.duration ??
+          (widget.initialSong?.duration != null && widget.initialSong!.duration > 0
+              ? Duration(seconds: widget.initialSong!.duration)
+              : (audioHandler.currentSong?.duration != null && audioHandler.currentSong!.duration > 0
+                  ? Duration(seconds: audioHandler.currentSong!.duration)
+                  : null));
+
+      if (effectiveTrackDuration != null &&
+          effectiveTrackDuration.inMilliseconds > 0 &&
+          lastTimestamp.inMilliseconds > 0) {
+        final ratio = effectiveTrackDuration.inMilliseconds / lastTimestamp.inMilliseconds;
+        if (ratio >= 0.95 && ratio <= 1.05) {
+          for (int i = 0; i < parsed.length; i++) {
+            final orig = parsed[i];
+            final scaledTs = Duration(milliseconds: (orig.timestamp.inMilliseconds * ratio).round());
+            parsed[i] = _LrcLine(
+              timestamp: scaledTs,
+              text: orig.text,
+              isBgm: orig.isBgm,
+            );
+          }
+        }
+      }
+    }
 
     // Bloomee BGM / Instrumental pauses (>6s gaps)
     if (parsed.isNotEmpty) {

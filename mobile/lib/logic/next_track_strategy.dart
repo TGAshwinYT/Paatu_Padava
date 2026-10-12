@@ -201,12 +201,10 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
   String get description => 'Weighted session anchoring (60% anchor / 40% current) with strict artist dispersion';
 
   Song? _sessionAnchorTrack;
-  String? _sessionAnchorArtist;
 
   @override
   void resetSession({Song? initialAnchor}) {
     _sessionAnchorTrack = initialAnchor;
-    _sessionAnchorArtist = initialAnchor?.primaryArtist;
     AppLogger.log('SpotifyStyleStrategy', 'Session anchor reset. Anchor: ${_sessionAnchorTrack?.title ?? "none"}');
   }
 
@@ -230,7 +228,6 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
       // If no anchor is set, this initial seedSong establishes the session anchor.
       if (_sessionAnchorTrack == null) {
         _sessionAnchorTrack = seedSong;
-        _sessionAnchorArtist = seedSong.primaryArtist;
         AppLogger.log('SpotifyStyleStrategy', 'Anchored session to "${seedSong.title}" by ${seedSong.primaryArtist}');
       }
 

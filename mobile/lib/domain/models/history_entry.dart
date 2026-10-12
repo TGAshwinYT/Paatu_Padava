@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'track_entity.dart';
 
 /// Timestamped playback history entry model matching Spotify and YouTube Music specifications.

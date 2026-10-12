@@ -595,10 +595,22 @@ class AudioQueueHandler {
 
   // ================= Load Queue & Initial Setup ================= //
 
+  /// Plays a standalone track (e.g. from History or Search), clearing context queue
+  /// and resetting session playback history while preserving any manual user queue.
+  Future<void> playTrack(TrackEntity track, {bool preserveUserQueue = true}) async {
+    await loadQueue(
+      [track],
+      initialIndex: 0,
+      autoPlay: true,
+      preserveUserQueue: preserveUserQueue,
+    );
+  }
+
   Future<void> loadQueue(
     List<dynamic> tracks, {
     int initialIndex = 0,
     bool autoPlay = true,
+    bool preserveUserQueue = false,
   }) async {
     if (tracks.isEmpty) {
       _isLoading = false;
@@ -635,7 +647,9 @@ class AudioQueueHandler {
       _contextShuffleIndices.clear();
       _isShuffleEnabled = false;
 
-      _userQueue.clear();
+      if (!preserveUserQueue) {
+        _userQueue.clear();
+      }
       _playbackHistory.clear();
 
       _contextIndex = (initialIndex >= 0 && initialIndex < entities.length) ? initialIndex : 0;
@@ -1405,18 +1419,33 @@ class AudioQueueHandler {
           _userQueue.insert(newUserIdx.clamp(0, _userQueue.length), removed);
         }
       } else {
-        final oldCtxIdx = _contextQueue.indexWhere((t) => t.id == movingItem.id);
-        if (oldCtxIdx != -1) {
-          final removed = _contextQueue.removeAt(oldCtxIdx);
-          final safeNewCtxIdx = newIndex.clamp(0, _contextQueue.length);
-          _contextQueue.insert(safeNewCtxIdx, removed);
+        final curIdx = currentIndex;
+        final baseOffset = curIdx + 1 + _userQueue.length;
+        if (_isShuffleEnabled && _contextShuffleIndices.isNotEmpty) {
+          final oldCtxIdx = _contextQueue.indexWhere((t) => t.id == movingItem.id);
+          final oldShufflePos = _contextShuffleIndices.indexOf(oldCtxIdx);
+          if (oldShufflePos != -1) {
+            final targetShufflePos = (newIndex - _userQueue.length).clamp(0, _contextShuffleIndices.length - 1);
+            final removed = _contextShuffleIndices.removeAt(oldShufflePos);
+            _contextShuffleIndices.insert(targetShufflePos, removed);
+          }
+        } else {
+          final oldCtxIdx = _contextQueue.indexWhere((t) => t.id == movingItem.id);
+          if (oldCtxIdx != -1) {
+            final removed = _contextQueue.removeAt(oldCtxIdx);
+            final targetCtxOffset = (newIndex >= baseOffset)
+                ? (newIndex - _userQueue.length)
+                : newIndex;
+            final safeNewCtxIdx = targetCtxOffset.clamp(0, _contextQueue.length);
+            _contextQueue.insert(safeNewCtxIdx, removed);
 
-          if (oldCtxIdx == _contextIndex) {
-            _contextIndex = safeNewCtxIdx;
-          } else if (oldCtxIdx < _contextIndex && safeNewCtxIdx >= _contextIndex) {
-            _contextIndex--;
-          } else if (oldCtxIdx > _contextIndex && safeNewCtxIdx <= _contextIndex) {
-            _contextIndex++;
+            if (oldCtxIdx == _contextIndex) {
+              _contextIndex = safeNewCtxIdx;
+            } else if (oldCtxIdx < _contextIndex && safeNewCtxIdx >= _contextIndex) {
+              _contextIndex--;
+            } else if (oldCtxIdx > _contextIndex && safeNewCtxIdx <= _contextIndex) {
+              _contextIndex++;
+            }
           }
         }
       }

@@ -93,6 +93,28 @@ class HistoryScreen extends StatelessWidget {
               ),
               const Divider(color: AppColors.surfaceBorder),
               ListTile(
+                leading: const Icon(Icons.playlist_play_rounded, color: Color(0xFF6366F1)),
+                title: const Text('Play Next', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  audioHandler.insertNext(song);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Playing "${song.title}" next')),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.queue_music_rounded, color: Colors.white70),
+                title: const Text('Add to Queue', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  audioHandler.addToQueue(song);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Added "${song.title}" to queue')),
+                  );
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.playlist_add_rounded, color: AppColors.neonViolet),
                 title: const Text('Add to Playlist', style: TextStyle(color: Colors.white)),
                 onTap: () {
@@ -218,7 +240,6 @@ class HistoryScreen extends StatelessWidget {
           }
 
           final groupedHistory = _groupByDate(historyEntries);
-          final allSongs = historyEntries.map((e) => e.track.toSong()).toList();
 
           return CustomScrollView(
             slivers: [
@@ -239,13 +260,13 @@ class HistoryScreen extends StatelessWidget {
                       const Spacer(),
                       ElevatedButton.icon(
                         onPressed: () {
-                          if (allSongs.isNotEmpty) {
-                            audioHandler.playSong(allSongs.first, queue: allSongs);
+                          if (historyEntries.isNotEmpty) {
+                            audioHandler.playTrack(historyEntries.first.track);
                           }
                         },
                         icon: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 22),
                         label: Text(
-                          'Play All',
+                          'Play Recent',
                           style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold),
                         ),
                         style: ElevatedButton.styleFrom(
@@ -373,7 +394,7 @@ class HistoryScreen extends StatelessWidget {
                           onPressed: () => _showSongOptions(context, song),
                         ),
                         onTap: () {
-                          audioHandler.playSong(song, queue: allSongs);
+                          audioHandler.playTrack(entry.track);
                         },
                       );
                     },

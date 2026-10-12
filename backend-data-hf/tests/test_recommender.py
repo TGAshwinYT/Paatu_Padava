@@ -291,6 +291,7 @@ class TestRecommenderEngine(unittest.TestCase):
     def test_stream_resolution_and_caching(self):
         """Test stream resolution logic and Redis caching behavior."""
         import asyncio
+        from unittest.mock import patch, AsyncMock
         from routers.music import resolve_single_stream
         
         class MockRedis:
@@ -304,15 +305,20 @@ class TestRecommenderEngine(unittest.TestCase):
         mock_redis = MockRedis()
         
         # Test resolution with YouTube fallback when no saavn match
-        res = asyncio.run(resolve_single_stream("yt_video_123", "NonExistentSongXYZ12345", "UnknownArtistXYZ", mock_redis))
-        self.assertEqual(res["song_id"], "yt_video_123")
-        self.assertEqual(res["engine"], "youtube")
-        self.assertFalse(res["cached"])
+        with patch("routers.music.youtube.search_youtube", new_callable=AsyncMock) as mock_yt_search, \
+             patch("services.youtube.get_audio_stream_url", new_callable=AsyncMock) as mock_yt_stream:
+            mock_yt_search.return_value = [{"id": "dQw4w9WgXcQ"}]
+            mock_yt_stream.return_value = "https://mock.googlevideo.com/videoplayback"
 
-        # Second call must hit mock Redis cache
-        res_cached = asyncio.run(resolve_single_stream("yt_video_123", redis_client=mock_redis))
-        self.assertEqual(res_cached["song_id"], "yt_video_123")
-        self.assertTrue(res_cached.get("cached"))
+            res = asyncio.run(resolve_single_stream("yt_video_123", "NonExistentSongXYZ12345", "UnknownArtistXYZ", mock_redis))
+            self.assertEqual(res["song_id"], "yt_video_123")
+            self.assertEqual(res["engine"], "youtube")
+            self.assertFalse(res["cached"])
+
+            # Second call must hit mock Redis cache
+            res_cached = asyncio.run(resolve_single_stream("yt_video_123", redis_client=mock_redis))
+            self.assertEqual(res_cached["song_id"], "yt_video_123")
+            self.assertTrue(res_cached.get("cached"))
 
 
 if __name__ == "__main__":

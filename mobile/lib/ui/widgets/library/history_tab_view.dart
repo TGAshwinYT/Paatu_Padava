@@ -55,7 +55,6 @@ class HistoryTabView extends StatelessWidget {
         }
 
         final grouped = _groupByDate(historyEntries);
-        final allSongs = historyEntries.map((e) => e.track.toSong()).toList();
 
         return CustomScrollView(
           slivers: [
@@ -73,10 +72,10 @@ class HistoryTabView extends StatelessWidget {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                       ),
                       icon: const Icon(Icons.play_arrow_rounded, size: 20),
-                      label: Text('Play All (${historyEntries.length})', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
+                      label: Text('Play Recent (${historyEntries.length})', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
                       onPressed: () {
-                        if (allSongs.isNotEmpty) {
-                          audioHandler.playSong(allSongs.first, queue: allSongs);
+                        if (historyEntries.isNotEmpty) {
+                          audioHandler.playTrack(historyEntries.first.track);
                         }
                       },
                     ),
@@ -113,7 +112,7 @@ class HistoryTabView extends StatelessWidget {
                     final song = entry.track.toSong();
 
                     return ListTile(
-                      onTap: () => audioHandler.playSong(song, queue: allSongs),
+                      onTap: () => audioHandler.playTrack(entry.track),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
                       leading: ClipRRect(
                         borderRadius: BorderRadius.circular(10),

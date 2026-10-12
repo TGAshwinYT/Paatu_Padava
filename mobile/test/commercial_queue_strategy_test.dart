@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:paatu_padava_mobile/domain/models/track_entity.dart';
 import 'package:paatu_padava_mobile/logic/audio_queue_handler.dart';
 import 'package:paatu_padava_mobile/models/song.dart';
 
@@ -344,6 +345,51 @@ void main() {
       expect(queueHandler.currentTrackIsFromUserQueue, isFalse);
       expect(queueHandler.contextIndex, equals(2));
       expect(queueHandler.hasNext, isTrue);
+    });
+
+    test('7. Standalone track launch clears session history and contextQueue to only selected track', () async {
+      // 1. Start with an older session that played several tracks
+      final olderAlbum = List.generate(5, (i) => createSampleSong('old_$i', 'Old $i'));
+      await queueHandler.loadQueue(olderAlbum, initialIndex: 0, autoPlay: false);
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      // Advance through old_0 -> old_1
+      await queueHandler.skipToNext();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(queueHandler.playbackHistory.isNotEmpty, isTrue);
+      expect(queueHandler.currentIndex, equals(1));
+
+      // User adds a manual song to queue
+      final manualSong = createSampleSong('manual_1', 'Manual Queue Track');
+      await queueHandler.addToQueue(manualSong);
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(queueHandler.userQueue.length, equals(1));
+
+      // 2. User selects a track from History or Search (standalone launch)
+      final historyTrack = createSampleSong('history_selected', 'History Song');
+      await queueHandler.playTrack(TrackEntity.fromSong(historyTrack), preserveUserQueue: true);
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      // 3. Verify:
+      // - Older session playbackHistory is cleared
+      expect(queueHandler.playbackHistory.isEmpty, isTrue);
+      // - Now playing is the selected history track at index 0
+      expect(queueHandler.currentSong?.id, equals('history_selected'));
+      expect(queueHandler.currentIndex, equals(0));
+      // - contextQueue contains ONLY [history_selected] with contextIndex = 0
+      expect(queueHandler.contextQueue.length, equals(1));
+      expect(queueHandler.contextQueue.first.id, equals('history_selected'));
+      expect(queueHandler.contextIndex, equals(0));
+      // - Manual user queue is preserved immediately following selected track
+      expect(queueHandler.userQueue.length, equals(1));
+      expect(queueHandler.userQueue.first.id, equals('manual_1'));
+      // - upcomingCount calculates ONLY upcoming tracks (1 manual + 0 remaining context = 1)
+      expect(queueHandler.upcomingCount, equals(1));
+      // - queue contains ONLY [history_selected, manual_1], no older tracks
+      expect(queueHandler.queue.length, equals(2));
+      expect(queueHandler.queue[0].id, equals('history_selected'));
+      expect(queueHandler.queue[1].id, equals('manual_1'));
+      expect(queueHandler.queue.any((s) => s.id.startsWith('old_')), isFalse);
     });
   });
 }

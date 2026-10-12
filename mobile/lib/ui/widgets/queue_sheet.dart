@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../logic/smart_shuffle_controller.dart';
@@ -57,25 +58,59 @@ class _QueueSheetState extends State<QueueSheet> {
               ValueListenableBuilder<List<Song>>(
                 valueListenable: audioHandler.playlistNotifier,
                 builder: (context, playlist, _) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Playback Queue',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        '${playlist.length} Tracks • Drag to reorder • Swipe to remove',
-                        style: const TextStyle(
-                          color: Color(0xFF94A3B8),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
+                  return ValueListenableBuilder<int>(
+                    valueListenable: audioHandler.currentIndexNotifier,
+                    builder: (context, currentIndex, _) {
+                      final userQueue = audioHandler.queueHandler.userQueue;
+                      final contextQueue = audioHandler.queueHandler.contextQueue;
+                      final contextIndex = audioHandler.queueHandler.contextIndex;
+                      final upcomingCount = userQueue.length + max(0, contextQueue.length - contextIndex - 1);
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Text(
+                                'Playback Queue',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF6366F1).withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.4)),
+                                ),
+                                child: Text(
+                                  'Up Next ($upcomingCount)',
+                                  style: const TextStyle(
+                                    color: Color(0xFF818CF8),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            userQueue.isNotEmpty
+                                ? 'Next in queue (${userQueue.length}) • Drag to reorder • Swipe to remove'
+                                : 'Up Next ($upcomingCount) • Drag to reorder • Swipe to remove',
+                            style: const TextStyle(
+                              color: Color(0xFF94A3B8),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   );
                 },
               ),
@@ -257,12 +292,12 @@ class _QueueSheetState extends State<QueueSheet> {
                                   const Icon(Icons.layers_rounded, color: Color(0xFF818CF8), size: 16),
                                   const SizedBox(width: 8),
                                   Text(
-                                    'NEXT IN QUEUE • USER STACK (${userQueueTracks.length})',
+                                    'Next in queue (${userQueueTracks.length})',
                                     style: const TextStyle(
                                       color: Color(0xFF818CF8),
                                       fontSize: 12,
                                       fontWeight: FontWeight.bold,
-                                      letterSpacing: 1.0,
+                                      letterSpacing: 0.5,
                                     ),
                                   ),
                                 ],
@@ -337,12 +372,12 @@ class _QueueSheetState extends State<QueueSheet> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text(
-                                'UP NEXT • AUTO-SUGGESTIONS (${suggestedTracks.length})',
+                                'Up Next (${suggestedTracks.length})',
                                 style: const TextStyle(
                                   color: Colors.white70,
                                   fontSize: 12,
                                   fontWeight: FontWeight.bold,
-                                  letterSpacing: 1.0,
+                                  letterSpacing: 0.5,
                                 ),
                               ),
                               Row(

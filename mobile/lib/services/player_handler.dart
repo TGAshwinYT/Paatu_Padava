@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:just_audio/just_audio.dart';
 import '../logic/audio_queue_handler.dart';
@@ -541,8 +540,14 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   /// Sets master playback volume and applies song normalization
   Future<void> setUserVolume(double volume) => _queueHandler.setUserVolume(volume);
 
+  /// Launch a standalone track without any surrounding context queue.
+  /// Used by History and Search to ensure historical or unplayed tracks never leak into the queue.
+  Future<void> playTrack(TrackEntity track) async {
+    await playSong(track.toSong(), preserveUserQueue: true);
+  }
+
   /// Load and play a song with gapless ConcatenatingAudioSource preloading
-  Future<void> playSong(Song song, {List<Song>? queue}) async {
+  Future<void> playSong(Song song, {List<Song>? queue, bool preserveUserQueue = false}) async {
     try {
       final session = await AudioSession.instance;
       await session.setActive(true);
@@ -558,6 +563,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       queue ?? [song],
       initialIndex: targetIndex,
       autoPlay: true,
+      preserveUserQueue: isNewSingleQueue || preserveUserQueue,
     );
 
     // If starting a fresh queue containing only this song, auto-fill Up Next using the recommendation algorithm
@@ -648,7 +654,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     _isPrefetchingRecommendations = true;
     try {
       final strategy = NextTrackStrategyFactory.getStrategy(SettingsManager.nextTrackStrategy);
-      final count = 20;
+      const count = 20;
       AppLogger.log('PlayerHandler', 'Prefetching next recommendations via ${strategy.displayName} for "${seedSong.title}"');
       final tracks = await strategy.getUpcomingTracks(
         seedSong: seedSong,
@@ -947,7 +953,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     final history = HistoryManager.getHistory();
     final histIdx = history.indexWhere((s) => s.id == mediaId);
     if (histIdx != -1) {
-      await playSong(history[histIdx], queue: history);
+      await playSong(history[histIdx]);
       return;
     }
 

@@ -282,7 +282,6 @@ void main() {
     });
 
     test('8. Stream resolution retries gracefully on HTTP 403 or network failure without unhandled exceptions', () async {
-      int attempts = 0;
       final song = makeSong(id: 'retry_song_403', title: 'HTTP 403 Test Track');
 
       // Create a resilient resolver that simulates 403 failure on first attempt and succeeds on retry

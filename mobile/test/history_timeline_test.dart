@@ -5,7 +5,6 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:paatu_padava_mobile/domain/models/history_entry.dart';
 import 'package:paatu_padava_mobile/domain/models/track_entity.dart';
-import 'package:paatu_padava_mobile/models/song.dart';
 import 'package:paatu_padava_mobile/services/favorites_manager.dart';
 import 'package:paatu_padava_mobile/services/history_manager.dart';
 import 'package:paatu_padava_mobile/services/player_handler.dart';

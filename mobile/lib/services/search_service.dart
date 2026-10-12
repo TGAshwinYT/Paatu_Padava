@@ -8,6 +8,7 @@ import 'youtube_client.dart';
 import 'settings_manager.dart';
 import 'fuzzy_search_service.dart';
 import 'error_handler.dart';
+import 'app_logger.dart';
 import '../data/repositories/song_repository.dart';
 
 class QueryIntent {
@@ -438,8 +439,10 @@ class SearchService {
         try {
           return await YouTubeClient.search(intent.cleanQuery, limit: limit)
               .timeout(const Duration(seconds: 6));
-        } catch (e) {
+        } catch (e, stack) {
           ytFailed = true;
+          AppLogger.recordError(e, stack, context: 'SearchService: YouTube search failed for query "${intent.cleanQuery}"');
+          AppLogger.log('SearchService', 'Upstream YouTube search fault isolated: $e');
           debugPrint('[SearchService] Upstream YouTube search fault isolated: $e');
           return <Song>[];
         }
@@ -554,7 +557,7 @@ class SearchService {
 
       final searchBundle = SearchResults(
         songs: mergedSongs,
-        ytSongs: ytSongs,
+        ytSongs: rankedYt.isNotEmpty ? rankedYt : ytSongs,
         albums: labeledAlbums,
         artists: artists,
         topResult: topResult,

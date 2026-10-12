@@ -481,6 +481,52 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ],
 
+                    // "YouTube Music Trending" Carousel
+                    if (feedState.youtubeTrending.isNotEmpty) ...[
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.play_circle_filled_rounded, color: Color(0xFFFF0033), size: 20),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'YouTube Music Trending',
+                                    style: GoogleFonts.outfit(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                              TextButton(
+                                child: Text('Play All', style: GoogleFonts.outfit(color: const Color(0xFFFF0033), fontWeight: FontWeight.bold)),
+                                onPressed: () => audioHandler.playSong(feedState.youtubeTrending.first, queue: feedState.youtubeTrending),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      SliverToBoxAdapter(
+                        child: SizedBox(
+                          height: carouselHeight,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            scrollDirection: Axis.horizontal,
+                            itemCount: feedState.youtubeTrending.length,
+                            itemBuilder: (context, index) {
+                              final song = feedState.youtubeTrending[index];
+                              return HomeSongCard(
+                                song: song,
+                                width: cardWidth,
+                                onTap: () => audioHandler.playSong(song, queue: feedState.youtubeTrending),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+
                     // "Popular Artists" (High-Res Verified Avatars)
                     if (feedState.popularArtists.isNotEmpty) ...[
                       SliverToBoxAdapter(

@@ -35,6 +35,9 @@ class DefaultStreamResolver implements StreamResolver {
   static const Duration _saavnSearchTimeout = Duration(seconds: 6);
   static const Duration cacheTtl = Duration(hours: 3);
 
+  /// High-integrity HTTP headers for Googlevideo CDN streams (Range + modern User-Agent)
+  static Map<String, String> get streamingHeaders => YouTubeClient.streamingHeaders;
+
   // In-memory stream cache enforcing 3-hour TTL to prevent HTTP 403 CDN expirations
   static final Map<String, StreamCacheEntry> _streamCache = {};
 

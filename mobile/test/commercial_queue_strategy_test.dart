@@ -307,5 +307,43 @@ void main() {
       expect(queueHandler.queue[5].id, equals('batch_3'));
       expect(queueHandler.queue[6].id, equals('album_3')); // Next album track shifted to 6
     });
+
+    test('6. "Play Next" completion cleanly resumes album context sequence at contextIndex + 1 without jumping to Auto-Suggestion', () async {
+      // 5-track album: [album_0, album_1, album_2, album_3, album_4]
+      final albumTracks = List.generate(5, (i) => createSampleSong('album_$i', 'Album $i'));
+      await queueHandler.loadQueue(albumTracks, initialIndex: 1, autoPlay: false); // Playing album_1
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(queueHandler.currentSong?.id, equals('album_1'));
+      expect(queueHandler.contextIndex, equals(1));
+
+      // User selects "Play Next" for user_next
+      final playNextSong = createSampleSong('user_next', 'User Next Song');
+      await queueHandler.insertNext(playNextSong);
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      // Play Next is immediately next in queue
+      expect(queueHandler.queue[2].id, equals('user_next'));
+      expect(queueHandler.userQueue.length, equals(1));
+
+      // 1. Advance to user_next
+      await queueHandler.skipToNext();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(queueHandler.currentSong?.id, equals('user_next'));
+      expect(queueHandler.currentTrackIsFromUserQueue, isTrue);
+      // contextIndex remains anchored to 1
+      expect(queueHandler.contextIndex, equals(1));
+
+      // 2. Finished playing user_next -> Skip or complete track
+      await queueHandler.skipToNext();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      // MUST resume album sequence at album_2 (contextIndex 2), NOT trigger auto-suggestion!
+      expect(queueHandler.currentSong?.id, equals('album_2'));
+      expect(queueHandler.currentTrackIsFromUserQueue, isFalse);
+      expect(queueHandler.contextIndex, equals(2));
+      expect(queueHandler.hasNext, isTrue);
+    });
   });
 }

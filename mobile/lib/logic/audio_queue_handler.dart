@@ -153,6 +153,8 @@ class AudioQueueHandler {
   List<int> get contextShuffleIndices => List.unmodifiable(_contextShuffleIndices);
   List<int> get shuffleIndices => _isShuffleEnabled ? contextShuffleIndices : List.generate(_contextQueue.length, (i) => i);
   bool get isShuffleEnabled => _isShuffleEnabled;
+  int get contextIndex => _contextIndex;
+  bool get currentTrackIsFromUserQueue => _currentTrackIsFromUserQueue;
 
   /// Remaining context tracks following current position in context sequence
   List<TrackEntity> get remainingContextTracks {
@@ -917,8 +919,13 @@ class AudioQueueHandler {
       }
     }
 
+    // 1. If currently playing track was from user queue and is still at index 0, pop it
+    if (_currentTrack != null && _currentTrackIsFromUserQueue && _userQueue.isNotEmpty && _userQueue.first.id == _currentTrack!.id) {
+      _userQueue.removeAt(0);
+    }
+
+    // 2. If _userQueue still has items, play _userQueue.first (popping it)
     if (_userQueue.isNotEmpty) {
-      // 1. Consume from _userQueue (Strict FIFO priority)
       final next = _userQueue.removeAt(0);
       if (_currentTrack != null) {
         _playbackHistory.add(_currentTrack!);
@@ -929,9 +936,16 @@ class AudioQueueHandler {
       return;
     }
 
-    final remaining = remainingContextTracks;
-    if (remaining.isNotEmpty) {
-      // 2. Advance sequential context track
+    // 3. _userQueue is empty:
+    // When transitioning from a user-queued track, user tracks do NOT exist in _contextQueue.
+    // Do NOT call _contextQueue.indexOf(currentTrack).
+    // Instead, cleanly RESUME _contextQueue at _contextIndex + 1.
+    // DO NOT call next_track_strategy unless _contextIndex + 1 >= _contextQueue.length.
+    final hasNextContext = _isShuffleEnabled
+        ? (_contextIndex + 1 < _contextShuffleIndices.length)
+        : (_contextIndex + 1 < _contextQueue.length);
+
+    if (hasNextContext) {
       _contextIndex++;
       final next = _isShuffleEnabled
           ? _contextQueue[_contextShuffleIndices[_contextIndex]]
@@ -945,13 +959,13 @@ class AudioQueueHandler {
       return;
     }
 
-    // 3. End of both queues -> Check LoopMode.all
+    // 4. End of context queue reached (_contextIndex + 1 >= _contextQueue.length): Check LoopMode.all
     if (_effectiveLoopMode == LoopMode.all && _contextQueue.isNotEmpty) {
       await handleRepeatAllLoop();
       return;
     }
 
-    // 4. Autoplay replenishment when user manually skips at queue EOF
+    // 5. Autoplay replenishment ONLY when at EOF (_contextIndex + 1 >= _contextQueue.length)
     if (SettingsManager.isAutoplayEnabled && _currentTrack != null && isAudioHandlerInitialized) {
       await audioHandler.handleAutoplayQueueEnd(_currentTrack!.toSong());
     }
@@ -1046,6 +1060,10 @@ class AudioQueueHandler {
 
   /// Handles gapless advance when just_audio ConcatenatingAudioSource fires index 1
   void _advanceToNextTrackFromPlayerStream() {
+    if (_currentTrack != null && _currentTrackIsFromUserQueue && _userQueue.isNotEmpty && _userQueue.first.id == _currentTrack!.id) {
+      _userQueue.removeAt(0);
+    }
+
     if (_userQueue.isNotEmpty) {
       final next = _userQueue.removeAt(0);
       if (_currentTrack != null) {
@@ -1053,16 +1071,22 @@ class AudioQueueHandler {
       }
       _currentTrack = next;
       _currentTrackIsFromUserQueue = true;
-    } else if (remainingContextTracks.isNotEmpty) {
-      _contextIndex++;
-      final next = _isShuffleEnabled
-          ? _contextQueue[_contextShuffleIndices[_contextIndex]]
-          : _contextQueue[_contextIndex];
-      if (_currentTrack != null) {
-        _playbackHistory.add(_currentTrack!);
+    } else {
+      final hasNextContext = _isShuffleEnabled
+          ? (_contextIndex + 1 < _contextShuffleIndices.length)
+          : (_contextIndex + 1 < _contextQueue.length);
+
+      if (hasNextContext) {
+        _contextIndex++;
+        final next = _isShuffleEnabled
+            ? _contextQueue[_contextShuffleIndices[_contextIndex]]
+            : _contextQueue[_contextIndex];
+        if (_currentTrack != null) {
+          _playbackHistory.add(_currentTrack!);
+        }
+        _currentTrack = next;
+        _currentTrackIsFromUserQueue = false;
       }
-      _currentTrack = next;
-      _currentTrackIsFromUserQueue = false;
     }
 
     _sessionToken++;

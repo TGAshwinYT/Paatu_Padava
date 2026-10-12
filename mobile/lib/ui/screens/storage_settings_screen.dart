@@ -131,18 +131,15 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
           _isLoading
               ? const Center(child: CircularProgressIndicator(color: Color(0xFF6366F1)))
               : ListView(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+                  padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 100),
                   children: [
                     _buildOverviewCard(),
-                    const SizedBox(height: 24),
-                    _buildQualityCard(),
                     const SizedBox(height: 24),
                     _buildCacheLimitCard(),
                     const SizedBox(height: 24),
                     _buildActionsCard(),
                     const SizedBox(height: 24),
                     _buildDownloadsExplorer(),
-                    const SizedBox(height: 120),
                   ],
                 ),
           const Positioned(
@@ -271,92 +268,6 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
     );
   }
 
-  // ================= Quality Selector ================= //
-
-  Widget _buildQualityCard() {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: const Color(0xFF131B2E),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: const [
-              Icon(Icons.high_quality_rounded, color: Color(0xFF818CF8), size: 20),
-              SizedBox(width: 8),
-              Text(
-                'Download Audio Quality',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'Higher quality audio uses more disk space per song.',
-            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              _buildQualityChip('96kbps', 'Saver (~2.5 MB)'),
-              const SizedBox(width: 8),
-              _buildQualityChip('160kbps', 'Standard (~4.5 MB)'),
-              const SizedBox(width: 8),
-              _buildQualityChip('320kbps', 'Extreme (~9.0 MB)'),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildQualityChip(String quality, String subtitle) {
-    final isSelected = SettingsManager.downloadQuality == quality;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () async {
-          await SettingsManager.setDownloadQuality(quality);
-          setState(() {});
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-          decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFF6366F1).withValues(alpha: 0.2) : const Color(0xFF1E293B),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isSelected ? const Color(0xFF6366F1) : Colors.white.withValues(alpha: 0.05),
-              width: 1.5,
-            ),
-          ),
-          child: Column(
-            children: [
-              Text(
-                quality,
-                style: TextStyle(
-                  color: isSelected ? const Color(0xFF818CF8) : Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                subtitle,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: isSelected ? Colors.white70 : const Color(0xFF64748B),
-                  fontSize: 9,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   // ================= Cache Limit Settings ================= //
 

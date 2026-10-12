@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../../../domain/models/history_entry.dart';
 import '../../../models/song.dart';
 import '../../../services/history_manager.dart';
 import '../../../services/player_handler.dart';
@@ -14,12 +15,21 @@ class HistoryTabView extends StatelessWidget {
     required this.onSongContextMenu,
   });
 
+  Map<String, List<HistoryEntry>> _groupByDate(List<HistoryEntry> entries) {
+    final Map<String, List<HistoryEntry>> groups = {};
+    for (final entry in entries) {
+      final section = entry.dateSection;
+      groups.putIfAbsent(section, () => []).add(entry);
+    }
+    return groups;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<List<Song>>(
-      valueListenable: HistoryManager.historyNotifier,
-      builder: (context, history, _) {
-        if (history.isEmpty) {
+    return ValueListenableBuilder<List<HistoryEntry>>(
+      valueListenable: HistoryManager.historyEntriesNotifier,
+      builder: (context, historyEntries, _) {
+        if (historyEntries.isEmpty) {
           return Center(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 32.0),
@@ -34,7 +44,7 @@ class HistoryTabView extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Songs you stream or play offline will automatically appear here.',
+                    'Songs you stream or play offline for at least 30 seconds will automatically appear here.',
                     textAlign: TextAlign.center,
                     style: GoogleFonts.outfit(color: const Color(0xFF94A3B8), fontSize: 13),
                   ),
@@ -43,6 +53,9 @@ class HistoryTabView extends StatelessWidget {
             ),
           );
         }
+
+        final grouped = _groupByDate(historyEntries);
+        final allSongs = historyEntries.map((e) => e.track.toSong()).toList();
 
         return CustomScrollView(
           slivers: [
@@ -60,8 +73,12 @@ class HistoryTabView extends StatelessWidget {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                       ),
                       icon: const Icon(Icons.play_arrow_rounded, size: 20),
-                      label: Text('Play All (${history.length})', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
-                      onPressed: () => audioHandler.playSong(history.first, queue: history),
+                      label: Text('Play All (${historyEntries.length})', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
+                      onPressed: () {
+                        if (allSongs.isNotEmpty) {
+                          audioHandler.playSong(allSongs.first, queue: allSongs);
+                        }
+                      },
                     ),
                     TextButton.icon(
                       icon: const Icon(Icons.clear_all_rounded, size: 18, color: Color(0xFF64748B)),
@@ -72,56 +89,80 @@ class HistoryTabView extends StatelessWidget {
                 ),
               ),
             ),
-            SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final song = history[index];
-                  return ListTile(
-                    onTap: () => audioHandler.playSong(song, queue: history),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
-                    leading: ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: SizedBox(
-                        width: 50,
-                        height: 50,
-                        child: CachedNetworkImage(
-                          imageUrl: song.coverUrl,
-                          fit: BoxFit.cover,
-                          errorWidget: (_, __, ___) => Container(color: const Color(0xFF1E293B)),
+
+            // Date sections
+            for (final group in grouped.entries) ...[
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
+                  child: Text(
+                    group.key,
+                    style: GoogleFonts.outfit(
+                      color: const Color(0xFF818CF8),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+              ),
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final entry = group.value[index];
+                    final song = entry.track.toSong();
+
+                    return ListTile(
+                      onTap: () => audioHandler.playSong(song, queue: allSongs),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+                      leading: ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: SizedBox(
+                          width: 50,
+                          height: 50,
+                          child: CachedNetworkImage(
+                            imageUrl: song.coverUrl,
+                            fit: BoxFit.cover,
+                            errorWidget: (_, __, ___) => Container(color: const Color(0xFF1E293B)),
+                          ),
                         ),
                       ),
-                    ),
-                    title: Text(
-                      song.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
-                    ),
-                    subtitle: Text(
-                      song.artist,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.outfit(color: const Color(0xFF94A3B8), fontSize: 12),
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.playlist_add_rounded, color: Color(0xFF818CF8), size: 22),
-                          onPressed: () => AddToPlaylistDialog.show(context, song),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.more_vert_rounded, color: Color(0xFF64748B), size: 20),
-                          onPressed: () => onSongContextMenu(song),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-                childCount: history.length,
+                      title: Text(
+                        song.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                      ),
+                      subtitle: Text(
+                        '${song.artist} • ${entry.formattedTime}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.outfit(color: const Color(0xFF94A3B8), fontSize: 12),
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.playlist_add_rounded, color: Color(0xFF818CF8), size: 22),
+                            onPressed: () => AddToPlaylistDialog.show(context, song),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.more_vert_rounded, color: Color(0xFF64748B), size: 20),
+                            onPressed: () => onSongContextMenu(song),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                  childCount: group.value.length,
+                ),
               ),
+            ],
+
+            // Enforce bottom padding of 100 so widgets never hide behind MiniPlayer
+            const SliverToBoxAdapter(
+              child: SizedBox(height: 100),
             ),
-            const SliverToBoxAdapter(child: SizedBox(height: 120)),
           ],
         );
       },

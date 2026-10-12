@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../../domain/models/history_entry.dart';
 import '../../models/song.dart';
 import '../../services/history_manager.dart';
 import '../../services/player_handler.dart';
@@ -25,7 +27,7 @@ class HistoryScreen extends StatelessWidget {
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         content: const Text(
-          'This will remove all recently played tracks from your device history.',
+          'This will permanently remove all listening history from your device and cloud profile.',
           style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
         ),
         actions: [
@@ -133,22 +135,33 @@ class HistoryScreen extends StatelessWidget {
     );
   }
 
+  Map<String, List<HistoryEntry>> _groupByDate(List<HistoryEntry> entries) {
+    final Map<String, List<HistoryEntry>> groups = {};
+    for (final entry in entries) {
+      final section = entry.dateSection;
+      groups.putIfAbsent(section, () => []).add(entry);
+    }
+    return groups;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bgDark,
       appBar: AppBar(
-        title: const Text(
+        backgroundColor: AppColors.bgDark,
+        elevation: 0,
+        title: Text(
           'Recently Played',
-          style: TextStyle(
+          style: GoogleFonts.outfit(
             color: Colors.white,
             fontWeight: FontWeight.bold,
             fontSize: 20,
           ),
         ),
         actions: [
-          ValueListenableBuilder<List<Song>>(
-            valueListenable: HistoryManager.historyNotifier,
+          ValueListenableBuilder<List<HistoryEntry>>(
+            valueListenable: HistoryManager.historyEntriesNotifier,
             builder: (context, history, _) {
               if (history.isEmpty) return const SizedBox.shrink();
               return IconButton(
@@ -160,57 +173,64 @@ class HistoryScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: ValueListenableBuilder<List<Song>>(
-        valueListenable: HistoryManager.historyNotifier,
-        builder: (context, history, _) {
-          if (history.isEmpty) {
+      body: ValueListenableBuilder<List<HistoryEntry>>(
+        valueListenable: HistoryManager.historyEntriesNotifier,
+        builder: (context, historyEntries, _) {
+          if (historyEntries.isEmpty) {
             return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceElevated,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: AppColors.surfaceBorder),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceElevated,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppColors.surfaceBorder),
+                      ),
+                      child: const Icon(
+                        Icons.history_rounded,
+                        size: 56,
+                        color: AppColors.neonViolet,
+                      ),
                     ),
-                    child: const Icon(
-                      Icons.history_rounded,
-                      size: 56,
-                      color: AppColors.neonViolet,
+                    const SizedBox(height: 20),
+                    Text(
+                      'No recently played tracks',
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 20),
-                  const Text(
-                    'No recently played tracks',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+                    const SizedBox(height: 8),
+                    Text(
+                      'Tracks you stream or play offline will automatically appear here once played for at least 30 seconds.',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 13),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Tracks you listen to will appear here automatically',
-                    style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-                  ),
-                ],
+                  ],
+                ),
               ),
             );
           }
 
+          final groupedHistory = _groupByDate(historyEntries);
+          final allSongs = historyEntries.map((e) => e.track.toSong()).toList();
+
           return CustomScrollView(
             slivers: [
-              // Play All Header Banner
+              // Header Controls
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 14),
                   child: Row(
                     children: [
                       Text(
-                        '${history.length} tracks',
-                        style: const TextStyle(
+                        '${historyEntries.length} tracks',
+                        style: GoogleFonts.outfit(
                           color: AppColors.textSecondary,
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
@@ -219,12 +239,14 @@ class HistoryScreen extends StatelessWidget {
                       const Spacer(),
                       ElevatedButton.icon(
                         onPressed: () {
-                          audioHandler.playSong(history.first, queue: history);
+                          if (allSongs.isNotEmpty) {
+                            audioHandler.playSong(allSongs.first, queue: allSongs);
+                          }
                         },
                         icon: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 22),
-                        label: const Text(
+                        label: Text(
                           'Play All',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                          style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold),
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.neonViolet,
@@ -237,111 +259,133 @@ class HistoryScreen extends StatelessWidget {
                 ),
               ),
 
-              // History Tracks List
-              SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final song = history[index];
-                    return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                      leading: ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: song.isDownloaded && song.localFilePath != null && File(song.localFilePath!).existsSync()
-                            ? Image.file(
-                                File(song.localFilePath!),
-                                width: 52,
-                                height: 52,
-                                fit: BoxFit.cover,
-                              )
-                            : (song.coverUrl.isNotEmpty
-                                ? CachedNetworkImage(
-                                    imageUrl: song.coverUrl,
-                                    width: 52,
-                                    height: 52,
-                                    fit: BoxFit.cover,
-                                    errorWidget: (_, __, ___) => Container(
-                                      width: 52,
-                                      height: 52,
+              // Date-Grouped Sections
+              for (final group in groupedHistory.entries) ...[
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                    child: Text(
+                      group.key,
+                      style: GoogleFonts.outfit(
+                        color: AppColors.electricCyan,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                ),
+                SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final entry = group.value[index];
+                      final song = entry.track.toSong();
+
+                      return ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 3),
+                        leading: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: song.isDownloaded && song.localFilePath != null && File(song.localFilePath!).existsSync()
+                              ? Image.file(
+                                  File(song.localFilePath!),
+                                  width: 50,
+                                  height: 50,
+                                  fit: BoxFit.cover,
+                                )
+                              : (song.coverUrl.isNotEmpty
+                                  ? CachedNetworkImage(
+                                      imageUrl: song.coverUrl,
+                                      width: 50,
+                                      height: 50,
+                                      fit: BoxFit.cover,
+                                      errorWidget: (_, __, ___) => Container(
+                                        width: 50,
+                                        height: 50,
+                                        color: AppColors.surfaceElevated,
+                                        child: const Icon(Icons.music_note, color: Colors.white38),
+                                      ),
+                                    )
+                                  : Container(
+                                      width: 50,
+                                      height: 50,
                                       color: AppColors.surfaceElevated,
                                       child: const Icon(Icons.music_note, color: Colors.white38),
-                                    ),
-                                  )
-                                : Container(
-                                    width: 52,
-                                    height: 52,
-                                    color: AppColors.surfaceElevated,
-                                    child: const Icon(Icons.music_note, color: Colors.white38),
-                                  )),
-                      ),
-                      title: Text(
-                        Song.sanitize(song.title),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
+                                    )),
                         ),
-                      ),
-                      subtitle: Row(
-                        children: [
-                          if (song.source == 'saavn')
-                            Container(
-                              margin: const EdgeInsets.only(right: 6),
-                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: AppColors.neonViolet.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Text(
-                                '320K',
-                                style: TextStyle(
-                                  color: AppColors.neonViolet,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            )
-                          else if (song.source == 'youtube')
-                            Container(
-                              margin: const EdgeInsets.only(right: 6),
-                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: AppColors.electricCyan.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Text(
-                                'YT',
-                                style: TextStyle(
-                                  color: AppColors.electricCyan,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          Expanded(
-                            child: Text(
-                              Song.sanitize(song.artist),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-                            ),
+                        title: Text(
+                          song.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
                           ),
-                        ],
-                      ),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.more_vert_rounded, color: AppColors.textSecondary),
-                        onPressed: () => _showSongOptions(context, song),
-                      ),
-                      onTap: () {
-                        audioHandler.playSong(song, queue: history);
-                      },
-                    );
-                  },
-                  childCount: history.length,
+                        ),
+                        subtitle: Row(
+                          children: [
+                            if (song.source == 'saavn')
+                              Container(
+                                margin: const EdgeInsets.only(right: 6),
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: AppColors.neonViolet.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text(
+                                  '320K',
+                                  style: TextStyle(
+                                    color: AppColors.neonViolet,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              )
+                            else if (song.source == 'youtube')
+                              Container(
+                                margin: const EdgeInsets.only(right: 6),
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: AppColors.electricCyan.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text(
+                                  'YT',
+                                  style: TextStyle(
+                                    color: AppColors.electricCyan,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            Expanded(
+                              child: Text(
+                                '${song.artist} • ${entry.formattedTime}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.more_vert_rounded, color: AppColors.textSecondary, size: 20),
+                          onPressed: () => _showSongOptions(context, song),
+                        ),
+                        onTap: () {
+                          audioHandler.playSong(song, queue: allSongs);
+                        },
+                      );
+                    },
+                    childCount: group.value.length,
+                  ),
                 ),
+              ],
+
+              // Prevent clipping under MiniPlayer
+              const SliverToBoxAdapter(
+                child: SizedBox(height: 100),
               ),
-              const SliverToBoxAdapter(child: SizedBox(height: 100)),
             ],
           );
         },

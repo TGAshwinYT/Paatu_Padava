@@ -11,6 +11,7 @@ import '../models/song.dart';
 import 'settings_manager.dart';
 import '../domain/models/app_error.dart';
 import '../domain/models/lyrics_state.dart';
+import '../domain/models/track_entity.dart';
 import '../logic/lyrics/indic_romanizer.dart';
 import 'error_handler.dart';
 import 'api_client.dart';
@@ -44,9 +45,7 @@ bool get isAudioHandlerInitialized => _audioHandlerInstance != null;
 /// App-lifetime audio background service handler coordinating playback,
 /// queue mutations, notification actions, and lock screen media session.
 class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler, WidgetsBindingObserver {
-  final AudioPlayer _player = AudioPlayer(
-    androidApplyAudioAttributes: true,
-  );
+  final AudioPlayer _player;
 
   late final AudioQueueHandler _queueHandler;
   late final SmartShuffleController _smartShuffleController;
@@ -66,6 +65,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   Timer? _sleepTimer;
   Timer? _countdownTicker;
   bool _hasRecordedListen = false;
+  bool _hasRecordedHistory = false;
   bool _isForegroundDowngraded = false;
   bool _isAppInBackground = false;
   bool _resumeOnInterruptionEnd = false;
@@ -91,6 +91,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   ValueNotifier<int> get currentIndexNotifier => _queueHandler.currentIndexNotifier;
   ValueNotifier<SmartShuffleMode> get shuffleModeNotifier => _smartShuffleController.modeNotifier;
 
+  bool get hasRecordedHistory => _hasRecordedHistory;
   List<Song> get playlist => _queueHandler.queue;
   int get currentIndex => _queueHandler.currentIndex;
   Song? get currentSong => _queueHandler.currentSong;
@@ -173,7 +174,8 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     _favoriteControlOutlined,
   ];
 
-  PaatuAudioHandler() {
+  PaatuAudioHandler({AudioPlayer? player})
+      : _player = player ?? AudioPlayer(androidApplyAudioAttributes: true) {
     _queueHandler = AudioQueueHandler(
       player: _player,
       onSongChanged: (song) => _onActiveTrackChanged(song),
@@ -286,11 +288,11 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     _cachedFavSongId = song.id;
     _cachedIsFav = FavoritesManager.isFavorite(song.id);
 
-    // Coordinated play recording: atomic local Hive + cloud Supabase with retry
-    HistoryManager.recordPlay(song);
+    // Smart shuffle taste profile tracking
     _smartShuffleController.recordRecentlyPlayed(song);
 
-    // Reset listen history & lyrics offset
+    // Reset scrobble threshold state & lyrics offset
+    _hasRecordedHistory = false;
     _hasRecordedListen = false;
     lyricsOffsetMsNotifier.value = 0;
 
@@ -489,10 +491,20 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       _broadcastState();
     });
 
-    // 15-second listen tracker
-    _throttledPositionSub = throttledPositionStream.listen((pos) {
+    // 30-second scrobble threshold (or >= 50% for tracks under 60 seconds)
+    _throttledPositionSub = _player.positionStream.listen((pos) {
       if (!_hasRecordedListen && pos.inSeconds >= 15 && currentSong != null) {
         _hasRecordedListen = true;
+      }
+
+      if (!_hasRecordedHistory && currentSong != null) {
+        final song = currentSong!;
+        final totalSec = _player.duration?.inSeconds ?? song.duration;
+        final thresholdSec = (totalSec > 0 && totalSec < 60) ? (totalSec * 0.5) : 30.0;
+        if (pos.inSeconds >= thresholdSec) {
+          _hasRecordedHistory = true;
+          HistoryManager.addToHistory(TrackEntity.fromSong(song));
+        }
       }
     });
   }

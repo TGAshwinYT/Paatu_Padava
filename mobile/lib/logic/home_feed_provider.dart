@@ -11,10 +11,12 @@ import '../data/repositories/song_repository.dart';
 
 import '../domain/models/app_error.dart';
 import '../services/error_handler.dart';
+import '../services/youtube_client.dart';
 
 class HomeFeedState {
   final List<Song> madeForYou;
   final List<Song> trendingMerged;
+  final List<Song> youtubeTrending;
   final List<Song> newReleases;
   final List<Map<String, dynamic>> popularArtists;
   final List<Map<String, dynamic>> featuredAlbums;
@@ -26,6 +28,7 @@ class HomeFeedState {
   const HomeFeedState({
     this.madeForYou = const [],
     this.trendingMerged = const [],
+    this.youtubeTrending = const [],
     this.newReleases = const [],
     this.popularArtists = const [],
     this.featuredAlbums = const [],
@@ -38,6 +41,7 @@ class HomeFeedState {
   bool get isEmpty =>
       madeForYou.isEmpty &&
       trendingMerged.isEmpty &&
+      youtubeTrending.isEmpty &&
       newReleases.isEmpty &&
       popularArtists.isEmpty &&
       featuredAlbums.isEmpty;
@@ -45,6 +49,7 @@ class HomeFeedState {
   HomeFeedState copyWith({
     List<Song>? madeForYou,
     List<Song>? trendingMerged,
+    List<Song>? youtubeTrending,
     List<Song>? newReleases,
     List<Map<String, dynamic>>? popularArtists,
     List<Map<String, dynamic>>? featuredAlbums,
@@ -56,6 +61,7 @@ class HomeFeedState {
     return HomeFeedState(
       madeForYou: madeForYou ?? this.madeForYou,
       trendingMerged: trendingMerged ?? this.trendingMerged,
+      youtubeTrending: youtubeTrending ?? this.youtubeTrending,
       newReleases: newReleases ?? this.newReleases,
       popularArtists: popularArtists ?? this.popularArtists,
       featuredAlbums: featuredAlbums ?? this.featuredAlbums,
@@ -151,6 +157,7 @@ class HomeFeedProvider extends ChangeNotifier {
       if (raw is Map) {
         final madeForYou = _decodeSongList(raw['madeForYou']);
         final trendingMerged = _decodeSongList(raw['trendingMerged'] ?? raw['trending']);
+        final youtubeTrending = _decodeSongList(raw['youtubeTrending']);
         final newReleases = _decodeSongList(raw['newReleases']);
         final popularArtists = (raw['popularArtists'] as List<dynamic>?)
                 ?.map((e) => Map<String, dynamic>.from(e as Map))
@@ -162,10 +169,11 @@ class HomeFeedProvider extends ChangeNotifier {
             [];
         final recentHistory = HistoryManager.getRecentSongs();
 
-        if (madeForYou.isNotEmpty || trendingMerged.isNotEmpty) {
+        if (madeForYou.isNotEmpty || trendingMerged.isNotEmpty || youtubeTrending.isNotEmpty) {
           _state = HomeFeedState(
             madeForYou: madeForYou,
             trendingMerged: trendingMerged,
+            youtubeTrending: youtubeTrending,
             newReleases: newReleases,
             popularArtists: popularArtists,
             featuredAlbums: featuredAlbums,
@@ -187,6 +195,7 @@ class HomeFeedProvider extends ChangeNotifier {
       await box.put('feed_$lang', {
         'madeForYou': feed.madeForYou.map((s) => s.toMap()).toList(),
         'trendingMerged': feed.trendingMerged.map((s) => s.toMap()).toList(),
+        'youtubeTrending': feed.youtubeTrending.map((s) => s.toMap()).toList(),
         'newReleases': feed.newReleases.map((s) => s.toMap()).toList(),
         'popularArtists': feed.popularArtists,
         'featuredAlbums': feed.featuredAlbums,
@@ -233,6 +242,7 @@ class HomeFeedProvider extends ChangeNotifier {
           (unifiedFeed['madeForYou'] is List || unifiedFeed['trending'] is List)) {
         final madeForYou = _decodeSongList(unifiedFeed['madeForYou']);
         final trending = _decodeSongList(unifiedFeed['trendingMerged'] ?? unifiedFeed['trending']);
+        final youtubeTrending = _decodeSongList(unifiedFeed['youtubeTrending']);
         final newReleases = _decodeSongList(unifiedFeed['newReleases']);
         final popularArtists = (unifiedFeed['popularArtists'] as List<dynamic>?)
                 ?.map((e) => Map<String, dynamic>.from(e as Map))
@@ -247,6 +257,7 @@ class HomeFeedProvider extends ChangeNotifier {
         _state = HomeFeedState(
           madeForYou: SongRepository.ensureDistinctCovers(SongRepository.deduplicateSongs(madeForYou)),
           trendingMerged: SongRepository.ensureDistinctCovers(SongRepository.deduplicateSongs(trending)),
+          youtubeTrending: SongRepository.ensureDistinctCovers(SongRepository.deduplicateSongs(youtubeTrending)),
           newReleases: SongRepository.ensureDistinctCovers(SongRepository.deduplicateSongs(newReleases)),
           popularArtists: popularArtists,
           featuredAlbums: featuredAlbums,
@@ -265,6 +276,7 @@ class HomeFeedProvider extends ChangeNotifier {
         SongRepository.getNewReleases(language: lang),
         SongRepository.getPopularArtists(language: lang),
         SaavnClient.searchAlbums('$lang Hit Albums', limit: 12),
+        YouTubeClient.search('$lang trending audio', limit: 15),
       ]);
 
       final trendingMerged = results[0] as List<Song>;
@@ -272,11 +284,13 @@ class HomeFeedProvider extends ChangeNotifier {
       final newReleases = results[2] as List<Song>;
       final popularArtists = results[3] as List<Map<String, dynamic>>;
       final featuredAlbums = results[4] as List<Map<String, dynamic>>;
+      final ytTrending = results[5] as List<Song>;
       final recentHistory = HistoryManager.getRecentSongs();
 
       _state = HomeFeedState(
         madeForYou: madeForYou,
         trendingMerged: trendingMerged,
+        youtubeTrending: ytTrending,
         newReleases: newReleases,
         popularArtists: popularArtists,
         featuredAlbums: featuredAlbums,

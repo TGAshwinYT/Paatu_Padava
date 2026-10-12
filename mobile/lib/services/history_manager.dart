@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import '../domain/models/history_entry.dart';
 import '../domain/models/track_entity.dart';
 import '../models/song.dart';
 import 'api_client.dart';
@@ -8,18 +9,23 @@ import 'auth_manager.dart';
 import 'supabase_service.dart';
 import 'app_logger.dart';
 
-/// Unified Listening History Manager for Paatu Paadava.
-/// Coordinates instant local Hive caching with Supabase `user_history` cloud persistence,
-/// retry queuing, and bi-directional restoration on fresh installs.
+/// Unified Listening History Manager for Paatu Paadava matching Spotify and YouTube Music specifications.
+/// Manages timestamped [HistoryEntry] storage, 24-hour deduplication hoisting,
+/// LRU capacity limits (capped at 200 items), and bi-directional Supabase cloud synchronization.
 class HistoryManager {
   static const String boxName = 'history_box';
   static const String pendingBoxName = 'pending_history_box';
+  static const int maxHistoryLimit = 200;
+
+  /// Reactive notifiers for UI binding
+  static final ValueNotifier<List<HistoryEntry>> historyEntriesNotifier = ValueNotifier<List<HistoryEntry>>([]);
   static final ValueNotifier<List<Song>> historyNotifier = ValueNotifier<List<Song>>([]);
   static bool _isSyncing = false;
 
   static Box get _box => Hive.box(boxName);
   static Box? get _pendingBox => Hive.isBoxOpen(pendingBoxName) ? Hive.box(pendingBoxName) : null;
 
+  /// Initializes local Hive storage and refreshes in-memory history
   static Future<void> init() async {
     await Hive.openBox(boxName);
     await Hive.openBox(pendingBoxName);
@@ -31,86 +37,122 @@ class HistoryManager {
     }
   }
 
+  /// Internal reload and cache synchronization
   static void _refreshList() {
-    final List<MapEntry<int, Song>> entries = [];
+    final List<HistoryEntry> entries = [];
     int fallbackIndex = 0;
     for (final key in _box.keys) {
       final data = _box.get(key);
       if (data != null && data is Map) {
         try {
-          final timestamp = (data['played_at'] is num)
-              ? (data['played_at'] as num).toInt()
-              : fallbackIndex++;
-          entries.add(MapEntry(timestamp, Song.fromMap(data)));
+          final entry = HistoryEntry.fromJson(Map<String, dynamic>.from(data));
+          entries.add(entry);
         } catch (e) {
           AppLogger.log('HistoryManager', 'Corrupt history entry ignored: $e');
         }
       }
     }
-    // Highest timestamp (most recent play) first
-    entries.sort((a, b) => b.key.compareTo(a.key));
-    historyNotifier.value = entries.map((e) => e.value).toList();
+
+    // Sort newest plays first (descending timestamp)
+    entries.sort((a, b) => b.playedAt.compareTo(a.playedAt));
+
+    // Deduplicate identical track IDs within 24 hours and enforce LRU cap
+    final List<HistoryEntry> deduped = [];
+    for (final entry in entries) {
+      final hasRecentDuplicate = deduped.any((e) =>
+          e.track.id == entry.track.id &&
+          e.playedAt.difference(entry.playedAt).inHours.abs() < 24);
+      if (!hasRecentDuplicate) {
+        deduped.add(entry);
+      }
+    }
+
+    if (deduped.length > maxHistoryLimit) {
+      deduped.removeRange(maxHistoryLimit, deduped.length);
+    }
+
+    historyEntriesNotifier.value = List.unmodifiable(deduped);
+    historyNotifier.value = List.unmodifiable(deduped.map((e) => e.track.toSong()).toList());
   }
 
+  /// Accessors for history
+  static List<HistoryEntry> getHistoryEntries() => historyEntriesNotifier.value;
   static List<Song> getHistory() => historyNotifier.value;
   static List<Song> getRecentSongs() => historyNotifier.value;
 
   static Future<void> clear() => clearHistory();
 
-  /// Coordinated single write entry point for track play events:
-  /// 1. Updates local Hive cache with deduplication and 100-item ceiling while preserving play_count.
-  /// 2. Asynchronously writes to Supabase `user_history` with error capture and pending retry queue.
-  static Future<void> recordPlay(Song song) async {
+  /// Adds a [TrackEntity] to playback history with Spotify/YouTube Music deduplication hoisting:
+  /// 1. Checks if a [HistoryEntry] with `entry.track.id == track.id` exists within the last 24 hours.
+  /// 2. If present, removes the prior entry.
+  /// 3. Inserts the new [HistoryEntry(track: track, playedAt: DateTime.now())] at index 0.
+  /// 4. Enforces a 200-item ceiling using LRU eviction.
+  /// 5. Persists to Hive and synchronizes with cloud services.
+  static Future<void> addToHistory(TrackEntity track) async {
     try {
-      int playCount = 1;
-      List<int> timestamps = [];
-      String? existingKey;
+      final now = DateTime.now();
+      final currentList = List<HistoryEntry>.from(historyEntriesNotifier.value);
+
+      // Check if entry already exists within the last 24 hours
+      final existingIndex = currentList.indexWhere((e) =>
+          e.track.id == track.id && now.difference(e.playedAt).inHours < 24);
+
+      if (existingIndex != -1) {
+        currentList.removeAt(existingIndex);
+      }
+
+      // Insert new entry at index 0 (hoisting)
+      final newEntry = HistoryEntry(track: track, playedAt: now);
+      currentList.insert(0, newEntry);
+
+      // LRU eviction: Cap at 200 items max
+      if (currentList.length > maxHistoryLimit) {
+        currentList.removeRange(maxHistoryLimit, currentList.length);
+      }
+
+      historyEntriesNotifier.value = List.unmodifiable(currentList);
+      historyNotifier.value = List.unmodifiable(currentList.map((e) => e.track.toSong()).toList());
+
+      // Persist to local Hive storage: clean out existing key for same track
+      final keysToDelete = <dynamic>[];
       for (final key in _box.keys) {
         final data = _box.get(key);
-        if (data != null && data is Map && data['id'] == song.id) {
-          existingKey = key.toString();
-          if (data['play_count'] is num) {
-            playCount = (data['play_count'] as num).toInt() + 1;
-          } else {
-            playCount = 2;
+        if (data != null && data is Map) {
+          final id = data['track']?['id'] ?? data['id'];
+          if (id == track.id) {
+            keysToDelete.add(key);
           }
-          if (data['timestamps'] is List) {
-            timestamps = (data['timestamps'] as List).map((e) => (e as num).toInt()).toList();
-          }
-          break;
         }
       }
-      if (existingKey != null) {
-        await _box.delete(existingKey);
+      for (final k in keysToDelete) {
+        await _box.delete(k);
       }
 
-      // Enforce 100 max history items in local cache
-      if (_box.length >= 100) {
-        final firstKey = _box.keys.first;
-        await _box.delete(firstKey);
+      while (_box.length >= maxHistoryLimit) {
+        final oldestKey = _box.keys.first;
+        await _box.delete(oldestKey);
       }
 
-      // Store new timestamped entry with explicit played_at epoch ms
-      final now = DateTime.now().millisecondsSinceEpoch;
-      timestamps.add(now);
-      final key = 'h_${now}_${song.id}';
-      final songMap = Map<String, dynamic>.from(song.toMap());
-      songMap['played_at'] = now;
-      songMap['play_count'] = playCount;
-      songMap['timestamps'] = timestamps;
-      await _box.put(key, songMap);
-      _refreshList();
+      final key = 'h_${now.millisecondsSinceEpoch}_${track.id}';
+      await _box.put(key, newEntry.toJson());
 
-      // 2. Coordinated Single Cloud Persistence Path
+      // Coordinated Cloud Persistence Path
+      final song = track.toSong();
       final supaUser = SupabaseService.currentUser;
       if (supaUser != null && !supaUser.isAnonymous) {
         _persistPlayToCloud(supaUser.id, song);
       } else {
         _persistPlayToBackendOnly(song);
       }
-    } catch (e) {
-      debugPrint('[HistoryManager] Local recordPlay notice: $e');
+    } catch (e, stack) {
+      AppLogger.recordError(e, stack, context: 'HistoryManager.addToHistory');
+      debugPrint('[HistoryManager] addToHistory error: $e');
     }
+  }
+
+  /// Compatibility bridge for Song instances
+  static Future<void> recordPlay(Song song) async {
+    await addToHistory(TrackEntity.fromSong(song));
   }
 
   /// Exposes raw history entries with play counts, timestamps, and song metadata for analytics
@@ -125,7 +167,6 @@ class HistoryManager {
     }
     return raw;
   }
-
 
   /// Asynchronously persists play event to Supabase, queuing for retry if network is unavailable
   static void _persistPlayToCloud(String userId, Song song) {
@@ -198,7 +239,7 @@ class HistoryManager {
       for (final row in remoteRows.reversed) {
         final songId = row['song_id']?.toString() ?? '';
         if (songId.isNotEmpty && !localIds.contains(songId)) {
-          final song = Song(
+          final track = TrackEntity(
             id: songId,
             title: TrackEntity.sanitize(row['title'], fallback: 'Unknown Song'),
             artist: TrackEntity.sanitize(row['artist'], fallback: 'Various Artists'),
@@ -212,9 +253,8 @@ class HistoryManager {
               ? (DateTime.tryParse(playedAtStr)?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch)
               : DateTime.now().millisecondsSinceEpoch;
           final key = 'h_${epochMs}_$songId';
-          final map = Map<String, dynamic>.from(song.toMap());
-          map['played_at'] = epochMs;
-          await _box.put(key, map);
+          final entry = HistoryEntry(track: track, playedAt: DateTime.fromMillisecondsSinceEpoch(epochMs));
+          await _box.put(key, entry.toJson());
           localIds.add(songId);
         }
       }
@@ -227,24 +267,37 @@ class HistoryManager {
     }
   }
 
+  /// Removes a song from history by ID
   static Future<void> removeSong(String songId) async {
     try {
+      final currentList = List<HistoryEntry>.from(historyEntriesNotifier.value);
+      currentList.removeWhere((e) => e.track.id == songId);
+      historyEntriesNotifier.value = List.unmodifiable(currentList);
+      historyNotifier.value = List.unmodifiable(currentList.map((e) => e.track.toSong()).toList());
+
+      final keysToDelete = <dynamic>[];
       for (final key in _box.keys) {
         final data = _box.get(key);
-        if (data != null && data is Map && data['id'] == songId) {
-          await _box.delete(key);
-          break;
+        if (data != null && data is Map) {
+          final id = data['track']?['id'] ?? data['id'];
+          if (id == songId) {
+            keysToDelete.add(key);
+          }
         }
       }
-      _refreshList();
+      for (final k in keysToDelete) {
+        await _box.delete(k);
+      }
     } catch (e, stack) {
       AppLogger.recordError(e, stack, context: 'HistoryManager.removeSong');
     }
   }
 
+  /// Clears all history entries
   static Future<void> clearHistory() async {
     try {
       await _box.clear();
+      historyEntriesNotifier.value = [];
       historyNotifier.value = [];
     } catch (e, stack) {
       AppLogger.recordError(e, stack, context: 'HistoryManager.clearHistory');

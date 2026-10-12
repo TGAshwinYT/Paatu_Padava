@@ -552,10 +552,13 @@ async def get_consolidated_home_feed(
         featured_albums = results[3] if not isinstance(results[3], Exception) and results[3] else []
         popular_artists = youtube.CURATED_TOP_ARTISTS
 
+        youtube_trending = results[1] if not isinstance(results[1], Exception) and results[1] else []
+
         payload = {
             "madeForYou": made_for_you,
             "trending": trending,
             "trendingMerged": trending,
+            "youtubeTrending": youtube_trending,
             "newReleases": new_releases,
             "featuredAlbums": featured_albums,
             "popularArtists": popular_artists,
@@ -575,6 +578,7 @@ async def get_consolidated_home_feed(
             "madeForYou": [],
             "trending": [],
             "trendingMerged": [],
+            "youtubeTrending": [],
             "newReleases": [],
             "featuredAlbums": [],
             "popularArtists": youtube.CURATED_TOP_ARTISTS,

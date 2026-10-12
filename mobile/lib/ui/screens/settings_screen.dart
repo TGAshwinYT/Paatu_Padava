@@ -101,9 +101,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildSectionHeader('AUDIO & PLAYBACK', Icons.headphones_rounded),
               const SizedBox(height: 10),
               _buildHubContainer([
-                ValueListenableBuilder<String>(
-                  valueListenable: SettingsManager.streamingQualityNotifier,
-                  builder: (context, quality, _) {
+                AnimatedBuilder(
+                  animation: Listenable.merge([
+                    SettingsManager.streamingQualityNotifier,
+                    SettingsManager.volumeNormalizationNotifier,
+                  ]),
+                  builder: (context, _) {
+                    final quality = SettingsManager.streamingQuality;
                     final isNorm = SettingsManager.isVolumeNormalizationEnabled;
                     return _buildNavigationTile(
                       icon: Icons.graphic_eq_rounded,
@@ -146,9 +150,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildSectionHeader('DOWNLOADS & STORAGE', Icons.download_for_offline_rounded),
               const SizedBox(height: 10),
               _buildHubContainer([
-                ValueListenableBuilder<String>(
-                  valueListenable: SettingsManager.downloadQualityNotifier,
-                  builder: (context, quality, _) {
+                AnimatedBuilder(
+                  animation: Listenable.merge([
+                    SettingsManager.downloadQualityNotifier,
+                    SettingsManager.downloadWifiOnlyNotifier,
+                    SettingsManager.downloadPathNotifier,
+                  ]),
+                  builder: (context, _) {
+                    final quality = SettingsManager.downloadQuality;
                     final wifiOnly = SettingsManager.isDownloadWifiOnlyEnabled;
                     return _buildNavigationTile(
                       icon: Icons.download_done_rounded,
@@ -186,9 +195,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildSectionHeader('DISPLAY & PREFERENCES', Icons.palette_rounded),
               const SizedBox(height: 10),
               _buildHubContainer([
-                ValueListenableBuilder<String>(
-                  valueListenable: SettingsManager.themeModeNotifier,
-                  builder: (context, theme, _) {
+                AnimatedBuilder(
+                  animation: Listenable.merge([
+                    SettingsManager.themeModeNotifier,
+                    SettingsManager.dynamicBackgroundNotifier,
+                    SettingsManager.indicRomanizationNotifier,
+                  ]),
+                  builder: (context, _) {
+                    final theme = SettingsManager.themeMode;
                     final romanize = SettingsManager.isIndicRomanizationEnabled;
                     final dynamicBg = SettingsManager.isDynamicBackgroundEnabled;
                     return _buildNavigationTile(
@@ -207,12 +221,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const Divider(color: Colors.white10, height: 1),
-                _buildNavigationTile(
-                  icon: Icons.language_rounded,
-                  iconColor: const Color(0xFF38BDF8),
-                  title: 'Music Languages',
-                  subtitle: SettingsManager.preferredLanguages.join(', '),
-                  onTap: () => _showLanguageModal(context),
+                ValueListenableBuilder<List<String>>(
+                  valueListenable: SettingsManager.languagesNotifier,
+                  builder: (context, _, __) {
+                    return _buildNavigationTile(
+                      icon: Icons.language_rounded,
+                      iconColor: const Color(0xFF38BDF8),
+                      title: 'Music Languages',
+                      subtitle: SettingsManager.preferredLanguages.join(', '),
+                      onTap: () => _showLanguageModal(context),
+                    );
+                  },
                 ),
               ]),
               const SizedBox(height: 24),

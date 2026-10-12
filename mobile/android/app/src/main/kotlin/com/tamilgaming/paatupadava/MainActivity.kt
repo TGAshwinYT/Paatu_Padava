@@ -37,6 +37,8 @@ class MainActivity: AudioServiceActivity() {
                     enableLights(false)
                 }
                 notificationManager.createNotificationChannel(channel)
+            }
+        }
         // Request POST_NOTIFICATIONS runtime permission on Android 13+ (API 33+) on launch
         if (Build.VERSION.SDK_INT >= 33) {
             if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {

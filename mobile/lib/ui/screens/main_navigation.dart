@@ -45,9 +45,18 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
   void _onPlaybackError() {
     final err = audioHandler.playbackErrorNotifier.value;
     if (err == null || !mounted) return;
+    final hasActiveMiniPlayer = audioHandler.currentSong != null;
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
+        behavior: SnackBarBehavior.floating,
+        margin: EdgeInsets.fromLTRB(
+          16,
+          0,
+          16,
+          hasActiveMiniPlayer ? 88 : 16,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         content: Row(
           children: [
             const Icon(Icons.error_outline_rounded, color: Colors.white, size: 20),
@@ -55,7 +64,7 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
             Expanded(
               child: Text(
                 err.userMessage,
-                style: GoogleFonts.outfit(color: Colors.white, fontSize: 13),
+                style: GoogleFonts.outfit(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
               ),
             ),
           ],

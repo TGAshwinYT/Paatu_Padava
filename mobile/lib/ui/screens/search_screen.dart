@@ -88,8 +88,8 @@ class _SearchScreenState extends State<SearchScreen> {
 
   final List<Map<String, dynamic>> _browseCategories = [
     {
-      'title': 'Tamil Hits',
-      'query': 'Tamil Top Hits',
+      'title': 'Top Tamil Hits',
+      'query': 'Top Tamil Hits',
       'colors': [Color(0xFF7C3AED), Color(0xFF9333EA)],
       'icon': Icons.local_fire_department_rounded,
     },
@@ -207,6 +207,48 @@ class _SearchScreenState extends State<SearchScreen> {
         ? SettingsManager.preferredLanguages.first
         : 'Tamil';
     final tab = _currentTabNotifier.value;
+
+    // Direct YouTube Link Detection: Instant resolution for pasted YouTube URLs or Playlist links
+    final ytVideoId = YouTubeClient.extractVideoId(clean);
+    final ytPlaylistId = YouTubeClient.extractPlaylistId(clean);
+    if ((ytVideoId != null && (clean.contains('youtu') || clean.contains('http'))) ||
+        (ytPlaylistId != null && (clean.contains('list=') || clean.startsWith('PL')))) {
+      if (ytPlaylistId != null && (clean.contains('list=') || clean.startsWith('PL'))) {
+        final playlistTracks = await YouTubeClient.getPlaylistTracks(ytPlaylistId, limit: 40);
+        if (!mounted || currentRequestId != _searchRequestId) return;
+        if (playlistTracks.isNotEmpty) {
+          _resultsNotifier.value = SearchResultsState(
+            ytSongs: playlistTracks,
+            topResult: {
+              'type': 'playlist',
+              'id': ytPlaylistId,
+              'title': 'YouTube Playlist',
+              'subtitle': '${playlistTracks.length} tracks (Client Resolved)',
+              'image': playlistTracks.first.coverUrl,
+            },
+          );
+          _isSearchingNotifier.value = false;
+          return;
+        }
+      } else if (ytVideoId != null) {
+        final track = await YouTubeClient.resolveTrackFromUrl(clean);
+        if (!mounted || currentRequestId != _searchRequestId) return;
+        if (track != null) {
+          _resultsNotifier.value = SearchResultsState(
+            ytSongs: [track],
+            topResult: {
+              'type': 'song',
+              'id': track.id,
+              'title': track.title,
+              'subtitle': track.artist,
+              'image': track.coverUrl,
+            },
+          );
+          _isSearchingNotifier.value = false;
+          return;
+        }
+      }
+    }
 
     try {
       if (tab == 'All') {
@@ -326,9 +368,17 @@ class _SearchScreenState extends State<SearchScreen> {
         _resultsNotifier.value = SearchResultsState(artists: correlatedArtists);
         _isSearchingNotifier.value = false;
       } else if (tab == 'YouTube') {
-        final yt = await YouTubeClient.search(clean, limit: 25);
+        final intent = SearchService.understandQuery(clean);
+        final targetLang = intent.explicitLanguage ?? prefLang;
+        final ytQuery = (intent.explicitLanguage != null && !clean.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
+            ? '${intent.explicitLanguage!} $clean'
+            : clean;
+        final yt = await YouTubeClient.search(ytQuery, limit: 25);
         if (!mounted || currentRequestId != _searchRequestId) return;
-        final groupedYt = SongRepository.groupCanonicalSongs(yt, preferredLanguage: prefLang);
+        final filteredYt = intent.explicitLanguage != null
+            ? SongRepository.filterByLanguage(yt, targetLang)
+            : yt;
+        final groupedYt = SongRepository.groupCanonicalSongs(filteredYt, preferredLanguage: targetLang);
         final cleanYt = SongRepository.deduplicateSongs(groupedYt);
         _resultsNotifier.value = SearchResultsState(ytSongs: cleanYt);
         _isSearchingNotifier.value = false;
@@ -366,8 +416,16 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _triggerCategorySearch(String query) {
-    _searchController.text = query;
-    _executeSearch(query, saveHistory: true);
+    final prefLang = SettingsManager.preferredLanguages.isNotEmpty
+        ? SettingsManager.preferredLanguages.first
+        : 'Tamil';
+    final intent = SearchService.understandQuery(query);
+    // Contextualize generic category queries with user's preferred language to avoid cross-language leaks
+    final effectiveQuery = (intent.explicitLanguage == null && !query.toLowerCase().contains(prefLang.toLowerCase()))
+        ? '$prefLang $query'
+        : query;
+    _searchController.text = effectiveQuery;
+    _executeSearch(effectiveQuery, saveHistory: true);
   }
 
   void _recordSearchResultClick([Song? song]) {
@@ -652,7 +710,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         },
                         onArtistRecordClick: () => _recordSearchResultClick(),
                         onRecordClick: ([song]) => _recordSearchResultClick(song),
-                        onSongTap: (song) => audioHandler.playSong(song),
+                        onSongTap: (song) => audioHandler.playSong(song, queue: state.songs),
                         onShowOptions: _showSongOptions,
                         onShowVersions: _showVersionsSheet,
                       );
@@ -706,7 +764,7 @@ class _SearchScreenState extends State<SearchScreen> {
           song: song,
           onTap: () {
             _recordSearchResultClick(song);
-            audioHandler.playSong(song);
+            audioHandler.playSong(song, queue: songList);
           },
           onShowOptions: () => _showSongOptions(song),
           onShowVersions: song.versions.isNotEmpty ? () => _showVersionsSheet(song) : null,

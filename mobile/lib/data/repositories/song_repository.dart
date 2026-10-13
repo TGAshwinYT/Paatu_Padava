@@ -69,6 +69,74 @@ class SongRepository {
     return first.replaceAll(RegExp(r'[^\w\s\u0B80-\u0BFF\u0C00-\u0C7F\u0900-\u097F]'), '').toLowerCase().trim();
   }
 
+  /// Strict cross-language barrier check to eliminate language contamination
+  /// (e.g. Hindi songs leaking into Tamil feeds, search cards, and trending carousels).
+  static bool isLanguageMismatch(Song song, String targetLanguage) {
+    final target = targetLanguage.toLowerCase().trim();
+    if (target.isEmpty) return false;
+
+    // 1. Explicit metadata language check from Saavn/API
+    if (song.language != null && song.language!.isNotEmpty) {
+      final sLang = song.language!.toLowerCase().trim();
+      if (sLang != target) {
+        if (target == 'english' && sLang == 'english') return false;
+        // Explicitly labeled under a different language (e.g. 'hindi' when target is 'tamil')
+        return true;
+      }
+    }
+
+    // 2. Text and script analysis on title, artist, and album
+    final combined = '${song.title} ${song.artist} ${song.album}'.toLowerCase();
+
+    if (target == 'tamil') {
+      // Must not contain foreign scripts
+      if (RegExp(r'[\u0900-\u097F\u0C00-\u0C7F\u0D00-\u0D7F\u0C80-\u0CFF]').hasMatch(combined)) {
+        return true;
+      }
+      // Must not contain explicit keywords of other major languages unless explicitly labeled as Tamil
+      if (RegExp(r'\b(hindi|bollywood|bhojpuri|punjabi|telugu|malayalam|kannada)\b').hasMatch(combined)) {
+        if (!combined.contains('tamil')) {
+          return true;
+        }
+      }
+    } else if (target == 'telugu') {
+      if (RegExp(r'[\u0900-\u097F\u0B80-\u0BFF\u0D00-\u0D7F\u0C80-\u0CFF]').hasMatch(combined)) {
+        return true;
+      }
+      if (RegExp(r'\b(hindi|bollywood|tamil|malayalam|kannada|punjabi)\b').hasMatch(combined) && !combined.contains('telugu')) {
+        return true;
+      }
+    } else if (target == 'malayalam') {
+      if (RegExp(r'[\u0900-\u097F\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF]').hasMatch(combined)) {
+        return true;
+      }
+      if (RegExp(r'\b(hindi|bollywood|tamil|telugu|kannada|punjabi)\b').hasMatch(combined) && !combined.contains('malayalam')) {
+        return true;
+      }
+    } else if (target == 'hindi') {
+      if (RegExp(r'[\u0B80-\u0BFF\u0C00-\u0C7F\u0D00-\u0D7F\u0C80-\u0CFF]').hasMatch(combined)) {
+        return true;
+      }
+      if (RegExp(r'\b(tamil|telugu|malayalam|kannada)\b').hasMatch(combined) && !combined.contains('hindi')) {
+        return true;
+      }
+    } else if (target == 'kannada') {
+      if (RegExp(r'[\u0900-\u097F\u0B80-\u0BFF\u0C00-\u0C7F\u0D00-\u0D7F]').hasMatch(combined)) {
+        return true;
+      }
+      if (RegExp(r'\b(hindi|bollywood|tamil|telugu|malayalam|punjabi)\b').hasMatch(combined) && !combined.contains('kannada')) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /// Filters an iterable of songs to strictly exclude cross-language leaks.
+  static List<Song> filterByLanguage(Iterable<Song> songs, String targetLanguage) {
+    return songs.where((s) => !isLanguageMismatch(s, targetLanguage)).toList();
+  }
+
   /// Deduplicates songs by both unique ID and normalized `title + artist`.
   /// Deduplicates songs by unique ID, normalized `title + artist`, AND cross-artist composition matching (`cleanTitleKey` + duration).
   /// If [existing] is provided, prevents appending duplicates to active lists/feeds.
@@ -256,7 +324,8 @@ class SongRepository {
       candidates.addAll(fallback);
     }
 
-    final deduplicated = deduplicateSongs(candidates);
+    final filteredCandidates = filterByLanguage(candidates, language);
+    final deduplicated = deduplicateSongs(filteredCandidates.isNotEmpty ? filteredCandidates : candidates);
     return ensureDistinctCovers(deduplicated);
   }
 
@@ -299,15 +368,16 @@ class SongRepository {
     return distinct;
   }
 
-  /// Fetches and interleaves Trending tracks across JioSaavn (320kbps) & YouTube Music.
+  /// Fetches and interleaves Trending tracks across JioSaavn (320kbps) & YouTube Music
+  /// while strictly enforcing regional language boundaries to prevent cross-language leaks.
   static Future<List<Song>> getTrendingMerged({required String language}) async {
     final results = await Future.wait([
       SaavnClient.getTrending(language: language),
       ApiClient.fetchYouTubeTrending(language: language),
     ]);
 
-    final saavnSongs = results[0];
-    final ytSongs = results[1];
+    final saavnSongs = filterByLanguage(results[0], language);
+    final ytSongs = filterByLanguage(results[1], language);
 
     final List<Song> interleaved = [];
     final maxLen = saavnSongs.length > ytSongs.length ? saavnSongs.length : ytSongs.length;
@@ -320,10 +390,11 @@ class SongRepository {
     return deduplicateSongs(interleaved);
   }
 
-  /// Fetches New Releases for the selected language.
+  /// Fetches New Releases for the selected language strictly isolated by language.
   static Future<List<Song>> getNewReleases({required String language}) async {
-    final songs = await SaavnClient.search('Latest $language Releases', limit: 20, language: language);
-    return deduplicateSongs(songs);
+    final songs = await SaavnClient.search('Latest $language Releases', limit: 25, language: language);
+    final filtered = filterByLanguage(songs, language);
+    return deduplicateSongs(filtered.isNotEmpty ? filtered : songs);
   }
 
   /// High-resolution verified artist avatars for popular regional artists.

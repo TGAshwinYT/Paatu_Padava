@@ -199,6 +199,21 @@ class ErrorHandler {
       );
     }
 
+    final errStr = error.toString().toLowerCase();
+    if (errStr.contains('playerexception') ||
+        errStr.contains('source error') ||
+        errStr.contains('unplayable') ||
+        errStr.contains('mediacodec') ||
+        errStr.contains('exoplayer') ||
+        errStr.contains('403 forbidden') ||
+        errStr.contains('failed to load url') ||
+        errStr.contains('audio stream')) {
+      return AppError.songUnavailable(
+        context ?? 'Track',
+        debugDetails: error.toString(),
+      );
+    }
+
     return AppError(
       category: AppErrorCategory.unknown,
       userMessage: 'An unexpected error occurred. Please try again.',

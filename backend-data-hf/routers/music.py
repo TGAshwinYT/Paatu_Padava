@@ -693,7 +693,7 @@ async def get_consolidated_home_feed(
     user_langs = get_user_search_languages(user)
     primary_lang = language or (user_langs.split(",")[0].capitalize() if user_langs else "Tamil")
 
-    cache_key = f"home_feed_consolidated_v1_{primary_lang}_{user.id if user else 'guest'}"
+    cache_key = f"home_feed_consolidated_v2_{primary_lang}_{user.id if user else 'guest'}"
     try:
         cached = await redis_client.get(cache_key)
         if cached:

@@ -14,6 +14,7 @@ Song createTestSong({
   String coverUrl = 'https://c.saavncdn.com/test.jpg',
   int duration = 210,
   String source = 'saavn',
+  String? language,
 }) {
   return Song(
     id: id,
@@ -23,6 +24,7 @@ Song createTestSong({
     coverUrl: coverUrl,
     duration: duration,
     source: source,
+    language: language,
   );
 }
 
@@ -296,6 +298,21 @@ void main() {
       expect(parsed3, equals('Sai Abhyankkar'));
     });
 
+    test('extractAllGenuineArtists extracts all distinct genuine artists from collaborations', () {
+      final multi1 = ArtistSanitizer.extractAllGenuineArtists('Anirudh Ravichander, Sai Abhyankkar');
+      expect(multi1, containsAll(['Anirudh Ravichander', 'Sai Abhyankkar']));
+      expect(multi1.length, equals(2));
+
+      final multi2 = ArtistSanitizer.extractAllGenuineArtists('A.R. Rahman & Sid Sriram feat. Shreya Ghoshal');
+      expect(multi2, containsAll(['A.R. Rahman', 'Sid Sriram', 'Shreya Ghoshal']));
+
+      final withActor = ArtistSanitizer.extractAllGenuineArtists('Anirudh Ravichander, Thalapathy Vijay');
+      expect(withActor, equals(['Anirudh Ravichander'])); // Actor filtered out
+
+      final single = ArtistSanitizer.extractAllGenuineArtists('Yuvan Shankar Raja');
+      expect(single, equals(['Yuvan Shankar Raja']));
+    });
+
     test('YouTube handle extraction and clean title matching', () {
       final ytTitleCleaned = YouTubeClient.cleanTitle('@SaiAbhyankkar - Pavazha Malli (Official Music Video) | Think Indie');
       expect(ytTitleCleaned, equals('Pavazha Malli'));
@@ -396,6 +413,81 @@ void main() {
       // Items 5-64 should be present
       expect(SearchCache.get('query_5'), isNotNull);
       expect(SearchCache.get('query_64'), isNotNull);
+    });
+  });
+
+  group('Cross-Language Barrier & Contamination Prevention', () {
+    test('isLanguageMismatch correctly flags Hindi songs when target is Tamil', () {
+      final hindiSong1 = createTestSong(
+        id: 'h1',
+        title: 'Tum Hi Ho',
+        artist: 'Arijit Singh',
+        album: 'Aashiqui 2',
+        language: 'hindi',
+      );
+      final hindiSong2 = createTestSong(
+        id: 'h2',
+        title: 'केसरिया (Kesariya)',
+        artist: 'Arijit Singh',
+        album: 'Brahmastra',
+      );
+      final hindiSong3 = createTestSong(
+        id: 'h3',
+        title: 'Chaleya - Bollywood Hits',
+        artist: 'Arijit Singh',
+        album: 'Jawan',
+      );
+      final tamilSong = createTestSong(
+        id: 't1',
+        title: 'Naa Ready',
+        artist: 'Anirudh Ravichander',
+        album: 'Leo',
+        language: 'tamil',
+      );
+
+      expect(SongRepository.isLanguageMismatch(hindiSong1, 'Tamil'), isTrue);
+      expect(SongRepository.isLanguageMismatch(hindiSong2, 'Tamil'), isTrue);
+      expect(SongRepository.isLanguageMismatch(hindiSong3, 'Tamil'), isTrue);
+      expect(SongRepository.isLanguageMismatch(tamilSong, 'Tamil'), isFalse);
+    });
+
+    test('filterByLanguage purges Hindi songs from Tamil search or trending results', () {
+      final songs = [
+        createTestSong(id: '1', title: 'Hukum', artist: 'Anirudh', language: 'tamil'),
+        createTestSong(id: '2', title: 'Apna Bana Le', artist: 'Arijit Singh', language: 'hindi'),
+        createTestSong(id: '3', title: 'Arabic Kuthu', artist: 'Anirudh', language: 'tamil'),
+        createTestSong(id: '4', title: 'Jhoome Jo Pathaan - Hindi Hit', artist: 'Vishal-Shekhar'),
+      ];
+
+      final filtered = SongRepository.filterByLanguage(songs, 'Tamil');
+      expect(filtered.length, equals(2));
+      expect(filtered.map((s) => s.id), containsAll(['1', '3']));
+      expect(filtered.map((s) => s.id), isNot(contains('2')));
+      expect(filtered.map((s) => s.id), isNot(contains('4')));
+    });
+
+    test('SearchService.scoreSong gives 0.0 to cross-language mismatches when explicit language is set', () {
+      final intent = SearchService.understandQuery('Top Tamil Hits');
+      expect(intent.explicitLanguage, equals('Tamil'));
+
+      final hindiSong = createTestSong(
+        id: 'h1',
+        title: 'Top Hits - Hindi Bollywood Nonstop',
+        artist: 'Various Artists',
+        language: 'hindi',
+      );
+      final tamilSong = createTestSong(
+        id: 't1',
+        title: 'Top Hits - Tamil Chartbusters',
+        artist: 'Anirudh Ravichander',
+        language: 'tamil',
+      );
+
+      final hindiScore = SearchService.scoreSong(hindiSong, intent, preferredLanguages: ['Tamil']);
+      final tamilScore = SearchService.scoreSong(tamilSong, intent, preferredLanguages: ['Tamil']);
+
+      expect(hindiScore, equals(0.0));
+      expect(tamilScore, greaterThan(0.5));
     });
   });
 }

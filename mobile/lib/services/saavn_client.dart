@@ -6,6 +6,7 @@ import '../models/song.dart';
 import 'des_decrypt.dart';
 import 'app_logger.dart';
 import 'artist_sanitizer.dart';
+import '../data/repositories/song_repository.dart';
 
 class SaavnClient {
   static const String baseUrl = 'https://www.jiosaavn.com/api.php';
@@ -151,7 +152,9 @@ class SaavnClient {
   }
 
   static Future<List<Song>> getTrending({String language = 'Tamil'}) async {
-    return search('$language Hit Songs', limit: 25);
+    final songs = await search('$language Hit Songs', limit: 30, language: language);
+    final filtered = SongRepository.filterByLanguage(songs, language);
+    return filtered.isNotEmpty ? filtered : songs;
   }
 
   static Future<List<Map<String, dynamic>>> searchAlbums(String query, {int limit = 15}) async {
@@ -281,6 +284,7 @@ class SaavnClient {
   }
 
   static Future<Map<String, dynamic>?> getArtistDetails(String artistId) async {
+    if (artistId.trim().isEmpty) return null;
     try {
       final uri = Uri.parse(baseUrl).replace(queryParameters: {
         '__call': 'artist.getArtistPageDetails',
@@ -289,6 +293,8 @@ class SaavnClient {
         'api_version': '4',
         'ctx': 'web6dot0',
         'artistId': artistId,
+        'n_song': '50',
+        'n_album': '20',
       });
 
       final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 6));
@@ -296,9 +302,13 @@ class SaavnClient {
 
       final data = json.decode(response.body);
       final topSongs = data['topSongs'] as List<dynamic>? ?? [];
+      final moreSongs = (data['songs'] is List) ? (data['songs'] as List<dynamic>) : [];
+      final combined = [...topSongs, ...moreSongs];
       final List<Song> songs = [];
-      for (final item in topSongs) {
-        songs.add(_parseSongItem(Map<String, dynamic>.from(item)));
+      for (final item in combined) {
+        if (item is Map) {
+          songs.add(_parseSongItem(Map<String, dynamic>.from(item)));
+        }
       }
 
       return {
@@ -309,6 +319,19 @@ class SaavnClient {
       };
     } catch (e) {
       return null;
+    }
+  }
+
+  /// Fetches extensive songs for an artist across top hits and catalog
+  static Future<List<Song>> getArtistSongs(String artistName, {int limit = 50}) async {
+    final clean = artistName.trim();
+    if (clean.isEmpty) return [];
+    try {
+      final hits = await search('$clean Hit Songs', limit: (limit / 2).ceil());
+      final catalog = await search(clean, limit: (limit / 2).ceil());
+      return [...hits, ...catalog];
+    } catch (_) {
+      return [];
     }
   }
 

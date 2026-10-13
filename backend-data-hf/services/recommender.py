@@ -678,7 +678,8 @@ class PersonalRecommender:
         if len(results) < limit:
             try:
                 from services.youtube import get_trending_youtube
-                trending = await get_trending_youtube('IN' if any(l in ('tamil', 'telugu', 'hindi', 'malayalam', 'kannada', 'punjabi') for l in pref_langs) else 'ZZ')
+                rec_lang = pref_langs[0].capitalize() if pref_langs else "Tamil"
+                trending = await get_trending_youtube(rec_lang)
                 for t in trending:
                     tid = t.get("id")
                     t_title = t.get("title") or "Unknown"

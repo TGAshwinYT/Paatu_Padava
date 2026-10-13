@@ -15,9 +15,9 @@ import '../widgets/player/player_equalizer_sheet.dart';
 import '../widgets/player/player_controls.dart';
 import '../widgets/player/player_scrubber.dart';
 import '../widgets/player/player_gesture_detector.dart';
-import 'artist_screen.dart';
 import 'lyrics_screen.dart';
 import '../../services/artist_sanitizer.dart';
+import '../widgets/artist_picker_sheet.dart';
 
 class FullPlayerScreen extends StatefulWidget {
   const FullPlayerScreen({Key? key}) : super(key: key);
@@ -356,32 +356,74 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                         ),
                                       ),
                                       const SizedBox(height: 4),
-                                      GestureDetector(
-                                        behavior: HitTestBehavior.opaque,
-                                        onTap: () {
-                                          final genuineArtist = ArtistSanitizer.extractPrimaryGenuineArtist(song.artist);
-                                          Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (_) => ArtistScreen(
-                                                artistId: song.artistId ?? '',
-                                                artistName: genuineArtist,
-                                                imageUrl: song.coverUrl,
-                                              ),
+                                      Builder(
+                                        builder: (context) {
+                                          final artists = ArtistSanitizer.extractAllGenuineArtists(song.artist);
+                                          if (artists.isEmpty) {
+                                            return const Text(
+                                              'Unknown Artist',
+                                              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 15),
+                                            );
+                                          }
+                                          return SingleChildScrollView(
+                                            scrollDirection: Axis.horizontal,
+                                            child: Row(
+                                              children: [
+                                                for (int i = 0; i < artists.length; i++) ...[
+                                                  GestureDetector(
+                                                    behavior: HitTestBehavior.opaque,
+                                                    onTap: () {
+                                                      final artist = artists[i];
+                                                      final isPrimary = artist.toLowerCase() == song.primaryArtist.toLowerCase();
+                                                      ArtistPickerSheet.navigateToArtist(
+                                                        context,
+                                                        artistName: artist,
+                                                        artistId: isPrimary ? (song.artistId ?? '') : '',
+                                                        imageUrl: song.coverUrl,
+                                                      );
+                                                    },
+                                                    child: Text(
+                                                      artists[i],
+                                                      style: const TextStyle(
+                                                        color: Color(0xFF94A3B8),
+                                                        fontSize: 15,
+                                                        decoration: TextDecoration.underline,
+                                                        decorationColor: Color(0x3394A3B8),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  if (i < artists.length - 1)
+                                                    const Text(
+                                                      ', ',
+                                                      style: TextStyle(
+                                                        color: Color(0xFF64748B),
+                                                        fontSize: 15,
+                                                      ),
+                                                    ),
+                                                ],
+                                                if (artists.length > 1) ...[
+                                                  const SizedBox(width: 6),
+                                                  GestureDetector(
+                                                    behavior: HitTestBehavior.opaque,
+                                                    onTap: () => ArtistPickerSheet.show(context, song: song),
+                                                    child: Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                      decoration: BoxDecoration(
+                                                        color: Colors.white.withValues(alpha: 0.08),
+                                                        borderRadius: BorderRadius.circular(10),
+                                                      ),
+                                                      child: const Icon(
+                                                        Icons.more_horiz_rounded,
+                                                        color: Color(0xFF94A3B8),
+                                                        size: 14,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ],
                                             ),
                                           );
                                         },
-                                        child: Text(
-                                          song.artist,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            color: Color(0xFF94A3B8),
-                                            fontSize: 15,
-                                            decoration: TextDecoration.underline,
-                                            decorationColor: Color(0x3394A3B8),
-                                          ),
-                                        ),
                                       ),
                                     ],
                                   ),

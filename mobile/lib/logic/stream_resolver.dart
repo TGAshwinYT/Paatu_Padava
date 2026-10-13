@@ -41,14 +41,17 @@ class DefaultStreamResolver implements StreamResolver {
 
   // In-memory stream cache enforcing 3-hour TTL to prevent HTTP 403 CDN expirations
   static final Map<String, StreamCacheEntry> _streamCache = {};
+  static final Set<String> _invalidatedSongIds = {};
 
   /// Caches a resolved stream URL with a 3-hour TTL
   static void cacheStream(String songId, String url, {Duration ttl = cacheTtl, String source = 'unknown'}) {
+    _invalidatedSongIds.remove(songId);
     _streamCache[songId] = StreamCacheEntry(url, DateTime.now().add(ttl), source: source);
   }
 
   /// Retrieves an unexpired cached stream URL, or null if expired/absent
   static String? getCachedStream(String songId) {
+    if (_invalidatedSongIds.contains(songId)) return null;
     final entry = _streamCache[songId];
     if (entry != null) {
       if (!entry.isExpired) {
@@ -62,16 +65,19 @@ class DefaultStreamResolver implements StreamResolver {
   /// Invalidates cached stream URL for a given song (e.g. on playback error / HTTP 403)
   static void invalidateStream(String songId) {
     _streamCache.remove(songId);
+    _invalidatedSongIds.add(songId);
     YouTubeClient.invalidateStream(songId);
   }
 
   /// Clears entire stream cache
   static void clearCache() {
     _streamCache.clear();
+    _invalidatedSongIds.clear();
   }
 
   /// Checks if a song's cached stream has expired
   static bool isStreamExpired(String songId) {
+    if (_invalidatedSongIds.contains(songId)) return true;
     final entry = _streamCache[songId];
     return entry != null && entry.isExpired;
   }
@@ -161,12 +167,14 @@ class DefaultStreamResolver implements StreamResolver {
     } else {
       // Direct JioSaavn stream
       try {
-        if (song.streamUrl != null && song.streamUrl!.isNotEmpty && !isStreamExpired(song.id)) {
+        final isInvalidated = _invalidatedSongIds.contains(song.id);
+        if (!isInvalidated && song.streamUrl != null && song.streamUrl!.isNotEmpty && !isStreamExpired(song.id)) {
           return song.streamUrl;
         }
         final matches = await SaavnClient.search('${song.title} ${song.artist}', limit: 3).timeout(_saavnSearchTimeout);
         for (final match in matches) {
           if (match.streamUrl != null && verifyAudioMatch(match, song)) {
+            _invalidatedSongIds.remove(song.id);
             return match.streamUrl;
           }
         }
@@ -177,10 +185,11 @@ class DefaultStreamResolver implements StreamResolver {
       // 3. Fallback: If JioSaavn has no stream, attempt to resolve via YouTube
       try {
         final query = '${song.title} ${song.artist} audio';
-        final ytMatches = await YouTubeClient.search(query, limit: 2);
-        if (ytMatches.isNotEmpty) {
-          final ytUrl = await YouTubeClient.getAudioStreamUrl(ytMatches.first.id, title: song.title, artist: song.artist);
+        final ytMatches = await YouTubeClient.search(query, limit: 3);
+        for (final yt in ytMatches) {
+          final ytUrl = await YouTubeClient.getAudioStreamUrl(yt.id, title: song.title, artist: song.artist);
           if (ytUrl != null && ytUrl.isNotEmpty) {
+            _invalidatedSongIds.remove(song.id);
             return ytUrl;
           }
         }

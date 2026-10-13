@@ -678,7 +678,7 @@ class AudioQueueHandler {
           );
           errorNotifier.value = appErr;
           onError?.call(appErr);
-          if (isAudioHandlerInitialized) {
+          if (isAudioHandlerInitialized && !hasNext) {
             audioHandler.playbackErrorNotifier.value = appErr;
           }
         }
@@ -755,10 +755,38 @@ class AudioQueueHandler {
         preloadUpcomingTracks();
       } catch (e, stack) {
         AppLogger.recordError(e, stack, context: 'AudioQueueHandler.loadQueue setAudioSource');
+
+        // Immediate retry with invalidated cache if not already retried
+        if (!_hasRetriedCurrentTrack && !_isDisposed) {
+          _hasRetriedCurrentTrack = true;
+          activeSong.streamUrl = null;
+          streamResolver.invalidate(activeSong.id);
+          DefaultStreamResolver.invalidateStream(activeSong.id);
+          YouTubeClient.invalidateStream(activeSong.id);
+          final freshUrl = await _resolveStreamUrl(activeSong);
+          if (freshUrl != null && freshUrl.isNotEmpty && token == _sessionToken && !_isDisposed) {
+            activeSong.streamUrl = freshUrl;
+            _updateTrackStreamUrl(activeSong.id, freshUrl);
+            final freshSrc = await _buildAudioSource(activeSong, allowNetworkResolve: false);
+            if (freshSrc != null && !_isDisposed) {
+              try {
+                await player.setAudioSource(freshSrc);
+                if (autoPlay) {
+                  await _ensureAudioSessionActive();
+                  await player.play();
+                }
+                return;
+              } catch (_) {}
+            }
+          }
+        }
+
         final appErr = ErrorHandler.resolve(e, stackTrace: stack, context: 'AudioQueueHandler.loadQueue');
-        audioHandler.playbackErrorNotifier.value = appErr;
+        if (!hasNext && isAudioHandlerInitialized) {
+          audioHandler.playbackErrorNotifier.value = appErr;
+        }
         if (hasNext) {
-          Future.delayed(const Duration(seconds: 2), () {
+          Future.delayed(const Duration(milliseconds: 500), () {
             if (!_isDisposed && queue.isNotEmpty) skipToNext();
           });
         }

@@ -30,6 +30,7 @@ class PartySyncSettingsScreen extends StatelessWidget {
             children: [
               _buildPartySessionCard(context),
               const SizedBox(height: 20),
+              _buildConnectedDevicesSection(context),
               _buildHardwareLatencySection(context),
               const SizedBox(height: 20),
               _buildBluetoothDelaySection(context),
@@ -63,6 +64,230 @@ class PartySyncSettingsScreen extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildConnectedDevicesSection(BuildContext context) {
+    return ValueListenableBuilder<PartyRole>(
+      valueListenable: PartySyncCoordinator.roleNotifier,
+      builder: (context, role, _) {
+        if (role == PartyRole.none) return const SizedBox.shrink();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildSectionHeader('CONNECTED DEVICES & PEERS', Icons.devices_rounded),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF131B2E),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.3)),
+              ),
+              child: ValueListenableBuilder<List<PeerDeviceInfo>>(
+                valueListenable: PartySyncCoordinator.connectedPeersNotifier,
+                builder: (context, peers, _) {
+                  if (peers.isEmpty) {
+                    return const Center(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                        child: Text(
+                          'No devices detected yet.',
+                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                        ),
+                      ),
+                    );
+                  }
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF10B981),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                '${peers.length} Device${peers.length > 1 ? "s" : ""} in Party',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF6366F1).withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              PartySyncCoordinator.partyCode ?? '',
+                              style: const TextStyle(
+                                color: Color(0xFF818CF8),
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.0,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      ...peers.map((peer) => _buildDeviceRow(peer)).toList(),
+                      if (peers.length == 1 && role == PartyRole.host) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0F172A),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.white10),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.qr_code_2_rounded, color: Color(0xFF818CF8), size: 28),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Waiting for other phones to join',
+                                      style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'Share code ${PartySyncCoordinator.partyCode} with nearby friends to link speakers.',
+                                      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildDeviceRow(PeerDeviceInfo peer) {
+    final isHost = peer.role.toLowerCase() == 'host';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F172A),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: peer.isSelf ? const Color(0xFF6366F1).withValues(alpha: 0.4) : Colors.white.withValues(alpha: 0.05),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: isHost
+                  ? const Color(0xFFA855F7).withValues(alpha: 0.2)
+                  : const Color(0xFF10B981).withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              isHost ? Icons.album_rounded : Icons.smartphone_rounded,
+              color: isHost ? const Color(0xFFA855F7) : const Color(0xFF10B981),
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        peer.deviceName,
+                        style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (peer.isSelf) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF6366F1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text('YOU', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  isHost ? 'Session Master / Audio Source' : 'Synchronized Satellite Speaker',
+                  style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: isHost ? const Color(0xFFA855F7).withValues(alpha: 0.15) : const Color(0xFF10B981).withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                color: isHost ? const Color(0xFFA855F7).withValues(alpha: 0.3) : const Color(0xFF10B981).withValues(alpha: 0.3),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!isHost && peer.rttMs > 0) ...[
+                  Text(
+                    '${peer.rttMs}ms ',
+                    style: const TextStyle(color: Color(0xFF06B6D4), fontSize: 10, fontWeight: FontWeight.bold),
+                  ),
+                ],
+                Text(
+                  peer.role.toUpperCase(),
+                  style: TextStyle(
+                    color: isHost ? const Color(0xFFA855F7) : const Color(0xFF10B981),
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 

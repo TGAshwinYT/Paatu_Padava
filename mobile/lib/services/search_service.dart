@@ -262,6 +262,12 @@ class SearchService {
     QueryIntent intent, {
     required List<String> preferredLanguages,
   }) {
+    // If query has explicit language override, strictly reject any cross-language mismatch
+    if (intent.explicitLanguage != null &&
+        SongRepository.isLanguageMismatch(song, intent.explicitLanguage!)) {
+      return 0.0;
+    }
+
     double score = 0.0;
     final qLower = intent.cleanQuery.toLowerCase();
     final transLower = intent.transliteratedQuery.toLowerCase();
@@ -285,7 +291,7 @@ class SearchService {
       score += 0.20;
     }
 
-    // 3. Language Prior Boost (Never a filter!)
+    // 3. Language Prior Boost
     // If query has explicit language override, respect it as top priority
     final primaryLang = (intent.explicitLanguage ??
             (preferredLanguages.isNotEmpty ? preferredLanguages.first : 'Tamil'))
@@ -387,10 +393,16 @@ class SearchService {
       bool saavnFailed = false;
       bool ytFailed = false;
 
+      // Preserve explicit language in search query so providers don't default to Bollywood Hindi
+      final saavnSearchQuery = (intent.explicitLanguage != null &&
+              !intent.cleanQuery.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
+          ? '${intent.explicitLanguage!} ${intent.cleanQuery}'
+          : intent.cleanQuery;
+
       final Future<List<Song>> saavnFuture = () async {
         try {
           return await SaavnClient.search(
-            intent.cleanQuery,
+            saavnSearchQuery,
             limit: limit,
             language: effectiveLang,
           ).timeout(const Duration(seconds: 5));
@@ -404,8 +416,12 @@ class SearchService {
       final Future<List<Song>> transliteratedSaavnFuture = () async {
         if (intent.transliteratedQuery == intent.cleanQuery) return <Song>[];
         try {
+          final transQuery = (intent.explicitLanguage != null &&
+                  !intent.transliteratedQuery.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
+              ? '${intent.explicitLanguage!} ${intent.transliteratedQuery}'
+              : intent.transliteratedQuery;
           return await SaavnClient.search(
-            intent.transliteratedQuery,
+            transQuery,
             limit: limit,
             language: effectiveLang,
           ).timeout(const Duration(seconds: 5));
@@ -417,7 +433,7 @@ class SearchService {
 
       final Future<List<Map<String, dynamic>>> albumsFuture = () async {
         try {
-          return await SaavnClient.searchAlbums(intent.cleanQuery, limit: 12)
+          return await SaavnClient.searchAlbums(saavnSearchQuery, limit: 12)
               .timeout(const Duration(seconds: 5));
         } catch (e) {
           debugPrint('[SearchService] Upstream Saavn albums search fault isolated: $e');
@@ -435,13 +451,18 @@ class SearchService {
         }
       }();
 
+      final ytSearchQuery = (intent.explicitLanguage != null &&
+              !intent.cleanQuery.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
+          ? '${intent.explicitLanguage!} ${intent.cleanQuery}'
+          : intent.cleanQuery;
+
       final Future<List<Song>> ytFuture = () async {
         try {
-          return await YouTubeClient.search(intent.cleanQuery, limit: limit)
+          return await YouTubeClient.search(ytSearchQuery, limit: limit)
               .timeout(const Duration(seconds: 6));
         } catch (e, stack) {
           ytFailed = true;
-          AppLogger.recordError(e, stack, context: 'SearchService: YouTube search failed for query "${intent.cleanQuery}"');
+          AppLogger.recordError(e, stack, context: 'SearchService: YouTube search failed for query "$ytSearchQuery"');
           AppLogger.log('SearchService', 'Upstream YouTube search fault isolated: $e');
           debugPrint('[SearchService] Upstream YouTube search fault isolated: $e');
           return <Song>[];
@@ -476,24 +497,33 @@ class SearchService {
         preferredLanguage: effectiveLang,
       );
 
-      // Score candidates
-      final scoredSaavn = canonicalSaavn.map((s) {
+      // If query has explicit language, strictly filter cross-language candidates
+      final candidateSaavn = intent.explicitLanguage != null
+          ? SongRepository.filterByLanguage(canonicalSaavn, intent.explicitLanguage!)
+          : canonicalSaavn;
+
+      // Score candidates (mismatch scores 0.0 and is excluded)
+      final scoredSaavn = candidateSaavn.map((s) {
         final score = scoreSong(s, intent, preferredLanguages: prefLangs);
         return MapEntry(score, s);
-      }).toList();
+      }).where((e) => e.key > 0.0).toList();
 
       scoredSaavn.sort((a, b) => b.key.compareTo(a.key));
       final rankedSaavn = scoredSaavn.map((e) => e.value).toList();
 
       // Process parallel YouTube songs
       final groupedYt = SongRepository.groupCanonicalSongs(rawYt, preferredLanguage: effectiveLang);
-      final ytSongs = SongRepository.deduplicateSongs(groupedYt);
+      final deduplicatedYt = SongRepository.deduplicateSongs(groupedYt);
+      final candidateYt = intent.explicitLanguage != null
+          ? SongRepository.filterByLanguage(deduplicatedYt, intent.explicitLanguage!)
+          : deduplicatedYt;
+      final ytSongs = candidateYt;
 
-      // Score YouTube songs
-      final scoredYt = ytSongs.map((s) {
+      // Score YouTube songs (mismatch scores 0.0 and is excluded)
+      final scoredYt = candidateYt.map((s) {
         final score = scoreSong(s, intent, preferredLanguages: prefLangs);
         return MapEntry(score, s);
-      }).toList();
+      }).where((e) => e.key > 0.0).toList();
       scoredYt.sort((a, b) => b.key.compareTo(a.key));
       final rankedYt = scoredYt.map((e) => e.value).toList();
 

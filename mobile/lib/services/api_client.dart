@@ -10,6 +10,7 @@ import 'unified_http_client.dart';
 import 'spotify_import_service.dart';
 import '../core/app_config.dart';
 import 'app_logger.dart';
+import '../data/repositories/song_repository.dart';
 
 class SearchResultBundle {
   final Map<String, dynamic>? topResult;
@@ -263,16 +264,17 @@ class ApiClient {
       final response = await UnifiedHttpClient.get(uri, headers: _headers, timeout: const Duration(seconds: 4));
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        if (data is List) {
+        if (data is List && data.isNotEmpty) {
           return data.map((e) => e.toString()).toList();
-        } else if (data['suggestions'] is List) {
+        } else if (data['suggestions'] is List && (data['suggestions'] as List).isNotEmpty) {
           return (data['suggestions'] as List).map((e) => e.toString()).toList();
         }
       }
     } catch (e) {
       debugPrint('[ApiClient] searchSuggestions notice: $e');
     }
-    return [];
+    // Zero-server fallback: Query client-side Google/YouTube autocomplete directly on device
+    return await YouTubeClient.getSearchSuggestions(clean);
   }
 
   // ================= 3. Smart Shuffle (Graph + On-Device Markov Chain) ================= //
@@ -587,7 +589,9 @@ class ApiClient {
   static Future<List<Song>> fetchYouTubeTrending({String? language}) async {
     final lang = language ?? (SettingsManager.preferredLanguages.isNotEmpty ? SettingsManager.preferredLanguages.first : 'Tamil');
     try {
-      return await YouTubeClient.search('Trending $lang Hit Songs', limit: 20);
+      final songs = await YouTubeClient.search('Trending $lang Hit Songs', limit: 20);
+      final filtered = SongRepository.filterByLanguage(songs, lang);
+      return filtered.isNotEmpty ? filtered : songs;
     } catch (e) {
       AppLogger.log('ApiClient', 'fetchYouTubeTrending fallback: $e');
       return [];

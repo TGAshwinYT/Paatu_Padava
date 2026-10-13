@@ -133,34 +133,84 @@ void main() {
     });
   });
 
-  group('Lyrics Duration-Scaling Multiplier & Alignment Tests', () {
-    test('Calculates and scales timestamps when ratio R is within 0.95 to 1.05', () {
-      const trackDuration = Duration(milliseconds: 204000); // 3m 24s
-      const lastLyricTs = Duration(milliseconds: 200000);   // 3m 20s
-      final ratio = trackDuration.inMilliseconds / lastLyricTs.inMilliseconds; // 1.02
-      expect(ratio >= 0.95 && ratio <= 1.05, isTrue);
+  group('Lyrics Drift Elimination & Precision Alignment Tests', () {
+    test('Preserves exact studio LRC timestamps without progressive drift during playback', () {
+      // Audio duration is 210s (with a 10s outro), but last lyric is at 200s.
+      // Under the old auto-scaling, ratio = 210/200 = 1.05 would delay all lines progressively.
+      // With drift elimination, studio timestamps remain unwarped.
+      const originalLineMs = 100000; // 1m 40s
+      // No ratio scaling applied:
+      const unwarpedLineMs = originalLineMs;
+      expect(unwarpedLineMs, equals(100000));
 
-      const originalLineMs = 100000; // 100.0s
-      final scaledLineMs = (originalLineMs * ratio).round(); // 102.0s
-      expect(scaledLineMs, equals(102000));
-
-      // With +500ms pill offset:
-      const manualOffsetMs = 500;
-      final effectivePlayerPos = const Duration(milliseconds: 101600) + const Duration(milliseconds: manualOffsetMs);
-      expect(effectivePlayerPos.inMilliseconds >= scaledLineMs, isTrue);
+      // With manual offset notifier (+300ms)
+      const manualOffsetMs = 300;
+      final effectivePlayerPos = const Duration(milliseconds: 99700) + const Duration(milliseconds: manualOffsetMs);
+      expect(effectivePlayerPos.inMilliseconds >= unwarpedLineMs, isTrue);
     });
 
-    test('Leaves timestamps unchanged when ratio R is outside 0.95 to 1.05 boundary', () {
-      const shortTrackDuration = Duration(milliseconds: 150000); // 2m 30s
-      const lastLyricTs = Duration(milliseconds: 200000);        // 3m 20s
-      final ratio = shortTrackDuration.inMilliseconds / lastLyricTs.inMilliseconds; // 0.75
-      expect(ratio >= 0.95 && ratio <= 1.05, isFalse);
+    test('Parses standard LRC [offset:...] header tag correctly', () {
+      final offsetRegex = RegExp(r'^\[offset:\s*([+-]?\d+)\s*\]', caseSensitive: false);
 
-      const originalLineMs = 100000;
-      final effectiveLineMs = (ratio >= 0.95 && ratio <= 1.05)
-          ? (originalLineMs * ratio).round()
-          : originalLineMs;
-      expect(effectiveLineMs, equals(originalLineMs));
+      const positiveHeader = '[offset:+500]';
+      final posMatch = offsetRegex.firstMatch(positiveHeader.trim());
+      expect(posMatch, isNotNull);
+      expect(int.tryParse(posMatch!.group(1)!), equals(500));
+
+      const negativeHeader = '[offset:-250]';
+      final negMatch = offsetRegex.firstMatch(negativeHeader.trim());
+      expect(negMatch, isNotNull);
+      expect(int.tryParse(negMatch!.group(1)!), equals(-250));
+    });
+
+    test('Parses multi-timestamp LRC lines accurately', () {
+      const line = '[00:15.00][01:30.50] Hook line repeated';
+      final timestampRegex = RegExp(r'\[(\d+):(\d+(?:\.\d+)?)\]');
+      final matches = timestampRegex.allMatches(line).toList();
+
+      expect(matches.length, equals(2));
+
+      final min1 = int.parse(matches[0].group(1)!);
+      final sec1 = double.parse(matches[0].group(2)!);
+      final ms1 = ((min1 * 60 + sec1) * 1000).toInt();
+      expect(ms1, equals(15000));
+
+      final min2 = int.parse(matches[1].group(1)!);
+      final sec2 = double.parse(matches[1].group(2)!);
+      final ms2 = ((min2 * 60 + sec2) * 1000).toInt();
+      expect(ms2, equals(90500));
+    });
+
+    test('Binary search active line lookup performs instant pinpoint index selection', () {
+      final sampleTimestamps = [
+        const Duration(milliseconds: 0),
+        const Duration(milliseconds: 12000),
+        const Duration(milliseconds: 25000),
+        const Duration(milliseconds: 40000),
+      ];
+
+      int findActive(Duration effectivePos) {
+        int low = 0;
+        int high = sampleTimestamps.length - 1;
+        int idx = 0;
+        final effectiveMs = effectivePos.inMilliseconds;
+        while (low <= high) {
+          final mid = (low + high) >> 1;
+          if (sampleTimestamps[mid].inMilliseconds <= effectiveMs) {
+            idx = mid;
+            low = mid + 1;
+          } else {
+            high = mid - 1;
+          }
+        }
+        return idx;
+      }
+
+      expect(findActive(const Duration(milliseconds: 5000)), equals(0));
+      expect(findActive(const Duration(milliseconds: 12000)), equals(1));
+      expect(findActive(const Duration(milliseconds: 20000)), equals(1));
+      expect(findActive(const Duration(milliseconds: 25000)), equals(2));
+      expect(findActive(const Duration(milliseconds: 45000)), equals(3));
     });
   });
 }

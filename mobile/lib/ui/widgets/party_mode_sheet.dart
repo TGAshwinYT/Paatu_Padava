@@ -361,9 +361,12 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          statusDesc,
-                          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                        Expanded(
+                          child: Text(
+                            statusDesc,
+                            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                         if (role == PartyRole.joiner)
                           Text(
@@ -378,6 +381,91 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
                     ),
                   );
                 },
+              );
+            },
+          ),
+          const SizedBox(height: 12),
+
+          // Connected peer devices count and badges
+          ValueListenableBuilder<List<PeerDeviceInfo>>(
+            valueListenable: PartySyncCoordinator.connectedPeersNotifier,
+            builder: (context, peers, _) {
+              return Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.02),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.white10),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.devices_rounded, color: Color(0xFF818CF8), size: 16),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Connected Phones (${peers.length})',
+                              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                        if (peers.length == 1 && role == PartyRole.host)
+                          const Text(
+                            'Waiting for peers...',
+                            style: TextStyle(color: Colors.amberAccent, fontSize: 11),
+                          ),
+                      ],
+                    ),
+                    if (peers.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      ...peers.map((p) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 3),
+                        child: Row(
+                          children: [
+                            Icon(
+                              p.role.toLowerCase() == 'host' ? Icons.stars_rounded : Icons.phone_android_rounded,
+                              size: 14,
+                              color: p.role.toLowerCase() == 'host' ? const Color(0xFFA855F7) : const Color(0xFF10B981),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                p.deviceName,
+                                style: const TextStyle(color: Colors.white70, fontSize: 11),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (p.rttMs > 0)
+                              Text(
+                                '${p.rttMs}ms',
+                                style: const TextStyle(color: Color(0xFF06B6D4), fontSize: 10, fontWeight: FontWeight.bold),
+                              ),
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: (p.role.toLowerCase() == 'host' ? const Color(0xFFA855F7) : const Color(0xFF10B981)).withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                p.role.toUpperCase(),
+                                style: TextStyle(
+                                  color: p.role.toLowerCase() == 'host' ? const Color(0xFFA855F7) : const Color(0xFF10B981),
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )).toList(),
+                    ],
+                  ],
+                ),
               );
             },
           ),

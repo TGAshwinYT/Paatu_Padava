@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paatu_padava_mobile/logic/party_sync_engine.dart';
+import 'package:paatu_padava_mobile/services/party_sync_coordinator.dart';
 
 void main() {
   group('NTP Clock Skew & Offset Calculations', () {
@@ -184,4 +185,48 @@ void main() {
       expect(pos, equals(45000));
     });
   });
+
+  group('PeerDeviceInfo & Peer Presence Tracking', () {
+    test('Serializes and deserializes PeerDeviceInfo with RTT and role', () {
+      final peer = PeerDeviceInfo(
+        id: 'peer-1234',
+        deviceName: 'OnePlus 11 (Speaker)',
+        role: 'Speaker',
+        rttMs: 42,
+        lastSeen: DateTime.now(),
+        isSelf: false,
+      );
+
+      final map = peer.toMap();
+      expect(map['id'], equals('peer-1234'));
+      expect(map['deviceName'], equals('OnePlus 11 (Speaker)'));
+      expect(map['role'], equals('Speaker'));
+      expect(map['rttMs'], equals(42));
+
+      final restored = PeerDeviceInfo.fromMap(map, isSelf: true);
+      expect(restored.id, equals('peer-1234'));
+      expect(restored.deviceName, equals('OnePlus 11 (Speaker)'));
+      expect(restored.role, equals('Speaker'));
+      expect(restored.rttMs, equals(42));
+      expect(restored.isSelf, isTrue);
+    });
+
+    test('PeerDeviceInfo copyWith updates ping and device properties correctly', () {
+      final peer = PeerDeviceInfo(
+        id: 'host-001',
+        deviceName: 'Pixel 8 (Host)',
+        role: 'Host',
+        rttMs: 0,
+        lastSeen: DateTime.now(),
+        isSelf: true,
+      );
+
+      final updated = peer.copyWith(rttMs: 18, deviceName: 'Pixel 8 Pro (Host)');
+      expect(updated.id, equals('host-001'));
+      expect(updated.deviceName, equals('Pixel 8 Pro (Host)'));
+      expect(updated.rttMs, equals(18));
+      expect(updated.isSelf, isTrue);
+    });
+  });
 }
+

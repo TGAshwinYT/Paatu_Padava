@@ -308,12 +308,22 @@ async def search_artists_youtube(query, limit=10):
 
 async def get_trending_youtube(region="global"):
     """
-    Fetches trending songs from YouTube Music Charts.
+    Fetches trending songs from YouTube Music Charts or regional language trending query.
     Improved with fallback logic to handle empty 'songs' sections for Guest sessions.
     """
     if not ytmusic:
         return []
-    
+
+    # If region is a regional language name (e.g. 'Tamil', 'Telugu', 'Malayalam', 'Hindi', etc.),
+    # fetch targeted regional trending songs directly to prevent national/Hindi chart contamination.
+    if region and len(region) > 2 and region.lower() not in ('global', 'international', 'chart', 'charts'):
+        try:
+            logger.info(f"[GRAPH] Fetching regional YouTube trending songs for: {region}")
+            return await search_youtube(f"Trending {region} Hit Songs", limit=15)
+        except Exception as re_err:
+            logger.error(f"[GRAPH] Regional YouTube trending search failed for {region}: {re_err}")
+            return []
+
     loop = asyncio.get_event_loop()
     try:
         # region should be a 2-letter country code for charts, or 'ZZ' for global

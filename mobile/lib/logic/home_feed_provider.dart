@@ -240,15 +240,15 @@ class HomeFeedProvider extends ChangeNotifier {
       final unifiedFeed = await ApiClient.getHomeFeed(lang);
       if (unifiedFeed != null &&
           (unifiedFeed['madeForYou'] is List || unifiedFeed['trending'] is List)) {
-        final madeForYou = _decodeSongList(unifiedFeed['madeForYou']);
-        final trending = _decodeSongList(unifiedFeed['trendingMerged'] ?? unifiedFeed['trending']);
-        var youtubeTrending = _decodeSongList(unifiedFeed['youtubeTrending']);
+        final madeForYou = SongRepository.filterByLanguage(_decodeSongList(unifiedFeed['madeForYou']), lang);
+        final trending = SongRepository.filterByLanguage(_decodeSongList(unifiedFeed['trendingMerged'] ?? unifiedFeed['trending']), lang);
+        var youtubeTrending = SongRepository.filterByLanguage(_decodeSongList(unifiedFeed['youtubeTrending']), lang);
         if (youtubeTrending.isEmpty) {
           try {
             youtubeTrending = await YouTubeClient.getTrendingTracks(language: lang, limit: 15);
           } catch (_) {}
         }
-        final newReleases = _decodeSongList(unifiedFeed['newReleases']);
+        final newReleases = SongRepository.filterByLanguage(_decodeSongList(unifiedFeed['newReleases']), lang);
         final popularArtists = (unifiedFeed['popularArtists'] as List<dynamic>?)
                 ?.map((e) => Map<String, dynamic>.from(e as Map))
                 .toList() ??

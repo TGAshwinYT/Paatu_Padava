@@ -1,11 +1,8 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/song.dart';
 import '../../services/player_handler.dart';
 import '../../services/settings_manager.dart';
@@ -73,8 +70,6 @@ class _LyricsScreenState extends State<LyricsScreen> {
   bool _isFullscreen = false;
   int _manualOffsetMs = 0;
   StreamSubscription<bool>? _playingSub;
-  StreamSubscription<Duration?>? _durationSub;
-  int _lastPositionUpdateMs = 0;
 
   @override
   void initState() {
@@ -89,22 +84,12 @@ class _LyricsScreenState extends State<LyricsScreen> {
     // Listen to manual offset changes from other components
     audioHandler.lyricsOffsetMsNotifier.addListener(_onOffsetNotifierChanged);
 
-    // Update scale multiplier when player duration metadata is received
-    _durationSub = audioHandler.player.durationStream.listen((_) {
-      if (mounted && _isLrc) {
-        setState(() {
-          _parseLyrics(audioHandler.currentLyricsNotifier.value);
-        });
-      }
-    });
-
     // Subscribe to position stream with effective offset calculation
     _subscribePosition();
   }
 
   @override
   void dispose() {
-    _durationSub?.cancel();
     _playingSub?.cancel();
     _posSub?.cancel();
     _userScrollResumeTimer?.cancel();
@@ -148,6 +133,17 @@ class _LyricsScreenState extends State<LyricsScreen> {
 
     if (!_isLrc) return;
 
+    // Parse standard LRC header offset (e.g. [offset:+500] or [offset:-200]) in milliseconds
+    final offsetRegex = RegExp(r'^\[offset:\s*([+-]?\d+)\s*\]', caseSensitive: false);
+    int headerOffsetMs = 0;
+    for (final line in rawLines) {
+      final m = offsetRegex.firstMatch(line.trim());
+      if (m != null) {
+        headerOffsetMs = int.tryParse(m.group(1)!) ?? 0;
+        break;
+      }
+    }
+
     final List<_LrcLine> parsed = [];
 
     for (final line in rawLines) {
@@ -159,41 +155,14 @@ class _LyricsScreenState extends State<LyricsScreen> {
         for (final m in matches) {
           final min = int.tryParse(m.group(1)!) ?? 0;
           final sec = double.tryParse(m.group(2)!) ?? 0.0;
-          final ts = Duration(milliseconds: ((min * 60 + sec) * 1000).toInt());
-          parsed.add(_LrcLine(timestamp: ts, text: text, isBgm: false));
+          final rawMs = ((min * 60 + sec) * 1000).toInt();
+          final effectiveMs = math.max(0, rawMs + headerOffsetMs);
+          parsed.add(_LrcLine(timestamp: Duration(milliseconds: effectiveMs), text: text, isBgm: false));
         }
       }
     }
 
     parsed.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-
-    // Proportional auto-stretching: normalizes line timestamps when ratio is between 0.94 and 1.06
-    if (parsed.isNotEmpty) {
-      final lastLyricLineTimestampMs = parsed.last.timestamp.inMilliseconds;
-      final totalAudioDurationMs = (audioHandler.player.duration?.inMilliseconds ?? 0) > 0
-          ? audioHandler.player.duration!.inMilliseconds
-          : ((widget.initialSong?.duration != null && widget.initialSong!.duration > 0)
-              ? widget.initialSong!.duration * 1000
-              : ((audioHandler.currentSong?.duration != null && audioHandler.currentSong!.duration > 0)
-                  ? audioHandler.currentSong!.duration * 1000
-                  : 0));
-
-      if (totalAudioDurationMs > 0 && lastLyricLineTimestampMs > 0) {
-        final double ratio = totalAudioDurationMs / lastLyricLineTimestampMs;
-        if (ratio >= 0.94 && ratio <= 1.06) {
-          for (int i = 0; i < parsed.length; i++) {
-            final orig = parsed[i];
-            final rawMs = orig.timestamp.inMilliseconds;
-            final adjustedMs = (rawMs * ratio).round();
-            parsed[i] = _LrcLine(
-              timestamp: Duration(milliseconds: adjustedMs),
-              text: orig.text,
-              isBgm: orig.isBgm,
-            );
-          }
-        }
-      }
-    }
 
     // Bloomee BGM / Instrumental pauses (>6s gaps)
     if (parsed.isNotEmpty) {
@@ -238,12 +207,8 @@ class _LyricsScreenState extends State<LyricsScreen> {
 
   void _subscribePosition() {
     _posSub?.cancel();
-    _lastPositionUpdateMs = 0;
-    _posSub = audioHandler.throttledPositionStream.listen((currentPos) {
+    _posSub = audioHandler.lyricsPositionStream.listen((currentPos) {
       if (!mounted || !_isLrc || _lines.isEmpty) return;
-      final now = DateTime.now().millisecondsSinceEpoch;
-      if (now - _lastPositionUpdateMs < 500) return;
-      _lastPositionUpdateMs = now;
       _updateActiveIndexForPosition(currentPos);
     });
 

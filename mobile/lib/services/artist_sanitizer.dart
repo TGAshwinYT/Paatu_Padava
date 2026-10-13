@@ -467,5 +467,58 @@ class ArtistSanitizer {
     final first = parts.isNotEmpty ? parts.first.trim() : unescaped;
     return first.isNotEmpty ? first : 'Unknown Artist';
   }
+
+  /// Extracts ALL genuine individual artists from a composite artist credit string,
+  /// splitting by common collaboration delimiters (",", "&", "/", "|", "+", "feat.", "ft.", "with", "and").
+  /// Returns a deduplicated list of clean genuine artist names preserving original casing.
+  /// Example: "Anirudh Ravichander, Sai Abhyankkar" -> ["Anirudh Ravichander", "Sai Abhyankkar"]
+  static List<String> extractAllGenuineArtists(String artistString) {
+    final unescaped = _unescape.convert(artistString).trim();
+    if (unescaped.isEmpty) return const [];
+
+    final parts = unescaped.split(RegExp(
+      r'[,&/|+]|\b(?:feat|ft|featuring|with|and)(?:\.|\b)',
+      caseSensitive: false,
+    ));
+
+    final result = <String>[];
+    final seen = <String>{};
+
+    for (final part in parts) {
+      var clean = part.replaceAll(RegExp(r'[\(\[\{].*?[\)\]\}]'), '').trim();
+      clean = clean.replaceAll(RegExp(r'^[.\s,:|/\-]+'), '');
+      clean = clean.replaceAll(RegExp(r'[\s,:|/\-]+$'), '').trim();
+
+      if (clean.isNotEmpty && isGenuineArtist(clean)) {
+        final lower = clean.toLowerCase();
+        if (seen.add(lower)) {
+          result.add(clean);
+        }
+      }
+    }
+
+    // Fallback: if no split part passed isGenuineArtist (e.g. newly debuted indie artist),
+    // include parts that are not known record labels or production houses
+    if (result.isEmpty) {
+      for (final part in parts) {
+        var clean = part.replaceAll(RegExp(r'[\(\[\{].*?[\)\]\}]'), '').trim();
+        clean = clean.replaceAll(RegExp(r'^[.\s,:|/\-]+'), '');
+        clean = clean.replaceAll(RegExp(r'[\s,:|/\-]+$'), '').trim();
+
+        if (clean.isNotEmpty && !isRecordLabelOrChannel(clean)) {
+          final lower = clean.toLowerCase();
+          if (seen.add(lower)) {
+            result.add(clean);
+          }
+        }
+      }
+    }
+
+    if (result.isEmpty && unescaped.isNotEmpty) {
+      result.add(unescaped);
+    }
+
+    return result;
+  }
 }
 

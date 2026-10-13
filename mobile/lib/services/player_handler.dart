@@ -21,6 +21,7 @@ import 'radio_engine.dart';
 import 'favorites_manager.dart';
 import 'playlist_manager.dart';
 import 'app_logger.dart';
+import 'party_sync_coordinator.dart';
 
 PaatuAudioHandler? _audioHandlerInstance;
 
@@ -131,6 +132,30 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       controller.onCancel = () => sub.cancel();
     }).asBroadcastStream();
     return _throttledPositionStream!;
+  }
+
+  Stream<Duration>? _lyricsPositionStream;
+
+  /// High-precision position stream for real-time synchronized karaoke lyrics.
+  /// Emits updates every ~50ms during active playback to eliminate sync lag and jitter.
+  Stream<Duration> get lyricsPositionStream {
+    _lyricsPositionStream ??= Stream<Duration>.multi((controller) {
+      int lastEmitMs = 0;
+      final sub = _player.positionStream.listen(
+        (pos) {
+          final now = DateTime.now().millisecondsSinceEpoch;
+          // 50ms interval (~20 Hz) guarantees sub-frame responsiveness for lyrics highlighting
+          if (now - lastEmitMs >= 50 || !_player.playing) {
+            lastEmitMs = now;
+            controller.add(pos);
+          }
+        },
+        onError: controller.addError,
+        onDone: controller.close,
+      );
+      controller.onCancel = () => sub.cancel();
+    }).asBroadcastStream();
+    return _lyricsPositionStream!;
   }
 
   static final MediaControl _favoriteControlFilled = MediaControl.custom(
@@ -586,6 +611,10 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     if (isNewSingleQueue) {
       _smartShuffleController.populateUpNextForNewQueue(song);
     }
+
+    if (PartySyncCoordinator.isHost) {
+      PartySyncCoordinator.notifyHostPlay(song);
+    }
   }
 
   // ================= Queue Management ================= //
@@ -767,6 +796,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     _queueHandler.cancelIdleTimer();
     await _player.play();
     _broadcastState();
+    if (PartySyncCoordinator.isHost) {
+      PartySyncCoordinator.notifyHostResume();
+    }
   }
 
   @override
@@ -774,12 +806,18 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     await _player.pause();
     _queueHandler.startIdleTimer();
     _broadcastState();
+    if (PartySyncCoordinator.isHost) {
+      PartySyncCoordinator.notifyHostPause();
+    }
   }
 
   @override
   Future<void> seek(Duration position) async {
     await _player.seek(position);
     _broadcastState();
+    if (PartySyncCoordinator.isHost) {
+      PartySyncCoordinator.notifyHostSeek(position);
+    }
   }
 
   @override

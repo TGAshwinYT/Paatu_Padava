@@ -27,8 +27,6 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
   final List<GlobalKey> _lineKeys = [];
   StreamSubscription<Duration>? _posSub;
   StreamSubscription<bool>? _playingSub;
-  StreamSubscription<Duration?>? _durationSub;
-  int _lastPositionUpdateMs = 0;
   int _activeIndex = -1;
   bool _isUserScrolling = false;
   Timer? _userScrollResumeTimer;
@@ -40,14 +38,6 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
     _parseLyrics();
     _subscribePosition();
     audioHandler.lyricsOffsetMsNotifier.addListener(_onOffsetChanged);
-    _durationSub = audioHandler.player.durationStream.listen((_) {
-      if (mounted && _isLrc) {
-        setState(() {
-          _parseLyrics();
-          _onOffsetChanged();
-        });
-      }
-    });
   }
 
   int _findActiveLineIndex(Duration effectivePosition) {
@@ -93,7 +83,6 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
 
   @override
   void dispose() {
-    _durationSub?.cancel();
     _playingSub?.cancel();
     audioHandler.lyricsOffsetMsNotifier.removeListener(_onOffsetChanged);
     _posSub?.cancel();
@@ -106,23 +95,37 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
     _lines.clear();
     _lineKeys.clear();
 
-    final lrcRegex = RegExp(r'^\[(\d+):(\d+(?:\.\d+)?)\](.*)');
+    final timestampRegex = RegExp(r'\[(\d+):(\d+(?:\.\d+)?)\]');
     final rawLines = widget.lyrics.split('\n');
-    _isLrc = rawLines.any((l) => lrcRegex.hasMatch(l.trim()));
+    _isLrc = rawLines.any((l) => timestampRegex.hasMatch(l.trim()));
 
     if (!_isLrc) return;
 
+    // Parse standard LRC header offset (e.g. [offset:+500] or [offset:-200]) in milliseconds
+    final offsetRegex = RegExp(r'^\[offset:\s*([+-]?\d+)\s*\]', caseSensitive: false);
+    int headerOffsetMs = 0;
+    for (final line in rawLines) {
+      final m = offsetRegex.firstMatch(line.trim());
+      if (m != null) {
+        headerOffsetMs = int.tryParse(m.group(1)!) ?? 0;
+        break;
+      }
+    }
+
     final List<_LrcLine> parsed = [];
     for (final line in rawLines) {
-      final match = lrcRegex.firstMatch(line.trim());
-      if (match != null) {
-        final min = int.tryParse(match.group(1)!) ?? 0;
-        final sec = double.tryParse(match.group(2)!) ?? 0.0;
-        final rawText = match.group(3)?.trim() ?? '';
-        final text = Song.sanitize(rawText);
-        if (text.isNotEmpty) {
+      final matches = timestampRegex.allMatches(line);
+      if (matches.isNotEmpty) {
+        final text = Song.sanitize(line.replaceAll(timestampRegex, '').trim());
+        if (text.isEmpty) continue;
+
+        for (final m in matches) {
+          final min = int.tryParse(m.group(1)!) ?? 0;
+          final sec = double.tryParse(m.group(2)!) ?? 0.0;
+          final rawMs = ((min * 60 + sec) * 1000).toInt();
+          final effectiveMs = math.max(0, rawMs + headerOffsetMs);
           parsed.add(_LrcLine(
-            timestamp: Duration(milliseconds: ((min * 60 + sec) * 1000).toInt()),
+            timestamp: Duration(milliseconds: effectiveMs),
             text: text,
             isBgm: false,
           ));
@@ -131,34 +134,6 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
     }
 
     parsed.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-
-    // Proportional auto-stretching: normalizes line timestamps when ratio is between 0.94 and 1.06
-    if (parsed.isNotEmpty) {
-      final lastLyricLineTimestampMs = parsed.last.timestamp.inMilliseconds;
-      final totalAudioDurationMs = (audioHandler.player.duration?.inMilliseconds ?? 0) > 0
-          ? audioHandler.player.duration!.inMilliseconds
-          : (widget.song.duration > 0
-              ? widget.song.duration * 1000
-              : ((audioHandler.currentSong?.duration != null && audioHandler.currentSong!.duration > 0)
-                  ? audioHandler.currentSong!.duration * 1000
-                  : 0));
-
-      if (totalAudioDurationMs > 0 && lastLyricLineTimestampMs > 0) {
-        final double ratio = totalAudioDurationMs / lastLyricLineTimestampMs;
-        if (ratio >= 0.94 && ratio <= 1.06) {
-          for (int i = 0; i < parsed.length; i++) {
-            final orig = parsed[i];
-            final rawMs = orig.timestamp.inMilliseconds;
-            final adjustedMs = (rawMs * ratio).round();
-            parsed[i] = _LrcLine(
-              timestamp: Duration(milliseconds: adjustedMs),
-              text: orig.text,
-              isBgm: orig.isBgm,
-            );
-          }
-        }
-      }
-    }
 
     // Detect BGM / Instrumental pauses > 6 seconds
     if (parsed.isNotEmpty) {
@@ -200,13 +175,8 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
 
   void _subscribePosition() {
     _posSub?.cancel();
-    _lastPositionUpdateMs = 0;
-    _posSub = audioHandler.throttledPositionStream.listen((pos) {
+    _posSub = audioHandler.lyricsPositionStream.listen((pos) {
       if (!mounted || !_isLrc || _lines.isEmpty) return;
-
-      final now = DateTime.now().millisecondsSinceEpoch;
-      if (now - _lastPositionUpdateMs < 500) return;
-      _lastPositionUpdateMs = now;
 
       final manualOffsetMs = audioHandler.lyricsOffsetMsNotifier.value;
       final effectivePosition = pos + Duration(milliseconds: manualOffsetMs);
@@ -266,7 +236,6 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
     });
   }
 
-  @override
   Widget _buildDualLyricsToggle() {
     return ValueListenableBuilder<DualLyrics?>(
       valueListenable: audioHandler.dualLyricsNotifier,

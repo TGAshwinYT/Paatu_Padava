@@ -283,18 +283,23 @@ class _SearchScreenState extends State<SearchScreen> {
         final songs = res[1] as List<Song>;
 
         final List<Map<String, dynamic>> correlatedArtists = [];
-        final Set<String> seenArtistNames = {};
+
+        bool isAlreadyPresent(String candidateName) {
+          return correlatedArtists.any((existing) =>
+              ArtistSanitizer.areSameOrVariantArtists(existing['name']?.toString() ?? '', candidateName));
+        }
 
         // 1. Correlate genuine musicians from matched songs
         for (final song in songs) {
           final genuine = ArtistSanitizer.extractPrimaryGenuineArtist(song.artist);
-          if (genuine.isNotEmpty && ArtistSanitizer.isGenuineArtist(genuine)) {
-            final key = genuine.toLowerCase();
-            if (!seenArtistNames.contains(key)) {
-              seenArtistNames.add(key);
+          if (genuine.isNotEmpty &&
+              !ArtistSanitizer.isCompositeOrMultiArtist(genuine) &&
+              ArtistSanitizer.isGenuineArtist(genuine)) {
+            final canonical = ArtistSanitizer.canonicalArtistName(genuine);
+            if (!isAlreadyPresent(canonical)) {
               correlatedArtists.add({
                 'id': song.artistId ?? 'art_${song.id}',
-                'name': genuine,
+                'name': canonical,
                 'image': song.coverUrl,
                 'role': 'Artist',
               });
@@ -302,12 +307,19 @@ class _SearchScreenState extends State<SearchScreen> {
           }
         }
 
-        // 2. Append direct artist search results that pass genuine check
+        // 2. Append direct artist search results that pass genuine and single-artist check
         for (final art in directArtists) {
-          final name = (art['name'] ?? art['title'] ?? '').toString().trim();
-          if (name.isNotEmpty && ArtistSanitizer.isGenuineArtist(name) && !seenArtistNames.contains(name.toLowerCase())) {
-            seenArtistNames.add(name.toLowerCase());
-            correlatedArtists.add(art);
+          final rawName = (art['name'] ?? art['title'] ?? '').toString().trim();
+          if (rawName.isNotEmpty &&
+              !ArtistSanitizer.isCompositeOrMultiArtist(rawName) &&
+              ArtistSanitizer.isGenuineArtist(rawName)) {
+            final canonical = ArtistSanitizer.canonicalArtistName(rawName);
+            if (!isAlreadyPresent(canonical)) {
+              correlatedArtists.add({
+                ...art,
+                'name': canonical,
+              });
+            }
           }
         }
 

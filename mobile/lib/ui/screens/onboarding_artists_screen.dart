@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../services/auth_manager.dart';
 import '../../services/supabase_service.dart';
 import '../../services/saavn_client.dart';
+import '../../services/artist_sanitizer.dart';
 import '../../services/error_handler.dart';
 import '../theme/app_theme.dart';
 
@@ -67,6 +68,86 @@ class _OnboardingArtistsScreenState extends State<OnboardingArtistsScreen> with 
     'g.v. prakash kumar': [
       {'name': 'Saindhavi', 'image': 'https://c.saavncdn.com/artists/Saindhavi_500x500.jpg'},
       {'name': 'Pradeep Kumar', 'image': 'https://c.saavncdn.com/artists/Pradeep_Kumar_500x500.jpg'},
+      {'name': 'Dhee', 'image': 'https://c.saavncdn.com/artists/Dhee_500x500.jpg'},
+    ],
+    'chinmayi': [
+      {'name': 'Haricharan', 'image': 'https://c.saavncdn.com/artists/Haricharan_500x500.jpg'},
+      {'name': 'Karthik', 'image': 'https://c.saavncdn.com/artists/Karthik_500x500.jpg'},
+      {'name': 'Bombay Jayashri', 'image': 'https://c.saavncdn.com/artists/Bombay_Jayashri_500x500.jpg'},
+    ],
+    'anthony daasan': [
+      {'name': 'Sean Roldan', 'image': 'https://c.saavncdn.com/artists/Sean_Roldan_500x500.jpg'},
+      {'name': 'Pradeep Kumar', 'image': 'https://c.saavncdn.com/artists/Pradeep_Kumar_500x500.jpg'},
+      {'name': 'Dhee', 'image': 'https://c.saavncdn.com/artists/Dhee_500x500.jpg'},
+    ],
+    'haricharan': [
+      {'name': 'Shreya Ghoshal', 'image': 'https://c.saavncdn.com/artists/Shreya_Ghoshal_004_20221118121516_500x500.jpg'},
+      {'name': 'Chinmayi', 'image': 'https://c.saavncdn.com/artists/Chinmayi_Sripada_500x500.jpg'},
+      {'name': 'Karthik', 'image': 'https://c.saavncdn.com/artists/Karthik_500x500.jpg'},
+    ],
+    'kaushik krish': [
+      {'name': 'Pradeep Kumar', 'image': 'https://c.saavncdn.com/artists/Pradeep_Kumar_500x500.jpg'},
+      {'name': 'Jonita Gandhi', 'image': 'https://c.saavncdn.com/artists/Jonita_Gandhi_500x500.jpg'},
+      {'name': 'Dhee', 'image': 'https://c.saavncdn.com/artists/Dhee_500x500.jpg'},
+    ],
+    'pradeep kumar': [
+      {'name': 'Sean Roldan', 'image': 'https://c.saavncdn.com/artists/Sean_Roldan_500x500.jpg'},
+      {'name': 'Dhee', 'image': 'https://c.saavncdn.com/artists/Dhee_500x500.jpg'},
+      {'name': 'Arivu', 'image': 'https://c.saavncdn.com/artists/Arivu_500x500.jpg'},
+    ],
+    'dhee': [
+      {'name': 'Arivu', 'image': 'https://c.saavncdn.com/artists/Arivu_500x500.jpg'},
+      {'name': 'Pradeep Kumar', 'image': 'https://c.saavncdn.com/artists/Pradeep_Kumar_500x500.jpg'},
+      {'name': 'Sid Sriram', 'image': 'https://c.saavncdn.com/artists/Sid_Sriram_003_20230224102607_500x500.jpg'},
+    ],
+    'jonita gandhi': [
+      {'name': 'Anirudh Ravichander', 'image': 'https://c.saavncdn.com/artists/Anirudh_Ravichander_004_20231018104445_500x500.jpg'},
+      {'name': 'Haricharan', 'image': 'https://c.saavncdn.com/artists/Haricharan_500x500.jpg'},
+      {'name': 'Sid Sriram', 'image': 'https://c.saavncdn.com/artists/Sid_Sriram_003_20230224102607_500x500.jpg'},
+    ],
+    'karthik': [
+      {'name': 'Bombay Jayashri', 'image': 'https://c.saavncdn.com/artists/Bombay_Jayashri_500x500.jpg'},
+      {'name': 'Harish Raghavendra', 'image': 'https://c.saavncdn.com/artists/Harish_Raghavendra_500x500.jpg'},
+      {'name': 'Shreya Ghoshal', 'image': 'https://c.saavncdn.com/artists/Shreya_Ghoshal_004_20221118121516_500x500.jpg'},
+    ],
+    'ilaiyaraaja': [
+      {'name': 'S.P. Balasubrahmanyam', 'image': 'https://c.saavncdn.com/artists/S_P__Balasubrahmanyam_500x500.jpg'},
+      {'name': 'K.S. Chithra', 'image': 'https://c.saavncdn.com/artists/K_S__Chithra_500x500.jpg'},
+      {'name': 'K.J. Yesudas', 'image': 'https://c.saavncdn.com/artists/K_J__Yesudas_500x500.jpg'},
+    ],
+    'shreya ghoshal': [
+      {'name': 'Haricharan', 'image': 'https://c.saavncdn.com/artists/Haricharan_500x500.jpg'},
+      {'name': 'Karthik', 'image': 'https://c.saavncdn.com/artists/Karthik_500x500.jpg'},
+      {'name': 'Chinmayi', 'image': 'https://c.saavncdn.com/artists/Chinmayi_Sripada_500x500.jpg'},
+    ],
+    'd. imman': [
+      {'name': 'Anthony Daasan', 'image': 'https://c.saavncdn.com/artists/Anthony_Daasan_500x500.jpg'},
+      {'name': 'Shreya Ghoshal', 'image': 'https://c.saavncdn.com/artists/Shreya_Ghoshal_004_20221118121516_500x500.jpg'},
+      {'name': 'Sid Sriram', 'image': 'https://c.saavncdn.com/artists/Sid_Sriram_003_20230224102607_500x500.jpg'},
+    ],
+    'vijay antony': [
+      {'name': 'Harris Jayaraj', 'image': 'https://c.saavncdn.com/artists/Harris_Jayaraj_500x500.jpg'},
+      {'name': 'Yuvan Shankar Raja', 'image': 'https://c.saavncdn.com/artists/Yuvan_Shankar_Raja_500x500.jpg'},
+      {'name': 'D. Imman', 'image': 'https://c.saavncdn.com/artists/D__Imman_500x500.jpg'},
+    ],
+    'saindhavi': [
+      {'name': 'Haricharan', 'image': 'https://c.saavncdn.com/artists/Haricharan_500x500.jpg'},
+      {'name': 'Chinmayi', 'image': 'https://c.saavncdn.com/artists/Chinmayi_Sripada_500x500.jpg'},
+      {'name': 'Karthik', 'image': 'https://c.saavncdn.com/artists/Karthik_500x500.jpg'},
+    ],
+    'andrea jeremiah': [
+      {'name': 'Anirudh Ravichander', 'image': 'https://c.saavncdn.com/artists/Anirudh_Ravichander_004_20231018104445_500x500.jpg'},
+      {'name': 'Yuvan Shankar Raja', 'image': 'https://c.saavncdn.com/artists/Yuvan_Shankar_Raja_500x500.jpg'},
+      {'name': 'Jonita Gandhi', 'image': 'https://c.saavncdn.com/artists/Jonita_Gandhi_500x500.jpg'},
+    ],
+    'arivu': [
+      {'name': 'Dhee', 'image': 'https://c.saavncdn.com/artists/Dhee_500x500.jpg'},
+      {'name': 'Pradeep Kumar', 'image': 'https://c.saavncdn.com/artists/Pradeep_Kumar_500x500.jpg'},
+      {'name': 'Sean Roldan', 'image': 'https://c.saavncdn.com/artists/Sean_Roldan_500x500.jpg'},
+    ],
+    'sean roldan': [
+      {'name': 'Pradeep Kumar', 'image': 'https://c.saavncdn.com/artists/Pradeep_Kumar_500x500.jpg'},
+      {'name': 'Anthony Daasan', 'image': 'https://c.saavncdn.com/artists/Anthony_Daasan_500x500.jpg'},
       {'name': 'Dhee', 'image': 'https://c.saavncdn.com/artists/Dhee_500x500.jpg'},
     ],
   };
@@ -171,30 +252,98 @@ class _OnboardingArtistsScreenState extends State<OnboardingArtistsScreen> with 
 
   Future<void> _fetchAndInsertRelatedArtists(int sourceIndex, String artistName) async {
     final norm = artistName.toLowerCase().trim();
-    List<Map<String, String>> candidates = _artistCollaborations[norm] ?? [];
+    final canonicalName = ArtistSanitizer.canonicalArtistName(artistName);
+    final canonicalNorm = canonicalName.toLowerCase().trim();
 
-    // Fallback: If not in static collaboration graph, dynamically fetch from JioSaavn
+    List<Map<String, String>> candidates = _artistCollaborations[norm] ??
+        _artistCollaborations[canonicalNorm] ??
+        [];
+
+    // Fallback: If not in static collaboration graph, dynamically discover genuine collaborating artists
+    // from the artist's hit songs (e.g. co-singers / composers) rather than querying the artist's own name.
     if (candidates.isEmpty) {
       try {
-        final queryResults = await SaavnClient.searchArtists(artistName, limit: 6);
-        candidates = queryResults
-            .where((a) => a['name'] != artistName && SaavnClient.isGenuineMusicArtist(a))
-            .take(3)
-            .map((a) => {
-                  'name': a['name']?.toString() ?? '',
-                  'image': a['image']?.toString() ?? '',
-                })
-            .where((a) => a['name']!.isNotEmpty)
-            .toList();
+        final querySongs = await SaavnClient.search('$canonicalName Hit Songs', limit: 12);
+        final discovered = <Map<String, String>>[];
+        final seenDiscovered = <String>{};
+
+        for (final song in querySongs) {
+          // Extract genuine musicians from song attribution
+          final primary = ArtistSanitizer.extractPrimaryGenuineArtist(song.artist);
+          final candidatesFromSong = [primary, ...song.artist.split(RegExp(r'[,&/|]')).map((s) => s.trim())];
+
+          for (final rawCand in candidatesFromSong) {
+            if (rawCand.isEmpty) continue;
+            if (ArtistSanitizer.isCompositeOrMultiArtist(rawCand)) continue;
+            if (!ArtistSanitizer.isGenuineArtist(rawCand)) continue;
+
+            final candCanon = ArtistSanitizer.canonicalArtistName(rawCand);
+            if (ArtistSanitizer.areSameOrVariantArtists(candCanon, canonicalName)) continue;
+            if (seenDiscovered.add(candCanon.toLowerCase())) {
+              discovered.add({
+                'name': candCanon,
+                'image': song.coverUrl,
+              });
+            }
+          }
+          if (discovered.length >= 6) break;
+        }
+
+        // If songs yielded candidates, use them
+        if (discovered.isNotEmpty) {
+          candidates = discovered;
+        } else {
+          // Last resort: Top language artists
+          final topResults = await SaavnClient.searchArtists('Top Tamil Artists', limit: 10);
+          candidates = topResults
+              .where((a) {
+                final n = a['name']?.toString() ?? '';
+                return n.isNotEmpty &&
+                    !ArtistSanitizer.isCompositeOrMultiArtist(n) &&
+                    ArtistSanitizer.isGenuineArtist(n) &&
+                    !ArtistSanitizer.areSameOrVariantArtists(n, canonicalName);
+              })
+              .map((a) => {
+                    'name': ArtistSanitizer.canonicalArtistName(a['name']?.toString() ?? ''),
+                    'image': a['image']?.toString() ?? '',
+                  })
+              .toList();
+        }
       } catch (_) {}
     }
 
     if (candidates.isEmpty) return;
 
-    // Filter candidates not already present in the displayed list
-    final newArtists = candidates.where((c) {
-      return !_displayedArtists.any((existing) => existing['name']?.toLowerCase() == c['name']?.toLowerCase());
-    }).take(3).toList();
+    // Filter candidates against displayed artists using canonical and variant checks
+    final newArtists = <Map<String, String>>[];
+    for (final c in candidates) {
+      final name = c['name']?.toString().trim() ?? '';
+      if (name.isEmpty) continue;
+      if (ArtistSanitizer.isCompositeOrMultiArtist(name)) continue;
+      if (!ArtistSanitizer.isGenuineArtist(name)) continue;
+
+      final candCanonical = ArtistSanitizer.canonicalArtistName(name);
+
+      // Must not match the tapped artist or any alias/variant of it
+      if (ArtistSanitizer.areSameOrVariantArtists(candCanonical, canonicalName)) continue;
+
+      // Must not match ANY existing displayed artist or variant of it
+      final alreadyDisplayed = _displayedArtists.any((existing) =>
+          ArtistSanitizer.areSameOrVariantArtists(existing['name'] ?? '', candCanonical));
+      if (alreadyDisplayed) continue;
+
+      // Must not duplicate an item in the current batch
+      final alreadyInBatch = newArtists.any((item) =>
+          ArtistSanitizer.areSameOrVariantArtists(item['name'] ?? '', candCanonical));
+      if (alreadyInBatch) continue;
+
+      newArtists.add({
+        'name': candCanonical,
+        'image': c['image']?.toString() ?? '',
+      });
+
+      if (newArtists.length >= 3) break;
+    }
 
     if (newArtists.isEmpty) return;
 

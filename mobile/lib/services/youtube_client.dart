@@ -291,7 +291,8 @@ class YouTubeClient {
     }
   }
 
-  /// Multi-tier audio stream extractor that guarantees 100% playable audio streams
+  /// Client-side audio stream extractor resolving on-device via YouTubeExplode.
+  /// Bypasses datacenter IP blocks, avoiding broken server-side stream resolution on release APKs.
   static Future<String?> getAudioStreamUrl(String videoId, {String? title, String? artist}) async {
     final cleanId = videoId.trim();
     if (cleanId.isEmpty) return null;
@@ -303,102 +304,83 @@ class YouTubeClient {
       return cached.url;
     }
 
-    // ── Tier 1: Client-Side YouTubeExplode Dart ──────────────────────
-    try {
-      StreamManifest? manifest;
+    // ── Tier 1: Client-Side YouTubeExplode Dart (Direct on-device resolution) ──
+    for (int attempt = 1; attempt <= 2; attempt++) {
       try {
-        // Fast direct manifest extraction (requireWatchPage: false avoids heavy HTML/JS downloads, ~5s instead of ~40s)
-        manifest = await _yt.videos.streamsClient.getManifest(
-          cleanId,
-          requireWatchPage: false,
-        ).timeout(const Duration(seconds: 15));
-      } catch (fastErr) {
-        AppLogger.log('YouTubeClient', 'Fast manifest extraction notice for $cleanId: $fastErr. Falling back to full extraction.');
-        manifest = await _yt.videos.streamsClient.getManifest(
-          cleanId,
-          requireWatchPage: true,
-        ).timeout(const Duration(seconds: 20));
+        StreamManifest? manifest;
+        try {
+          // Fast direct manifest extraction (requireWatchPage: false avoids heavy HTML/JS downloads)
+          manifest = await _yt.videos.streamsClient.getManifest(
+            cleanId,
+            requireWatchPage: false,
+          ).timeout(const Duration(seconds: 14));
+        } catch (fastErr) {
+          AppLogger.log('YouTubeClient', 'Fast manifest extraction notice for $cleanId: $fastErr. Falling back to full extraction.');
+          manifest = await _yt.videos.streamsClient.getManifest(
+            cleanId,
+            requireWatchPage: true,
+          ).timeout(const Duration(seconds: 18));
+        }
+
+        final audioStreams = manifest.audioOnly;
+        if (audioStreams.isNotEmpty) {
+          AudioStreamInfo? chosenStream;
+          final quality = SettingsManager.streamingQuality;
+
+          // Data Saver (96 kbps): choose lowest bitrate stream
+          if (quality == '96kbps') {
+            for (final s in audioStreams) {
+              if (s.bitrate.kiloBitsPerSecond <= 100) {
+                chosenStream = s;
+                break;
+              }
+            }
+          }
+
+          // Standard or High: Strictly prioritize standard AAC / M4A stream (itag 140, 128kbps)
+          // 100% universally supported across Android ExoPlayer & iOS AVPlayer
+          if (chosenStream == null) {
+            for (final s in audioStreams) {
+              if (s.tag == 140) {
+                chosenStream = s;
+                break;
+              }
+            }
+          }
+
+          // Fallback to Opus in WebM (itag 251, ~160kbps)
+          if (chosenStream == null) {
+            for (final s in audioStreams) {
+              if (s.tag == 251) {
+                chosenStream = s;
+                break;
+              }
+            }
+          }
+
+          // Fallback to any other MP4 / M4A container
+          if (chosenStream == null) {
+            for (final s in audioStreams) {
+              if (s.container.name.toLowerCase().contains('mp4') || s.container.name.toLowerCase().contains('m4a')) {
+                chosenStream = s;
+                break;
+              }
+            }
+          }
+
+          chosenStream ??= audioStreams.withHighestBitrate();
+          final url = chosenStream.url.toString();
+          _streamCache[cleanId] = _CachedAudioStream(url, DateTime.now().add(const Duration(hours: 1)));
+          AppLogger.log('YouTubeClient', 'Client-side resolved stream for $cleanId (itag ${chosenStream.tag}, ${chosenStream.container.name}, ${chosenStream.bitrate.kiloBitsPerSecond.round()}kbps)');
+          return url;
+        }
+      } catch (e) {
+        AppLogger.log('YouTubeClient', 'Client-side stream extractor attempt $attempt notice for $cleanId: $e');
+        if (attempt == 1) {
+          // Reset client instance on socket / connection error before second attempt
+          closeIdleClient();
+        }
       }
-
-      final audioStreams = manifest.audioOnly;
-      if (audioStreams.isNotEmpty) {
-        AudioStreamInfo? chosenStream;
-        final quality = SettingsManager.streamingQuality;
-
-        // Data Saver (96 kbps): choose lowest bitrate stream
-        if (quality == '96kbps') {
-          for (final s in audioStreams) {
-            if (s.bitrate.kiloBitsPerSecond <= 100) {
-              chosenStream = s;
-              break;
-            }
-          }
-        }
-
-        // Standard or High: Strictly prioritize standard AAC / M4A stream (itag 140, 128kbps)
-        // This is 100% universally supported across Android ExoPlayer & iOS AVPlayer
-        if (chosenStream == null) {
-          for (final s in audioStreams) {
-            if (s.tag == 140) {
-              chosenStream = s;
-              break;
-            }
-          }
-        }
-
-        // Fallback to Opus in WebM (itag 251, ~160kbps)
-        if (chosenStream == null) {
-          for (final s in audioStreams) {
-            if (s.tag == 251) {
-              chosenStream = s;
-              break;
-            }
-          }
-        }
-
-        // Fallback to any other MP4 / M4A container
-        if (chosenStream == null) {
-          for (final s in audioStreams) {
-            if (s.container.name.toLowerCase().contains('mp4') || s.container.name.toLowerCase().contains('m4a')) {
-              chosenStream = s;
-              break;
-            }
-          }
-        }
-
-        chosenStream ??= audioStreams.withHighestBitrate();
-        final url = chosenStream.url.toString();
-        _streamCache[cleanId] = _CachedAudioStream(url, DateTime.now().add(const Duration(hours: 1)));
-        AppLogger.log('YouTubeClient', 'Tier 1 resolved stream for $cleanId (itag ${chosenStream.tag}, ${chosenStream.container.name}, ${chosenStream.bitrate.kiloBitsPerSecond.round()}kbps)');
-        return url;
-      }
-    } catch (e) {
-      AppLogger.log('YouTubeClient', 'Tier 1 client-side stream extractor notice for $cleanId: $e');
-    }
-
-    // ── Tier 2: Paatu Padava Backend Stream Resolver ──────────────────
-    try {
-      final uri = Uri.parse('$_baseUrl/api/music/stream/$cleanId').replace(queryParameters: {
-        if (title != null && title.isNotEmpty) 'title': title,
-        if (artist != null && artist.isNotEmpty) 'artist': artist,
-      });
-      final res = await http.get(uri).timeout(const Duration(seconds: 8));
-      if (res.statusCode == 200) {
-        final data = json.decode(res.body);
-        final audioUrl = data['audio_url']?.toString();
-        if (audioUrl != null && audioUrl.isNotEmpty) {
-          _streamCache[cleanId] = _CachedAudioStream(audioUrl, DateTime.now().add(const Duration(minutes: 15)));
-          AppLogger.log('YouTubeClient', 'Tier 2 backend resolved stream for $cleanId');
-          return audioUrl;
-        } else {
-          AppLogger.log('YouTubeClient', 'Tier 2 backend returned 200 without audio_url for $cleanId: ${res.body}');
-        }
-      } else {
-        final bodySnippet = res.body.length > 200 ? '${res.body.substring(0, 200)}...' : res.body;
-        AppLogger.log('YouTubeClient', 'Tier 2 backend stream resolver failed for $cleanId: HTTP ${res.statusCode} (body: $bodySnippet)');
-      }
-    } catch (e) {
-      AppLogger.log('YouTubeClient', 'Tier 2 backend stream resolver exception for $cleanId: $e');
     }
 
     return null;

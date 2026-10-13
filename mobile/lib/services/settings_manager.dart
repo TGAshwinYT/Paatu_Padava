@@ -19,7 +19,7 @@ class SettingsManager {
   static final ValueNotifier<List<double>> eqBandsNotifier = ValueNotifier<List<double>>([0.0, 0.0, 0.0, 0.0, 0.0]);
   static final ValueNotifier<List<String>> languagesNotifier = ValueNotifier<List<String>>(['Tamil', 'English']);
   static final ValueNotifier<NextTrackStrategyMode> nextTrackStrategyNotifier =
-      ValueNotifier<NextTrackStrategyMode>(NextTrackStrategyMode.spotifyStyle);
+      ValueNotifier<NextTrackStrategyMode>(NextTrackStrategyMode.ytMusicStyle);
   static final ValueNotifier<int> maxCacheSizeMbNotifier = ValueNotifier<int>(500);
   static final ValueNotifier<int> bluetoothDelayMsNotifier = ValueNotifier<int>(0);
   static final ValueNotifier<int> hardwareAudioLatencyMsNotifier = ValueNotifier<int>(0);
@@ -97,10 +97,10 @@ class SettingsManager {
       languagesNotifier.value = rawLangs.map((e) => e.toString()).toList();
     }
 
-    final savedStrategyStr = _box.get('next_track_strategy', defaultValue: 'spotifyStyle') as String;
+    final savedStrategyStr = _box.get('next_track_strategy', defaultValue: 'ytMusicStyle') as String;
     nextTrackStrategyNotifier.value = NextTrackStrategyMode.values.firstWhere(
       (m) => m.name == savedStrategyStr,
-      orElse: () => NextTrackStrategyMode.spotifyStyle,
+      orElse: () => NextTrackStrategyMode.ytMusicStyle,
     );
     maxCacheSizeMbNotifier.value = (_box.get('max_cache_size_mb', defaultValue: 500) as num).toInt();
     bluetoothDelayMsNotifier.value = (_box.get('bluetooth_delay_ms', defaultValue: 0) as num).toInt();

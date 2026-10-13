@@ -293,6 +293,163 @@ class ArtistSanitizer {
     return 'Original Soundtrack';
   }
 
+  /// Checks if a string represents multiple collaborating artists or a composite duo/trio.
+  /// Examples: "Arijit Singh & Chinmayi Sripada", "Anirudh feat. Jonita", "Dhanush, Dhee"
+  static bool isCompositeOrMultiArtist(String rawName) {
+    final clean = _unescape.convert(rawName).trim();
+    if (clean.isEmpty) return false;
+
+    // Check for collaboration indicators
+    final compositePattern = RegExp(
+      r'(\s+(&|and|\+|x|vs\.?|with)\s+|[,/|]|\b(feat\.?|ft\.?|featuring|duet)\b)',
+      caseSensitive: false,
+    );
+    return compositePattern.hasMatch(clean);
+  }
+
+  /// Canonical artist alias mapping for South/Indian music industry
+  static const Map<String, String> _canonicalArtistMap = {
+    'chinmayi sripada': 'Chinmayi',
+    'chinmayi sumit': 'Chinmayi',
+    'chinmayee': 'Chinmayi',
+    'reetha anthony daasan': 'Anthony Daasan',
+    'gnana anthony daasan': 'Anthony Daasan',
+    'anthony dasan': 'Anthony Daasan',
+    'antony daasan': 'Anthony Daasan',
+    'antony dasan': 'Anthony Daasan',
+    'a.r. rahman': 'A.R. Rahman',
+    'ar rahman': 'A.R. Rahman',
+    'a r rahman': 'A.R. Rahman',
+    'a. r. rahman': 'A.R. Rahman',
+    'rahman': 'A.R. Rahman',
+    'anirudh ravichander': 'Anirudh Ravichander',
+    'anirudh': 'Anirudh Ravichander',
+    'yuvan shankar raja': 'Yuvan Shankar Raja',
+    'yuvan': 'Yuvan Shankar Raja',
+    'u1': 'Yuvan Shankar Raja',
+    'harris jayaraj': 'Harris Jayaraj',
+    'harris jeyaraj': 'Harris Jayaraj',
+    'hiphop tamizha': 'Hiphop Tamizha',
+    'hip hop tamizha': 'Hiphop Tamizha',
+    'hiphop thamizha': 'Hiphop Tamizha',
+    'g.v. prakash kumar': 'G.V. Prakash Kumar',
+    'gv prakash kumar': 'G.V. Prakash Kumar',
+    'g.v. prakash': 'G.V. Prakash Kumar',
+    'gv prakash': 'G.V. Prakash Kumar',
+    'santhosh narayanan': 'Santhosh Narayanan',
+    'santosh narayanan': 'Santhosh Narayanan',
+    'ilaiyaraaja': 'Ilaiyaraaja',
+    'ilayaraja': 'Ilaiyaraaja',
+    'ilaiyaraja': 'Ilaiyaraaja',
+    'd. imman': 'D. Imman',
+    'd imman': 'D. Imman',
+    'imman': 'D. Imman',
+    'sid sriram': 'Sid Sriram',
+    'shreya ghoshal': 'Shreya Ghoshal',
+    'shreya ghosal': 'Shreya Ghoshal',
+    'vijay antony': 'Vijay Antony',
+    'haricharan seshadri': 'Haricharan',
+    's.p. balasubrahmanyam': 'S.P. Balasubrahmanyam',
+    'sp balasubrahmanyam': 'S.P. Balasubrahmanyam',
+    's. p. balasubrahmanyam': 'S.P. Balasubrahmanyam',
+    'spb': 'S.P. Balasubrahmanyam',
+    'k.s. chithra': 'K.S. Chithra',
+    'ks chithra': 'K.S. Chithra',
+    'k. s. chithra': 'K.S. Chithra',
+    'chithra': 'K.S. Chithra',
+    'k.j. yesudas': 'K.J. Yesudas',
+    'kj yesudas': 'K.J. Yesudas',
+    'k. j. yesudas': 'K.J. Yesudas',
+    'yesudas': 'K.J. Yesudas',
+    'swetha mohan': 'Swetha Mohan',
+    'shweta mohan': 'Swetha Mohan',
+    'pradeep kumar': 'Pradeep Kumar',
+    'sean roldan': 'Sean Roldan',
+    'andrea jeremiah': 'Andrea Jeremiah',
+    'jonita gandhi': 'Jonita Gandhi',
+    'bombay jayashri': 'Bombay Jayashri',
+    'bombay jayashree': 'Bombay Jayashri',
+    'harish raghavendra': 'Harish Raghavendra',
+    'kaushik krish': 'Kaushik Krish',
+    'anuradha sriram': 'Anuradha Sriram',
+    'saindhavi': 'Saindhavi',
+    'saindhavi g.v. prakash': 'Saindhavi',
+    'saindhavi prakash': 'Saindhavi',
+  };
+
+  /// Common non-distinctive surnames/words that should not trigger false deduplication matches
+  static const Set<String> _commonGenericNameWords = {
+    'kumar',
+    'singh',
+    'sharma',
+    'khan',
+    'music',
+    'raja',
+    'iyer',
+    'nair',
+    'reddy',
+    'das',
+    'dasan',
+  };
+
+  /// Resolves an artist name to its canonical display name if known,
+  /// or returns trimmed unescaped name.
+  static String canonicalArtistName(String rawName) {
+    final unescaped = _unescape.convert(rawName).trim();
+    if (unescaped.isEmpty) return unescaped;
+    final lower = unescaped.toLowerCase();
+    return _canonicalArtistMap[lower] ?? unescaped;
+  }
+
+  /// Determines if two artist names refer to the same artist or a duplicate variant.
+  /// Handles canonical aliases, honorific variations, and distinctive surname overlap.
+  static bool areSameOrVariantArtists(String a, String b) {
+    final cleanA = _unescape.convert(a).trim();
+    final cleanB = _unescape.convert(b).trim();
+    if (cleanA.isEmpty || cleanB.isEmpty) return false;
+
+    // 1. Exact case-insensitive match
+    if (cleanA.toLowerCase() == cleanB.toLowerCase()) return true;
+
+    // 2. Canonical mapping match
+    final canonA = canonicalArtistName(cleanA).toLowerCase();
+    final canonB = canonicalArtistName(cleanB).toLowerCase();
+    if (canonA == canonB) return true;
+
+    // 3. Normalized alphanumeric string comparison (e.g. "A.R. Rahman" vs "AR Rahman")
+    final alphaA = cleanA.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    final alphaB = cleanB.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    if (alphaA.isNotEmpty && alphaA == alphaB) return true;
+
+    // 4. Distinctive token containment check
+    // If one is fully contained in the other and the contained portion is a distinctive artist name
+    final lowerA = cleanA.toLowerCase();
+    final lowerB = cleanB.toLowerCase();
+    final shorter = lowerA.length <= lowerB.length ? lowerA : lowerB;
+    final longer = lowerA.length <= lowerB.length ? lowerB : lowerA;
+
+    // If shorter is a known canonical name or has distinctive multi-word tokens (>= 2 words)
+    final shorterTokens = shorter.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
+    if (shorterTokens.length >= 2) {
+      // Check if all tokens of shorter appear in order or together in longer
+      final cleanShorterTokens = shorterTokens.where((t) => !_commonGenericNameWords.contains(t)).toList();
+      if (cleanShorterTokens.length >= 2 && longer.contains(shorter)) {
+        return true;
+      }
+    } else if (shorterTokens.length == 1) {
+      final singleToken = shorterTokens.first;
+      // Single distinctive name of length >= 6 (e.g. "chinmayi", "haricharan", "ilaiyaraaja", "anirudh")
+      if (singleToken.length >= 6 && !_commonGenericNameWords.contains(singleToken)) {
+        final longerTokens = longer.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
+        if (longerTokens.contains(singleToken)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
   /// Extracts the primary genuine musician (composer or playback singer)
   /// from a composite artist credit string (e.g. "Anirudh Ravichander, Thalapathy Vijay" -> "Anirudh Ravichander")
   static String extractPrimaryGenuineArtist(String artistString) {
@@ -311,3 +468,4 @@ class ArtistSanitizer {
     return first.isNotEmpty ? first : 'Unknown Artist';
   }
 }
+

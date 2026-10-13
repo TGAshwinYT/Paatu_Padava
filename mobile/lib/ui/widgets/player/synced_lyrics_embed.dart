@@ -267,29 +267,165 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    if (!_isLrc) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+  Widget _buildDualLyricsToggle() {
+    return ValueListenableBuilder<DualLyrics?>(
+      valueListenable: audioHandler.dualLyricsNotifier,
+      builder: (context, dualLyrics, _) {
+        if (dualLyrics == null || !dualLyrics.hasMultipleVariants) {
+          return const SizedBox.shrink();
+        }
+        return ValueListenableBuilder<LyricsLanguage>(
+          valueListenable: audioHandler.lyricsLanguageNotifier,
+          builder: (context, activeLang, _) {
+            final isEnglish = activeLang == LyricsLanguage.english;
+            final label = isEnglish ? 'EN' : 'Default';
+            return Padding(
+              padding: const EdgeInsets.only(right: 6.0),
+              child: InkWell(
+                onTap: () {
+                  audioHandler.setLyricsLanguage(
+                    isEnglish ? LyricsLanguage.defaultLang : LyricsLanguage.english,
+                  );
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E293B).withValues(alpha: 0.8),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.translate_rounded, size: 12, color: Color(0xFF818CF8)),
+                      const SizedBox(width: 4),
+                      Text(
+                        label,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildFullscreenPill() {
+    return InkWell(
+      onTap: () => LyricsScreen.open(context, song: widget.song),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
-          color: const Color(0xFF131B2E).withValues(alpha: 0.9),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+          color: const Color(0xFF6366F1).withValues(alpha: 0.92),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF6366F1).withValues(alpha: 0.45),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          child: Center(
-            child: Text(
-              Song.sanitize(widget.lyrics),
-              textAlign: TextAlign.center,
-              style: const TextStyle(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: const [
+            Icon(Icons.fullscreen_rounded, color: Colors.white, size: 16),
+            SizedBox(width: 4),
+            Text(
+              'FULLSCREEN',
+              style: TextStyle(
                 color: Colors.white,
-                fontSize: 18,
-                height: 2.1,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.3,
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.5,
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_isLrc) {
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => LyricsScreen.open(context, song: widget.song),
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFF131B2E).withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+          ),
+          child: Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 48, 20, 36),
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  child: Center(
+                    child: Text(
+                      Song.sanitize(widget.lyrics),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 17,
+                        height: 2.1,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 10,
+                right: 12,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildDualLyricsToggle(),
+                    _buildFullscreenPill(),
+                  ],
+                ),
+              ),
+              Positioned(
+                bottom: 8,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.45),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: const [
+                        Icon(Icons.touch_app_rounded, color: Colors.white60, size: 12),
+                        SizedBox(width: 4),
+                        Text(
+                          'Tap anywhere for full screen',
+                          style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       );
@@ -370,65 +506,13 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
             ),
           ),
           Positioned(
-            top: 8,
-            right: 8,
+            top: 10,
+            right: 12,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                ValueListenableBuilder<DualLyrics?>(
-                  valueListenable: audioHandler.dualLyricsNotifier,
-                  builder: (context, dualLyrics, _) {
-                    if (dualLyrics == null || !dualLyrics.hasMultipleVariants) {
-                      return const SizedBox.shrink();
-                    }
-                    return ValueListenableBuilder<LyricsLanguage>(
-                      valueListenable: audioHandler.lyricsLanguageNotifier,
-                      builder: (context, activeLang, _) {
-                        final isEnglish = activeLang == LyricsLanguage.english;
-                        final label = isEnglish ? 'EN' : 'Default';
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 4.0),
-                          child: InkWell(
-                            onTap: () {
-                              audioHandler.setLyricsLanguage(
-                                isEnglish ? LyricsLanguage.defaultLang : LyricsLanguage.english,
-                              );
-                            },
-                            borderRadius: BorderRadius.circular(12),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF1E293B).withValues(alpha: 0.8),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.translate_rounded, size: 12, color: Color(0xFF818CF8)),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    label,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
-                IconButton(
-                  icon: const Icon(Icons.fullscreen_rounded, color: Colors.white70, size: 24),
-                  tooltip: 'Expand Bloomee Lyrics Page',
-                  onPressed: () => LyricsScreen.open(context, song: widget.song),
-                ),
+                _buildDualLyricsToggle(),
+                _buildFullscreenPill(),
               ],
             ),
           ),

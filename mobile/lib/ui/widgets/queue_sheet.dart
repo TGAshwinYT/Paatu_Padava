@@ -366,36 +366,58 @@ class _QueueSheetState extends State<QueueSheet> {
                           ),
                         )
                       else if (suggestedTracks.isNotEmpty) ...[
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Up Next (${suggestedTracks.length})',
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                              Row(
-                                children: const [
-                                  Icon(Icons.auto_awesome_rounded, color: Color(0xFF1DB954), size: 14),
-                                  SizedBox(width: 4),
-                                  Text(
-                                    'Auto-Suggested',
-                                    style: TextStyle(
-                                      color: Color(0xFF1DB954),
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
+                        Builder(
+                          builder: (context) {
+                            final firstSuggested = suggestedTracks.first.value;
+                            final isAutoMix = firstSuggested.isSmartRecommended;
+                            final albumName = (nowPlaying != null && nowPlaying.album.isNotEmpty && nowPlaying.album.toLowerCase() != 'unknown album')
+                                ? nowPlaying.album
+                                : 'Context Queue';
+                            final contextLabel = isAutoMix
+                                ? 'Next from: Auto-Mix Radio'
+                                : 'Next from: $albumName';
+
+                            return Padding(
+                              padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      '$contextLabel (${suggestedTracks.length})',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 0.5,
+                                      ),
                                     ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        isAutoMix ? Icons.auto_awesome_rounded : Icons.album_rounded,
+                                        color: isAutoMix ? const Color(0xFF1DB954) : const Color(0xFF818CF8),
+                                        size: 14,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        isAutoMix ? 'Auto-Mix' : 'Context',
+                                        style: TextStyle(
+                                          color: isAutoMix ? const Color(0xFF1DB954) : const Color(0xFF818CF8),
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
-                            ],
-                          ),
+                            );
+                          },
                         ),
                         ReorderableListView.builder(
                           shrinkWrap: true,

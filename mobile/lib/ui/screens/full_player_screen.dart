@@ -16,6 +16,7 @@ import '../widgets/player/player_controls.dart';
 import '../widgets/player/player_scrubber.dart';
 import '../widgets/player/player_gesture_detector.dart';
 import 'artist_screen.dart';
+import 'lyrics_screen.dart';
 import '../../services/artist_sanitizer.dart';
 
 class FullPlayerScreen extends StatefulWidget {
@@ -288,20 +289,34 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                   ),
                                   Expanded(
                                     child: GestureDetector(
-                                      onTap: () => setState(() => _showLyrics = true),
+                                      onTap: () {
+                                        setState(() => _showLyrics = true);
+                                        LyricsScreen.open(context, song: song);
+                                      },
                                       child: Container(
                                         decoration: BoxDecoration(
                                           color: _showLyrics ? const Color(0xFF6366F1) : Colors.transparent,
                                           borderRadius: BorderRadius.circular(18),
                                         ),
                                         child: Center(
-                                          child: Text(
-                                            'Lyrics',
-                                            style: TextStyle(
-                                              color: _showLyrics ? Colors.white : const Color(0xFF94A3B8),
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.bold,
-                                            ),
+                                          child: Row(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              Text(
+                                                'Lyrics',
+                                                style: TextStyle(
+                                                  color: _showLyrics ? Colors.white : const Color(0xFF94A3B8),
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 3),
+                                              Icon(
+                                                Icons.open_in_full_rounded,
+                                                size: 11,
+                                                color: _showLyrics ? Colors.white70 : const Color(0xFF94A3B8),
+                                              ),
+                                            ],
                                           ),
                                         ),
                                       ),
@@ -386,6 +401,11 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                       },
                                     );
                                   },
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.lyrics_rounded, color: Color(0xFF818CF8), size: 26),
+                                  tooltip: 'Full Screen Lyrics',
+                                  onPressed: () => LyricsScreen.open(context, song: song),
                                 ),
                                 IconButton(
                                   icon: const Icon(Icons.playlist_add_rounded, color: Color(0xFF818CF8), size: 28),
@@ -535,10 +555,22 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                         style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
                       ),
                       const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.refresh_rounded, size: 14, color: Colors.white),
-                        label: const Text('Retry', style: TextStyle(color: Colors.white, fontSize: 12)),
-                        onPressed: () => audioHandler.reloadLyrics(),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          OutlinedButton.icon(
+                            icon: const Icon(Icons.refresh_rounded, size: 14, color: Colors.white),
+                            label: const Text('Retry', style: TextStyle(color: Colors.white, fontSize: 12)),
+                            onPressed: () => audioHandler.reloadLyrics(),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton.icon(
+                            icon: const Icon(Icons.open_in_full_rounded, size: 14, color: Colors.white),
+                            label: const Text('Search', style: TextStyle(color: Colors.white, fontSize: 12)),
+                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF6366F1)),
+                            onPressed: () => LyricsScreen.open(context, song: song),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -563,6 +595,16 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                     const Text(
                       'No lyrics found for this track',
                       style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14, fontWeight: FontWeight.w500),
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      icon: const Icon(Icons.open_in_full_rounded, size: 14, color: Colors.white),
+                      label: const Text('Search Lyrics (Fullscreen)', style: TextStyle(color: Colors.white, fontSize: 12)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF6366F1),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      ),
+                      onPressed: () => LyricsScreen.open(context, song: song),
                     ),
                   ],
                 ),

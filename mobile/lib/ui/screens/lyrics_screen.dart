@@ -334,6 +334,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
 
   /// Seeking on line tap applies: target = line.timestamp - Duration(milliseconds: manualOffsetMs)
   void _seekToLine(_LrcLine line, int idx) {
+    HapticFeedback.lightImpact();
     final targetSeek = line.timestamp - Duration(milliseconds: _manualOffsetMs);
     final clampedSeek = targetSeek < Duration.zero ? Duration.zero : targetSeek;
 
@@ -483,43 +484,36 @@ class _LyricsScreenState extends State<LyricsScreen> {
       return Container(color: const Color(0xFF060B14));
     }
 
-    final hasLocal = song.isDownloaded && song.localFilePath != null && File(song.localFilePath!).existsSync();
     final isDynamic = SettingsManager.isDynamicBackgroundEnabled;
 
     return Stack(
       fit: StackFit.expand,
       children: [
+        // 1. Apple Music Full-Screen Fluid Mesh Gradient
         FluidMeshGradient(
           imageUrl: song.coverUrl,
-          blurSigma: 65.0,
-          opacity: 0.65,
+          blurSigma: 70.0,
+          opacity: 0.70,
           animate: isDynamic,
-          child: hasLocal
-              ? Image.file(File(song.localFilePath!), fit: BoxFit.cover)
-              : song.coverUrl.isNotEmpty
-                  ? CachedNetworkImage(imageUrl: song.coverUrl, fit: BoxFit.cover)
-                  : Container(color: const Color(0xFF1E293B)),
         ),
 
-        // Glassmorphic deep blur filter
-        BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 45, sigmaY: 45),
-          child: Container(
-            color: const Color(0xFF060B14).withValues(alpha: 0.70),
-          ),
+        // 2. Translucent dark wash for contrast
+        Container(
+          color: const Color(0xFF060B14).withValues(alpha: 0.50),
         ),
 
-        // Gradient vignette for optimal text readability
+        // 3. Apple Music vertical gradient vignette ensuring crystal-clear text readability
         Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Color(0xCC060B14),
-                Color(0x77060B14),
-                Color(0xF0060B14),
+                Color(0xDD060B14),
+                Color(0x33060B14),
+                Color(0xEE060B14),
               ],
+              stops: [0.0, 0.40, 1.0],
             ),
           ),
         ),
@@ -603,45 +597,68 @@ class _LyricsScreenState extends State<LyricsScreen> {
       child: ListView.builder(
         controller: _scrollController,
         padding: EdgeInsets.only(
-          top: screenHeight * 0.42,
+          top: screenHeight * 0.38,
           bottom: screenHeight * 0.48,
-          left: 24,
-          right: 24,
+          left: 28,
+          right: 28,
         ),
         itemCount: _lines.length,
         itemBuilder: (context, idx) {
           final line = _lines[idx];
           final isActive = idx == _activeIndex;
+          final int distance = (idx - _activeIndex).abs();
 
-          return Center(
+          // Apple Music high-contrast typography & optical depth falloff
+          final double opacity = isActive
+              ? 1.0
+              : (_activeIndex == -1
+                  ? 0.50
+                  : (distance == 1
+                      ? 0.38
+                      : (distance == 2
+                          ? 0.25
+                          : 0.16)));
+
+          final double fontSize = isActive ? 28.0 : 21.0;
+          final FontWeight fontWeight = isActive ? FontWeight.w800 : FontWeight.w700;
+
+          return Align(
+            alignment: Alignment.centerLeft,
             key: _lineKeys[idx],
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () => _seekToLine(line, idx),
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12.0),
+                padding: const EdgeInsets.symmetric(vertical: 14.0),
                 child: line.isBgm
                     ? BgmPulseIndicator(isActive: isActive)
-                    : AnimatedDefaultTextStyle(
-                        duration: const Duration(milliseconds: 250),
-                        curve: Curves.easeOut,
-                        style: TextStyle(
-                          color: isActive ? Colors.white : Colors.white.withValues(alpha: 0.35),
-                          fontSize: isActive ? 24 : 17,
-                          fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
-                          height: 1.45,
-                          shadows: isActive
-                              ? [
-                                  BoxShadow(
-                                    color: const Color(0xFF9333EA).withValues(alpha: 0.55),
-                                    blurRadius: 20,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ]
-                              : null,
+                    : AnimatedScale(
+                        scale: isActive ? 1.04 : 1.0,
+                        duration: const Duration(milliseconds: 280),
+                        curve: Curves.easeOutCubic,
+                        alignment: Alignment.centerLeft,
+                        child: AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 280),
+                          curve: Curves.easeOutCubic,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: opacity),
+                            fontSize: fontSize,
+                            fontWeight: fontWeight,
+                            height: 1.35,
+                            letterSpacing: -0.2,
+                            shadows: isActive
+                                ? [
+                                    BoxShadow(
+                                      color: Colors.white.withValues(alpha: 0.25),
+                                      blurRadius: 18,
+                                      offset: const Offset(0, 1),
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          textAlign: TextAlign.left,
+                          child: Text(line.text),
                         ),
-                        textAlign: TextAlign.center,
-                        child: Text(line.text),
                       ),
               ),
             ),

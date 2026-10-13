@@ -3,13 +3,15 @@ import '../data/repositories/song_repository.dart';
 import '../models/song.dart';
 import 'api_client.dart';
 import 'saavn_client.dart';
+import 'youtube_client.dart';
 import 'settings_manager.dart';
 import 'app_logger.dart';
 import 'queue_cooldown_manager.dart';
 
 class RadioEngine {
   /// Builds a curated 50-track discovery radio mix based on a seed song.
-  /// Combines related recommendations, artist top hits, contextual recommendations,
+  /// Combines YouTube Music's native automix graph (genre-aligned RDAMVM graph traversal),
+  /// JioSaavn unthrottled 320kbps recommendations, artist top hits, contextual recommendations,
   /// and regional trending tracks while enforcing artist diversity, strict language lockdown,
   /// and anti-cross-language dub deduplication.
   static Future<List<Song>> buildSongRadio(Song seedSong, {int limit = 50}) async {
@@ -18,7 +20,15 @@ class RadioEngine {
         ? seedSong.language!.toLowerCase()
         : (prefLangs.firstOrNull ?? 'tamil').toLowerCase();
 
-    // 1. Fetch Primary Recommendations from Saavn
+    // 1. Fetch YouTube Music Radio Automix Graph (Native RDAMVM Node with Topic priority)
+    List<Song> ytRadioTracks = [];
+    try {
+      ytRadioTracks = await YouTubeClient.getRadioTracks(seedSong, limit: 25);
+    } catch (e) {
+      AppLogger.log('RadioEngine', 'YouTube radio graph fallback: $e');
+    }
+
+    // 2. Fetch Primary Recommendations from Saavn
     List<Song> relatedSongs = [];
     try {
       relatedSongs = await SaavnClient.getRelatedSongs(seedSong.id, language: targetLang);
@@ -26,7 +36,7 @@ class RadioEngine {
       AppLogger.log('RadioEngine', 'Primary recommendations fallback: $e');
     }
 
-    // 2. Fetch Seed Artist Top Hits in Target Language
+    // 3. Fetch Seed Artist Top Hits in Target Language
     List<Song> artistHits = [];
     final primaryArtist = seedSong.primaryArtist;
     if (primaryArtist.isNotEmpty && primaryArtist.toLowerCase() != 'various artists') {
@@ -38,7 +48,7 @@ class RadioEngine {
       }
     }
 
-    // 3. Fetch Contextual Recommendations from Backend ML
+    // 4. Fetch Contextual Recommendations from Backend ML
     List<Song> backendRecs = [];
     try {
       backendRecs = await ApiClient.fetchRecommendations(
@@ -50,7 +60,7 @@ class RadioEngine {
       AppLogger.log('RadioEngine', 'Backend recommendations fallback: $e');
     }
 
-    // 4. Fetch Regional Trending in Target Language as Discovery Filler
+    // 5. Fetch Regional Trending in Target Language as Discovery Filler
     List<Song> trending = [];
     try {
       trending = await SongRepository.getTrendingMerged(language: targetLang);
@@ -58,11 +68,12 @@ class RadioEngine {
       AppLogger.log('RadioEngine', 'Trending fallback: $e');
     }
 
-    // Interleave candidates: Related -> Artist -> Backend ML -> Trending
+    // Interleave candidates: YouTube Automix Graph -> Related Saavn -> Artist Hits -> Backend ML -> Trending
     final candidatePool = <Song>[];
-    final maxLen = [relatedSongs.length, artistHits.length, backendRecs.length, trending.length].reduce(max);
+    final maxLen = [ytRadioTracks.length, relatedSongs.length, artistHits.length, backendRecs.length, trending.length].reduce(max);
 
     for (int i = 0; i < maxLen; i++) {
+      if (i < ytRadioTracks.length) candidatePool.add(ytRadioTracks[i]);
       if (i < relatedSongs.length) candidatePool.add(relatedSongs[i]);
       if (i < backendRecs.length) candidatePool.add(backendRecs[i]);
       if (i < artistHits.length) candidatePool.add(artistHits[i]);

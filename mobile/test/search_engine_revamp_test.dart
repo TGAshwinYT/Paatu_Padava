@@ -239,6 +239,43 @@ void main() {
       expect(ArtistSanitizer.isGenuineArtist('Harris Jayaraj'), isTrue);
     });
 
+    test('Detects composite collaborations and multi-artist strings', () {
+      expect(ArtistSanitizer.isCompositeOrMultiArtist('Arijit Singh & Chinmayi Sripada'), isTrue);
+      expect(ArtistSanitizer.isCompositeOrMultiArtist('Anirudh feat. Jonita Gandhi'), isTrue);
+      expect(ArtistSanitizer.isCompositeOrMultiArtist('Dhanush, Dhee'), isTrue);
+      expect(ArtistSanitizer.isCompositeOrMultiArtist('Harris Jayaraj / Karthik'), isTrue);
+      expect(ArtistSanitizer.isCompositeOrMultiArtist('Sid Sriram and Shreya Ghoshal'), isTrue);
+
+      expect(ArtistSanitizer.isCompositeOrMultiArtist('Chinmayi'), isFalse);
+      expect(ArtistSanitizer.isCompositeOrMultiArtist('A.R. Rahman'), isFalse);
+      expect(ArtistSanitizer.isCompositeOrMultiArtist('Anthony Daasan'), isFalse);
+      expect(ArtistSanitizer.isCompositeOrMultiArtist('Hiphop Tamizha'), isFalse);
+    });
+
+    test('Normalizes aliases to canonical artist names', () {
+      expect(ArtistSanitizer.canonicalArtistName('Chinmayi Sripada'), equals('Chinmayi'));
+      expect(ArtistSanitizer.canonicalArtistName('Chinmayi Sumit'), equals('Chinmayi'));
+      expect(ArtistSanitizer.canonicalArtistName('Reetha Anthony Daasan'), equals('Anthony Daasan'));
+      expect(ArtistSanitizer.canonicalArtistName('Gnana Anthony Daasan'), equals('Anthony Daasan'));
+      expect(ArtistSanitizer.canonicalArtistName('AR Rahman'), equals('A.R. Rahman'));
+      expect(ArtistSanitizer.canonicalArtistName('Anirudh'), equals('Anirudh Ravichander'));
+      expect(ArtistSanitizer.canonicalArtistName('Yuvan'), equals('Yuvan Shankar Raja'));
+      expect(ArtistSanitizer.canonicalArtistName('G.V. Prakash'), equals('G.V. Prakash Kumar'));
+    });
+
+    test('Identifies duplicate and variant artist names correctly', () {
+      expect(ArtistSanitizer.areSameOrVariantArtists('Chinmayi', 'Chinmayi Sripada'), isTrue);
+      expect(ArtistSanitizer.areSameOrVariantArtists('Chinmayi', 'Chinmayi Sumit'), isTrue);
+      expect(ArtistSanitizer.areSameOrVariantArtists('Anthony Daasan', 'Reetha Anthony Daasan'), isTrue);
+      expect(ArtistSanitizer.areSameOrVariantArtists('Anthony Daasan', 'Gnana Anthony Daasan'), isTrue);
+      expect(ArtistSanitizer.areSameOrVariantArtists('A.R. Rahman', 'AR Rahman'), isTrue);
+
+      // Completely distinct artists should not match
+      expect(ArtistSanitizer.areSameOrVariantArtists('Harris Jayaraj', 'Haricharan'), isFalse);
+      expect(ArtistSanitizer.areSameOrVariantArtists('Pradeep Kumar', 'G.V. Prakash Kumar'), isFalse);
+      expect(ArtistSanitizer.areSameOrVariantArtists('Shreya Ghoshal', 'Chinmayi'), isFalse);
+    });
+
     test('extractArtistFromVideo extracts genuine musician from YouTube video title', () {
       final parsed1 = ArtistSanitizer.extractArtistFromVideo(
         'Naa Ready - Lyric Video | Leo | Thalapathy Vijay | Anirudh Ravichander',

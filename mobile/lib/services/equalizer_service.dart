@@ -35,8 +35,13 @@ class EqualizerService {
   }
 
   /// Sets the native AudioSessionId
-  static Future<void> setAudioSessionId(int sessionId) async {
+  static Future<void> setAudioSessionId(int? sessionId) async {
     if (defaultTargetPlatform != TargetPlatform.android) return;
+    if (sessionId == null || sessionId == 0) {
+      _activeSessionId = null;
+      _isBound = false;
+      return;
+    }
     try {
       _activeSessionId = sessionId;
       await _channel.invokeMethod('setAudioSessionId', {'sessionId': sessionId});
@@ -52,6 +57,7 @@ class EqualizerService {
   /// Converts dB gains (-10.0 to +10.0 dB) to millibels (-1000 to +1000 mB) and sends to native
   static Future<void> applyCurrentBands() async {
     if (defaultTargetPlatform != TargetPlatform.android) return;
+    if (_activeSessionId == null || _activeSessionId == 0) return;
     try {
       final bands = SettingsManager.eqBands;
       // Convert dB to millibels (1 dB = 100 mB)
@@ -66,6 +72,7 @@ class EqualizerService {
   static Future<void> setBandLevel(int bandIndex, double gainDb) async {
     SettingsManager.setEqBand(bandIndex, gainDb);
     if (defaultTargetPlatform != TargetPlatform.android) return;
+    if (_activeSessionId == null || _activeSessionId == 0) return;
     try {
       final millibels = (gainDb * 100).round();
       await _channel.invokeMethod('setBandLevel', {'band': bandIndex, 'level': millibels});
@@ -83,9 +90,10 @@ class EqualizerService {
   /// Opens native Android system equalizer panel if available
   static Future<bool> openSystemEqualizer() async {
     if (defaultTargetPlatform != TargetPlatform.android) return false;
+    if (_activeSessionId == null || _activeSessionId == 0) return false;
     try {
       final bool? success = await _channel.invokeMethod('openSystemEqualizer', {
-        'sessionId': _activeSessionId ?? 0,
+        'sessionId': _activeSessionId,
       });
       return success ?? false;
     } catch (_) {

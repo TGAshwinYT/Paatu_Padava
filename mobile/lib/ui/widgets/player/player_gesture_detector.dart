@@ -13,10 +13,12 @@ import 'volume_hud_overlay.dart';
 /// - Swipe Down: Decrease in-app music volume
 class PlayerGestureDetector extends StatefulWidget {
   final Widget child;
+  final VoidCallback? onDoubleTap;
 
   const PlayerGestureDetector({
     Key? key,
     required this.child,
+    this.onDoubleTap,
   }) : super(key: key);
 
   @override
@@ -226,6 +228,13 @@ class _PlayerGestureDetectorState extends State<PlayerGestureDetector>
       valueListenable: SettingsManager.playerGesturesEnabledNotifier,
       builder: (context, gesturesEnabled, _) {
         if (!gesturesEnabled) {
+          if (widget.onDoubleTap != null) {
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onDoubleTap: widget.onDoubleTap,
+              child: widget.child,
+            );
+          }
           return widget.child;
         }
 
@@ -246,6 +255,7 @@ class _PlayerGestureDetectorState extends State<PlayerGestureDetector>
               onVerticalDragStart: _onVerticalDragStart,
               onVerticalDragUpdate: _onVerticalDragUpdate,
               onVerticalDragEnd: _onVerticalDragEnd,
+              onDoubleTap: widget.onDoubleTap,
               child: RepaintBoundary(
                 child: Transform.translate(
                   offset: Offset(_dragOffset, 0),

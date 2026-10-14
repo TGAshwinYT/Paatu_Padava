@@ -6,6 +6,7 @@ import '../../../models/song.dart';
 import '../../../domain/models/lyrics_state.dart';
 import '../../../services/player_handler.dart';
 import '../../screens/lyrics_screen.dart';
+import '../../../logic/lyrics/indic_romanizer.dart';
 
 class SyncedLyricsEmbed extends StatefulWidget {
   final String lyrics;
@@ -118,6 +119,7 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
       if (matches.isNotEmpty) {
         final text = Song.sanitize(line.replaceAll(timestampRegex, '').trim());
         if (text.isEmpty) continue;
+        final romanized = IndicRomanizer.hasIndicScript(text) ? IndicRomanizer.romanize(text) : null;
 
         for (final m in matches) {
           final min = int.tryParse(m.group(1)!) ?? 0;
@@ -127,6 +129,7 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
           parsed.add(_LrcLine(
             timestamp: Duration(milliseconds: effectiveMs),
             text: text,
+            romanizedText: romanized,
             isBgm: false,
           ));
         }
@@ -134,6 +137,32 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
     }
 
     parsed.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+    // Skew Normalization
+    if (parsed.isNotEmpty) {
+      final int audioDurationMs = audioHandler.player.duration?.inMilliseconds ??
+          (widget.song.duration > 0 ? widget.song.duration * 1000 : 0);
+      final int lastLyricMs = parsed.last.timestamp.inMilliseconds;
+      final double ratio = (audioDurationMs > 0 && lastLyricMs > 0) ? (audioDurationMs / lastLyricMs) : 1.0;
+
+      if (ratio >= 0.94 && ratio <= 1.06 && ratio != 1.0) {
+        for (int i = 0; i < parsed.length; i++) {
+          final p = parsed[i];
+          final scaledMs = (p.timestamp.inMilliseconds * ratio).round();
+          Duration? scaledEnd;
+          if (p.endTimestamp != null) {
+            scaledEnd = Duration(milliseconds: (p.endTimestamp!.inMilliseconds * ratio).round());
+          }
+          parsed[i] = _LrcLine(
+            timestamp: Duration(milliseconds: scaledMs),
+            endTimestamp: scaledEnd,
+            text: p.text,
+            romanizedText: p.romanizedText,
+            isBgm: p.isBgm,
+          );
+        }
+      }
+    }
 
     // Detect BGM / Instrumental pauses > 6 seconds
     if (parsed.isNotEmpty) {
@@ -466,7 +495,13 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
                                     : null,
                               ),
                               textAlign: TextAlign.center,
-                              child: Text(line.text),
+                              child: Text(
+                                (audioHandler.lyricsLanguageNotifier.value == LyricsLanguage.english &&
+                                        line.romanizedText != null &&
+                                        line.romanizedText!.isNotEmpty)
+                                    ? line.romanizedText!
+                                    : line.text,
+                              ),
                             ),
                     ),
                   ),
@@ -606,12 +641,14 @@ class _LrcLine {
   final Duration timestamp;
   final Duration? endTimestamp;
   final String text;
+  final String? romanizedText;
   final bool isBgm;
 
   _LrcLine({
     required this.timestamp,
     this.endTimestamp,
     required this.text,
+    this.romanizedText,
     this.isBgm = false,
   });
 }

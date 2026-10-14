@@ -4,6 +4,7 @@ import 'package:audio_session/audio_session.dart';
 import 'package:flutter/widgets.dart';
 import 'package:just_audio/just_audio.dart';
 import '../logic/audio_queue_handler.dart';
+import '../logic/stream_resolver.dart';
 import '../logic/smart_shuffle_controller.dart';
 import '../logic/next_track_strategy.dart';
 import '../models/song.dart';
@@ -199,7 +200,16 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   ];
 
   PaatuAudioHandler({AudioPlayer? player})
-      : _player = player ?? AudioPlayer(androidApplyAudioAttributes: true) {
+      : _player = player ??
+            AudioPlayer(
+              audioLoadConfiguration: const AudioLoadConfiguration(
+                androidLoadControl: AndroidLoadControl(
+                  bufferForPlaybackDuration: Duration(milliseconds: 400),
+                  bufferForPlaybackAfterRebufferDuration: Duration(milliseconds: 1000),
+                ),
+              ),
+              androidApplyAudioAttributes: true,
+            ) {
     _queueHandler = AudioQueueHandler(
       player: _player,
       onSongChanged: (song) => _onActiveTrackChanged(song),
@@ -576,10 +586,57 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     }
   }
 
+  int _loadRequestId = 0;
+  final StreamResolver _streamResolver = DefaultStreamResolver();
+
+  /// Loads and resolves a track with async request-ID race condition protection
+  Future<void> loadTrack(TrackEntity track, {bool autoPlay = true}) async {
+    final currentRequestId = ++_loadRequestId;
+    final song = track.toSong();
+
+    String? url = song.streamUrl;
+    if (url == null || url.isEmpty || _streamResolver.isExpired(track.id)) {
+      url = await _streamResolver.resolveStreamUrl(song);
+    }
+
+    if (currentRequestId != _loadRequestId) return;
+
+    if (url != null && url.isNotEmpty) {
+      final headers = <String, String>{};
+      if (track.source == 'youtube' || url.contains('googlevideo.com')) {
+        headers['User-Agent'] =
+            'com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12; en_US; Quest 2; Build/SQ3A.220605.009.A1) gzip';
+        headers['Range'] = 'bytes=0-';
+        headers['Accept'] = '*/*';
+        headers['Connection'] = 'keep-alive';
+      }
+      final source = AudioSource.uri(
+        Uri.parse(url),
+        headers: headers.isNotEmpty ? headers : null,
+        tag: track.toMediaItem(),
+      );
+      await _player.setAudioSource(source);
+      if (currentRequestId != _loadRequestId) return;
+      if (autoPlay) {
+        await play();
+      }
+    }
+  }
+
   /// Launch a standalone track without any surrounding context queue.
   /// Used by History and Search to ensure historical or unplayed tracks never leak into the queue.
   Future<void> playTrack(TrackEntity track) async {
-    await playSong(track.toSong(), preserveUserQueue: true);
+    final currentRequestId = ++_loadRequestId;
+    final song = track.toSong();
+    String? url = song.streamUrl;
+    if (url == null || url.isEmpty || _streamResolver.isExpired(track.id)) {
+      url = await _streamResolver.resolveStreamUrl(song);
+    }
+    if (currentRequestId != _loadRequestId) return;
+    if (url != null && url.isNotEmpty) {
+      song.streamUrl = url;
+    }
+    await playSong(song, preserveUserQueue: true);
   }
 
   /// Load and play a song with gapless ConcatenatingAudioSource preloading
@@ -1039,5 +1096,20 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
         return;
       }
     }
+  }
+
+  @override
+  Future<void> playFromUri(Uri uri, [Map<String, dynamic>? extras]) async {
+    final headers = <String, String>{};
+    final urlStr = uri.toString();
+    if (extras?['source'] == 'youtube' || urlStr.contains('googlevideo.com')) {
+      headers['User-Agent'] = 'com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12; en_US; Quest 2; Build/SQ3A.220605.009.A1) gzip';
+      headers['Range'] = 'bytes=0-';
+      headers['Accept'] = '*/*';
+      headers['Connection'] = 'keep-alive';
+    }
+    final source = AudioSource.uri(uri, headers: headers.isNotEmpty ? headers : null);
+    await _player.setAudioSource(source);
+    await play();
   }
 }

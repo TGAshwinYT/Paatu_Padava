@@ -247,6 +247,47 @@ class CacheManager {
     }
   }
 
+  /// Retrieves cached Home Feed JSON for [language] from persistent storage
+  static Future<Map<String, dynamic>?> getCachedHomeFeed(String language) async {
+    try {
+      final box = Hive.isBoxOpen('home_feed_cache')
+          ? Hive.box('home_feed_cache')
+          : await Hive.openBox('home_feed_cache');
+      final raw = box.get('feed_${language.toLowerCase()}');
+      if (raw is Map) {
+        return Map<String, dynamic>.from(raw);
+      }
+    } catch (e) {
+      debugPrint('[CacheManager] Error reading cached home feed: $e');
+    }
+    return null;
+  }
+
+  /// Synchronously retrieves cached Home Feed JSON if box is already open in memory (0ms)
+  static Map<String, dynamic>? getCachedHomeFeedSync(String language) {
+    try {
+      if (Hive.isBoxOpen('home_feed_cache')) {
+        final raw = Hive.box('home_feed_cache').get('feed_${language.toLowerCase()}');
+        if (raw is Map) {
+          return Map<String, dynamic>.from(raw);
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Saves cached Home Feed JSON for [language] to persistent storage
+  static Future<void> saveCachedHomeFeed(String language, Map<String, dynamic> data) async {
+    try {
+      final box = Hive.isBoxOpen('home_feed_cache')
+          ? Hive.box('home_feed_cache')
+          : await Hive.openBox('home_feed_cache');
+      await box.put('feed_${language.toLowerCase()}', data);
+    } catch (e) {
+      debugPrint('[CacheManager] Error saving cached home feed: $e');
+    }
+  }
+
   /// Manually clears all temporary cache and image files
   static Future<void> clearAllCache() async {
     await clearImageCache();

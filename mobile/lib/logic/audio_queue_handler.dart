@@ -58,6 +58,7 @@ class AudioQueueHandler {
   TrackEntity? _currentTrack;
   bool _currentTrackIsFromUserQueue = false;
   int _playlistBaseIndex = 0;
+  int _loadRequestId = 0;
 
   // Streams for two-tier architecture
   final StreamController<TrackEntity?> _currentTrackController = StreamController<TrackEntity?>.broadcast();
@@ -693,10 +694,11 @@ class AudioQueueHandler {
       final activeSong = _currentTrack!.toSong();
       onSongChanged?.call(activeSong);
 
+      final currentRequestId = ++_loadRequestId;
       // JIT resolve stream URL for active song
       if (activeSong.streamUrl == null || activeSong.streamUrl!.isEmpty || streamResolver.isExpired(activeSong.id)) {
         final resolvedUrl = await _resolveStreamUrl(activeSong);
-        if (token != _sessionToken) return;
+        if (currentRequestId != _loadRequestId || token != _sessionToken) return;
         if (resolvedUrl != null && resolvedUrl.isNotEmpty) {
           activeSong.streamUrl = resolvedUrl;
           _updateTrackStreamUrl(activeSong.id, resolvedUrl);
@@ -1253,12 +1255,13 @@ class AudioQueueHandler {
 
   Future<void> _playTrackEntity(TrackEntity entity) async {
     final token = ++_sessionToken;
+    final currentRequestId = ++_loadRequestId;
     final song = entity.toSong();
 
     // Ensure stream URL is resolved (JIT)
     if (song.streamUrl == null || song.streamUrl!.isEmpty || streamResolver.isExpired(song.id)) {
       final url = await _resolveStreamUrl(song);
-      if (token != _sessionToken) return;
+      if (currentRequestId != _loadRequestId || token != _sessionToken) return;
       if (url != null && url.isNotEmpty) {
         song.streamUrl = url;
         _updateTrackStreamUrl(song.id, url);
@@ -1414,6 +1417,31 @@ class AudioQueueHandler {
         await _playlistSource.add(source);
       } catch (e) {
         AppLogger.log('AudioQueueHandler', 'Safe catch during playlist source add: $e');
+      }
+    }
+
+    // Pre-resolve the 2nd upcoming track silently in background so sub-second playback is sustained
+    final upcomingList = <TrackEntity>[];
+    if (_userQueue.isNotEmpty) {
+      upcomingList.addAll(_userQueue);
+    }
+    upcomingList.addAll(remainingContextTracks);
+
+    if (upcomingList.length > 1) {
+      final secondUpcoming = upcomingList[1];
+      final needsResolve = secondUpcoming.streamUrl == null ||
+          secondUpcoming.streamUrl!.isEmpty ||
+          streamResolver.isExpired(secondUpcoming.id);
+      if (needsResolve) {
+        unawaited(() async {
+          try {
+            final url2 = await _resolveStreamUrl(secondUpcoming.toSong());
+            if (url2 != null && url2.isNotEmpty && token == _sessionToken) {
+              _updateTrackStreamUrl(secondUpcoming.id, url2);
+              AppLogger.log('AudioQueueHandler', 'Pre-resolved 2nd upcoming track: "${secondUpcoming.title}" [id=${secondUpcoming.id}]');
+            }
+          } catch (_) {}
+        }());
       }
     }
   }
@@ -1735,6 +1763,7 @@ class AudioQueueHandler {
 
     final headers = <String, String>{};
     if (song.source == 'youtube' || streamUrl.contains('googlevideo.com') || song.id.length == 11) {
+      headers['User-Agent'] = 'com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12; en_US; Quest 2; Build/SQ3A.220605.009.A1) gzip';
       headers['Range'] = 'bytes=0-';
       headers['Accept'] = '*/*';
       headers['Connection'] = 'keep-alive';

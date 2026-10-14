@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:fuzzywuzzy/fuzzywuzzy.dart';
 import 'package:html_unescape/html_unescape.dart';
 import '../models/song.dart';
+import '../domain/models/track_entity.dart';
 import 'saavn_client.dart';
 import 'youtube_client.dart';
 import 'app_logger.dart';
@@ -245,26 +246,7 @@ class SpotifyImportService {
       return _cachedAccessToken;
     }
 
-    // ── Tier 1: Secure Backend Token Proxy (Zero Client Secrets) ──
-    try {
-      final backendUri = Uri.parse('${AppConfig.backendUrl}/api/music/spotify-token');
-      final response = await http.get(backendUri, headers: _webHeaders).timeout(const Duration(seconds: 6));
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body) as Map<String, dynamic>;
-        final token = data['access_token']?.toString();
-        final int expiresIn = data['expires_in'] is int ? data['expires_in'] as int : 3600;
-        if (token != null && token.isNotEmpty) {
-          _cachedAccessToken = token;
-          _tokenExpiresAt = DateTime.now().add(Duration(seconds: (expiresIn - 300).clamp(60, 3600)));
-          AppLogger.log('SpotifyImportService', 'Acquired Spotify token via secure backend proxy');
-          return token;
-        }
-      }
-    } catch (e) {
-      AppLogger.log('SpotifyImportService', 'Backend token proxy notice: $e');
-    }
-
-    // ── Tier 2: Direct Client Credentials (Only if passed via build-time --dart-define) ──
+    // ── Tier 1: Direct Client Credentials (POST https://accounts.spotify.com/api/token with grant_type=client_credentials) ──
     final clientId = AppConfig.spotifyClientId.trim();
     final clientSecret = AppConfig.spotifyClientSecret.trim();
 
@@ -289,12 +271,40 @@ class SpotifyImportService {
             _cachedAccessToken = token;
             final validSeconds = (expiresIn - 300).clamp(60, 3600);
             _tokenExpiresAt = DateTime.now().add(Duration(seconds: validSeconds));
+            AppLogger.log('SpotifyImportService', 'Acquired Spotify token via Client Credentials');
             return token;
           }
         }
       } catch (e) {
         AppLogger.log('SpotifyImportService', 'Direct token exchange failed: $e');
       }
+    }
+
+    // ── Tier 2: Secure Backend Token Proxy Fallback ──
+    try {
+      final uris = [
+        Uri.parse('${AppConfig.backendUrl}/api/music/spotify/token'),
+        Uri.parse('${AppConfig.backendUrl}/music/spotify/token'),
+        Uri.parse('${AppConfig.backendUrl}/api/music/spotify-token'),
+      ];
+      for (final backendUri in uris) {
+        try {
+          final response = await http.get(backendUri, headers: _webHeaders).timeout(const Duration(seconds: 3));
+          if (response.statusCode == 200) {
+            final data = json.decode(response.body) as Map<String, dynamic>;
+            final token = data['access_token']?.toString();
+            final int expiresIn = data['expires_in'] is int ? data['expires_in'] as int : 3600;
+            if (token != null && token.isNotEmpty) {
+              _cachedAccessToken = token;
+              _tokenExpiresAt = DateTime.now().add(Duration(seconds: (expiresIn - 300).clamp(60, 3600)));
+              AppLogger.log('SpotifyImportService', 'Acquired Spotify token via secure backend proxy');
+              return token;
+            }
+          }
+        } catch (_) {}
+      }
+    } catch (e) {
+      AppLogger.log('SpotifyImportService', 'Backend token proxy notice: $e');
     }
 
     // ── Tier 3: Anonymous Web Player Fallback ──
@@ -321,6 +331,151 @@ class SpotifyImportService {
       }
     } catch (e) {
       AppLogger.log('SpotifyImportService', 'Token fetch notice: $e');
+    }
+    return null;
+  }
+
+  /// Top 10 Hits for a given language via Spotify Search API.
+  /// Queries `GET https://api.spotify.com/v1/search?q=$language%20Top%20Hits&type=track&market=IN&limit=10`,
+  /// maps to [TrackEntity] with source='spotify', allowing audio resolution via JioSaavn / YouTube on playback.
+  static Future<List<TrackEntity>> getTop10Hits(String language) async {
+    final cleanLang = language.trim();
+    if (cleanLang.isEmpty) return [];
+
+    try {
+      final token = await getSpotifyAccessToken();
+      if (token == null || token.isEmpty) return [];
+
+      final query = Uri.encodeComponent('$cleanLang Top Hits');
+      final uri = Uri.parse('https://api.spotify.com/v1/search?q=$query&type=track&market=IN&limit=10');
+      final response = await http.get(uri, headers: {
+        'Authorization': 'Bearer $token',
+        ..._webHeaders,
+      }).timeout(const Duration(seconds: 3));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final items = data['tracks']?['items'] as List<dynamic>? ?? [];
+        final List<TrackEntity> tracks = [];
+
+        for (final item in items) {
+          if (item is! Map) continue;
+          final id = item['id']?.toString() ?? '';
+          final rawTitle = item['name']?.toString() ?? '';
+          final artists = item['artists'] as List<dynamic>? ?? [];
+          final artistName = artists.isNotEmpty ? artists[0]['name']?.toString() ?? 'Artist' : 'Artist';
+          final album = item['album']?['name']?.toString() ?? '';
+          final images = item['album']?['images'] as List<dynamic>? ?? [];
+          final coverUrl = images.isNotEmpty ? images[0]['url']?.toString() ?? '' : '';
+          final durationSec = parseDurationSeconds(item['duration_ms']);
+
+          if (rawTitle.isNotEmpty) {
+            tracks.add(TrackEntity(
+              id: id,
+              title: Song.sanitize(rawTitle),
+              artist: Song.sanitize(artistName),
+              album: Song.sanitize(album),
+              coverUrl: coverUrl,
+              duration: durationSec,
+              streamUrl: '',
+              source: 'spotify',
+              language: cleanLang.toLowerCase(),
+            ));
+          }
+        }
+        return tracks;
+      }
+    } catch (e) {
+      AppLogger.log('SpotifyImportService', 'getTop10Hits failed: $e');
+    }
+    return [];
+  }
+
+  /// Fetches non-editorial Spotify Playlists using /v1/search.
+  /// Queries `GET https://api.spotify.com/v1/search?q=$language%20Hits&type=playlist&market=IN&limit=15`
+  /// and skips items where item == null or item['owner']?['id'] == 'spotify' to avoid 404 restrictions.
+  static Future<List<Map<String, dynamic>>> getPlaylists(String language) async {
+    final cleanLang = language.trim();
+    if (cleanLang.isEmpty) return [];
+
+    try {
+      final token = await getSpotifyAccessToken();
+      if (token == null || token.isEmpty) return [];
+
+      final query = Uri.encodeComponent('$cleanLang Hits');
+      final uri = Uri.parse('https://api.spotify.com/v1/search?q=$query&type=playlist&market=IN&limit=15');
+      final response = await http.get(uri, headers: {
+        'Authorization': 'Bearer $token',
+        ..._webHeaders,
+      }).timeout(const Duration(seconds: 8));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final items = data['playlists']?['items'] as List<dynamic>? ?? [];
+        final List<Map<String, dynamic>> playlists = [];
+
+        for (final item in items) {
+          if (item is! Map) continue;
+          final ownerId = item['owner']?['id']?.toString().toLowerCase();
+          if (ownerId == 'spotify') continue; // Skip editorial playlists (avoids 404/403)
+
+          final id = item['id']?.toString() ?? '';
+          final title = item['name']?.toString() ?? '';
+          final images = item['images'] as List<dynamic>? ?? [];
+          final coverUrl = images.isNotEmpty ? images[0]['url']?.toString() ?? '' : '';
+          final total = item['tracks']?['total'] is int ? item['tracks']['total'] as int : 0;
+
+          if (id.isNotEmpty && title.isNotEmpty) {
+            playlists.add({
+              'id': id,
+              'title': Song.sanitize(title),
+              'cover_url': coverUrl,
+              'song_count': total,
+              'owner': item['owner']?['display_name']?.toString() ?? ownerId ?? '',
+            });
+          }
+        }
+        return playlists;
+      }
+    } catch (e) {
+      AppLogger.log('SpotifyImportService', 'getPlaylists failed: $e');
+    }
+    return [];
+  }
+
+  /// Fetches authentic artist profile image via Spotify Web API.
+  /// Queries `GET https://api.spotify.com/v1/search?q=${Uri.encodeComponent(artistName)}&type=artist&market=IN&limit=1`
+  /// and returns `artists.items[0].images[0].url`.
+  static Future<String?> getArtistProfileImage(String artistName) async {
+    final clean = artistName.trim();
+    if (clean.isEmpty) return null;
+
+    try {
+      final token = await getSpotifyAccessToken();
+      if (token == null || token.isEmpty) return null;
+
+      final query = Uri.encodeComponent(clean);
+      final uri = Uri.parse('https://api.spotify.com/v1/search?q=$query&type=artist&market=IN&limit=1');
+      final response = await http.get(uri, headers: {
+        'Authorization': 'Bearer $token',
+        ..._webHeaders,
+      }).timeout(const Duration(seconds: 6));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final items = data['artists']?['items'] as List<dynamic>? ?? [];
+        if (items.isNotEmpty) {
+          final images = items[0]['images'] as List<dynamic>? ?? [];
+          if (images.isNotEmpty) {
+            final url = images[0]['url']?.toString();
+            if (url != null && url.isNotEmpty) {
+              return url;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      AppLogger.log('SpotifyImportService', 'getArtistProfileImage notice: $e');
     }
     return null;
   }

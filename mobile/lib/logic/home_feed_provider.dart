@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import '../models/song.dart';
 import '../services/auth_manager.dart';
 import '../services/settings_manager.dart';
@@ -12,11 +11,16 @@ import '../data/repositories/song_repository.dart';
 import '../domain/models/app_error.dart';
 import '../services/error_handler.dart';
 import '../services/youtube_client.dart';
+import '../services/spotify_import_service.dart';
+import '../services/cache_manager.dart';
+import 'stream_resolver.dart';
+import '../domain/models/track_entity.dart';
 
 class HomeFeedState {
   final List<Song> madeForYou;
   final List<Song> trendingMerged;
   final List<Song> youtubeTrending;
+  final List<Song> spotifyTop10;
   final List<Song> newReleases;
   final List<Map<String, dynamic>> popularArtists;
   final List<Map<String, dynamic>> featuredAlbums;
@@ -29,6 +33,7 @@ class HomeFeedState {
     this.madeForYou = const [],
     this.trendingMerged = const [],
     this.youtubeTrending = const [],
+    this.spotifyTop10 = const [],
     this.newReleases = const [],
     this.popularArtists = const [],
     this.featuredAlbums = const [],
@@ -42,6 +47,7 @@ class HomeFeedState {
       madeForYou.isEmpty &&
       trendingMerged.isEmpty &&
       youtubeTrending.isEmpty &&
+      spotifyTop10.isEmpty &&
       newReleases.isEmpty &&
       popularArtists.isEmpty &&
       featuredAlbums.isEmpty;
@@ -50,6 +56,7 @@ class HomeFeedState {
     List<Song>? madeForYou,
     List<Song>? trendingMerged,
     List<Song>? youtubeTrending,
+    List<Song>? spotifyTop10,
     List<Song>? newReleases,
     List<Map<String, dynamic>>? popularArtists,
     List<Map<String, dynamic>>? featuredAlbums,
@@ -62,6 +69,7 @@ class HomeFeedState {
       madeForYou: madeForYou ?? this.madeForYou,
       trendingMerged: trendingMerged ?? this.trendingMerged,
       youtubeTrending: youtubeTrending ?? this.youtubeTrending,
+      spotifyTop10: spotifyTop10 ?? this.spotifyTop10,
       newReleases: newReleases ?? this.newReleases,
       popularArtists: popularArtists ?? this.popularArtists,
       featuredAlbums: featuredAlbums ?? this.featuredAlbums,
@@ -80,8 +88,6 @@ class HomeFeedProvider extends ChangeNotifier {
   factory HomeFeedProvider() => instance;
   HomeFeedProvider._internal();
 
-  static const String _cacheBoxName = 'home_feed_cache';
-
   HomeFeedState _state = const HomeFeedState(isLoading: true);
   HomeFeedState get state => _state;
 
@@ -96,7 +102,13 @@ class HomeFeedProvider extends ChangeNotifier {
     // Dynamically react whenever user finishes onboarding or changes preferences
     AuthManager.authNotifier.addListener(_onPreferencesChanged);
     SettingsManager.languagesNotifier.addListener(_onPreferencesChanged);
-    await loadFeed();
+
+    // Stale-While-Revalidate:
+    // 1. Immediately emit cached Home Feed so Home Screen renders instantly with zero loading spinner
+    await _loadCachedFeed(_currentLanguage);
+
+    // 2. Fetch fresh sections in parallel in background, update cache, and notify listeners
+    unawaited(_revalidateFeed(_currentLanguage));
   }
 
   @override
@@ -138,49 +150,47 @@ class HomeFeedProvider extends ChangeNotifier {
     loadFeed();
   }
 
-  Future<Box?> _getCacheBox() async {
-    try {
-      if (Hive.isBoxOpen(_cacheBoxName)) {
-        return Hive.box(_cacheBoxName);
-      }
-      return await Hive.openBox(_cacheBoxName);
-    } catch (_) {
-      return null;
-    }
-  }
-
   Future<void> _loadCachedFeed(String lang) async {
     try {
-      final box = await _getCacheBox();
-      if (box == null) return;
-      final raw = box.get('feed_$lang');
-      if (raw is Map) {
+      final raw = CacheManager.getCachedHomeFeedSync(lang) ?? await CacheManager.getCachedHomeFeed(lang);
+      if (raw != null) {
         final madeForYou = _decodeSongList(raw['madeForYou']);
         final trendingMerged = _decodeSongList(raw['trendingMerged'] ?? raw['trending']);
         final youtubeTrending = _decodeSongList(raw['youtubeTrending']);
+        final spotifyTop10 = _decodeSongList(raw['spotifyTop10']);
         final newReleases = _decodeSongList(raw['newReleases']);
         final popularArtists = (raw['popularArtists'] as List<dynamic>?)
                 ?.map((e) => Map<String, dynamic>.from(e as Map))
                 .toList() ??
             [];
-        final featuredAlbums = (raw['featuredAlbums'] as List<dynamic>?)
+        final rawFeaturedAlbums = (raw['featuredAlbums'] as List<dynamic>?)
                 ?.map((e) => Map<String, dynamic>.from(e as Map))
                 .toList() ??
             [];
+        final featuredAlbums = rawFeaturedAlbums.where((a) {
+          final count = int.tryParse(a['song_count']?.toString() ?? '0') ?? 2;
+          final title = (a['title'] ?? '').toString().toLowerCase();
+          return count > 1 && !title.contains('single');
+        }).toList();
         final recentHistory = HistoryManager.getRecentSongs();
 
-        if (madeForYou.isNotEmpty || trendingMerged.isNotEmpty || youtubeTrending.isNotEmpty) {
+        if (madeForYou.isNotEmpty || trendingMerged.isNotEmpty || youtubeTrending.isNotEmpty || spotifyTop10.isNotEmpty) {
           _state = HomeFeedState(
             madeForYou: madeForYou,
             trendingMerged: trendingMerged,
             youtubeTrending: youtubeTrending,
+            spotifyTop10: spotifyTop10,
             newReleases: newReleases,
             popularArtists: popularArtists,
             featuredAlbums: featuredAlbums,
             recentHistory: recentHistory,
-            isLoading: true, // SWR: quietly revalidating in background
+            isLoading: false, // Instant cache-first render: no loading spinner
           );
           notifyListeners();
+
+          // Silently prewarm top 3 tracks in background for instant sub-second playback
+          final topSongs = madeForYou.isNotEmpty ? madeForYou : trendingMerged;
+          DefaultStreamResolver.prewarmSongs(topSongs, limit: 3);
         }
       }
     } catch (e) {
@@ -190,17 +200,17 @@ class HomeFeedProvider extends ChangeNotifier {
 
   Future<void> _persistFeedToCache(String lang, HomeFeedState feed) async {
     try {
-      final box = await _getCacheBox();
-      if (box == null) return;
-      await box.put('feed_$lang', {
+      final cacheData = {
         'madeForYou': feed.madeForYou.map((s) => s.toMap()).toList(),
         'trendingMerged': feed.trendingMerged.map((s) => s.toMap()).toList(),
         'youtubeTrending': feed.youtubeTrending.map((s) => s.toMap()).toList(),
+        'spotifyTop10': feed.spotifyTop10.map((s) => s.toMap()).toList(),
         'newReleases': feed.newReleases.map((s) => s.toMap()).toList(),
         'popularArtists': feed.popularArtists,
         'featuredAlbums': feed.featuredAlbums,
         'cached_at': DateTime.now().millisecondsSinceEpoch,
-      });
+      };
+      await CacheManager.saveCachedHomeFeed(lang, cacheData);
     } catch (e) {
       debugPrint('[HomeFeedProvider] SWR cache write error: $e');
     }
@@ -219,50 +229,193 @@ class HomeFeedProvider extends ChangeNotifier {
     return songs;
   }
 
+  /// Strictly purges cross-language leaks (e.g. Hindi tracks in Tamil playlists)
+  /// when the user's preferred language list does not explicitly include Hindi.
+  List<Song> _filterCrossLanguageLeaks(List<Song> songs, String primaryLang) {
+    final userLangs = SettingsManager.preferredLanguages.map((l) => l.toLowerCase().trim()).toSet();
+    final allowsHindi = userLangs.contains('hindi');
+
+    return songs.where((song) {
+      final sLang = song.language?.toLowerCase().trim() ?? '';
+      if (!allowsHindi && sLang == 'hindi') {
+        return false;
+      }
+      if (!allowsHindi) {
+        if (RegExp(r'[\u0900-\u097F]').hasMatch(song.title) ||
+            RegExp(r'[\u0900-\u097F]').hasMatch(song.artist)) {
+          return false;
+        }
+      }
+      return true;
+    }).toList();
+  }
+
+  /// Enforces authentic artist profile avatars, prioritizes verified portraits,
+  /// queries Spotify API when needed, and strictly rejects song/album cover art.
+  static Future<List<Map<String, dynamic>>> _enrichPopularArtists(
+    List<Map<String, dynamic>> rawList,
+    String language,
+  ) async {
+    final isTamil = language.toLowerCase().trim() == 'tamil';
+    var filtered = List<Map<String, dynamic>>.from(rawList);
+
+    if (isTamil) {
+      const hindiSingers = {
+        'arijit singh', 'neha kakkar', 'badshah', 'jubin nautiyal', 'atif aslam',
+        'vishal mishra', 'darshan raval', 'armaan malik', 'yo yo honey singh',
+        'b praak', 'guru randhawa', 'tony kakkar', 'sonu nigam', 'kumar sanu',
+        'alka yagnik', 'udith narayan',
+      };
+      filtered = filtered.where((a) {
+        final name = SongRepository.normalizeArtist(a['name']?.toString() ?? '');
+        if (RegExp(r'[\u0900-\u097F]').hasMatch(a['name']?.toString() ?? '')) return false;
+        return !hindiSingers.contains(name);
+      }).toList();
+
+      for (final seed in SongRepository.tamilArtistSeeds.reversed) {
+        final norm = SongRepository.normalizeArtist(seed);
+        final idx = filtered.indexWhere((a) => SongRepository.normalizeArtist(a['name']?.toString() ?? '') == norm);
+        final avatar = SongRepository.verifiedArtistAvatars[norm] ?? '';
+        if (idx >= 0) {
+          final existing = filtered.removeAt(idx);
+          filtered.insert(0, existing);
+        } else {
+          filtered.insert(0, {
+            'id': 'seed_$norm',
+            'name': seed,
+            'image': avatar,
+          });
+        }
+      }
+    }
+
+    // Ensure Artist cards use the fetched artist profile image, never the song's cover image.
+    final enriched = await Future.wait(filtered.map((art) async {
+      final name = Song.sanitize(art['name']?.toString() ?? 'Artist');
+      final norm = SongRepository.normalizeArtist(name);
+      var img = art['image']?.toString() ?? art['cover_url']?.toString() ?? '';
+
+      // Check if image is a song/album cover (contains /albums/ or /songs/ or saavn numeric path without /artists/)
+      final isSongCover = img.contains('/albums/') ||
+          img.contains('/songs/') ||
+          (img.contains('c.saavncdn.com') && !img.contains('/artists/'));
+
+      if (SongRepository.verifiedArtistAvatars.containsKey(norm)) {
+        img = SongRepository.verifiedArtistAvatars[norm]!;
+      } else if (isSongCover || img.isEmpty) {
+        try {
+          final fetched = await SpotifyImportService.getArtistProfileImage(name)
+              .timeout(const Duration(seconds: 3), onTimeout: () => null);
+          if (fetched != null && fetched.isNotEmpty) {
+            img = fetched;
+          } else if (isSongCover) {
+            img = '';
+          }
+        } catch (_) {
+          if (isSongCover) img = '';
+        }
+      }
+
+      return {
+        ...art,
+        'name': name,
+        'image': img,
+      };
+    }));
+
+    return enriched;
+  }
+
   /// Loads feed applying Stale-While-Revalidate (SWR):
-  /// 1. Instantly renders local Hive cached feed on cold launch
-  /// 2. Fetches unified /api/music/home-feed endpoint in background
-  /// 3. Falls back to parallel providers if backend is unreachable
-  /// 4. Defensively avoids flashing error view when partial/cached data exists
+  /// 1. Instantly renders local cached feed on cold launch
+  /// 2. Fetches fresh Home sections in parallel in the background
+  /// 3. Updates cache, notifies listeners, and silently prewarms top audio streams
   Future<void> loadFeed({bool forceRefresh = false}) async {
     final lang = _currentLanguage;
 
     // SWR Step 1: Render cached state instantly if available
     if (!forceRefresh && _state.isEmpty) {
       await _loadCachedFeed(lang);
-    } else {
+    } else if (forceRefresh) {
       _state = _state.copyWith(isLoading: true, error: null);
       notifyListeners();
     }
 
+    await _revalidateFeed(lang);
+  }
+
+  /// Background revalidation of fresh Home Feed sections
+  Future<void> _revalidateFeed(String lang) async {
     try {
-      // SWR Step 2: Consolidated single-payload API request
-      final unifiedFeed = await ApiClient.getHomeFeed(lang);
+      // SWR Step 2: Consolidated single-payload API request with 3s timeout so sleeping server never delays
+      Map<String, dynamic>? unifiedFeed;
+      try {
+        unifiedFeed = await ApiClient.getHomeFeed(lang).timeout(const Duration(seconds: 3));
+      } catch (_) {}
+
       if (unifiedFeed != null &&
           (unifiedFeed['madeForYou'] is List || unifiedFeed['trending'] is List)) {
-        final madeForYou = SongRepository.filterByLanguage(_decodeSongList(unifiedFeed['madeForYou']), lang);
-        final trending = SongRepository.filterByLanguage(_decodeSongList(unifiedFeed['trendingMerged'] ?? unifiedFeed['trending']), lang);
-        var youtubeTrending = SongRepository.filterByLanguage(_decodeSongList(unifiedFeed['youtubeTrending']), lang);
+        final madeForYou = _filterCrossLanguageLeaks(
+          SongRepository.filterByLanguage(_decodeSongList(unifiedFeed['madeForYou']), lang),
+          lang,
+        );
+        final trending = _filterCrossLanguageLeaks(
+          SongRepository.filterByLanguage(_decodeSongList(unifiedFeed['trendingMerged'] ?? unifiedFeed['trending']), lang),
+          lang,
+        );
+        var youtubeTrending = _filterCrossLanguageLeaks(
+          SongRepository.filterByLanguage(_decodeSongList(unifiedFeed['youtubeTrending']), lang),
+          lang,
+        );
         if (youtubeTrending.isEmpty) {
           try {
-            youtubeTrending = await YouTubeClient.getTrendingTracks(language: lang, limit: 15);
+            youtubeTrending = _filterCrossLanguageLeaks(
+              await YouTubeClient.getTrendingTracks(language: lang, limit: 15),
+              lang,
+            );
           } catch (_) {}
         }
-        final newReleases = SongRepository.filterByLanguage(_decodeSongList(unifiedFeed['newReleases']), lang);
-        final popularArtists = (unifiedFeed['popularArtists'] as List<dynamic>?)
+
+        // Spotify Top 10 Hits (capped at 3s)
+        List<Song> spotifyTop10 = [];
+        try {
+          final spTracks = await SpotifyImportService.getTop10Hits(lang)
+              .timeout(const Duration(seconds: 3), onTimeout: () => <TrackEntity>[]);
+          spotifyTop10 = _filterCrossLanguageLeaks(
+            SongRepository.filterByLanguage(spTracks.map((t) => t.toSong()).toList(), lang),
+            lang,
+          );
+        } catch (_) {}
+
+        final newReleases = _filterCrossLanguageLeaks(
+          SongRepository.filterByLanguage(_decodeSongList(unifiedFeed['newReleases']), lang),
+          lang,
+        );
+        final rawPopularArtists = (unifiedFeed['popularArtists'] as List<dynamic>?)
                 ?.map((e) => Map<String, dynamic>.from(e as Map))
                 .toList() ??
             [];
-        final featuredAlbums = (unifiedFeed['featuredAlbums'] as List<dynamic>?)
+        final popularArtists = await _enrichPopularArtists(rawPopularArtists, lang);
+
+        final rawFeaturedAlbums = (unifiedFeed['featuredAlbums'] as List<dynamic>?)
                 ?.map((e) => Map<String, dynamic>.from(e as Map))
                 .toList() ??
             [];
+        // Strictly exclude single-song albums (song_count <= 1) from Home Page
+        final featuredAlbums = rawFeaturedAlbums.where((a) {
+          final count = int.tryParse(a['song_count']?.toString() ?? '0') ??
+              (a['songs'] is List ? (a['songs'] as List).length : 2);
+          final title = (a['title'] ?? '').toString().toLowerCase();
+          return count > 1 && !title.contains('single');
+        }).toList();
+
         final recentHistory = HistoryManager.getRecentSongs();
 
         _state = HomeFeedState(
           madeForYou: SongRepository.ensureDistinctCovers(SongRepository.deduplicateSongs(madeForYou)),
           trendingMerged: SongRepository.ensureDistinctCovers(SongRepository.deduplicateSongs(trending)),
           youtubeTrending: SongRepository.ensureDistinctCovers(SongRepository.deduplicateSongs(youtubeTrending)),
+          spotifyTop10: SongRepository.ensureDistinctCovers(SongRepository.deduplicateSongs(spotifyTop10)),
           newReleases: SongRepository.ensureDistinctCovers(SongRepository.deduplicateSongs(newReleases)),
           popularArtists: popularArtists,
           featuredAlbums: featuredAlbums,
@@ -271,42 +424,77 @@ class HomeFeedProvider extends ChangeNotifier {
         );
         _persistFeedToCache(lang, _state);
         notifyListeners();
+
+        // Silently prewarm top 3 tracks in background for instant playback
+        final topSongs = _state.madeForYou.isNotEmpty ? _state.madeForYou : _state.trendingMerged;
+        DefaultStreamResolver.prewarmSongs(topSongs, limit: 3);
         return;
       }
 
-      // SWR Fallback: Parallel repository fetching if consolidated endpoint returned empty/null
+      // SWR Fallback: Parallel repository fetching with 3s timeout on Spotify
       final results = await Future.wait([
         SongRepository.getTrendingMerged(language: lang),
         SongRepository.getMadeForYou(language: lang),
         SongRepository.getNewReleases(language: lang),
         SongRepository.getPopularArtists(language: lang),
-        SaavnClient.searchAlbums('$lang Hit Albums', limit: 12),
+        SaavnClient.searchAlbums('$lang Top Hits', limit: 12, language: lang),
         YouTubeClient.getTrendingTracks(language: lang, limit: 15),
+        SpotifyImportService.getTop10Hits(lang)
+            .timeout(const Duration(seconds: 3), onTimeout: () => <TrackEntity>[])
+            .catchError((_) => <TrackEntity>[]),
       ]);
 
-      final trendingMerged = results[0] as List<Song>;
-      final madeForYou = results[1] as List<Song>;
-      final newReleases = results[2] as List<Song>;
-      final popularArtists = results[3] as List<Map<String, dynamic>>;
-      final featuredAlbums = results[4] as List<Map<String, dynamic>>;
-      final ytTrending = results[5] as List<Song>;
+      final trendingMerged = _filterCrossLanguageLeaks(results[0] as List<Song>, lang);
+      final madeForYou = _filterCrossLanguageLeaks(results[1] as List<Song>, lang);
+      final newReleases = _filterCrossLanguageLeaks(results[2] as List<Song>, lang);
+      final rawPopularArtists = results[3] as List<Map<String, dynamic>>;
+      final popularArtists = await _enrichPopularArtists(rawPopularArtists, lang);
+      final rawFeaturedAlbums = results[4] as List<Map<String, dynamic>>;
+      // Strictly exclude single-song albums (song_count <= 1)
+      final featuredAlbums = rawFeaturedAlbums.where((a) {
+        final count = int.tryParse(a['song_count']?.toString() ?? '0') ?? 2;
+        final title = (a['title'] ?? '').toString().toLowerCase();
+        return count > 1 && !title.contains('single');
+      }).toList();
+      final ytTrending = _filterCrossLanguageLeaks(results[5] as List<Song>, lang);
+      final spTracks = results[6] as List<TrackEntity>;
+      final spotifyTop10 = _filterCrossLanguageLeaks(
+        SongRepository.filterByLanguage(spTracks.map((t) => t.toSong()).toList(), lang),
+        lang,
+      );
       final recentHistory = HistoryManager.getRecentSongs();
 
-      _state = HomeFeedState(
-        madeForYou: madeForYou,
-        trendingMerged: trendingMerged,
-        youtubeTrending: ytTrending,
-        newReleases: newReleases,
-        popularArtists: popularArtists,
-        featuredAlbums: featuredAlbums,
-        recentHistory: recentHistory,
-        isLoading: false,
-      );
-      _persistFeedToCache(lang, _state);
+      final hasFreshData = madeForYou.isNotEmpty ||
+          trendingMerged.isNotEmpty ||
+          ytTrending.isNotEmpty ||
+          spotifyTop10.isNotEmpty ||
+          newReleases.isNotEmpty;
+
+      if (hasFreshData || _state.isEmpty) {
+        _state = HomeFeedState(
+          madeForYou: madeForYou.isNotEmpty ? madeForYou : _state.madeForYou,
+          trendingMerged: trendingMerged.isNotEmpty ? trendingMerged : _state.trendingMerged,
+          youtubeTrending: ytTrending.isNotEmpty ? ytTrending : _state.youtubeTrending,
+          spotifyTop10: spotifyTop10.isNotEmpty ? spotifyTop10 : _state.spotifyTop10,
+          newReleases: newReleases.isNotEmpty ? newReleases : _state.newReleases,
+          popularArtists: popularArtists.isNotEmpty ? popularArtists : _state.popularArtists,
+          featuredAlbums: featuredAlbums.isNotEmpty ? featuredAlbums : _state.featuredAlbums,
+          recentHistory: recentHistory.isNotEmpty ? recentHistory : _state.recentHistory,
+          isLoading: false,
+        );
+        if (hasFreshData) {
+          _persistFeedToCache(lang, _state);
+        }
+      } else {
+        _state = _state.copyWith(isLoading: false);
+      }
       notifyListeners();
+
+      // Silently prewarm top 3 tracks in background for instant playback
+      final topSongs = _state.madeForYou.isNotEmpty ? _state.madeForYou : _state.trendingMerged;
+      DefaultStreamResolver.prewarmSongs(topSongs, limit: 3);
     } catch (e, stack) {
       final appErr = ErrorHandler.resolve(e, stackTrace: stack, context: 'HomeFeedProvider.loadFeed');
-      // Defensive: Only expose error view if ALL providers fail and no local cached data exists
       if (_state.isEmpty) {
         _state = _state.copyWith(
           isLoading: false,

@@ -5,7 +5,7 @@ import socket
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 load_dotenv() # Load env vars before importing routers
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +18,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from limiter_config import limiter
 
-from connection import check_redis_connection, check_db_connection, engine, AsyncSessionLocal
+from connection import check_redis_connection, check_db_connection, engine, AsyncSessionLocal, get_redis
 from base import Base
 from routers import music, auth, playlists, history, users, utils
 from services.youtube import get_trending_youtube
@@ -269,6 +269,17 @@ app.include_router(playlists.router)
 app.include_router(history.router)
 app.include_router(users.router)
 app.include_router(utils.router)
+
+@app.get("/music/spotify/token")
+@app.get("/music/spotify-token")
+async def music_spotify_token_alias(
+    request: Request,
+    redis_client = Depends(get_redis)
+):
+    """
+    Direct alias endpoint for /music/spotify/token proxying to music.get_spotify_token.
+    """
+    return await music.get_spotify_token(request, redis_client)
 
 @app.get("/api/health")
 async def health_check():

@@ -508,18 +508,33 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
       if (seedSong.cleanTitleKey.isNotEmpty) exclusions.add(seedSong.cleanTitleKey);
 
       // 2. Radio Graph Walking:
-      // Walk native YouTube Radio playlist tokens (RDAMVM$videoId) from the current graph node
+      // Walk native YouTube Music InnerTube playlist tokens (RDAMVM$videoId) from the current graph node
       final walkNode = _currentGraphNode ?? seedSong;
       final List<Song> candidatePool = [];
 
       try {
-        final radioTracks = await YouTubeClient.getRadioTracks(
-          walkNode,
-          limit: targetBatch * 2,
-          excludedArtists: _skippedArtists,
-          excludedKeys: _skippedTrackKeys,
-        );
-        candidatePool.addAll(radioTracks);
+        String? walkVideoId = (walkNode.source == 'youtube' && walkNode.id.length == 11) ? walkNode.id : null;
+        if (walkVideoId == null) {
+          final sRes = await YouTubeClient.search('${walkNode.title} ${walkNode.primaryArtist} audio', limit: 3);
+          if (sRes.isNotEmpty) {
+            walkVideoId = sRes.first.id;
+          }
+        }
+
+        if (walkVideoId != null && walkVideoId.isNotEmpty) {
+          final automix = await YouTubeClient.getUpNextAutomix(walkVideoId, limit: targetBatch * 2);
+          candidatePool.addAll(automix);
+        }
+
+        if (candidatePool.length < targetBatch) {
+          final radioTracks = await YouTubeClient.getRadioTracks(
+            walkNode,
+            limit: targetBatch * 2,
+            excludedArtists: _skippedArtists,
+            excludedKeys: _skippedTrackKeys,
+          );
+          candidatePool.addAll(radioTracks);
+        }
       } catch (e) {
         AppLogger.log('YtMusicStyleStrategy', 'Radio graph walk notice: $e');
       }

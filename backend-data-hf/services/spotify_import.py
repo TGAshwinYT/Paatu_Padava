@@ -6,6 +6,7 @@ import json
 import asyncio
 import logging
 import httpx
+import urllib.parse
 from typing import Dict, Any, List, Optional
 from services import youtube
 from services.saavn import search_saavn
@@ -410,3 +411,142 @@ async def resolve_spotify_tracks_batch(
             valid_tracks.append(r)
 
     return valid_tracks
+
+
+async def get_spotify_top_10_tracks(language: str = "Tamil") -> List[Dict[str, Any]]:
+    """
+    Fetches Spotify Top 10 Tracks for a given language using /v1/search.
+    Replaces deprecated /v1/browse/featured-playlists and hardcoded 37i9dQZF playlist IDs.
+    Queries: GET https://api.spotify.com/v1/search?q=$language%20Top%20Hits&type=track&market=IN&limit=10
+    """
+    token = await get_spotify_access_token()
+    if not token:
+        return []
+
+    clean_lang = language.strip() if language else "Tamil"
+    query = f"{clean_lang} Top Hits"
+    url = f"https://api.spotify.com/v1/search?q={urllib.parse.quote(query)}&type=track&market=IN&limit=10"
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                items = data.get("tracks", {}).get("items", [])
+                tracks = []
+                for item in items:
+                    if not item or not isinstance(item, dict):
+                        continue
+                    t_id = item.get("id", "")
+                    name = item.get("name", "").strip()
+                    artists = item.get("artists", [])
+                    artist_name = artists[0].get("name", "").strip() if artists else "Artist"
+                    album_obj = item.get("album", {})
+                    album_name = album_obj.get("name", "").strip()
+                    images = album_obj.get("images", [])
+                    cover_url = images[0].get("url", "") if images else ""
+                    duration_ms = item.get("duration_ms", 0)
+
+                    if name:
+                        tracks.append({
+                            "id": t_id,
+                            "title": name,
+                            "artist": artist_name,
+                            "album": album_name,
+                            "cover_url": cover_url,
+                            "duration": int(duration_ms) // 1000 if duration_ms else 0,
+                            "source": "spotify",
+                            "language": clean_lang.lower(),
+                        })
+                return tracks
+    except Exception as e:
+        logger.warning(f"[SpotifyImport] get_spotify_top_10_tracks failed: {e}")
+    return []
+
+
+async def get_spotify_playlists(language: str = "Tamil") -> List[Dict[str, Any]]:
+    """
+    Fetches non-editorial Spotify Playlists using /v1/search.
+    Filters out items where item is None or item['owner']['id'] == 'spotify' to avoid
+    404/403 restrictions on developer key access to Spotify editorial 37i9dQZF playlists.
+    Queries: GET https://api.spotify.com/v1/search?q=$language%20Hits&type=playlist&market=IN&limit=15
+    """
+    token = await get_spotify_access_token()
+    if not token:
+        return []
+
+    clean_lang = language.strip() if language else "Tamil"
+    query = f"{clean_lang} Hits"
+    url = f"https://api.spotify.com/v1/search?q={urllib.parse.quote(query)}&type=playlist&market=IN&limit=15"
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                items = data.get("playlists", {}).get("items", [])
+                playlists = []
+                for item in items:
+                    if not item or not isinstance(item, dict):
+                        continue
+                    # Skip items where owner is 'spotify' to avoid 404 restrictions on editorial playlists
+                    owner_id = item.get("owner", {}).get("id", "").lower()
+                    if owner_id == "spotify":
+                        continue
+
+                    p_id = item.get("id", "")
+                    title = item.get("name", "").strip()
+                    description = item.get("description", "").strip()
+                    images = item.get("images", [])
+                    cover_url = images[0].get("url", "") if images else ""
+                    tracks_info = item.get("tracks", {})
+                    total_tracks = tracks_info.get("total", 0)
+
+                    if p_id and title:
+                        playlists.append({
+                            "id": p_id,
+                            "title": title,
+                            "description": description,
+                            "cover_url": cover_url,
+                            "total_tracks": total_tracks,
+                            "owner": item.get("owner", {}).get("display_name", owner_id),
+                        })
+                return playlists
+    except Exception as e:
+        logger.warning(f"[SpotifyImport] get_spotify_playlists failed: {e}")
+    return []
+
+
+async def get_spotify_artist_image(artist_name: str) -> Optional[str]:
+    """
+    Fetches authentic artist profile image via Spotify Web API.
+    Queries: GET https://api.spotify.com/v1/search?q=$artistName&type=artist&market=IN&limit=1
+    and returns artists.items[0].images[0].url.
+    """
+    if not artist_name or not artist_name.strip():
+        return None
+
+    token = await get_spotify_access_token()
+    if not token:
+        return None
+
+    clean_name = artist_name.strip()
+    url = f"https://api.spotify.com/v1/search?q={urllib.parse.quote(clean_name)}&type=artist&market=IN&limit=1"
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
+    try:
+        async with httpx.AsyncClient(timeout=6.0) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                items = data.get("artists", {}).get("items", [])
+                if items and isinstance(items[0], dict):
+                    images = items[0].get("images", [])
+                    if images and isinstance(images, list) and len(images) > 0 and isinstance(images[0], dict):
+                        return images[0].get("url")
+    except Exception as e:
+        logger.debug(f"[SpotifyImport] get_spotify_artist_image failed for '{artist_name}': {e}")
+    return None
+

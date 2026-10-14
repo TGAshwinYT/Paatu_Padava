@@ -67,6 +67,9 @@ class IndicRomanizer {
     return buffer.toString();
   }
 
+  /// Converts a line or phrase of mixed Indic text to Romanized Latin phonetics
+  static String romanize(String text) => _romanizeLine(text);
+
   /// Converts a single line of mixed text to Romanized Latin
   static String _romanizeLine(String line) {
     if (line.isEmpty) return line;

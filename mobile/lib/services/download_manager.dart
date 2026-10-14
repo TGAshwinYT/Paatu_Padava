@@ -61,6 +61,19 @@ class DownloadManager {
     return _activeDownloadSongIds.contains(songId) || _downloadQueue.any((s) => s.id == songId);
   }
 
+  /// Retrieves verified local file path if song is downloaded and file exists on disk
+  static String? getLocalFilePath(String songId) {
+    if (!Hive.isBoxOpen(boxName)) return null;
+    final data = _box.get(songId);
+    if (data != null && data is Map) {
+      final path = data['localFilePath']?.toString();
+      if (path != null && File(path).existsSync()) {
+        return path;
+      }
+    }
+    return null;
+  }
+
   static List<Song> getDownloadedSongs() {
     if (!Hive.isBoxOpen(boxName)) return [];
     final List<Song> songs = [];

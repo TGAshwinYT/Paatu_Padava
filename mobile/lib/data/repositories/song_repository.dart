@@ -398,7 +398,7 @@ class SongRepository {
   }
 
   /// High-resolution verified artist avatars for popular regional artists.
-  static const Map<String, String> _verifiedArtistAvatars = {
+  static const Map<String, String> verifiedArtistAvatars = {
     'anirudh ravichander': 'https://c.saavncdn.com/artists/Anirudh_Ravichander_004_20231018104445_500x500.jpg',
     'a.r. rahman': 'https://c.saavncdn.com/artists/A_R__Rahman_002_20210219084131_500x500.jpg',
     'harris jayaraj': 'https://c.saavncdn.com/artists/Harris_Jayaraj_500x500.jpg',
@@ -407,6 +407,7 @@ class SongRepository {
     'ilaiyaraaja': 'https://c.saavncdn.com/artists/Ilaiyaraaja_004_20220602053931_500x500.jpg',
     'hiphop tamizha': 'https://c.saavncdn.com/artists/Hiphop_Tamizha_500x500.jpg',
     'santhosh narayanan': 'https://c.saavncdn.com/artists/Santhosh_Narayanan_500x500.jpg',
+    'g.v. prakash': 'https://c.saavncdn.com/artists/G_V__Prakash_Kumar_500x500.jpg',
     'g.v. prakash kumar': 'https://c.saavncdn.com/artists/G_V__Prakash_Kumar_500x500.jpg',
     'pradeep kumar': 'https://c.saavncdn.com/artists/Pradeep_Kumar_500x500.jpg',
     'd. imman': 'https://c.saavncdn.com/artists/D__Imman_500x500.jpg',
@@ -422,16 +423,56 @@ class SongRepository {
     'k.s. chithra': 'https://c.saavncdn.com/artists/K_S__Chithra_500x500.jpg',
   };
 
+  static const Map<String, String> _verifiedArtistAvatars = verifiedArtistAvatars;
+
+  /// Verified core Tamil artist seeds. Guaranteed to never leak Bollywood/Hindi singers in Tamil mode.
+  static const List<String> tamilArtistSeeds = [
+    'Anirudh Ravichander',
+    'A.R. Rahman',
+    'Yuvan Shankar Raja',
+    'Harris Jayaraj',
+    'G.V. Prakash',
+    'Sid Sriram',
+    'Santhosh Narayanan',
+  ];
+
   /// Fetches Popular Artists with high-res avatars, replacing low-res or generic placeholder icons.
   static Future<List<Map<String, dynamic>>> getPopularArtists({required String language}) async {
+    final isTamil = language.toLowerCase().trim() == 'tamil';
+
     try {
-      final rawArtists = await SaavnClient.searchArtists('Top $language Artists', limit: 16);
+      final rawArtists = await SaavnClient.searchArtists('Top $language Artists', limit: 16, language: language);
       final List<Map<String, dynamic>> enriched = [];
 
       for (final artist in rawArtists) {
         if (!SaavnClient.isGenuineMusicArtist(artist)) continue;
         final name = Song.sanitize(artist['name']?.toString() ?? 'Artist');
         final norm = normalizeArtist(name);
+
+        // When Tamil is selected, strictly reject Bollywood / Hindi singers and non-Tamil scripts
+        if (isTamil) {
+          if (RegExp(r'[\u0900-\u097F]').hasMatch(name)) continue;
+          const hindiSingers = {
+            'arijit singh',
+            'neha kakkar',
+            'badshah',
+            'jubin nautiyal',
+            'atif aslam',
+            'vishal mishra',
+            'darshan raval',
+            'armaan malik',
+            'yo yo honey singh',
+            'b praak',
+            'guru randhawa',
+            'tony kakkar',
+            'sonu nigam',
+            'kumar sanu',
+            'alka yagnik',
+            'udith narayan',
+          };
+          if (hindiSingers.contains(norm)) continue;
+        }
+
         String img = artist['image']?.toString() ?? '';
 
         // Check verified high-res avatar map first
@@ -441,11 +482,38 @@ class SongRepository {
           img = img.replaceAll('50x50', '500x500').replaceAll('150x150', '500x500');
         }
 
+        // Never use a song's cover image as an artist profile image
+        final isSongCover = img.contains('/albums/') ||
+            img.contains('/songs/') ||
+            (img.contains('c.saavncdn.com') && !img.contains('/artists/'));
+        if (isSongCover) {
+          img = _verifiedArtistAvatars[norm] ?? '';
+        }
+
         enriched.add({
           'id': artist['id']?.toString() ?? '',
           'name': name,
           'image': img,
         });
+      }
+
+      // When Tamil is selected, ensure all 7 core Tamil artist seeds are present
+      if (isTamil) {
+        for (final seed in tamilArtistSeeds.reversed) {
+          final normSeed = normalizeArtist(seed);
+          final existingIdx = enriched.indexWhere((a) => normalizeArtist(a['name']?.toString() ?? '') == normSeed);
+          final seedAvatar = _verifiedArtistAvatars[normSeed] ?? '';
+          if (existingIdx >= 0) {
+            final existing = enriched.removeAt(existingIdx);
+            enriched.insert(0, existing);
+          } else {
+            enriched.insert(0, {
+              'id': 'seed_$normSeed',
+              'name': seed,
+              'image': seedAvatar,
+            });
+          }
+        }
       }
 
       // Prioritize user's favorite artists from Supabase
@@ -481,6 +549,17 @@ class SongRepository {
     }
 
     // Verified fallback curated list for South Indian / Tamil music
+    if (isTamil) {
+      return tamilArtistSeeds.map((seed) {
+        final norm = normalizeArtist(seed);
+        return {
+          'id': 'seed_$norm',
+          'name': seed,
+          'image': _verifiedArtistAvatars[norm] ?? '',
+        };
+      }).toList();
+    }
+
     return _verifiedArtistAvatars.entries.map((e) {
       final titleCaseName = e.key
           .split(' ')

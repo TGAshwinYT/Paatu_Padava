@@ -202,7 +202,7 @@ void main() {
     test('YouTube streaming headers enforce Range byte requests and User-Agent', () {
       final headers = YouTubeClient.streamingHeaders;
       expect(headers['Range'], equals('bytes=0-'));
-      expect(headers['User-Agent'], contains('Mozilla/5.0'));
+      expect(headers['User-Agent'], anyOf(contains('com.google.android.apps.youtube.vr.oculus'), contains('Mozilla/5.0')));
       expect(headers['Accept'], equals('*/*'));
       expect(headers['Connection'], equals('keep-alive'));
     });

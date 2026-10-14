@@ -6,14 +6,27 @@ import '../models/song.dart';
 import 'des_decrypt.dart';
 import 'app_logger.dart';
 import 'artist_sanitizer.dart';
+import 'settings_manager.dart';
 import '../data/repositories/song_repository.dart';
 
 class SaavnClient {
   static const String baseUrl = 'https://www.jiosaavn.com/api.php';
-  static final Map<String, String> _headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json, text/plain, */*',
-  };
+
+  /// Generates dynamic headers with JioSaavn's required regional Cookie.
+  /// JioSaavn ignores URL language params on charts/playlists unless the 'Cookie: L=$lang' header is provided.
+  static Map<String, String> getHeaders([String? language]) {
+    final selectedLanguage = (language != null && language.isNotEmpty)
+        ? language.toLowerCase().trim()
+        : (SettingsManager.preferredLanguages.isNotEmpty
+            ? SettingsManager.preferredLanguages.first.toLowerCase().trim()
+            : 'tamil');
+
+    return {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'application/json, text/plain, */*',
+      'Cookie': 'L=$selectedLanguage; gdpr_acceptance=true',
+    };
+  }
 
   static String _extractHighResImage(String? img) {
     if (img == null || img.isEmpty) {
@@ -124,7 +137,7 @@ class SaavnClient {
       };
 
       final uri = Uri.parse(baseUrl).replace(queryParameters: queryParams);
-      final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 6));
+      final response = await http.get(uri, headers: getHeaders(language)).timeout(const Duration(seconds: 6));
       if (response.statusCode != 200) return [];
 
       final data = json.decode(response.body);
@@ -137,6 +150,20 @@ class SaavnClient {
         } else if (item is Map) {
           songs.add(_parseSongItem(Map<String, dynamic>.from(item)));
         }
+      }
+
+      final activeLang = (language != null && language.isNotEmpty)
+          ? language.toLowerCase().trim()
+          : (SettingsManager.preferredLanguages.isNotEmpty
+              ? SettingsManager.preferredLanguages.first.toLowerCase().trim()
+              : 'tamil');
+
+      // Strictly filter out Hindi tracks when active language is Tamil
+      if (activeLang == 'tamil' && !clean.toLowerCase().contains('hindi')) {
+        return songs.where((s) {
+          if (s.language == 'hindi') return false;
+          return !SongRepository.isLanguageMismatch(s, 'tamil');
+        }).toList();
       }
 
       return songs;
@@ -153,12 +180,26 @@ class SaavnClient {
 
   static Future<List<Song>> getTrending({String language = 'Tamil'}) async {
     final songs = await search('$language Hit Songs', limit: 30, language: language);
-    final filtered = SongRepository.filterByLanguage(songs, language);
-    return filtered.isNotEmpty ? filtered : songs;
+    final targetLang = language.toLowerCase().trim();
+    // Strictly filter out tracks where track['language'] != selectedLanguage for regional charts
+    final languageFiltered = songs.where((s) {
+      if (s.language != null && s.language!.isNotEmpty) {
+        return s.language!.toLowerCase().trim() == targetLang;
+      }
+      return true;
+    }).toList();
+    final filtered = SongRepository.filterByLanguage(languageFiltered, language);
+    return filtered.isNotEmpty ? filtered : languageFiltered;
   }
 
-  static Future<List<Map<String, dynamic>>> searchAlbums(String query, {int limit = 15}) async {
+  static Future<List<Map<String, dynamic>>> searchAlbums(String query, {int limit = 15, String? language}) async {
     try {
+      final activeLang = (language != null && language.isNotEmpty)
+          ? language.toLowerCase().trim()
+          : (SettingsManager.preferredLanguages.isNotEmpty
+              ? SettingsManager.preferredLanguages.first.toLowerCase().trim()
+              : 'tamil');
+
       final uri = Uri.parse(baseUrl).replace(queryParameters: {
         '__call': 'search.getAlbumResults',
         '_format': 'json',
@@ -168,9 +209,10 @@ class SaavnClient {
         'p': '1',
         'n': limit.toString(),
         'q': query.trim(),
+        if (language != null && language.isNotEmpty) 'languages': language.toLowerCase().trim(),
       });
 
-      final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 6));
+      final response = await http.get(uri, headers: getHeaders(language)).timeout(const Duration(seconds: 6));
       if (response.statusCode != 200) return [];
 
       final data = json.decode(response.body);
@@ -183,9 +225,17 @@ class SaavnClient {
         final songCount = int.tryParse(more['song_count']?.toString() ?? '0') ?? 0;
         final title = (item['title'] ?? '').toString().toLowerCase();
 
-        // Strictly exclude single-song releases from Albums view
-        if (songCount == 1 || title.contains('single')) {
+        // Strictly exclude single-song releases (song_count <= 1) from Albums view
+        if (songCount <= 1 || title.contains('single')) {
           continue;
+        }
+
+        // When Tamil is selected, exclude Hindi albums
+        if (activeLang == 'tamil' && !query.toLowerCase().contains('hindi')) {
+          if (RegExp(r'[\u0900-\u097F]').hasMatch(title) ||
+              RegExp(r'\b(hindi|bollywood)\b').hasMatch(title)) {
+            continue;
+          }
         }
 
         validAlbums.add({
@@ -204,7 +254,7 @@ class SaavnClient {
     }
   }
 
-  static Future<List<Map<String, dynamic>>> searchArtists(String query, {int limit = 15}) async {
+  static Future<List<Map<String, dynamic>>> searchArtists(String query, {int limit = 15, String? language}) async {
     try {
       final uri = Uri.parse(baseUrl).replace(queryParameters: {
         '__call': 'search.getArtistResults',
@@ -215,9 +265,10 @@ class SaavnClient {
         'p': '1',
         'n': limit.toString(),
         'q': query.trim(),
+        if (language != null && language.isNotEmpty) 'languages': language.toLowerCase().trim(),
       });
 
-      final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 6));
+      final response = await http.get(uri, headers: getHeaders(language)).timeout(const Duration(seconds: 6));
       if (response.statusCode != 200) return [];
 
       final data = json.decode(response.body);
@@ -254,7 +305,7 @@ class SaavnClient {
         'albumid': albumId,
       });
 
-      final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 6));
+      final response = await http.get(uri, headers: getHeaders()).timeout(const Duration(seconds: 6));
       if (response.statusCode != 200) return null;
 
       final data = json.decode(response.body);
@@ -297,7 +348,7 @@ class SaavnClient {
         'n_album': '20',
       });
 
-      final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 6));
+      final response = await http.get(uri, headers: getHeaders()).timeout(const Duration(seconds: 6));
       if (response.statusCode != 200) return null;
 
       final data = json.decode(response.body);
@@ -348,7 +399,7 @@ class SaavnClient {
         if (language != null && language.isNotEmpty) 'language': language.toLowerCase(),
       });
 
-      final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 6));
+      final response = await http.get(uri, headers: getHeaders(language)).timeout(const Duration(seconds: 6));
       if (response.statusCode != 200) return [];
 
       final data = json.decode(response.body);
@@ -357,6 +408,21 @@ class SaavnClient {
       for (final item in list) {
         songs.add(_parseSongItem(Map<String, dynamic>.from(item)));
       }
+
+      final activeLang = (language != null && language.isNotEmpty)
+          ? language.toLowerCase().trim()
+          : (SettingsManager.preferredLanguages.isNotEmpty
+              ? SettingsManager.preferredLanguages.first.toLowerCase().trim()
+              : 'tamil');
+
+      // Strictly filter out Hindi tracks when active language is Tamil
+      if (activeLang == 'tamil') {
+        return songs.where((s) {
+          if (s.language == 'hindi') return false;
+          return !SongRepository.isLanguageMismatch(s, 'tamil');
+        }).toList();
+      }
+
       return songs;
     } catch (e) {
       AppLogger.log('SaavnClient', 'getTrendingSongs error: $e');

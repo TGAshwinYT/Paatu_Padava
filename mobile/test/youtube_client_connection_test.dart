@@ -71,10 +71,10 @@ void main() {
   });
 
   group('Googlevideo Anti-Throttling Streaming Headers', () {
-    test('enforces Range byte requests and browser User-Agent', () {
+    test('enforces Range byte requests and ANDROID_VR User-Agent', () {
       final headers = YouTubeClient.streamingHeaders;
       expect(headers['Range'], equals('bytes=0-'));
-      expect(headers['User-Agent'], contains('Mozilla/5.0'));
+      expect(headers['User-Agent'], contains('com.google.android.apps.youtube.vr.oculus'));
       expect(headers['Accept'], equals('*/*'));
       expect(headers['Connection'], equals('keep-alive'));
     });
@@ -85,5 +85,20 @@ void main() {
       expect(() => YouTubeClient.invalidateStream('dQw4w9WgXcQ'), returnsNormally);
       expect(() => YouTubeClient.invalidateStream(''), returnsNormally);
     });
+  });
+
+  group('Live YouTube Client Search & Stream URL Resolution', () {
+    test('calls search and getStreamUrl returning valid googlevideo.com URL', () async {
+      final client = YoutubeClient();
+      final results = await client.search('Anirudh Tamil');
+      expect(results, isNotEmpty);
+      final firstResult = results.first;
+      expect(firstResult.id, isNotEmpty);
+
+      final streamUrl = await client.getStreamUrl(firstResult.id);
+      expect(streamUrl, isNotNull);
+      expect(streamUrl!, startsWith('https://'));
+      expect(streamUrl, contains('googlevideo.com'));
+    }, timeout: const Timeout(Duration(seconds: 30)));
   });
 }

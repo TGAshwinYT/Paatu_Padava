@@ -167,15 +167,35 @@ def decrypt_saavn_media_url(encrypted_url: str) -> str:
     except Exception:
         return ""
 
-async def fetch_from_saavn(endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def get_saavn_cookie_header(language: Optional[str] = None) -> str:
+    lang = (language or "tamil").lower().strip()
+    if "tamil" in lang:
+        cookie_val = "tamil%2Cenglish"
+    elif lang:
+        cookie_val = lang.replace(",", "%2C")
+    else:
+        cookie_val = "tamil%2Cenglish"
+    return f"L={cookie_val}; gdpr_acceptance=true; DL=english"
+
+def get_saavn_headers(language: Optional[str] = None) -> Dict[str, str]:
+    return {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Cookie": get_saavn_cookie_header(language)
+    }
+
+async def fetch_from_saavn(endpoint: str, params: Optional[Dict[str, Any]] = None, language: Optional[str] = None) -> Dict[str, Any]:
     """
     Generic fetch utility for JioSaavn proxy fallback.
     Catches 429 rate limits quietly to avoid log spam.
+    Injects required JioSaavn regional language Cookie header.
     """
+    req_lang = language or (params.get("language") if params else None)
+    headers = get_saavn_headers(req_lang)
     async with httpx.AsyncClient() as client:
         try:
             url = f"{SAAVN_API_URL.rstrip('/')}/{endpoint.lstrip('/')}"
-            response = await client.get(url, params=params, timeout=3.0)
+            response = await client.get(url, params=params, headers=headers, timeout=4.0)
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as e:
@@ -304,7 +324,7 @@ async def map_saavn_song(item: Dict[str, Any], lenient: bool = False) -> Dict[st
         print(f"⚠️ Mapping failed for item: {str(e)}")
         return {}
 
-async def search_saavn_direct(query: str, limit: int = 15) -> List[Dict[str, Any]]:
+async def search_saavn_direct(query: str, limit: int = 15, language: str = None) -> List[Dict[str, Any]]:
     """
     Directly searches JioSaavn's official API (www.jiosaavn.com/api.php).
     Bypasses third-party proxy nodes to completely eliminate 429 Too Many Requests.
@@ -324,10 +344,9 @@ async def search_saavn_direct(query: str, limit: int = 15) -> List[Dict[str, Any
         "n": str(limit),
         "q": clean_query
     }
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*"
-    }
+    if language:
+        params["languages"] = language.lower().strip()
+    headers = get_saavn_headers(language)
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(url, params=params, headers=headers, timeout=4.0)
@@ -369,7 +388,7 @@ async def search_saavn_direct(query: str, limit: int = 15) -> List[Dict[str, Any
         logger.debug(f"Direct Saavn search failed: {e}")
         return []
 
-async def search_saavn_albums_direct(query: str, limit: int = 15) -> List[Dict[str, Any]]:
+async def search_saavn_albums_direct(query: str, limit: int = 15, language: str = None) -> List[Dict[str, Any]]:
     """
     Directly searches JioSaavn albums (www.jiosaavn.com/api.php).
     Bypasses third-party proxy nodes to eliminate 429 Too Many Requests.
@@ -389,10 +408,9 @@ async def search_saavn_albums_direct(query: str, limit: int = 15) -> List[Dict[s
         "n": str(limit),
         "q": clean_query
     }
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*"
-    }
+    if language:
+        params["languages"] = language.lower().strip()
+    headers = get_saavn_headers(language)
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(url, params=params, headers=headers, timeout=4.0)
@@ -419,7 +437,7 @@ async def search_saavn_albums_direct(query: str, limit: int = 15) -> List[Dict[s
         logger.debug(f"Direct Saavn album search failed: {e}")
         return []
 
-async def search_saavn_artists_direct(query: str, limit: int = 15) -> List[Dict[str, Any]]:
+async def search_saavn_artists_direct(query: str, limit: int = 15, language: str = None) -> List[Dict[str, Any]]:
     """
     Directly searches JioSaavn artists (www.jiosaavn.com/api.php).
     """
@@ -438,10 +456,7 @@ async def search_saavn_artists_direct(query: str, limit: int = 15) -> List[Dict[
         "n": str(limit),
         "q": clean_query
     }
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*"
-    }
+    headers = get_saavn_headers(language)
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(url, params=params, headers=headers, timeout=4.0)
@@ -476,7 +491,7 @@ async def search_saavn(query: str, language: str = None) -> List[Dict[str, Any]]
     clean_query = unquote(query)
     
     # 1. Direct core API (Fastest, zero rate limits, authentic 320kbps stream URLs)
-    direct_results = await search_saavn_direct(clean_query, limit=15)
+    direct_results = await search_saavn_direct(clean_query, limit=15, language=language)
     if direct_results:
         return direct_results
 
@@ -485,7 +500,7 @@ async def search_saavn(query: str, language: str = None) -> List[Dict[str, Any]]
     if language:
         params["language"] = language
         
-    response = await fetch_from_saavn("search/songs", params)
+    response = await fetch_from_saavn("search/songs", params, language=language)
     data = response.get("data") or {}
     results = data.get("results", [])
     
@@ -508,14 +523,16 @@ async def get_trending(languages: str = None) -> Dict[str, List[Dict[str, Any]]]
     albums_raw = []
     artists_raw = []
     
-    # Extract primary language for fallback searches
-    primary_lang = "hindi"
+    # Extract primary language for fallback searches - default to 'tamil'
+    primary_lang = "tamil"
     if languages:
-        primary_lang = languages.split(',')[0].strip()
+        primary_lang = languages.split(',')[0].strip().lower()
+
+    effective_languages = languages or "tamil,english"
 
     try:
-        # 1. Fetch from modules (Default Home Feed) with language context
-        response = await fetch_from_saavn("modules", {"language": languages or "hindi,english"})
+        # 1. Fetch from modules (Default Home Feed) with language context and Cookie header
+        response = await fetch_from_saavn("modules", {"language": effective_languages}, language=primary_lang)
         
         logger.error("============= RAW JIOSAAVN DATA START =============")
         logger.error(response)
@@ -538,7 +555,6 @@ async def get_trending(languages: str = None) -> Dict[str, List[Dict[str, Any]]]
             
             # Fallback if trending.artists is empty, check if top_playlists contains artist objects (rare but possible)
             if not artists_raw and data.get("top_playlists") and isinstance(data["top_playlists"], list):
-                # Only use it if they look like artists (e.g. have 'artist' or 'type' == 'artist')
                 potential = data["top_playlists"]
                 if potential and (potential[0].get("type") == "artist" or "artist" in potential[0]):
                     artists_raw = potential
@@ -551,45 +567,41 @@ async def get_trending(languages: str = None) -> Dict[str, List[Dict[str, Any]]]
         
         # We fetch RAW data from saavn to avoid double mapping
         if not songs_raw:
-            songs_resp = await fetch_from_saavn("search/songs", {"query": f"Trending {primary_lang.capitalize()} Songs"})
+            songs_resp = await fetch_from_saavn("search/songs", {"query": f"{primary_lang.capitalize()} Top Hits"}, language=primary_lang)
             songs_raw = songs_resp.get("data", {}).get("results", [])
         
         if not albums_raw:
-            albums_resp = await fetch_from_saavn("search/albums", {"query": f"New {primary_lang.capitalize()} Albums"})
+            albums_resp = await fetch_from_saavn("search/albums", {"query": f"New {primary_lang.capitalize()} Albums"}, language=primary_lang)
             albums_raw = albums_resp.get("data", {}).get("results", [])
             
         if not artists_raw:
             print(f"[LOCALIZATION] Fetching VIP regional artists for {primary_lang}...")
             import asyncio
             
-            # Get the VIP list for the region, or use default
-            vip_names = REGIONAL_VIP_ARTISTS.get(primary_lang, REGIONAL_VIP_ARTISTS["default"])
+            vip_names = REGIONAL_VIP_ARTISTS.get(primary_lang, REGIONAL_VIP_ARTISTS.get("default", []))
             
-            # Helper function to fetch the top 1 exact match for a specific artist
             async def fetch_vip_artist(name):
-                resp = await fetch_from_saavn("search/artists", {"query": name})
+                resp = await fetch_from_saavn("search/artists", {"query": name}, language=primary_lang)
                 results = resp.get("data", {}).get("results", [])
                 return results[0] if results else None
 
-            # Run all exact name searches concurrently for instant response
             tasks = [fetch_vip_artist(name) for name in vip_names]
             vip_results = await asyncio.gather(*tasks)
-            
-            # Filter out any None values if an artist search failed
             artists_raw = [artist for artist in vip_results if artist]
             
             print(f"DEBUG: Found {len(artists_raw)} VIP artists for {primary_lang}")
 
-            # If that's still empty, fallback to generic trending
             if not artists_raw:
-                artists_resp = await fetch_from_saavn("search/artists", {"query": "Trending Artists"})
+                artists_resp = await fetch_from_saavn("search/artists", {"query": f"Top {primary_lang.capitalize()} Artists"}, language=primary_lang)
                 artists_raw = artists_resp.get("data", {}).get("results", [])
-                print("DEBUG: RAW TRENDING ARTIST DATA FALLBACK:", artists_raw[:2] if artists_raw else "EMPTY")
 
-    # 3. Normalization Loops (Task 2)
-    # Songs: {id, title, artist, coverUrl, audioUrl}
+    # 3. Normalization Loops with strict Hindi filtering when Tamil is selected
     recommended_for_you = []
-    for s in songs_raw[:15]:
+    for s in songs_raw:
+        # Filter out Hindi tracks when primary language is Tamil/not Hindi
+        s_lang = str(s.get("language") or "").lower().strip()
+        if primary_lang != "hindi" and s_lang == "hindi":
+            continue
         recommended_for_you.append({
             "id": s.get("id"),
             "title": html.unescape(s.get("name") or s.get("title") or "Unknown"),
@@ -597,6 +609,8 @@ async def get_trending(languages: str = None) -> Dict[str, List[Dict[str, Any]]]
             "coverUrl": extract_high_res_image(s.get("image")),
             "audioUrl": extract_audio_url(s)
         })
+        if len(recommended_for_you) >= 15:
+            break
 
     # Albums: {id, title, subtitle, image}
     top_albums = []
@@ -798,7 +812,7 @@ async def search_artists(query: str, language: str = None) -> List[Dict[str, Any
     if language:
         params["language"] = language
         
-    response = await fetch_from_saavn("search/artists", params)
+    response = await fetch_from_saavn("search/artists", params, language=language)
     data = response.get("data") or {}
     results = data.get("results", [])
     mapped_artists = []
@@ -820,7 +834,7 @@ async def search_albums(query: str, language: str = None) -> List[Dict[str, Any]
     if language:
         params["language"] = language
         
-    response = await fetch_from_saavn("search/albums", params)
+    response = await fetch_from_saavn("search/albums", params, language=language)
     data = response.get("data") or {}
     results = data.get("results", [])
     mapped_albums = []

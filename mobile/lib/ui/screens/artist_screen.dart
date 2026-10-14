@@ -8,8 +8,10 @@ import '../../services/player_handler.dart';
 import '../../services/download_manager.dart';
 import '../../data/repositories/song_repository.dart';
 import '../../services/settings_manager.dart';
+import '../../services/spotify_import_service.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/search/search_song_options_sheet.dart';
+import '../../logic/stream_resolver.dart';
 
 class ArtistScreen extends StatefulWidget {
   final String artistId;
@@ -33,11 +35,50 @@ class _ArtistScreenState extends State<ArtistScreen> {
   bool _isLoading = true;
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
+  String _resolvedImageUrl = '';
 
   @override
   void initState() {
     super.initState();
+    final norm = SongRepository.normalizeArtist(widget.artistName);
+    if (SongRepository.verifiedArtistAvatars.containsKey(norm)) {
+      _resolvedImageUrl = SongRepository.verifiedArtistAvatars[norm]!;
+    } else if (widget.imageUrl.isNotEmpty) {
+      _resolvedImageUrl = widget.imageUrl;
+    }
     _loadArtistSongs();
+    _fetchRealArtistImage();
+  }
+
+  Future<void> _fetchRealArtistImage() async {
+    final norm = SongRepository.normalizeArtist(widget.artistName);
+    if (SongRepository.verifiedArtistAvatars.containsKey(norm)) {
+      if (mounted && _resolvedImageUrl != SongRepository.verifiedArtistAvatars[norm]!) {
+        setState(() => _resolvedImageUrl = SongRepository.verifiedArtistAvatars[norm]!);
+      }
+      return;
+    }
+
+    // Try Spotify Web API for genuine high-res artist profile image
+    try {
+      final spotifyImg = await SpotifyImportService.getArtistProfileImage(widget.artistName);
+      if (spotifyImg != null && spotifyImg.isNotEmpty && mounted) {
+        setState(() => _resolvedImageUrl = spotifyImg);
+        return;
+      }
+    } catch (_) {}
+
+    // Fallback: JioSaavn genuine music artist search
+    try {
+      final saavnArtists = await SaavnClient.searchArtists(widget.artistName, limit: 3);
+      for (final a in saavnArtists) {
+        final img = a['image']?.toString();
+        if (img != null && img.isNotEmpty && !img.contains('default') && mounted) {
+          setState(() => _resolvedImageUrl = img);
+          return;
+        }
+      }
+    } catch (_) {}
   }
 
   @override
@@ -117,6 +158,9 @@ class _ArtistScreenState extends State<ArtistScreen> {
         _filteredSongs = uniqueSongs;
         _isLoading = false;
       });
+      if (uniqueSongs.isNotEmpty) {
+        DefaultStreamResolver.prewarmSongs(uniqueSongs, limit: 3);
+      }
     }
   }
 
@@ -326,9 +370,9 @@ class _ArtistScreenState extends State<ArtistScreen> {
                   background: Stack(
                     fit: StackFit.expand,
                     children: [
-                      widget.imageUrl.isNotEmpty
+                      _resolvedImageUrl.isNotEmpty
                           ? CachedNetworkImage(
-                              imageUrl: widget.imageUrl,
+                              imageUrl: _resolvedImageUrl,
                               fit: BoxFit.cover,
                               errorWidget: (_, __, ___) => Container(color: const Color(0xFF1E293B)),
                             )

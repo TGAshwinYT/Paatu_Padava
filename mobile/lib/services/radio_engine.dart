@@ -20,10 +20,16 @@ class RadioEngine {
         ? seedSong.language!.toLowerCase()
         : (prefLangs.firstOrNull ?? 'tamil').toLowerCase();
 
-    // 1. Fetch YouTube Music Radio Automix Graph (Native RDAMVM Node with Topic priority)
+    // 1. Fetch YouTube Music Radio Automix Graph (Native RDAMVM Node via InnerTube Next)
     List<Song> ytRadioTracks = [];
     try {
-      ytRadioTracks = await YouTubeClient.getRadioTracks(seedSong, limit: 25);
+      final ytId = (seedSong.source == 'youtube' && seedSong.id.length == 11) ? seedSong.id : null;
+      if (ytId != null) {
+        ytRadioTracks = await YouTubeClient.getUpNextAutomix(ytId, limit: 25);
+      }
+      if (ytRadioTracks.isEmpty) {
+        ytRadioTracks = await YouTubeClient.getRadioTracks(seedSong, limit: 25);
+      }
     } catch (e) {
       AppLogger.log('RadioEngine', 'YouTube radio graph fallback: $e');
     }

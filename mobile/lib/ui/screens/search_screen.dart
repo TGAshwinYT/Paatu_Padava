@@ -16,6 +16,7 @@ import '../../services/artist_sanitizer.dart';
 import '../../services/audius_client.dart';
 import '../../services/search_service.dart';
 import '../../data/repositories/song_repository.dart';
+import '../../logic/stream_resolver.dart';
 import '../theme/app_theme.dart';
 import 'library_screen.dart';
 import '../widgets/search/search_error_view.dart';
@@ -33,6 +34,8 @@ class SearchResultsState {
   final List<Map<String, dynamic>> albums;
   final List<Map<String, dynamic>> artists;
   final List<Song> ytSongs;
+  final List<Song> saavnSongs;
+  final List<Song> audiusSongs;
   final String? didYouMean;
 
   final AppError? error;
@@ -43,12 +46,20 @@ class SearchResultsState {
     this.albums = const [],
     this.artists = const [],
     this.ytSongs = const [],
+    this.saavnSongs = const [],
+    this.audiusSongs = const [],
     this.didYouMean,
     this.error,
   });
 
   bool get isEmpty =>
-      topResult == null && songs.isEmpty && albums.isEmpty && artists.isEmpty && ytSongs.isEmpty;
+      topResult == null &&
+      songs.isEmpty &&
+      albums.isEmpty &&
+      artists.isEmpty &&
+      ytSongs.isEmpty &&
+      saavnSongs.isEmpty &&
+      audiusSongs.isEmpty;
   bool get hasError => error != null;
 }
 
@@ -252,31 +263,46 @@ class _SearchScreenState extends State<SearchScreen> {
 
     try {
       if (tab == 'All') {
-        final unified = await SearchService.searchUnified(clean, language: prefLang, limit: 25);
-        if (!mounted || currentRequestId != _searchRequestId) return;
-        _resultsNotifier.value = SearchResultsState(
-          topResult: unified.topResult,
-          songs: unified.songs,
-          ytSongs: unified.ytSongs,
-          albums: unified.albums,
-          artists: unified.artists,
-          didYouMean: unified.didYouMean,
-          error: unified.error,
-        );
-        _isSearchingNotifier.value = false;
+        await for (final unified in SearchService.searchProgressive(clean, language: prefLang, limit: 25)) {
+          if (!mounted || currentRequestId != _searchRequestId) return;
+          _resultsNotifier.value = SearchResultsState(
+            topResult: unified.topResult,
+            songs: unified.songs,
+            ytSongs: unified.ytSongs,
+            saavnSongs: unified.saavnSongs,
+            audiusSongs: unified.audiusSongs,
+            albums: unified.albums,
+            artists: unified.artists,
+            didYouMean: unified.didYouMean,
+            error: unified.error,
+          );
+          if (unified.songs.isNotEmpty) {
+            DefaultStreamResolver.prewarmSongs(unified.songs, limit: 3);
+          }
+        }
+        if (mounted && currentRequestId == _searchRequestId) {
+          _isSearchingNotifier.value = false;
+        }
         return;
-      } else if (tab == 'Songs') {
-        final unified = await SearchService.searchUnified(clean, language: prefLang, limit: 25);
+      } else if (tab == 'Saavn' || tab == 'Songs') {
+        final saavnSongs = await SaavnClient.search(clean, limit: 25, language: prefLang)
+            .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
         if (!mounted || currentRequestId != _searchRequestId) return;
+        final grouped = SongRepository.groupCanonicalSongs(saavnSongs, preferredLanguage: prefLang);
+        final cleanSaavn = SongRepository.deduplicateSongs(grouped);
         _resultsNotifier.value = SearchResultsState(
-          songs: unified.songs,
-          didYouMean: unified.didYouMean,
-          error: unified.error,
+          saavnSongs: cleanSaavn,
+          songs: cleanSaavn,
         );
         _isSearchingNotifier.value = false;
+        if (cleanSaavn.isNotEmpty) {
+          DefaultStreamResolver.prewarmSongs(cleanSaavn, limit: 3);
+        }
       } else if (tab == 'Albums') {
-        final albumsFuture = SaavnClient.searchAlbums(clean, limit: 25);
-        final songsFuture = SaavnClient.search(clean, limit: 15, language: prefLang);
+        final albumsFuture = SaavnClient.searchAlbums(clean, limit: 25)
+            .timeout(const Duration(seconds: 3), onTimeout: () => <Map<String, dynamic>>[]);
+        final songsFuture = SaavnClient.search(clean, limit: 15, language: prefLang)
+            .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
         final res = await Future.wait([albumsFuture, songsFuture]);
         if (!mounted || currentRequestId != _searchRequestId) return;
         final directAlbums = res[0] as List<Map<String, dynamic>>;
@@ -317,8 +343,10 @@ class _SearchScreenState extends State<SearchScreen> {
         _resultsNotifier.value = SearchResultsState(albums: genuineAlbums);
         _isSearchingNotifier.value = false;
       } else if (tab == 'Artists') {
-        final artistsFuture = SaavnClient.searchArtists(clean, limit: 25);
-        final songsFuture = SaavnClient.search(clean, limit: 15, language: prefLang);
+        final artistsFuture = SaavnClient.searchArtists(clean, limit: 25)
+            .timeout(const Duration(seconds: 3), onTimeout: () => <Map<String, dynamic>>[]);
+        final songsFuture = SaavnClient.search(clean, limit: 15, language: prefLang)
+            .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
         final res = await Future.wait([artistsFuture, songsFuture]);
         if (!mounted || currentRequestId != _searchRequestId) return;
         final directArtists = res[0] as List<Map<String, dynamic>>;
@@ -367,26 +395,34 @@ class _SearchScreenState extends State<SearchScreen> {
 
         _resultsNotifier.value = SearchResultsState(artists: correlatedArtists);
         _isSearchingNotifier.value = false;
-      } else if (tab == 'YouTube') {
+      } else if (tab == 'YouTube Music' || tab == 'YouTube') {
         final intent = SearchService.understandQuery(clean);
         final targetLang = intent.explicitLanguage ?? prefLang;
         final ytQuery = (intent.explicitLanguage != null && !clean.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
             ? '${intent.explicitLanguage!} $clean'
             : clean;
-        final yt = await YouTubeClient.search(ytQuery, limit: 25);
+        final yt = await YouTubeClient.search(ytQuery, limit: 25)
+            .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
         if (!mounted || currentRequestId != _searchRequestId) return;
         final filteredYt = intent.explicitLanguage != null
             ? SongRepository.filterByLanguage(yt, targetLang)
             : yt;
         final groupedYt = SongRepository.groupCanonicalSongs(filteredYt, preferredLanguage: targetLang);
         final cleanYt = SongRepository.deduplicateSongs(groupedYt);
-        _resultsNotifier.value = SearchResultsState(ytSongs: cleanYt);
+        _resultsNotifier.value = SearchResultsState(ytSongs: cleanYt, songs: cleanYt);
         _isSearchingNotifier.value = false;
+        if (cleanYt.isNotEmpty) {
+          DefaultStreamResolver.prewarmSongs(cleanYt, limit: 3);
+        }
       } else if (tab == 'Audius') {
-        final audiusTracks = await AudiusClient.search(clean, limit: 25);
+        final audiusTracks = await AudiusClient.search(clean, limit: 25)
+            .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
         if (!mounted || currentRequestId != _searchRequestId) return;
-        _resultsNotifier.value = SearchResultsState(songs: audiusTracks);
+        _resultsNotifier.value = SearchResultsState(audiusSongs: audiusTracks, songs: audiusTracks);
         _isSearchingNotifier.value = false;
+        if (audiusTracks.isNotEmpty) {
+          DefaultStreamResolver.prewarmSongs(audiusTracks, limit: 3);
+        }
       }
 
       if (mounted && currentRequestId == _searchRequestId && _resultsNotifier.value.isEmpty && !_resultsNotifier.value.hasError && correction != null) {
@@ -592,7 +628,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   return ListView(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     scrollDirection: Axis.horizontal,
-                    children: ['All', 'Songs', 'Albums', 'Artists', 'YouTube', 'Audius'].map((tab) {
+                    children: ['All', 'YouTube Music', 'Saavn', 'Audius', 'Albums', 'Artists'].map((tab) {
                       final isSelected = currentTab == tab;
                       return Padding(
                         padding: const EdgeInsets.only(right: 8.0),
@@ -714,8 +750,21 @@ class _SearchScreenState extends State<SearchScreen> {
                         onShowOptions: _showSongOptions,
                         onShowVersions: _showVersionsSheet,
                       );
-                    } else if (currentTab == 'Songs') {
-                      return _buildSongsList(state.songs);
+                    } else if (currentTab == 'YouTube Music' || currentTab == 'YouTube') {
+                      final ytList = state.ytSongs.isNotEmpty
+                          ? state.ytSongs
+                          : state.songs.where((s) => s.source == 'youtube').toList();
+                      return _buildSongsList(ytList);
+                    } else if (currentTab == 'Saavn' || currentTab == 'Songs') {
+                      final saavnList = state.saavnSongs.isNotEmpty
+                          ? state.saavnSongs
+                          : state.songs.where((s) => s.source == 'saavn').toList();
+                      return _buildSongsList(saavnList);
+                    } else if (currentTab == 'Audius') {
+                      final audiusList = state.audiusSongs.isNotEmpty
+                          ? state.audiusSongs
+                          : state.songs.where((s) => s.source == 'audius').toList();
+                      return _buildSongsList(audiusList);
                     } else if (currentTab == 'Albums') {
                       return SearchAlbumsGrid(
                         albums: state.albums,
@@ -728,10 +777,6 @@ class _SearchScreenState extends State<SearchScreen> {
                         query: _searchController.text,
                         onRecordClick: _recordSearchResultClick,
                       );
-                    } else if (currentTab == 'YouTube') {
-                      return _buildSongsList(state.ytSongs);
-                    } else if (currentTab == 'Audius') {
-                      return _buildSongsList(state.songs);
                     }
                     return const SizedBox.shrink();
                   },

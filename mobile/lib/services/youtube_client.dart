@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../models/song.dart';
+import '../domain/models/track_entity.dart';
 import 'settings_manager.dart';
 import 'app_logger.dart';
 import 'artist_sanitizer.dart';
@@ -17,11 +18,14 @@ class YouTubeClient {
     _ytInstance = null;
   }
 
+  static const String vrUserAgent =
+      'com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12; en_US; Quest 2; Build/SQ3A.220605.009.A1) gzip';
+
   /// High-integrity HTTP headers for Googlevideo CDN streams.
-  /// Enforces modern User-Agent and keep-alive to avoid connection drops.
+  /// Enforces ANDROID_VR User-Agent and keep-alive to avoid connection drops and 403 Forbidden errors.
   static Map<String, String> get streamingHeaders => const {
     'Range': 'bytes=0-',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'User-Agent': vrUserAgent,
     'Accept': '*/*',
     'Connection': 'keep-alive',
   };
@@ -145,14 +149,54 @@ class YouTubeClient {
     return tracks;
   }
 
-  static Future<List<Song>> search(String query, {int limit = 15}) async {
+  /// Direct client-side YouTube Music InnerTube search using WEB_REMIX client context.
+  /// Bypasses datacenter blockades and extracts rich song/video metadata into [TrackEntity].
+  static Future<List<TrackEntity>> searchTracks(String query, {int limit = 15}) async {
     final clean = query.trim();
     if (clean.isEmpty) return [];
 
-    final List<Song> songs = [];
     try {
-      final searchResults = await _yt.search.search(clean).timeout(const Duration(seconds: 15));
+      final uri = Uri.parse('https://music.youtube.com/youtubei/v1/search?prettyPrint=false');
+      final payload = jsonEncode({
+        'context': {
+          'client': {
+            'clientName': 'WEB_REMIX',
+            'clientVersion': '1.20260101.01.00',
+            'gl': 'IN',
+            'hl': 'en',
+          }
+        },
+        'query': clean,
+      });
 
+      final response = await http.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': 'https://music.youtube.com/',
+          'Accept': '*/*',
+        },
+        body: payload,
+      ).timeout(const Duration(seconds: 8));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>?;
+        if (data != null) {
+          final tracks = _parseWebRemixSearchResponse(data, limit: limit);
+          if (tracks.isNotEmpty) {
+            return tracks;
+          }
+        }
+      }
+    } catch (e) {
+      AppLogger.log('YouTubeClient', 'InnerTube WEB_REMIX search notice for "$clean": $e. Falling back to YouTubeExplode.');
+    }
+
+    // High-res fallback using client-side YouTubeExplode
+    final List<TrackEntity> fallbackTracks = [];
+    try {
+      final searchResults = await _yt.search.search(clean).timeout(const Duration(seconds: 12));
       for (final video in searchResults.take(limit)) {
         final rawAuthor = video.author;
         final cleanAuthor = ArtistSanitizer.extractArtistFromVideo(video.title, rawAuthor);
@@ -161,21 +205,148 @@ class YouTubeClient {
             ? (highThumb.startsWith('http://') ? highThumb.replaceFirst('http://', 'https://') : highThumb)
             : 'https://img.youtube.com/vi/${video.id.value}/hqdefault.jpg';
 
-        songs.add(Song(
+        fallbackTracks.add(TrackEntity(
           id: video.id.value,
           title: cleanTitle(video.title),
           artist: Song.sanitize(cleanAuthor),
           album: 'YouTube Music',
           coverUrl: safeThumb,
           duration: video.duration?.inSeconds ?? 0,
+          streamUrl: '',
           source: 'youtube',
         ));
       }
-      return songs;
     } catch (e, stack) {
-      AppLogger.recordError(e, stack, context: 'YouTubeClient.search("$clean")');
-      return songs;
+      AppLogger.recordError(e, stack, context: 'YouTubeClient.searchTracks("$clean")');
     }
+
+    return fallbackTracks;
+  }
+
+  /// Parses YouTube Music InnerTube WEB_REMIX response into strongly typed [TrackEntity] list.
+  static List<TrackEntity> _parseWebRemixSearchResponse(Map<String, dynamic> data, {int limit = 15}) {
+    final List<TrackEntity> tracks = [];
+    final Set<String> seenIds = {};
+
+    void extractFromNode(dynamic node) {
+      if (node == null || tracks.length >= limit) return;
+
+      if (node is Map<String, dynamic>) {
+        if (node.containsKey('musicResponsiveListItemRenderer')) {
+          final item = node['musicResponsiveListItemRenderer'] as Map<String, dynamic>;
+
+          String? videoId;
+          final plData = item['playlistItemData'] as Map<String, dynamic>?;
+          if (plData != null && plData['videoId'] != null) {
+            videoId = plData['videoId'].toString();
+          }
+          if (videoId == null || videoId.isEmpty) {
+            final nav = item['navigationEndpoint'] as Map<String, dynamic>?;
+            videoId = nav?['watchEndpoint']?['videoId']?.toString();
+          }
+          if (videoId == null || videoId.isEmpty) {
+            final flexCols = item['flexColumns'] as List<dynamic>? ?? [];
+            for (final col in flexCols) {
+              final runs = col?['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs'] as List<dynamic>? ?? [];
+              for (final r in runs) {
+                final v = r?['navigationEndpoint']?['watchEndpoint']?['videoId']?.toString();
+                if (v != null && v.isNotEmpty) {
+                  videoId = v;
+                  break;
+                }
+              }
+              if (videoId != null) break;
+            }
+          }
+
+          if (videoId != null && videoId.isNotEmpty && !seenIds.contains(videoId)) {
+            String title = '';
+            String artist = '';
+            int durationSec = 0;
+
+            final flexCols = item['flexColumns'] as List<dynamic>? ?? [];
+            if (flexCols.isNotEmpty) {
+              final col0Runs = flexCols[0]?['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs'] as List<dynamic>? ?? [];
+              title = col0Runs.map((r) => r['text']?.toString() ?? '').join('').trim();
+            }
+
+            if (flexCols.length > 1) {
+              final col1Runs = flexCols[1]?['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs'] as List<dynamic>? ?? [];
+              final artistParts = <String>[];
+              for (final r in col1Runs) {
+                final text = (r['text']?.toString() ?? '').trim();
+                if (text.isNotEmpty && text != '•' && text.toLowerCase() != 'song' && text.toLowerCase() != 'video') {
+                  artistParts.add(text);
+                }
+              }
+              artist = artistParts.join(', ').trim();
+            }
+
+            for (final col in flexCols) {
+              final runs = col?['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs'] as List<dynamic>? ?? [];
+              for (final r in runs) {
+                final text = (r['text']?.toString() ?? '').trim();
+                final durMatch = RegExp(r'^(\d+):(\d{2})$').firstMatch(text);
+                if (durMatch != null) {
+                  final m = int.tryParse(durMatch.group(1)!) ?? 0;
+                  final s = int.tryParse(durMatch.group(2)!) ?? 0;
+                  durationSec = (m * 60) + s;
+                  break;
+                }
+              }
+              if (durationSec > 0) break;
+            }
+
+            String coverUrl = '';
+            final thumbRenderer = item['thumbnail']?['musicThumbnailRenderer'];
+            final thumbsList = thumbRenderer?['thumbnail']?['thumbnails'] as List<dynamic>?;
+            if (thumbsList != null && thumbsList.isNotEmpty) {
+              final lastThumb = thumbsList.last;
+              if (lastThumb is Map && lastThumb['url'] != null) {
+                coverUrl = lastThumb['url'].toString();
+                coverUrl = coverUrl.replaceAll(RegExp(r'=w\d+-h\d+'), '=w500-h500');
+              }
+            }
+            if (coverUrl.isEmpty) {
+              coverUrl = 'https://img.youtube.com/vi/$videoId/hqdefault.jpg';
+            }
+
+            if (title.isNotEmpty) {
+              seenIds.add(videoId);
+              tracks.add(TrackEntity(
+                id: videoId,
+                title: cleanTitle(title),
+                artist: Song.sanitize(artist.isNotEmpty ? artist : 'Unknown Artist'),
+                album: 'YouTube Music',
+                coverUrl: coverUrl,
+                duration: durationSec,
+                streamUrl: '',
+                source: 'youtube',
+              ));
+            }
+          }
+        } else {
+          for (final val in node.values) {
+            extractFromNode(val);
+            if (tracks.length >= limit) return;
+          }
+        }
+      } else if (node is List) {
+        for (final elem in node) {
+          extractFromNode(elem);
+          if (tracks.length >= limit) return;
+        }
+      }
+    }
+
+    extractFromNode(data['contents']);
+    return tracks;
+  }
+
+  /// Primary search returning [Song] instances for app-wide player and queue compatibility.
+  static Future<List<Song>> search(String query, {int limit = 15}) async {
+    final tracks = await searchTracks(query, limit: limit);
+    return tracks.map((t) => t.toSong()).toList();
   }
 
   /// Fetches YouTube Music trending highlights for the specified language.
@@ -184,6 +355,124 @@ class YouTubeClient {
     final songs = await search(query, limit: limit);
     final filtered = SongRepository.filterByLanguage(songs, language);
     return filtered.isNotEmpty ? filtered : songs;
+  }
+
+  /// Direct client-side YouTube Music InnerTube Next endpoint:
+  /// `POST https://music.youtube.com/youtubei/v1/next`
+  /// with `videoId: videoId` and `playlistId: "RDAMVM$videoId"`.
+  /// Extracts authentic YT Music Up-Next automix tracks directly from `musicQueueRenderer`.
+  static Future<List<Song>> getUpNextAutomix(String videoId, {int limit = 50}) async {
+    final cleanId = videoId.trim();
+    if (cleanId.isEmpty) return [];
+
+    try {
+      final uri = Uri.parse('https://music.youtube.com/youtubei/v1/next');
+      final payload = jsonEncode({
+        'context': {
+          'client': {
+            'clientName': 'WEB_REMIX',
+            'clientVersion': '1.20260101.01.00',
+            'gl': 'IN',
+            'hl': 'en',
+          }
+        },
+        'videoId': cleanId,
+        'playlistId': 'RDAMVM$cleanId',
+      });
+
+      final response = await http.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': 'https://music.youtube.com/',
+          'Accept': '*/*',
+        },
+        body: payload,
+      ).timeout(const Duration(seconds: 8));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>?;
+        if (data != null) {
+          final tabs = data['contents']?['singleColumnMusicWatchNextResultsRenderer']
+              ?['tabbedRenderer']?['watchNextTabbedResultsRenderer']?['tabs'] as List<dynamic>? ?? [];
+
+          for (final tab in tabs) {
+            final content = tab['tabRenderer']?['content'];
+            if (content != null && content['musicQueueRenderer'] != null) {
+              final queueItems = content['musicQueueRenderer']?['content']
+                  ?['playlistPanelRenderer']?['contents'] as List<dynamic>? ?? [];
+
+              final List<Song> automixSongs = [];
+              for (final item in queueItems) {
+                if (automixSongs.length >= limit) break;
+                final v = item['playlistPanelVideoRenderer'] as Map<String, dynamic>?;
+                if (v == null) continue;
+
+                final vId = v['videoId']?.toString() ?? '';
+                if (vId.isEmpty || vId == cleanId) continue;
+
+                final titleRuns = v['title']?['runs'] as List<dynamic>? ?? [];
+                final title = titleRuns.map((r) => r['text']?.toString() ?? '').join('').trim();
+
+                final bylineRuns = v['longBylineText']?['runs'] as List<dynamic>? ??
+                    v['shortBylineText']?['runs'] as List<dynamic>? ?? [];
+                final fullByline = bylineRuns.map((r) => r['text']?.toString() ?? '').join('').trim();
+                final rawArtist = fullByline.split('•').first.trim();
+                final cleanArtist = ArtistSanitizer.extractArtistFromVideo(title, rawArtist);
+
+                final lenRuns = v['lengthText']?['runs'] as List<dynamic>? ?? [];
+                final lenStr = lenRuns.isNotEmpty ? lenRuns[0]['text']?.toString() ?? '' : '';
+                int durationSec = 0;
+                if (lenStr.isNotEmpty && lenStr.contains(':')) {
+                  final parts = lenStr.split(':');
+                  if (parts.length == 2) {
+                    final m = int.tryParse(parts[0]) ?? 0;
+                    final s = int.tryParse(parts[1]) ?? 0;
+                    durationSec = (m * 60) + s;
+                  } else if (parts.length == 3) {
+                    final h = int.tryParse(parts[0]) ?? 0;
+                    final m = int.tryParse(parts[1]) ?? 0;
+                    final s = int.tryParse(parts[2]) ?? 0;
+                    durationSec = (h * 3600) + (m * 60) + s;
+                  }
+                }
+
+                final thumbs = v['thumbnail']?['thumbnails'] as List<dynamic>? ?? [];
+                String thumbUrl = '';
+                if (thumbs.isNotEmpty) {
+                  thumbUrl = thumbs.last['url']?.toString() ?? '';
+                }
+                if (thumbUrl.isEmpty || !thumbUrl.startsWith('http')) {
+                  thumbUrl = 'https://img.youtube.com/vi/$vId/hqdefault.jpg';
+                }
+
+                if (title.isNotEmpty) {
+                  automixSongs.add(Song(
+                    id: vId,
+                    title: cleanTitle(title),
+                    artist: Song.sanitize(cleanArtist.isNotEmpty ? cleanArtist : 'Artist'),
+                    album: 'YouTube Music',
+                    coverUrl: thumbUrl,
+                    duration: durationSec,
+                    source: 'youtube',
+                  ));
+                }
+              }
+
+              if (automixSongs.isNotEmpty) {
+                AppLogger.log('YouTubeClient', 'InnerTube Up-Next automix yielded ${automixSongs.length} tracks for video $cleanId');
+                return automixSongs;
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      AppLogger.log('YouTubeClient', 'InnerTube Up-Next automix notice: $e');
+    }
+    return [];
   }
 
   /// Walks the native YouTube Radio graph (RDAMVM$videoId) and applies Audio-First Master Filtering:
@@ -207,7 +496,6 @@ class YouTubeClient {
         final query = '${cleanTitle(seedSong.title)} ${seedSong.primaryArtist} audio';
         final searchResults = await search(query, limit: 5);
         if (searchResults.isNotEmpty) {
-          // Prioritize Topic channels or official releases
           final topic = searchResults.firstWhere(
             (s) => s.artist.endsWith(' - Topic') || s.artist.toLowerCase().contains('topic'),
             orElse: () => searchResults.first,
@@ -217,9 +505,32 @@ class YouTubeClient {
       }
 
       if (seedVideoId != null && seedVideoId.isNotEmpty) {
+        // 0. Primary: InnerTube Next API with playlistId="RDAMVM$seedVideoId"
+        try {
+          final automix = await getUpNextAutomix(seedVideoId, limit: limit * 2);
+          for (final song in automix) {
+            if (excludedKeys != null && (excludedKeys.contains(song.id) || excludedKeys.contains(song.cleanTitleKey))) {
+              continue;
+            }
+            if (excludedArtists != null && excludedArtists.contains(song.primaryArtist.toLowerCase().trim())) {
+              continue;
+            }
+            if (!results.any((r) => r.id == song.id || r.canonicalBaseKey == song.canonicalBaseKey)) {
+              results.add(song.copyWith(language: seedSong.language));
+              if (results.length >= limit) break;
+            }
+          }
+        } catch (e) {
+          AppLogger.log('YouTubeClient', 'InnerTube automix in getRadioTracks notice: $e');
+        }
+
+        if (results.length >= limit) {
+          return results;
+        }
+
         final List<Video> candidateVideos = [];
 
-        // 1. Radio Graph Walking: Native Related Videos of seed (RDAMVM graph node)
+        // 1. Fallback Radio Graph Walking: Native Related Videos of seed
         try {
           final video = await _yt.videos.get(VideoId(seedVideoId)).timeout(const Duration(seconds: 8));
           final related = await _yt.videos.getRelatedVideos(video).timeout(const Duration(seconds: 8));
@@ -398,37 +709,32 @@ class YouTubeClient {
     }
   }
 
-  /// Tier 1 Fast Path: Queries YouTube InnerTube Android mobile player endpoint directly.
+  /// Tier 1 Fast Path: Queries YouTube InnerTube ANDROID_VR player endpoint directly.
   /// On-device mobile requests frequently receive un-ciphered URLs (itag 140 / 251) directly,
   /// avoiding heavy watch page HTML download and JS deciphering (~200ms vs ~2.5s).
-  static Future<String?> _resolveDirectInnertubeAndroidStream(String cleanId) async {
+  static Future<String?> _resolveDirectInnertubeVrStream(String cleanId) async {
     try {
       final uri = Uri.parse('https://www.youtube.com/youtubei/v1/player?prettyPrint=false');
       final payload = jsonEncode({
         'context': {
           'client': {
-            'clientName': 'ANDROID',
-            'clientVersion': '19.29.35',
-            'androidSdkVersion': 34,
-            'hl': 'en',
+            'clientName': 'ANDROID_VR',
+            'clientVersion': '1.56.21',
+            'androidSdkVersion': 32,
             'gl': 'IN',
+            'hl': 'en',
           }
         },
         'videoId': cleanId,
-        'playbackContext': {
-          'contentPlaybackContext': {
-            'html5Preference': 'HTML5_PREF_WANTS',
-          }
-        }
       });
 
       final response = await http.post(
         uri,
         headers: {
           'Content-Type': 'application/json',
-          'User-Agent': 'com.google.android.youtube/19.29.35 (Linux; U; Android 14; en_US) gzip',
-          'X-YouTube-Client-Name': '3',
-          'X-YouTube-Client-Version': '19.29.35',
+          'User-Agent': vrUserAgent,
+          'X-YouTube-Client-Name': '28',
+          'X-YouTube-Client-Version': '1.56.21',
           'Accept': '*/*',
         },
         body: payload,
@@ -460,7 +766,7 @@ class YouTubeClient {
             }
           }
 
-          // 2. Prioritize AAC 140 (128kbps) for universal hardware compatibility
+          // 2. Prioritize AAC 140 (128kbps audio/mp4) for universal hardware compatibility
           if (chosen == null) {
             for (final f in audioFormats) {
               if (f['itag'] == 140 && f['url'] != null) {
@@ -470,7 +776,7 @@ class YouTubeClient {
             }
           }
 
-          // 3. Prioritize Opus 251 (~160kbps)
+          // 3. Prioritize Opus 251 (audio/webm ~160kbps)
           if (chosen == null) {
             for (final f in audioFormats) {
               if (f['itag'] == 251 && f['url'] != null) {
@@ -494,20 +800,40 @@ class YouTubeClient {
           if (chosen != null && chosen['url'] != null) {
             final directUrl = chosen['url'].toString();
             if (directUrl.isNotEmpty) {
-              AppLogger.log('YouTubeClient', 'InnerTube Android direct stream resolved for $cleanId (itag ${chosen['itag']})');
+              AppLogger.log('YouTubeClient', 'InnerTube ANDROID_VR direct stream resolved for $cleanId (itag ${chosen['itag']})');
               return directUrl;
             }
           }
         }
       }
     } catch (e) {
-      AppLogger.log('YouTubeClient', 'InnerTube Android direct resolution notice for $cleanId: $e');
+      AppLogger.log('YouTubeClient', 'InnerTube ANDROID_VR direct resolution notice for $cleanId: $e');
     }
     return null;
   }
 
+  /// Primary stream resolver for YouTube tracks.
+  /// First queries InnerTube ANDROID_VR endpoint, with seamless fallback to YouTubeExplode.
+  static Future<String?> getStreamUrl(String videoId, {String? title, String? artist}) async {
+    final cleanId = extractVideoId(videoId) ?? videoId.trim();
+    if (cleanId.isEmpty) return null;
+
+    final cached = _streamCache[cleanId];
+    if (cached != null && !cached.isExpired) {
+      return cached.url;
+    }
+
+    final vrUrl = await _resolveDirectInnertubeVrStream(cleanId);
+    if (vrUrl != null && vrUrl.isNotEmpty) {
+      _streamCache[cleanId] = _CachedAudioStream(vrUrl, DateTime.now().add(const Duration(hours: 3)));
+      return vrUrl;
+    }
+
+    return getAudioStreamUrl(cleanId, title: title, artist: artist);
+  }
+
   /// Client-side audio stream extractor resolving on-device with dual-tier fallback:
-  /// - Tier 1: Direct InnerTube Android client (sub-300ms, direct deciphered streams)
+  /// - Tier 1: Direct InnerTube ANDROID_VR client (sub-300ms, direct deciphered streams)
   /// - Tier 2: YouTubeExplode on-device manifest extraction with watch page decipher fallback
   /// Bypasses datacenter IP blocks, avoiding broken server-side stream resolution on release APKs.
   static Future<String?> getAudioStreamUrl(String videoId, {String? title, String? artist}) async {
@@ -521,8 +847,8 @@ class YouTubeClient {
       return cached.url;
     }
 
-    // ── Tier 1: Direct InnerTube Android Mobile Client (Fast Path) ───
-    final fastUrl = await _resolveDirectInnertubeAndroidStream(cleanId);
+    // ── Tier 1: Direct InnerTube ANDROID_VR Client (Fast Path) ───
+    final fastUrl = await _resolveDirectInnertubeVrStream(cleanId);
     if (fastUrl != null && fastUrl.isNotEmpty) {
       _streamCache[cleanId] = _CachedAudioStream(fastUrl, DateTime.now().add(const Duration(hours: 3)));
       return fastUrl;
@@ -613,6 +939,14 @@ class YouTubeClient {
   static void dispose() {
     closeIdleClient();
   }
+}
+
+/// Instance wrapper for [YouTubeClient] supporting OOP test and injection workflows.
+class YoutubeClient {
+  Future<List<Song>> search(String query, {int limit = 15}) => YouTubeClient.search(query, limit: limit);
+  Future<List<TrackEntity>> searchTracks(String query, {int limit = 15}) => YouTubeClient.searchTracks(query, limit: limit);
+  Future<String?> getStreamUrl(String videoId, {String? title, String? artist}) => YouTubeClient.getStreamUrl(videoId, title: title, artist: artist);
+  Future<String?> getAudioStreamUrl(String videoId, {String? title, String? artist}) => YouTubeClient.getAudioStreamUrl(videoId, title: title, artist: artist);
 }
 
 class _CachedAudioStream {

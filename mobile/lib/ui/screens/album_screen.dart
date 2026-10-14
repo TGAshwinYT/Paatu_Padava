@@ -6,6 +6,7 @@ import '../../services/player_handler.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/batch_download_button.dart';
 import '../widgets/swipeable_song_tile.dart';
+import '../../logic/stream_resolver.dart';
 
 class AlbumScreen extends StatefulWidget {
   final String albumId;
@@ -92,6 +93,9 @@ class _AlbumScreenState extends State<AlbumScreen> {
         _songs = songs;
         _isLoading = false;
       });
+      if (songs.isNotEmpty) {
+        DefaultStreamResolver.prewarmSongs(songs, limit: 3);
+      }
     }
   }
 

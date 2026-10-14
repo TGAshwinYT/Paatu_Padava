@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../models/song.dart';
 import '../../services/artist_sanitizer.dart';
+import '../../data/repositories/song_repository.dart';
 import '../screens/artist_screen.dart';
 
 /// Spotify-style multi-artist picker modal sheet and navigation coordinator.
@@ -16,13 +17,21 @@ class ArtistPickerSheet {
     String? artistId,
     String? imageUrl,
   }) {
+    String finalImage = imageUrl ?? '';
+    if (finalImage.isEmpty) {
+      final norm = SongRepository.normalizeArtist(artistName);
+      if (SongRepository.verifiedArtistAvatars.containsKey(norm)) {
+        finalImage = SongRepository.verifiedArtistAvatars[norm]!;
+      }
+    }
+
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => ArtistScreen(
           artistId: artistId ?? '',
           artistName: artistName,
-          imageUrl: imageUrl ?? '',
+          imageUrl: finalImage,
         ),
       ),
     );
@@ -39,11 +48,12 @@ class ArtistPickerSheet {
 
     if (artists.length <= 1) {
       final targetArtist = artists.isNotEmpty ? artists.first : song.artist;
+      final norm = SongRepository.normalizeArtist(targetArtist);
       navigateToArtist(
         context,
         artistName: targetArtist,
         artistId: song.artistId,
-        imageUrl: song.coverUrl,
+        imageUrl: SongRepository.verifiedArtistAvatars[norm] ?? '',
       );
       return;
     }
@@ -180,11 +190,12 @@ class ArtistPickerSheet {
                     ),
                     onTap: () {
                       Navigator.pop(bottomSheetContext);
+                      final norm = SongRepository.normalizeArtist(artist);
                       navigateToArtist(
                         context,
                         artistName: artist,
                         artistId: isPrimary ? song.artistId : '',
-                        imageUrl: song.coverUrl,
+                        imageUrl: SongRepository.verifiedArtistAvatars[norm] ?? '',
                       );
                     },
                   );

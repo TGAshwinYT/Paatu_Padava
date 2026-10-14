@@ -12,6 +12,11 @@ from pydantic import BaseModel
 from services import youtube
 from services.recommender import personal_recommender, canonical_title, extract_language_from_title
 from services.saavn import search_saavn
+from services.spotify_import import (
+    get_spotify_top_10_tracks,
+    get_spotify_playlists,
+    get_spotify_artist_image,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func
 from connection import get_db, get_redis
@@ -546,7 +551,9 @@ async def get_player_state(
     return {"current_track": None, "queue": []}
 
 
+@router.get("/spotify/token")
 @router.get("/spotify-token")
+@router.post("/spotify/token")
 @router.post("/spotify-token")
 @limiter.limit("20/minute")
 async def get_spotify_token(
@@ -612,6 +619,31 @@ async def get_spotify_token(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Spotify token retrieval error: {str(e)}")
+
+
+@router.get("/spotify/top-hits")
+async def get_spotify_top_hits_endpoint(language: Optional[str] = Query("Tamil")):
+    """
+    Returns Spotify Top 10 Hits for a given language using /v1/search (non-editorial).
+    """
+    return await get_spotify_top_10_tracks(language=language or "Tamil")
+
+
+@router.get("/spotify/playlists")
+async def get_spotify_playlists_endpoint(language: Optional[str] = Query("Tamil")):
+    """
+    Returns Spotify Playlists for a given language using /v1/search (non-editorial, owner != spotify).
+    """
+    return await get_spotify_playlists(language=language or "Tamil")
+
+
+@router.get("/spotify/artist-image")
+async def get_spotify_artist_image_endpoint(artist_name: str = Query(...)):
+    """
+    Returns authentic artist profile image via Spotify search API.
+    """
+    img_url = await get_spotify_artist_image(artist_name=artist_name)
+    return {"artist_name": artist_name, "image_url": img_url}
 
 
 
@@ -736,7 +768,13 @@ async def get_consolidated_home_feed(
                 trending = []
 
         new_releases = results[2] if not isinstance(results[2], Exception) and results[2] else []
-        featured_albums = results[3] if not isinstance(results[3], Exception) and results[3] else []
+        raw_featured_albums = results[3] if not isinstance(results[3], Exception) and results[3] else []
+        featured_albums = [
+            a for a in raw_featured_albums
+            if isinstance(a, dict)
+            and int(a.get("song_count") or a.get("songs_count") or len(a.get("songs", [])) or 2) > 1
+            and "single" not in (a.get("title") or "").lower()
+        ]
         popular_artists = youtube.CURATED_TOP_ARTISTS
 
         youtube_trending = results[1] if not isinstance(results[1], Exception) and results[1] else []

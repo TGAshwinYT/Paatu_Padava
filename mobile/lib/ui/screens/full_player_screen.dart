@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:just_audio/just_audio.dart';
 import '../../models/song.dart';
@@ -17,6 +19,7 @@ import '../widgets/player/player_scrubber.dart';
 import '../widgets/player/player_gesture_detector.dart';
 import 'lyrics_screen.dart';
 import '../../services/artist_sanitizer.dart';
+import '../../data/repositories/song_repository.dart';
 import '../widgets/artist_picker_sheet.dart';
 
 class FullPlayerScreen extends StatefulWidget {
@@ -26,8 +29,84 @@ class FullPlayerScreen extends StatefulWidget {
   State<FullPlayerScreen> createState() => _FullPlayerScreenState();
 }
 
-class _FullPlayerScreenState extends State<FullPlayerScreen> {
+class _FullPlayerScreenState extends State<FullPlayerScreen>
+    with SingleTickerProviderStateMixin {
   bool _showLyrics = false;
+
+  // Double-tap heart/unheart animation overlay
+  late final AnimationController _heartAnimController;
+  late final Animation<double> _heartScaleAnimation;
+  late final Animation<double> _heartOpacityAnimation;
+  bool _showHeartOverlay = false;
+  bool _lastHeartWasLiked = true;
+  Timer? _heartDismissTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _heartAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 650),
+    );
+    _heartScaleAnimation = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 0.3, end: 1.25)
+            .chain(CurveTween(curve: Curves.easeOutBack)),
+        weight: 40,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.25, end: 1.0)
+            .chain(CurveTween(curve: Curves.easeInOut)),
+        weight: 60,
+      ),
+    ]).animate(_heartAnimController);
+
+    _heartOpacityAnimation = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 0.0, end: 1.0)
+            .chain(CurveTween(curve: Curves.easeIn)),
+        weight: 20,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.0, end: 1.0),
+        weight: 50,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.0, end: 0.0)
+            .chain(CurveTween(curve: Curves.easeOut)),
+        weight: 30,
+      ),
+    ]).animate(_heartAnimController);
+  }
+
+  @override
+  void dispose() {
+    _heartDismissTimer?.cancel();
+    _heartAnimController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleArtworkDoubleTap(Song song) async {
+    HapticFeedback.lightImpact();
+    final isLiked = await FavoritesManager.toggleFavorite(song);
+
+    if (mounted) {
+      _heartDismissTimer?.cancel();
+      setState(() {
+        _lastHeartWasLiked = isLiked;
+        _showHeartOverlay = true;
+      });
+      _heartAnimController.forward(from: 0.0);
+
+      _heartDismissTimer = Timer(const Duration(milliseconds: 700), () {
+        if (mounted) {
+          setState(() {
+            _showHeartOverlay = false;
+          });
+        }
+      });
+    }
+  }
 
   void _openSleepTimerDialog() {
     showDialog(
@@ -333,6 +412,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                 child: _showLyrics
                                     ? _buildLyricsView(song)
                                     : PlayerGestureDetector(
+                                        onDoubleTap: () => _handleArtworkDoubleTap(song),
                                         child: _buildArtworkView(song),
                                       ),
                               ),
@@ -375,11 +455,12 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                                     onTap: () {
                                                       final artist = artists[i];
                                                       final isPrimary = artist.toLowerCase() == song.primaryArtist.toLowerCase();
+                                                      final norm = SongRepository.normalizeArtist(artist);
                                                       ArtistPickerSheet.navigateToArtist(
                                                         context,
                                                         artistName: artist,
                                                         artistId: isPrimary ? (song.artistId ?? '') : '',
-                                                        imageUrl: song.coverUrl,
+                                                        imageUrl: SongRepository.verifiedArtistAvatars[norm] ?? '',
                                                       );
                                                     },
                                                     child: Text(
@@ -445,11 +526,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
                                   },
                                 ),
                                 IconButton(
-                                  icon: const Icon(Icons.lyrics_rounded, color: Color(0xFF818CF8), size: 26),
-                                  tooltip: 'Full Screen Lyrics',
-                                  onPressed: () => LyricsScreen.open(context, song: song),
-                                ),
-                                IconButton(
                                   icon: const Icon(Icons.playlist_add_rounded, color: Color(0xFF818CF8), size: 28),
                                   tooltip: 'Add to Playlist',
                                   onPressed: () => AddToPlaylistDialog.show(context, song),
@@ -508,40 +584,79 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> {
 
   Widget _buildArtworkView(Song song) {
     return Center(
-      child: Container(
-        width: MediaQuery.of(context).size.width * 0.78,
-        height: MediaQuery.of(context).size.width * 0.78,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(28),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF6366F1).withValues(alpha: 0.35),
-              blurRadius: 36,
-              offset: const Offset(0, 16),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onDoubleTap: () => _handleArtworkDoubleTap(song),
+        child: Container(
+          width: MediaQuery.of(context).size.width * 0.78,
+          height: MediaQuery.of(context).size.width * 0.78,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(28),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF6366F1).withValues(alpha: 0.35),
+                blurRadius: 36,
+                offset: const Offset(0, 16),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(28),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                (song.localFilePath != null && File(song.localFilePath!).existsSync())
+                    ? Image.file(
+                        File(song.localFilePath!),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _defaultCover(),
+                      )
+                    : (song.coverUrl.isNotEmpty
+                        ? CachedNetworkImage(
+                            imageUrl: song.coverUrl,
+                            fit: BoxFit.cover,
+                            placeholder: (_, __) => Container(
+                              color: const Color(0xFF1E293B),
+                              child: const Center(
+                                child: CircularProgressIndicator(color: Color(0xFF6366F1)),
+                              ),
+                            ),
+                            errorWidget: (_, __, ___) => _defaultCover(),
+                          )
+                        : _defaultCover()),
+                if (_showHeartOverlay)
+                  Center(
+                    child: AnimatedBuilder(
+                      animation: _heartAnimController,
+                      builder: (context, child) {
+                        return Opacity(
+                          opacity: _heartOpacityAnimation.value.clamp(0.0, 1.0),
+                          child: Transform.scale(
+                            scale: _heartScaleAnimation.value,
+                            child: Container(
+                              padding: const EdgeInsets.all(20),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.black.withValues(alpha: 0.45),
+                              ),
+                              child: Icon(
+                                _lastHeartWasLiked
+                                    ? Icons.favorite_rounded
+                                    : Icons.favorite_border_rounded,
+                                color: _lastHeartWasLiked
+                                    ? const Color(0xFFEC4899)
+                                    : Colors.white,
+                                size: 84,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+              ],
             ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(28),
-          child: (song.localFilePath != null && File(song.localFilePath!).existsSync())
-              ? Image.file(
-                  File(song.localFilePath!),
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => _defaultCover(),
-                )
-              : (song.coverUrl.isNotEmpty
-                  ? CachedNetworkImage(
-                      imageUrl: song.coverUrl,
-                      fit: BoxFit.cover,
-                      placeholder: (_, __) => Container(
-                        color: const Color(0xFF1E293B),
-                        child: const Center(
-                          child: CircularProgressIndicator(color: Color(0xFF6366F1)),
-                        ),
-                      ),
-                      errorWidget: (_, __, ___) => _defaultCover(),
-                    )
-                  : _defaultCover()),
+          ),
         ),
       ),
     );

@@ -21,35 +21,40 @@ import 'firebase_options.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/screens/main_navigation.dart';
 
+Future<void> _initFirebase() async {
+  try {
+    if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS)) {
+      final options = DefaultFirebaseOptions.currentPlatform;
+      final future = options.apiKey.isNotEmpty
+          ? Firebase.initializeApp(options: options)
+          : Firebase.initializeApp();
+      await future.timeout(const Duration(seconds: 1));
+      AppLogger.log('AppInit', 'Firebase successfully connected');
+    }
+  } catch (e, stack) {
+    AppLogger.recordError(e, stack, context: 'Firebase.initializeApp');
+  }
+}
+
+Future<void> _initSupabase() async {
+  try {
+    await SupabaseService.init().timeout(const Duration(seconds: 1));
+  } catch (e, stack) {
+    AppLogger.recordError(e, stack, context: 'SupabaseService.init');
+  }
+}
+
 Future<void> main() async {
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
 
-    // 0. Initialize Google Firebase services
-    try {
-      if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS)) {
-        final options = DefaultFirebaseOptions.currentPlatform;
-        if (options.apiKey.isNotEmpty) {
-          await Firebase.initializeApp(options: options);
-        } else {
-          await Firebase.initializeApp();
-        }
-        AppLogger.log('AppInit', 'Firebase successfully connected');
-      }
-    } catch (e, stack) {
-      AppLogger.recordError(e, stack, context: 'Firebase.initializeApp');
-    }
-
-    // 1. Initialize persistent disk logger for crash and lifecycle tracing
-    await AppLogger.init();
-
-    // 2. Catch framework-level errors (widget build, layout assertions)
+    // 1. Catch framework-level errors (widget build, layout assertions)
     FlutterError.onError = (FlutterErrorDetails details) {
       FlutterError.presentError(details);
       AppLogger.recordError(details.exception, details.stack, context: 'FlutterError.onError');
     };
 
-    // 3. Catch uncaught platform / isolate errors
+    // 2. Catch uncaught platform / isolate errors
     PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
       AppLogger.recordError(error, stack, context: 'PlatformDispatcher.onError');
       return true; // Mark as handled to prevent abrupt native teardown where possible
@@ -65,27 +70,15 @@ Future<void> main() async {
       ),
     );
 
-    // Initialize Supabase client for cloud auth & user taste sync
-    await SupabaseService.init();
-
-    // Initialize offline Hive storage for songs, favorites, auth session, history, and search history
+    // 3. Fast local startup: only await local Hive engine and critical settings preferences
     try {
       await Hive.initFlutter();
       await SettingsManager.init();
-      await AuthManager.init();
-      await DownloadManager.init();
-      await FavoritesManager.init();
-      await HistoryManager.init();
-      await PlaylistManager.init();
-      await SearchHistoryManager.init();
     } catch (e, stack) {
-      AppLogger.recordError(e, stack, context: 'Storage init');
+      AppLogger.recordError(e, stack, context: 'SettingsManager.init');
     }
 
-    // Run automatic audio cache cleaner in background (>400MB or >7 days old) after settings are initialized
-    CacheManager.autoEvictOldCache();
-
-    // Initialize background AudioService engine
+    // 4. Initialize background AudioService engine
     Object? audioInitError;
     try {
       audioHandler = await AudioService.init(
@@ -108,6 +101,30 @@ Future<void> main() async {
       runApp(AudioFatalErrorApp(error: audioInitError));
       return;
     }
+
+    // 5. Run non-dependent initializations concurrently via Future.wait() with a 2-second safety timeout
+    try {
+      await Future.wait([
+        AppLogger.init(),
+        AuthManager.init(),
+        DownloadManager.init(),
+        FavoritesManager.init(),
+        HistoryManager.init(),
+        PlaylistManager.init(),
+        SearchHistoryManager.init(),
+        Hive.openBox('home_feed_cache'),
+        _initFirebase(),
+        _initSupabase(),
+      ]).timeout(const Duration(seconds: 2), onTimeout: () {
+        AppLogger.log('AppInit', 'Non-dependent services initialization completed with 2s safety timeout');
+        return [];
+      });
+    } catch (e, stack) {
+      AppLogger.recordError(e, stack, context: 'Non-critical init');
+    }
+
+    // Run automatic audio cache cleaner in background (>400MB or >7 days old) after settings are initialized
+    CacheManager.autoEvictOldCache();
 
     // Request Android 13+ POST_NOTIFICATIONS runtime permission for reliable media notifications
     unawaited(BatteryOptimizationService.requestNotificationPermission());

@@ -101,22 +101,19 @@ jobs:
 
       - name: Setup Android Signing Keystore
         env:
-          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 || secrets.RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
-          mkdir -p ~/.android
-          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
-            echo "Decoding release keystore from repository secrets..."
-            echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > mobile/android/app/release.jks
-            echo "KEYSTORE_PATH=release.jks" >> $GITHUB_ENV
-            echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
-            echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
-            echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
-            echo "✅ Configured permanent release keystore from GitHub Secrets."
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "Decoding release keystore from repository secrets into upload-keystore.jks..."
+            echo "$KEYSTORE_BASE64" | base64 -d > mobile/android/app/upload-keystore.jks
+            printf "storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=app/upload-keystore.jks\n" \
+              "$STORE_PASSWORD" "$KEY_PASSWORD" "$KEY_ALIAS" > mobile/android/key.properties
+            echo "✅ Configured permanent release keystore and key.properties."
           else
-            echo "ℹ️ RELEASE_KEYSTORE_BASE64 not configured; ensuring build keystore fallback."
-            if [ ! -f ~/.android/debug.keystore ]; then
-              keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-            fi
+            echo "⚠️ KEYSTORE_BASE64 is not configured in repository secrets."
           fi
 
       - name: Build Release APK
@@ -128,15 +125,20 @@ jobs:
 
           CLEAN_URL=$(printf '%s' "${{ secrets.SUPABASE_URL }}" | tr -d '\r\n "' | sed "s/'//g" | sed 's:/*$::')
           CLEAN_KEY=$(printf '%s' "${{ secrets.SUPABASE_ANON_KEY }}" | tr -d '\r\n "' | sed "s/'//g")
+          SPOTIFY_ID=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_ID }}" | tr -d '\r\n "' | sed "s/'//g")
+          SPOTIFY_SECRET=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_SECRET }}" | tr -d '\r\n "' | sed "s/'//g")
 
-          echo "Building APK with Git commit: $SHORT_SHA ($BUILD_TIME)..."
+          echo "Building APK with Git commit: $SHORT_SHA ($BUILD_TIME, run #${{ github.run_number }})..."
 
           MAX_RETRIES=3
           for i in $(seq 1 $MAX_RETRIES); do
             echo "Attempt $i of $MAX_RETRIES: Building release APK..."
             if flutter build apk --release -t lib/main.dart --android-skip-build-dependency-validation \
+                --build-number=${{ github.run_number }} \
                 --dart-define=SUPABASE_URL="$CLEAN_URL" \
                 --dart-define=SUPABASE_ANON_KEY="$CLEAN_KEY" \
+                --dart-define=SPOTIFY_CLIENT_ID="$SPOTIFY_ID" \
+                --dart-define=SPOTIFY_CLIENT_SECRET="$SPOTIFY_SECRET" \
                 --dart-define=GIT_COMMIT="$SHORT_SHA" \
                 --dart-define=BUILD_TIME="$BUILD_TIME"; then
               echo "✅ APK built successfully on attempt $i!"

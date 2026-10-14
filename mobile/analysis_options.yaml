@@ -11,3 +11,5 @@ analyzer:
     - build/**
     - android/**
     - ios/**
+    - scratch_*.dart
+    - "**/scratch_*.dart"

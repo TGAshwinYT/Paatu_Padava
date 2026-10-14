@@ -50,3 +50,21 @@ app.*.map.json
 # Gradle build cache
 .gradle/
 android/.gradle/
+
+# Keystores & Android signing credentials
+**/key.properties
+key.properties
+**/*.jks
+*.jks
+**/*.keystore
+*.keystore
+
+# Environment files
+.env
+.env.*
+*.env
+
+# Scratch scripts
+scratch*
+scratch_*.dart
+

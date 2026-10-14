@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 import '../models/song.dart';
+import '../domain/models/track_entity.dart';
 import '../services/app_logger.dart';
 import '../services/youtube_client.dart';
 import '../services/saavn_client.dart';
 import '../services/audius_client.dart';
 import '../services/artist_sanitizer.dart';
+import '../services/download_manager.dart';
 
 /// Representation of an in-memory cached stream URL with a strict Time-To-Live (TTL).
 class StreamCacheEntry {
@@ -32,6 +35,13 @@ abstract class StreamResolver {
 /// 3. Resilient timeout management
 /// 4. 3-hour TTL in-memory stream cache (Spotify/YT Music model)
 class DefaultStreamResolver implements StreamResolver {
+  final YoutubeClient _youtubeClient;
+
+  DefaultStreamResolver({
+    YoutubeClient? youtubeClient,
+    SaavnClient? saavnClient,
+  }) : _youtubeClient = youtubeClient ?? YoutubeClient();
+
   static const Duration _overallTimeout = Duration(seconds: 25);
   static const Duration _saavnSearchTimeout = Duration(seconds: 6);
   static const Duration cacheTtl = Duration(hours: 3);
@@ -88,9 +98,56 @@ class DefaultStreamResolver implements StreamResolver {
   @override
   bool isExpired(String songId) => isStreamExpired(songId);
 
+  /// Silently resolves and caches stream URLs for the top tracks in the background
+  static Future<void> prewarm(List<TrackEntity> tracks, {int limit = 3}) async {
+    final toPrewarm = tracks.take(limit).toList();
+    final resolver = DefaultStreamResolver();
+    await Future.wait(
+      toPrewarm.map((t) async {
+        try {
+          final s = t.toSong();
+          if (getCachedStream(s.id) == null) {
+            await resolver.resolveStreamUrl(s).timeout(const Duration(seconds: 4), onTimeout: () => null);
+          }
+        } catch (_) {}
+      }),
+    );
+  }
+
+  /// Silently resolves and caches stream URLs for the top songs in the background
+  static Future<void> prewarmSongs(List<Song> songs, {int limit = 3}) async {
+    final toPrewarm = songs.take(limit).toList();
+    final resolver = DefaultStreamResolver();
+    await Future.wait(
+      toPrewarm.map((s) async {
+        try {
+          if (getCachedStream(s.id) == null) {
+            await resolver.resolveStreamUrl(s).timeout(const Duration(seconds: 4), onTimeout: () => null);
+          }
+        } catch (_) {}
+      }),
+    );
+  }
+
   @override
   Future<String?> resolveStreamUrl(Song song) async {
-    // 0. Check in-memory stream cache (3-hour TTL)
+    // 0. Check DownloadManager local file path first for offline playback
+    if (song.localFilePath != null && File(song.localFilePath!).existsSync()) {
+      return song.localFilePath;
+    }
+    final offlinePath = DownloadManager.getLocalFilePath(song.id);
+    if (offlinePath != null && File(offlinePath).existsSync()) {
+      song.localFilePath = offlinePath;
+      return offlinePath;
+    }
+
+    // Return Audius stream URL directly without stripping or re-requesting
+    if (song.source == 'audius' && song.streamUrl != null && song.streamUrl!.isNotEmpty) {
+      cacheStream(song.id, song.streamUrl!, source: 'audius');
+      return song.streamUrl;
+    }
+
+    // Check in-memory stream cache (3-hour TTL)
     final cached = getCachedStream(song.id);
     if (cached != null && cached.isNotEmpty) {
       AppLogger.log(
@@ -137,7 +194,7 @@ class DefaultStreamResolver implements StreamResolver {
     if (song.source == 'youtube' || song.id.length == 11) {
       // 1. Direct YouTube stream resolution (User explicitly selected YouTube)
       try {
-        final ytUrl = await YouTubeClient.getAudioStreamUrl(song.id, title: song.title, artist: song.artist);
+        final ytUrl = await _youtubeClient.getStreamUrl(song.id, title: song.title, artist: song.artist);
         if (ytUrl != null && ytUrl.isNotEmpty) {
           return ytUrl;
         }
@@ -145,7 +202,7 @@ class DefaultStreamResolver implements StreamResolver {
         AppLogger.log('StreamResolver', 'Direct YouTube stream resolution notice: $e');
       }
 
-      // 2. Fallback: Search JioSaavn if YouTube direct extraction failed or timed out
+      // 2. Fallback: Search JioSaavn if YouTube direct extraction returns null
       try {
         final cleanTitle = YouTubeClient.cleanTitle(song.title);
         final cleanArtist = (song.artist.isNotEmpty && !ArtistSanitizer.isRecordLabelOrChannel(song.artist))
@@ -160,6 +217,10 @@ class DefaultStreamResolver implements StreamResolver {
             song.streamUrl = match.streamUrl;
             return match.streamUrl;
           }
+        }
+        if (saavnMatches.isNotEmpty && saavnMatches.first.streamUrl != null && saavnMatches.first.streamUrl!.isNotEmpty) {
+          song.streamUrl = saavnMatches.first.streamUrl;
+          return saavnMatches.first.streamUrl;
         }
       } catch (e) {
         AppLogger.log('StreamResolver', 'Saavn match fallback notice: $e');

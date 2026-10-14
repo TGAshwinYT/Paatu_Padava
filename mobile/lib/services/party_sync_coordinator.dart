@@ -234,6 +234,13 @@ class PartySyncCoordinator {
 
     channel.subscribe((status, [error]) {
       debugPrint('[PartySyncCoordinator] Host channel status: $status');
+      if (status == RealtimeSubscribeStatus.closed || status == RealtimeSubscribeStatus.timedOut) {
+        if (isAudioHandlerInitialized) {
+          try {
+            audioHandler.setSpeed(1.0);
+          } catch (_) {}
+        }
+      }
     });
 
     _partyChannel = channel;
@@ -380,6 +387,13 @@ class PartySyncCoordinator {
         );
         // Start 8-packet NTP handshake
         _executeNtpHandshake();
+      } else if (status == RealtimeSubscribeStatus.closed || status == RealtimeSubscribeStatus.timedOut) {
+        if (isAudioHandlerInitialized) {
+          try {
+            audioHandler.setSpeed(1.0);
+          } catch (_) {}
+        }
+        syncStatusDescription.value = 'Party disconnected';
       }
     });
 
@@ -734,6 +748,13 @@ class PartySyncCoordinator {
 
   /// Leaves or terminates the party session
   static Future<void> leaveParty() async {
+    // Reset playback speed to 1.0 immediately
+    if (isAudioHandlerInitialized) {
+      try {
+        audioHandler.setSpeed(1.0);
+      } catch (_) {}
+    }
+
     _hostHeartbeatTimer?.cancel();
     _hostHeartbeatTimer = null;
     _ntpHandshakeTimer?.cancel();
@@ -760,7 +781,11 @@ class PartySyncCoordinator {
     }
 
     // Reset playback speed to normal
-    audioHandler.setSpeed(1.0);
+    if (isAudioHandlerInitialized) {
+      try {
+        audioHandler.setSpeed(1.0);
+      } catch (_) {}
+    }
 
     roleNotifier.value = PartyRole.none;
     partyCodeNotifier.value = null;

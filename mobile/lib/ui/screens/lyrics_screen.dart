@@ -14,17 +14,20 @@ import '../widgets/lyrics/wrong_lyrics_sheet.dart';
 import '../widgets/lyrics/lyrics_top_bar.dart';
 import '../widgets/lyrics/lyrics_empty_states.dart';
 import '../widgets/fluid_mesh_gradient.dart';
+import '../../logic/lyrics/indic_romanizer.dart';
 
 class _LrcLine {
   final Duration timestamp;
   final Duration? endTimestamp;
   final String text;
+  final String? romanizedText;
   final bool isBgm;
 
   const _LrcLine({
     required this.timestamp,
     this.endTimestamp,
     required this.text,
+    this.romanizedText,
     this.isBgm = false,
   });
 }
@@ -151,18 +154,51 @@ class _LyricsScreenState extends State<LyricsScreen> {
       if (matches.isNotEmpty) {
         final text = Song.sanitize(line.replaceAll(timestampRegex, '').trim());
         if (text.isEmpty) continue;
+        final romanized = IndicRomanizer.hasIndicScript(text) ? IndicRomanizer.romanize(text) : null;
 
         for (final m in matches) {
           final min = int.tryParse(m.group(1)!) ?? 0;
           final sec = double.tryParse(m.group(2)!) ?? 0.0;
           final rawMs = ((min * 60 + sec) * 1000).toInt();
           final effectiveMs = math.max(0, rawMs + headerOffsetMs);
-          parsed.add(_LrcLine(timestamp: Duration(milliseconds: effectiveMs), text: text, isBgm: false));
+          parsed.add(_LrcLine(
+            timestamp: Duration(milliseconds: effectiveMs),
+            text: text,
+            romanizedText: romanized,
+            isBgm: false,
+          ));
         }
       }
     }
 
     parsed.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+    // Skew Normalization
+    if (parsed.isNotEmpty) {
+      final curSong = widget.initialSong ?? audioHandler.currentSong;
+      final int audioDurationMs = audioHandler.player.duration?.inMilliseconds ??
+          ((curSong?.duration != null && curSong!.duration > 0) ? curSong.duration * 1000 : 0);
+      final int lastLyricMs = parsed.last.timestamp.inMilliseconds;
+      final double ratio = (audioDurationMs > 0 && lastLyricMs > 0) ? (audioDurationMs / lastLyricMs) : 1.0;
+
+      if (ratio >= 0.94 && ratio <= 1.06 && ratio != 1.0) {
+        for (int i = 0; i < parsed.length; i++) {
+          final p = parsed[i];
+          final scaledMs = (p.timestamp.inMilliseconds * ratio).round();
+          Duration? scaledEnd;
+          if (p.endTimestamp != null) {
+            scaledEnd = Duration(milliseconds: (p.endTimestamp!.inMilliseconds * ratio).round());
+          }
+          parsed[i] = _LrcLine(
+            timestamp: Duration(milliseconds: scaledMs),
+            endTimestamp: scaledEnd,
+            text: p.text,
+            romanizedText: p.romanizedText,
+            isBgm: p.isBgm,
+          );
+        }
+      }
+    }
 
     // Bloomee BGM / Instrumental pauses (>6s gaps)
     if (parsed.isNotEmpty) {
@@ -622,7 +658,13 @@ class _LyricsScreenState extends State<LyricsScreen> {
                                 : null,
                           ),
                           textAlign: TextAlign.left,
-                          child: Text(line.text),
+                          child: Text(
+                            (audioHandler.lyricsLanguageNotifier.value == LyricsLanguage.english &&
+                                    line.romanizedText != null &&
+                                    line.romanizedText!.isNotEmpty)
+                                ? line.romanizedText!
+                                : line.text,
+                          ),
                         ),
                       ),
               ),

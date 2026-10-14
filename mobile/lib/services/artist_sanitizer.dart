@@ -6,6 +6,20 @@ import 'package:html_unescape/html_unescape.dart';
 class ArtistSanitizer {
   static final HtmlUnescape _unescape = HtmlUnescape();
 
+  /// Decodes HTML entities (&amp;, &quot;, &#039;, &apos;, &lt;, &gt;) safely
+  static String decodeHtml(String text) {
+    if (text.isEmpty) return text;
+    var decoded = _unescape.convert(text);
+    decoded = decoded
+        .replaceAll('&amp;', '&')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#039;', "'")
+        .replaceAll('&apos;', "'")
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>');
+    return decoded.trim();
+  }
+
   /// Known Record Labels & Music Corporations
   static const Set<String> _recordLabels = {
     't-series',
@@ -296,7 +310,7 @@ class ArtistSanitizer {
   /// Checks if a string represents multiple collaborating artists or a composite duo/trio.
   /// Examples: "Arijit Singh & Chinmayi Sripada", "Anirudh feat. Jonita", "Dhanush, Dhee"
   static bool isCompositeOrMultiArtist(String rawName) {
-    final clean = _unescape.convert(rawName).trim();
+    final clean = decodeHtml(rawName);
     if (clean.isEmpty) return false;
 
     // Check for collaboration indicators
@@ -453,7 +467,7 @@ class ArtistSanitizer {
   /// Extracts the primary genuine musician (composer or playback singer)
   /// from a composite artist credit string (e.g. "Anirudh Ravichander, Thalapathy Vijay" -> "Anirudh Ravichander")
   static String extractPrimaryGenuineArtist(String artistString) {
-    final unescaped = _unescape.convert(artistString).trim();
+    final unescaped = decodeHtml(artistString);
     if (unescaped.isEmpty) return 'Unknown Artist';
 
     final parts = unescaped.split(RegExp(r'[,&/|]|\bfeat\.?\b|\bft\.?\b|\bwith\b', caseSensitive: false));
@@ -473,7 +487,7 @@ class ArtistSanitizer {
   /// Returns a deduplicated list of clean genuine artist names preserving original casing.
   /// Example: "Anirudh Ravichander, Sai Abhyankkar" -> ["Anirudh Ravichander", "Sai Abhyankkar"]
   static List<String> extractAllGenuineArtists(String artistString) {
-    final unescaped = _unescape.convert(artistString).trim();
+    final unescaped = decodeHtml(artistString);
     if (unescaped.isEmpty) return const [];
 
     final parts = unescaped.split(RegExp(

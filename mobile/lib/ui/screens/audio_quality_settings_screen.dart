@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/settings_manager.dart';
 import '../widgets/mini_player.dart';
-import '../widgets/settings/equalizer_settings_card.dart';
 
 class AudioQualitySettingsScreen extends StatelessWidget {
   const AudioQualitySettingsScreen({Key? key}) : super(key: key);

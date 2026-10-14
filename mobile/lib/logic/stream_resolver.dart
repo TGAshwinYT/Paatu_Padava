@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'package:http/http.dart' as http;
 import '../models/song.dart';
 import '../domain/models/track_entity.dart';
 import '../services/app_logger.dart';
@@ -8,6 +10,7 @@ import '../services/saavn_client.dart';
 import '../services/audius_client.dart';
 import '../services/artist_sanitizer.dart';
 import '../services/download_manager.dart';
+import '../core/app_config.dart';
 
 /// Representation of an in-memory cached stream URL with a strict Time-To-Live (TTL).
 class StreamCacheEntry {
@@ -23,6 +26,20 @@ class StreamCacheEntry {
 /// Abstract contract for audio stream URL resolution.
 /// Decouples queue management from provider-specific extraction, timeouts, and fallbacks.
 abstract class StreamResolver {
+  factory StreamResolver({
+    YoutubeClient? youtubeClient,
+    SaavnClient? saavnClient,
+  }) = DefaultStreamResolver;
+
+  Future<String?> resolve(dynamic track) async {
+    if (track is Song) {
+      return resolveStreamUrl(track);
+    } else if (track is TrackEntity) {
+      return resolveStreamUrl(track.toSong());
+    }
+    return null;
+  }
+
   Future<String?> resolveStreamUrl(Song song);
   bool verifyAudioMatch(Song candidate, Song target);
   void invalidate(String songId) {}
@@ -130,6 +147,16 @@ class DefaultStreamResolver implements StreamResolver {
   }
 
   @override
+  Future<String?> resolve(dynamic track) async {
+    if (track is Song) {
+      return resolveStreamUrl(track);
+    } else if (track is TrackEntity) {
+      return resolveStreamUrl(track.toSong());
+    }
+    return null;
+  }
+
+  @override
   Future<String?> resolveStreamUrl(Song song) async {
     // 0. Check DownloadManager local file path first for offline playback
     if (song.localFilePath != null && File(song.localFilePath!).existsSync()) {
@@ -182,6 +209,87 @@ class DefaultStreamResolver implements StreamResolver {
     }
   }
 
+  /// Extracts the base title before delimiters (-, |, /, (, [) and strips parentheticals/noise
+  static String extractCleanBaseTitle(String title) {
+    var cleaned = Song.sanitize(title);
+    cleaned = cleaned.replaceAll(RegExp(r'["'']'), '');
+    cleaned = cleaned.replaceAll(RegExp(r'[\(\[\{].*?[\)\]\}]'), ' ');
+    final splitParts = cleaned.split(RegExp(r'[-–—|/]|(?:\b(feat|ft)\b)', caseSensitive: false));
+    if (splitParts.isNotEmpty && splitParts.first.trim().isNotEmpty) {
+      cleaned = splitParts.first.trim();
+    }
+    cleaned = cleaned.replaceAll(
+      RegExp(r'\b(official|video|audio|lyric|lyrical|hd|4k|full video|song|teaser|trailer|remix|lofi)\b', caseSensitive: false),
+      ' ',
+    );
+    cleaned = cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return cleaned.isNotEmpty ? cleaned : Song.sanitize(title);
+  }
+
+  /// Extracts the primary artist name/word (e.g. "Anirudh")
+  static String extractFirstArtist(String artist) {
+    var cleaned = Song.sanitize(artist);
+    cleaned = cleaned.replaceAll(RegExp(r'["'']'), '');
+    cleaned = cleaned.replaceAll(RegExp(r'[\(\[\{].*?[\)\]\}]'), ' ');
+    final parts = cleaned.split(RegExp(r'[,&|/]|(?:\b(feat|ft|and)\b)', caseSensitive: false));
+    if (parts.isNotEmpty && parts.first.trim().isNotEmpty) {
+      cleaned = parts.first.trim();
+    }
+    final words = cleaned.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    if (words.isNotEmpty) {
+      if (words[0].length <= 3 && words.length > 1) {
+        return '${words[0]} ${words[1]}'.trim();
+      }
+      return words[0].trim();
+    }
+    return cleaned.trim();
+  }
+
+  /// Extracts title only (retaining subtitle after '-' if present, but stripping parentheticals and noise)
+  static String extractCleanTitleOnly(String title) {
+    var cleaned = Song.sanitize(title);
+    cleaned = cleaned.replaceAll(RegExp(r'["'']'), '');
+    cleaned = cleaned.replaceAll(RegExp(r'[\(\[\{].*?[\)\]\}]'), ' ');
+    cleaned = cleaned.replaceAll(
+      RegExp(r'\b(official|video|audio|lyric|lyrical|hd|4k|full video|song|teaser|trailer|remix|lofi|music video|visualizer)\b', caseSensitive: false),
+      ' ',
+    );
+    cleaned = cleaned.replaceAll(RegExp(r'[-–—|/_]'), ' ');
+    cleaned = cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return cleaned.isNotEmpty ? cleaned : Song.sanitize(title);
+  }
+
+  /// Queries backend stream proxy endpoints if direct extraction fails
+  static Future<String?> _queryBackendStreamProxy(String trackId, String cleanTitle) async {
+    try {
+      final base = AppConfig.backendUrl.replaceAll(RegExp(r'/+$'), '');
+      if (base.isEmpty) return null;
+
+      final streamUri = Uri.parse('$base/music/stream/$trackId');
+      final res = await http.get(streamUri, headers: {'Accept': 'application/json'}).timeout(const Duration(seconds: 4));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data is Map && data['url'] != null && data['url'].toString().isNotEmpty) {
+          return data['url'].toString();
+        }
+      }
+
+      final searchUri = Uri.parse('$base/music/search?q=${Uri.encodeComponent(cleanTitle)}');
+      final sRes = await http.get(searchUri, headers: {'Accept': 'application/json'}).timeout(const Duration(seconds: 4));
+      if (sRes.statusCode == 200) {
+        final data = jsonDecode(sRes.body);
+        if (data is Map && data['results'] is List && (data['results'] as List).isNotEmpty) {
+          final first = (data['results'] as List).first;
+          final u = first['stream_url'] ?? first['audio_url'] ?? first['url'];
+          if (u != null && u.toString().isNotEmpty) {
+            return u.toString();
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   /// Strips noise keywords, bracketed video tags, and delimiters from YouTube titles
   /// to form an optimal query for JioSaavn Smart Replace.
   static String cleanYouTubeTitle(String title, String artist) {
@@ -204,8 +312,6 @@ class DefaultStreamResolver implements StreamResolver {
     return cleaned;
   }
 
-  static String _cleanYouTubeTitle(String title, String artist) => cleanYouTubeTitle(title, artist);
-
   Future<String?> _resolveStreamUrlInternal(Song song) async {
     if (song.source == 'audius') {
       final audiusUrl = (song.streamUrl != null && song.streamUrl!.isNotEmpty)
@@ -215,97 +321,89 @@ class DefaultStreamResolver implements StreamResolver {
       return audiusUrl;
     }
 
-    if (song.source == 'youtube' || song.id.length == 11) {
-      // 1. Direct YouTube stream resolution (with 3-second timeout)
+    // Direct Saavn stream if already decrypted and valid
+    if (song.streamUrl != null &&
+        song.streamUrl!.contains('saavncdn.com') &&
+        !_invalidatedSongIds.contains(song.id) &&
+        !isStreamExpired(song.id)) {
+      return song.streamUrl;
+    }
+
+    // ── STAGE A (Exact Clean Title + Primary Artist on Saavn) ──
+    // Strip parentheticals (From ...), [Official ...], quotes, and featured artists.
+    // Take song title before '-' or '(' and first artist name (e.g. "Hukum Anirudh").
+    final cleanBase = extractCleanBaseTitle(song.title);
+    final firstArtist = extractFirstArtist(song.artist);
+    final queryA = '$cleanBase $firstArtist'.trim();
+    if (queryA.isNotEmpty) {
       try {
-        final ytUrl = await _youtubeClient
-            .getStreamUrl(song.id, title: song.title, artist: song.artist)
-            .timeout(const Duration(seconds: 3), onTimeout: () => null);
-        if (ytUrl != null && ytUrl.isNotEmpty) {
-          return ytUrl;
-        }
-      } catch (e) {
-        AppLogger.log('StreamResolver', 'Direct YouTube stream resolution notice: $e');
-      }
-
-      // 2. BloomeeTunes Smart Replace: Query JioSaavn for working 320kbps audio stream
-      try {
-        final query = _cleanYouTubeTitle(song.title, song.artist);
-        AppLogger.log('StreamResolver', 'Smart Replace triggered for YouTube track "${song.title}". Querying JioSaavn: "$query"');
-        var saavnMatches = await SaavnClient.search(query, limit: 5)
-            .timeout(_saavnSearchTimeout, onTimeout: () => []);
-
-        // Retry with just song title if artist query yielded no results
-        if (saavnMatches.isEmpty) {
-          final titleOnly = YouTubeClient.cleanTitle(song.title);
-          AppLogger.log('StreamResolver', 'Smart Replace retrying with title only: "$titleOnly"');
-          saavnMatches = await SaavnClient.search(titleOnly, limit: 5)
-              .timeout(_saavnSearchTimeout, onTimeout: () => []);
-        }
-
-        for (final match in saavnMatches) {
-          if (match.streamUrl != null && match.streamUrl!.isNotEmpty && verifyAudioMatch(match, song)) {
-            AppLogger.log('StreamResolver', 'Smart Replace matched for YouTube track "${song.title}": "${match.title}"');
+        AppLogger.log('StreamResolver', 'Stage A search on Saavn: "$queryA"');
+        final saavnMatchesA = await SaavnClient.search(queryA, limit: 5)
+            .timeout(_saavnSearchTimeout, onTimeout: () => <Song>[]);
+        for (final match in saavnMatchesA) {
+          if (match.streamUrl != null && match.streamUrl!.contains('saavncdn.com')) {
+            AppLogger.log('StreamResolver', 'Stage A matched for "${song.title}": "${match.title}" -> ${match.streamUrl}');
             song.streamUrl = match.streamUrl;
             cacheStream(song.id, match.streamUrl!, source: 'saavn');
             return match.streamUrl;
           }
         }
-
-        if (saavnMatches.isNotEmpty && saavnMatches.first.streamUrl != null && saavnMatches.first.streamUrl!.isNotEmpty) {
-          final topMatch = saavnMatches.first;
-          AppLogger.log('StreamResolver', 'Smart Replace relaxed top match for "${song.title}": "${topMatch.title}"');
-          song.streamUrl = topMatch.streamUrl;
-          cacheStream(song.id, topMatch.streamUrl!, source: 'saavn');
-          return topMatch.streamUrl;
-        }
       } catch (e) {
-        AppLogger.log('StreamResolver', 'Smart Replace fallback error: $e');
+        AppLogger.log('StreamResolver', 'Stage A notice: $e');
       }
-    } else {
-      // Direct JioSaavn stream
+    }
+
+    // ── STAGE B (Title-Only Search on Saavn) ──
+    // If Stage A returns empty, search Saavn with cleanTitleOnly (e.g. "Hukum Thalaivar Alappara").
+    final cleanTitleOnly = extractCleanTitleOnly(song.title);
+    if (cleanTitleOnly.isNotEmpty) {
       try {
-        final isInvalidated = _invalidatedSongIds.contains(song.id);
-        if (!isInvalidated && song.streamUrl != null && song.streamUrl!.isNotEmpty && !isStreamExpired(song.id)) {
-          return song.streamUrl;
-        }
-        final cleanTitle = YouTubeClient.cleanTitle(song.title);
-        final query = song.artist.isNotEmpty ? '$cleanTitle ${song.artist}' : cleanTitle;
-        final matches = await SaavnClient.search(query, limit: 5).timeout(_saavnSearchTimeout);
-        for (final match in matches) {
-          if (match.streamUrl != null && match.streamUrl!.isNotEmpty && verifyAudioMatch(match, song)) {
-            _invalidatedSongIds.remove(song.id);
+        AppLogger.log('StreamResolver', 'Stage B search on Saavn: "$cleanTitleOnly"');
+        final saavnMatchesB = await SaavnClient.search(cleanTitleOnly, limit: 5)
+            .timeout(_saavnSearchTimeout, onTimeout: () => <Song>[]);
+        for (final match in saavnMatchesB) {
+          if (match.streamUrl != null && match.streamUrl!.contains('saavncdn.com')) {
+            AppLogger.log('StreamResolver', 'Stage B matched for "${song.title}": "${match.title}" -> ${match.streamUrl}');
+            song.streamUrl = match.streamUrl;
+            cacheStream(song.id, match.streamUrl!, source: 'saavn');
             return match.streamUrl;
           }
         }
-        // Second pass: relaxed check for same ID or direct title match before falling back to YouTube
-        for (final match in matches) {
-          if (match.streamUrl != null && match.streamUrl!.isNotEmpty) {
-            if (match.id == song.id || normalizeForComparison(match.title) == normalizeForComparison(song.title)) {
-              _invalidatedSongIds.remove(song.id);
-              return match.streamUrl;
-            }
-          }
-        }
       } catch (e) {
-        AppLogger.log('StreamResolver', 'Direct Saavn stream resolution notice: $e');
-      }
-
-      // 3. Fallback: If JioSaavn has no stream, attempt to resolve via YouTube
-      try {
-        final query = '${YouTubeClient.cleanTitle(song.title)} ${song.artist} audio';
-        final ytMatches = await YouTubeClient.search(query, limit: 3);
-        for (final yt in ytMatches) {
-          final ytUrl = await YouTubeClient.getAudioStreamUrl(yt.id, title: song.title, artist: song.artist);
-          if (ytUrl != null && ytUrl.isNotEmpty) {
-            _invalidatedSongIds.remove(song.id);
-            return ytUrl;
-          }
-        }
-      } catch (e) {
-        AppLogger.log('StreamResolver', 'Saavn to YouTube fallback notice: $e');
+        AppLogger.log('StreamResolver', 'Stage B notice: $e');
       }
     }
+
+    // ── STAGE C (Direct YouTube InnerTube Stream) ──
+    // If Stages A & B find nothing on Saavn, call YoutubeClient().getStreamUrl(track.id)
+    try {
+      AppLogger.log('StreamResolver', 'Stage C direct YouTube stream for: ${song.id}');
+      final ytUrl = await _youtubeClient
+          .getStreamUrl(song.id, title: song.title, artist: song.artist)
+          .timeout(const Duration(seconds: 4), onTimeout: () => null);
+      if (ytUrl != null && ytUrl.isNotEmpty) {
+        song.streamUrl = ytUrl;
+        cacheStream(song.id, ytUrl, source: 'youtube');
+        return ytUrl;
+      }
+    } catch (e) {
+      AppLogger.log('StreamResolver', 'Stage C direct YouTube notice: $e');
+    }
+
+    // ── STAGE D (Backend Stream Proxy) ──
+    // If Stage C returns null, query backend /music/stream/${track.id} or /music/search?q=...
+    try {
+      AppLogger.log('StreamResolver', 'Stage D backend stream proxy for: ${song.id}');
+      final proxyUrl = await _queryBackendStreamProxy(song.id, cleanTitleOnly);
+      if (proxyUrl != null && proxyUrl.isNotEmpty) {
+        song.streamUrl = proxyUrl;
+        cacheStream(song.id, proxyUrl, source: 'backend');
+        return proxyUrl;
+      }
+    } catch (e) {
+      AppLogger.log('StreamResolver', 'Stage D proxy notice: $e');
+    }
+
     return null;
   }
 

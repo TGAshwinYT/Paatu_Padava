@@ -4,6 +4,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:paatu_padava_mobile/logic/audio_queue_handler.dart';
 import 'package:paatu_padava_mobile/logic/stream_resolver.dart';
 import 'package:paatu_padava_mobile/models/song.dart';
+import 'package:paatu_padava_mobile/domain/models/track_entity.dart';
 import 'package:paatu_padava_mobile/services/app_logger.dart';
 
 class MockAudioPlayer extends Fake implements AudioPlayer {
@@ -109,6 +110,16 @@ class FakeStreamResolver implements StreamResolver {
   final List<String> resolutionAttempts = [];
   final Set<String> _expiredIds = {};
   Duration delay = Duration.zero;
+
+  @override
+  Future<String?> resolve(dynamic track) async {
+    if (track is Song) {
+      return resolveStreamUrl(track);
+    } else if (track is TrackEntity) {
+      return resolveStreamUrl(track.toSong());
+    }
+    return null;
+  }
 
   @override
   Future<String?> resolveStreamUrl(Song song) async {

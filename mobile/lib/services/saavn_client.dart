@@ -12,6 +12,18 @@ import '../data/repositories/song_repository.dart';
 class SaavnClient {
   static const String baseUrl = 'https://www.jiosaavn.com/api.php';
 
+  /// Supports instance-style calls if instantiated
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    if (invocation.memberName == #search) {
+      final query = invocation.positionalArguments.isNotEmpty ? invocation.positionalArguments[0].toString() : '';
+      final limit = invocation.namedArguments[#limit] as int? ?? 20;
+      final language = invocation.namedArguments[#language] as String?;
+      return search(query, limit: limit, language: language);
+    }
+    return super.noSuchMethod(invocation);
+  }
+
   /// Generates dynamic headers with JioSaavn's required regional Cookie.
   /// JioSaavn ignores URL language params on charts/playlists unless the 'Cookie: L=$lang' header is provided.
   static Map<String, String> getHeaders([String? language]) {

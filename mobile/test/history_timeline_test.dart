@@ -16,6 +16,7 @@ class _MockPlayer extends Fake implements AudioPlayer {
   final StreamController<Duration> _positionController = StreamController<Duration>.broadcast();
   final StreamController<PlaybackEvent> _playbackEventController = StreamController<PlaybackEvent>.broadcast();
   final StreamController<int?> _sessionIdController = StreamController<int?>.broadcast();
+  final StreamController<Duration?> _durationController = StreamController<Duration?>.broadcast();
 
   double _volume = 1.0;
   bool _playing = false;
@@ -30,6 +31,7 @@ class _MockPlayer extends Fake implements AudioPlayer {
   @override Stream<Duration> get positionStream => _positionController.stream;
   @override Stream<PlaybackEvent> get playbackEventStream => _playbackEventController.stream;
   @override Stream<int?> get androidAudioSessionIdStream => _sessionIdController.stream;
+  @override Stream<Duration?> get durationStream => _durationController.stream;
   @override double get volume => _volume;
   @override bool get playing => _playing;
   @override Duration get position => _position;
@@ -104,6 +106,7 @@ class _MockPlayer extends Fake implements AudioPlayer {
     await _positionController.close();
     await _playbackEventController.close();
     await _sessionIdController.close();
+    await _durationController.close();
   }
 }
 

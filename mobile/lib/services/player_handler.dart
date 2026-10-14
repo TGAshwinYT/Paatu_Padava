@@ -76,6 +76,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   StreamSubscription<AudioInterruptionEvent>? _interruptionSub;
   StreamSubscription<PlayerState>? _playerStateSub;
   StreamSubscription? _playbackEventSub;
+  StreamSubscription<Duration?>? _durationSub;
   StreamSubscription? _throttledPositionSub;
   VoidCallback? _favListener;
   VoidCallback? _smartShuffleListener;
@@ -502,8 +503,13 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   void _initStreams() {
     _playbackEventSub = _player.playbackEventStream.listen(
       (event) {
-        if (_player.duration != null && mediaItem.value != null && mediaItem.value?.duration != _player.duration) {
-          mediaItem.add(mediaItem.value!.copyWith(duration: _player.duration));
+        if (_player.duration != null && _player.duration!.inMilliseconds > 0) {
+          if (currentSong != null && currentSong!.duration == 0) {
+            currentSong!.duration = _player.duration!.inSeconds;
+          }
+          if (mediaItem.value != null && mediaItem.value?.duration != _player.duration) {
+            mediaItem.add(mediaItem.value!.copyWith(duration: _player.duration));
+          }
         }
         _broadcastState();
       },
@@ -514,6 +520,20 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
         debugPrint('[PlayerHandler] Playback error: ${err.userMessage}');
       },
     );
+
+    try {
+      _durationSub = _player.durationStream.listen((dur) {
+        if (dur != null && dur.inMilliseconds > 0) {
+          if (currentSong != null && currentSong!.duration == 0) {
+            currentSong!.duration = dur.inSeconds;
+          }
+          if (mediaItem.value != null && mediaItem.value?.duration != dur) {
+            mediaItem.add(mediaItem.value!.copyWith(duration: dur));
+          }
+          _broadcastState();
+        }
+      });
+    } catch (_) {}
 
     _playerStateSub = _player.playerStateStream.listen((state) {
       if (state.playing) {
@@ -552,6 +572,8 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     _playerStateSub = null;
     _playbackEventSub?.cancel();
     _playbackEventSub = null;
+    _durationSub?.cancel();
+    _durationSub = null;
     _throttledPositionSub?.cancel();
     _throttledPositionSub = null;
     if (_favListener != null) {
@@ -615,6 +637,13 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
             tag: song.toMediaItem(),
           );
           await _player.setAudioSource(fallbackSource);
+          if (_player.duration != null && _player.duration!.inMilliseconds > 0) {
+            song.duration = _player.duration!.inSeconds;
+            if (mediaItem.value != null) {
+              mediaItem.add(mediaItem.value!.copyWith(duration: _player.duration));
+            }
+            _broadcastState();
+          }
           if (autoPlay) {
             await play();
           }
@@ -656,6 +685,14 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
         );
         await _player.setAudioSource(source);
         if (currentRequestId != _loadRequestId) return;
+        if (_player.duration != null && _player.duration!.inMilliseconds > 0) {
+          track.durationMs = _player.duration!.inMilliseconds;
+          song.duration = _player.duration!.inSeconds;
+          if (mediaItem.value != null) {
+            mediaItem.add(mediaItem.value!.copyWith(duration: _player.duration));
+          }
+          _broadcastState();
+        }
         if (autoPlay) {
           await play();
         }
@@ -1164,6 +1201,12 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     try {
       final source = AudioSource.uri(uri, headers: headers.isNotEmpty ? headers : null);
       await _player.setAudioSource(source);
+      if (_player.duration != null && _player.duration!.inMilliseconds > 0) {
+        if (mediaItem.value != null) {
+          mediaItem.add(mediaItem.value!.copyWith(duration: _player.duration));
+        }
+        _broadcastState();
+      }
       await play();
     } catch (e, stack) {
       AppLogger.recordError(e, stack, context: 'PlayerHandler.playFromUri');

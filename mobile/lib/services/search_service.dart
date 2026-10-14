@@ -474,7 +474,7 @@ class SearchService {
       final Future<List<Song>> ytFuture = () async {
         try {
           return await YouTubeClient.search(ytSearchQuery, limit: limit)
-              .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
+              .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
         } catch (e, stack) {
           ytFailed = true;
           AppLogger.recordError(e, stack, context: 'SearchService: YouTube search failed for query "$ytSearchQuery"');

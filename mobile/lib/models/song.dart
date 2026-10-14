@@ -25,7 +25,9 @@ class Song {
   final String? artistId;
   final String coverUrl;
   String? streamUrl;
-  final int duration;
+  int duration;
+  int get durationMs => duration * 1000;
+  set durationMs(int ms) => duration = ms ~/ 1000;
   bool isDownloaded;
   String? localFilePath;
   int? downloadedAt;

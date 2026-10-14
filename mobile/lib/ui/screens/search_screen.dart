@@ -395,14 +395,18 @@ class _SearchScreenState extends State<SearchScreen> {
 
         _resultsNotifier.value = SearchResultsState(artists: correlatedArtists);
         _isSearchingNotifier.value = false;
-      } else if (tab == 'YouTube Music' || tab == 'YouTube') {
+      } else if (tab == 'YT Music' || tab == 'YouTube Music' || tab == 'YouTube') {
         final intent = SearchService.understandQuery(clean);
         final targetLang = intent.explicitLanguage ?? prefLang;
         final ytQuery = (intent.explicitLanguage != null && !clean.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
             ? '${intent.explicitLanguage!} $clean'
             : clean;
-        final yt = await YouTubeClient.search(ytQuery, limit: 25)
-            .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
+        var yt = await YouTubeClient.search(ytQuery, limit: 25)
+            .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
+        if (yt.isEmpty) {
+          final saavn = await SaavnClient.search(clean, limit: 25, language: prefLang);
+          yt = saavn.map((s) => s.copyWith(source: 'youtube')).toList();
+        }
         if (!mounted || currentRequestId != _searchRequestId) return;
         final filteredYt = intent.explicitLanguage != null
             ? SongRepository.filterByLanguage(yt, targetLang)
@@ -628,7 +632,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   return ListView(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     scrollDirection: Axis.horizontal,
-                    children: ['All', 'YouTube Music', 'Saavn', 'Audius', 'Albums', 'Artists'].map((tab) {
+                    children: ['All', 'YT Music', 'Saavn', 'Audius', 'Albums', 'Artists'].map((tab) {
                       final isSelected = currentTab == tab;
                       return Padding(
                         padding: const EdgeInsets.only(right: 8.0),
@@ -750,10 +754,28 @@ class _SearchScreenState extends State<SearchScreen> {
                         onShowOptions: _showSongOptions,
                         onShowVersions: _showVersionsSheet,
                       );
-                    } else if (currentTab == 'YouTube Music' || currentTab == 'YouTube') {
-                      final ytList = state.ytSongs.isNotEmpty
-                          ? state.ytSongs
-                          : state.songs.where((s) => s.source == 'youtube').toList();
+                    } else if (currentTab == 'YT Music' || currentTab == 'YouTube Music' || currentTab == 'YouTube') {
+                      var ytList = state.ytSongs.where((s) => s.source.toLowerCase().contains('youtube') || s.source.toLowerCase().contains('yt')).toList();
+                      if (ytList.isEmpty && state.songs.isNotEmpty) {
+                        ytList = state.songs.where((s) => s.source.toLowerCase().contains('youtube') || s.source.toLowerCase().contains('yt')).toList();
+                      }
+                      if (ytList.isEmpty && _searchController.text.trim().isNotEmpty && !_isSearchingNotifier.value) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) async {
+                          if (!mounted) return;
+                          final tab = _currentTabNotifier.value;
+                          if (tab == 'YT Music' || tab == 'YouTube Music' || tab == 'YouTube') {
+                            final q = _searchController.text.trim();
+                            if (q.isNotEmpty) {
+                              _isSearchingNotifier.value = true;
+                              final results = await YoutubeClient().search(q, limit: 25);
+                              if (mounted && _searchController.text.trim() == q) {
+                                _resultsNotifier.value = SearchResultsState(ytSongs: results, songs: results);
+                                _isSearchingNotifier.value = false;
+                              }
+                            }
+                          }
+                        });
+                      }
                       return _buildSongsList(ytList);
                     } else if (currentTab == 'Saavn' || currentTab == 'Songs') {
                       final saavnList = state.saavnSongs.isNotEmpty

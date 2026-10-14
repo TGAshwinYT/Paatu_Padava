@@ -32,7 +32,9 @@ class TrackEntity {
   /// Ephemeral runtime stream URL. Never treated as permanent data.
   /// Signed CDN URLs expire in 2-6 hours and must be resolved Just-In-Time (JIT) via StreamResolver.
   final String? streamUrl;
-  final int duration;
+  int duration;
+  int get durationMs => duration * 1000;
+  set durationMs(int ms) => duration = ms ~/ 1000;
   final bool isDownloaded;
   final String? localFilePath;
   final int? downloadedAt;

@@ -93,6 +93,55 @@ void main() {
 
   group('Live YouTube Client Search & Stream URL Resolution', () {
     test(
+      'Test 1: YoutubeClient().search("Anirudh") returns at least 5 tracks',
+      () async {
+        final client = YoutubeClient();
+        final results = await client.search('Anirudh');
+        expect(results, isNotEmpty);
+        expect(results.length, greaterThanOrEqualTo(5));
+        for (final song in results.take(5)) {
+          expect(song.id, isNotEmpty);
+          expect(song.title, isNotEmpty);
+          expect(song.source, equals('youtube'));
+        }
+      },
+      timeout: const Timeout(Duration(seconds: 30)),
+    );
+
+    test(
+      'Test 2: StreamResolver().resolve resolves Hukum - Thalaivar Alappara to live stream responding with HTTP 200 or 206',
+      () async {
+        final track = TrackEntity(
+          id: 'gB2zKZxESTg',
+          title: 'Hukum - Thalaivar Alappara (From "Jailer")',
+          artist: 'Anirudh Ravichander, Super Subu',
+          source: 'youtube',
+          streamUrl: '',
+          coverUrl: 'https://i.ytimg.com/vi/gB2zKZxESTg/hqdefault.jpg',
+        );
+
+        final resolver = StreamResolver();
+        final resolvedUrl = await resolver.resolve(track);
+
+        expect(resolvedUrl, isNotNull);
+        expect(resolvedUrl!, startsWith('https://'));
+
+        // Fast probe: Verify that the resolved stream URL responds with HTTP 200 or 206
+        final response = await http.get(
+          Uri.parse(resolvedUrl),
+          headers: {
+            'Range': 'bytes=0-1024',
+            'User-Agent': YouTubeClient.vrUserAgent,
+            'Accept': '*/*',
+          },
+        ).timeout(const Duration(seconds: 10));
+
+        expect(response.statusCode == 200 || response.statusCode == 206, isTrue);
+      },
+      timeout: const Timeout(Duration(seconds: 30)),
+    );
+
+    test(
       'calls search and getStreamUrl returning valid stream URL',
       () async {
         final client = YoutubeClient();

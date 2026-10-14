@@ -182,6 +182,30 @@ class DefaultStreamResolver implements StreamResolver {
     }
   }
 
+  /// Strips noise keywords, bracketed video tags, and delimiters from YouTube titles
+  /// to form an optimal query for JioSaavn Smart Replace.
+  static String cleanYouTubeTitle(String title, String artist) {
+    var cleaned = YouTubeClient.cleanTitle(title);
+    cleaned = cleaned.replaceAll(RegExp(r'[\(\[\{].*?[\)\]\}]'), ' ');
+    cleaned = cleaned.replaceAll(
+      RegExp(r'\b(official|video|audio|lyric|lyrical|hd|4k|full video|video song|song|teaser|trailer|remix|lofi|music video|visualizer)\b', caseSensitive: false),
+      ' ',
+    );
+    cleaned = cleaned.replaceAll(RegExp(r'[\|\-–—:_]'), ' ');
+    cleaned = cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (cleaned.isEmpty) cleaned = title.trim();
+
+    final cleanArtist = (artist.isNotEmpty && !ArtistSanitizer.isRecordLabelOrChannel(artist))
+        ? artist.trim()
+        : '';
+    if (cleanArtist.isNotEmpty && !cleaned.toLowerCase().contains(cleanArtist.toLowerCase())) {
+      return '$cleaned $cleanArtist'.trim();
+    }
+    return cleaned;
+  }
+
+  static String _cleanYouTubeTitle(String title, String artist) => cleanYouTubeTitle(title, artist);
+
   Future<String?> _resolveStreamUrlInternal(Song song) async {
     if (song.source == 'audius') {
       final audiusUrl = (song.streamUrl != null && song.streamUrl!.isNotEmpty)
@@ -192,9 +216,11 @@ class DefaultStreamResolver implements StreamResolver {
     }
 
     if (song.source == 'youtube' || song.id.length == 11) {
-      // 1. Direct YouTube stream resolution (User explicitly selected YouTube)
+      // 1. Direct YouTube stream resolution (with 3-second timeout)
       try {
-        final ytUrl = await _youtubeClient.getStreamUrl(song.id, title: song.title, artist: song.artist);
+        final ytUrl = await _youtubeClient
+            .getStreamUrl(song.id, title: song.title, artist: song.artist)
+            .timeout(const Duration(seconds: 3), onTimeout: () => null);
         if (ytUrl != null && ytUrl.isNotEmpty) {
           return ytUrl;
         }
@@ -202,28 +228,39 @@ class DefaultStreamResolver implements StreamResolver {
         AppLogger.log('StreamResolver', 'Direct YouTube stream resolution notice: $e');
       }
 
-      // 2. Fallback: Search JioSaavn if YouTube direct extraction returns null
+      // 2. BloomeeTunes Smart Replace: Query JioSaavn for working 320kbps audio stream
       try {
-        final cleanTitle = YouTubeClient.cleanTitle(song.title);
-        final cleanArtist = (song.artist.isNotEmpty && !ArtistSanitizer.isRecordLabelOrChannel(song.artist))
-            ? song.artist
-            : '';
-        final query = cleanArtist.isNotEmpty ? '$cleanTitle $cleanArtist' : cleanTitle;
-        AppLogger.log('StreamResolver', 'Attempting JioSaavn fallback for YouTube track "$cleanTitle" with query: "$query"');
-        final saavnMatches = await SaavnClient.search(query, limit: 5).timeout(_saavnSearchTimeout);
+        final query = _cleanYouTubeTitle(song.title, song.artist);
+        AppLogger.log('StreamResolver', 'Smart Replace triggered for YouTube track "${song.title}". Querying JioSaavn: "$query"');
+        var saavnMatches = await SaavnClient.search(query, limit: 5)
+            .timeout(_saavnSearchTimeout, onTimeout: () => []);
+
+        // Retry with just song title if artist query yielded no results
+        if (saavnMatches.isEmpty) {
+          final titleOnly = YouTubeClient.cleanTitle(song.title);
+          AppLogger.log('StreamResolver', 'Smart Replace retrying with title only: "$titleOnly"');
+          saavnMatches = await SaavnClient.search(titleOnly, limit: 5)
+              .timeout(_saavnSearchTimeout, onTimeout: () => []);
+        }
+
         for (final match in saavnMatches) {
           if (match.streamUrl != null && match.streamUrl!.isNotEmpty && verifyAudioMatch(match, song)) {
-            AppLogger.log('StreamResolver', 'JioSaavn fallback matched for YouTube track "${song.title}": "${match.title}"');
+            AppLogger.log('StreamResolver', 'Smart Replace matched for YouTube track "${song.title}": "${match.title}"');
             song.streamUrl = match.streamUrl;
+            cacheStream(song.id, match.streamUrl!, source: 'saavn');
             return match.streamUrl;
           }
         }
+
         if (saavnMatches.isNotEmpty && saavnMatches.first.streamUrl != null && saavnMatches.first.streamUrl!.isNotEmpty) {
-          song.streamUrl = saavnMatches.first.streamUrl;
-          return saavnMatches.first.streamUrl;
+          final topMatch = saavnMatches.first;
+          AppLogger.log('StreamResolver', 'Smart Replace relaxed top match for "${song.title}": "${topMatch.title}"');
+          song.streamUrl = topMatch.streamUrl;
+          cacheStream(song.id, topMatch.streamUrl!, source: 'saavn');
+          return topMatch.streamUrl;
         }
       } catch (e) {
-        AppLogger.log('StreamResolver', 'Saavn match fallback notice: $e');
+        AppLogger.log('StreamResolver', 'Smart Replace fallback error: $e');
       }
     } else {
       // Direct JioSaavn stream

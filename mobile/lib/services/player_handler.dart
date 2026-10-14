@@ -23,6 +23,8 @@ import 'favorites_manager.dart';
 import 'playlist_manager.dart';
 import 'app_logger.dart';
 import 'party_sync_coordinator.dart';
+import 'saavn_client.dart';
+import 'artist_sanitizer.dart';
 
 PaatuAudioHandler? _audioHandlerInstance;
 
@@ -589,37 +591,80 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   int _loadRequestId = 0;
   final StreamResolver _streamResolver = DefaultStreamResolver();
 
+  /// Auto-recovery when ExoPlayer throws a 403 Forbidden or source error.
+  /// Resolves the song via SaavnClient Smart Replace using "${song.title} ${song.artist}"
+  /// and updates AudioPlayer so playback seamlessly continues without error.
+  Future<void> _recoverWithSmartReplace(Song song, {bool autoPlay = true}) async {
+    try {
+      AppLogger.log('PlayerHandler', 'ExoPlayer 403 auto-recovery: Smart Replacing "${song.title}"');
+      final cleanTitle = YouTubeClient.cleanTitle(song.title);
+      final cleanArtist = (song.artist.isNotEmpty && !ArtistSanitizer.isRecordLabelOrChannel(song.artist))
+          ? song.artist
+          : '';
+      final query = cleanArtist.isNotEmpty ? '$cleanTitle $cleanArtist' : cleanTitle;
+      var matches = await SaavnClient.search(query, limit: 5).timeout(const Duration(seconds: 4), onTimeout: () => []);
+      if (matches.isEmpty) {
+        matches = await SaavnClient.search(cleanTitle, limit: 5).timeout(const Duration(seconds: 4), onTimeout: () => []);
+      }
+      for (final match in matches) {
+        if (match.streamUrl != null && match.streamUrl!.isNotEmpty) {
+          song.streamUrl = match.streamUrl;
+          DefaultStreamResolver.cacheStream(song.id, match.streamUrl!, source: 'saavn');
+          final fallbackSource = AudioSource.uri(
+            Uri.parse(match.streamUrl!),
+            tag: song.toMediaItem(),
+          );
+          await _player.setAudioSource(fallbackSource);
+          if (autoPlay) {
+            await play();
+          }
+          AppLogger.log('PlayerHandler', 'Successfully auto-recovered playback via Smart Replace: "${match.title}"');
+          return;
+        }
+      }
+    } catch (e, stack) {
+      AppLogger.recordError(e, stack, context: 'PlayerHandler._recoverWithSmartReplace');
+    }
+  }
+
   /// Loads and resolves a track with async request-ID race condition protection
   Future<void> loadTrack(TrackEntity track, {bool autoPlay = true}) async {
     final currentRequestId = ++_loadRequestId;
     final song = track.toSong();
 
     String? url = song.streamUrl;
-    if (url == null || url.isEmpty || _streamResolver.isExpired(track.id)) {
+    if (url == null || url.isEmpty || track.source == 'youtube' || _streamResolver.isExpired(track.id)) {
       url = await _streamResolver.resolveStreamUrl(song);
     }
 
     if (currentRequestId != _loadRequestId) return;
 
     if (url != null && url.isNotEmpty) {
+      song.streamUrl = url;
       final headers = <String, String>{};
       if (track.source == 'youtube' || url.contains('googlevideo.com')) {
-        headers['User-Agent'] =
-            'com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12; en_US; Quest 2; Build/SQ3A.220605.009.A1) gzip';
+        headers['User-Agent'] = YouTubeClient.vrUserAgent;
         headers['Range'] = 'bytes=0-';
         headers['Accept'] = '*/*';
         headers['Connection'] = 'keep-alive';
       }
-      final source = AudioSource.uri(
-        Uri.parse(url),
-        headers: headers.isNotEmpty ? headers : null,
-        tag: track.toMediaItem(),
-      );
-      await _player.setAudioSource(source);
-      if (currentRequestId != _loadRequestId) return;
-      if (autoPlay) {
-        await play();
+      try {
+        final source = AudioSource.uri(
+          Uri.parse(url),
+          headers: headers.isNotEmpty ? headers : null,
+          tag: track.toMediaItem(),
+        );
+        await _player.setAudioSource(source);
+        if (currentRequestId != _loadRequestId) return;
+        if (autoPlay) {
+          await play();
+        }
+      } catch (e, stack) {
+        AppLogger.recordError(e, stack, context: 'PlayerHandler.loadTrack ExoPlayer source error');
+        await _recoverWithSmartReplace(song, autoPlay: autoPlay);
       }
+    } else {
+      await _recoverWithSmartReplace(song, autoPlay: autoPlay);
     }
   }
 
@@ -629,7 +674,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     final currentRequestId = ++_loadRequestId;
     final song = track.toSong();
     String? url = song.streamUrl;
-    if (url == null || url.isEmpty || _streamResolver.isExpired(track.id)) {
+    if (url == null || url.isEmpty || track.source == 'youtube' || _streamResolver.isExpired(track.id)) {
       url = await _streamResolver.resolveStreamUrl(song);
     }
     if (currentRequestId != _loadRequestId) return;
@@ -647,6 +692,14 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     } catch (_) {}
     _isForegroundDowngraded = false;
     _queueHandler.cancelIdleTimer();
+
+    // Ensure playable stream URL is resolved before loading queue
+    if (song.streamUrl == null || song.streamUrl!.isEmpty || song.source == 'youtube' || _streamResolver.isExpired(song.id)) {
+      final resolved = await _streamResolver.resolveStreamUrl(song);
+      if (resolved != null && resolved.isNotEmpty) {
+        song.streamUrl = resolved;
+      }
+    }
 
     final isNewSingleQueue = queue == null || (queue.length == 1 && queue.first.id == song.id);
     final initialIndex = queue != null ? queue.indexWhere((s) => s.id == song.id) : 0;
@@ -1103,13 +1156,31 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     final headers = <String, String>{};
     final urlStr = uri.toString();
     if (extras?['source'] == 'youtube' || urlStr.contains('googlevideo.com')) {
-      headers['User-Agent'] = 'com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12; en_US; Quest 2; Build/SQ3A.220605.009.A1) gzip';
+      headers['User-Agent'] = YouTubeClient.vrUserAgent;
       headers['Range'] = 'bytes=0-';
       headers['Accept'] = '*/*';
       headers['Connection'] = 'keep-alive';
     }
-    final source = AudioSource.uri(uri, headers: headers.isNotEmpty ? headers : null);
-    await _player.setAudioSource(source);
-    await play();
+    try {
+      final source = AudioSource.uri(uri, headers: headers.isNotEmpty ? headers : null);
+      await _player.setAudioSource(source);
+      await play();
+    } catch (e, stack) {
+      AppLogger.recordError(e, stack, context: 'PlayerHandler.playFromUri');
+      final title = extras?['title']?.toString() ?? '';
+      final artist = extras?['artist']?.toString() ?? '';
+      if (title.isNotEmpty) {
+        final dummy = Song(
+          id: extras?['id']?.toString() ?? '',
+          title: title,
+          artist: artist,
+          album: extras?['album']?.toString() ?? '',
+          coverUrl: extras?['coverUrl']?.toString() ?? '',
+          duration: 0,
+          source: extras?['source']?.toString() ?? 'youtube',
+        );
+        await _recoverWithSmartReplace(dummy, autoPlay: true);
+      }
+    }
   }
 }

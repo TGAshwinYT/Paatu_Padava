@@ -1,6 +1,9 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:paatu_padava_mobile/services/youtube_client.dart';
+import 'package:paatu_padava_mobile/domain/models/track_entity.dart';
+import 'package:paatu_padava_mobile/logic/stream_resolver.dart';
 
 void main() {
   group('Client-Side YouTube URL & ID Extraction Engine', () {
@@ -90,13 +93,12 @@ void main() {
 
   group('Live YouTube Client Search & Stream URL Resolution', () {
     test(
-      'calls search and getStreamUrl returning valid googlevideo.com URL',
+      'calls search and getStreamUrl returning valid stream URL',
       () async {
         final client = YoutubeClient();
         try {
           final results = await client.search('Anirudh Tamil');
           if (results.isEmpty) {
-            // Live search was blocked or rate-limited by datacenter IP; gracefully return
             return;
           }
           expect(results, isNotEmpty);
@@ -106,16 +108,51 @@ void main() {
           final streamUrl = await client.getStreamUrl(firstResult.id);
           if (streamUrl != null) {
             expect(streamUrl, startsWith('https://'));
-            expect(streamUrl, contains('googlevideo.com'));
+            final isPlayable = await YouTubeClient.probeStreamUrl(streamUrl);
+            expect(isPlayable, isTrue);
           }
-        } catch (_) {
-          // Gracefully ignore external network / 400 Bad Request / captcha blocks
-        }
+        } catch (_) {}
       },
       timeout: const Timeout(Duration(seconds: 30)),
       skip: (Platform.environment['CI'] == 'true' ||
               Platform.environment['GITHUB_ACTIONS'] == 'true')
           ? 'Skipping live network YouTube test on CI runners (datacenter IPs are blocked by YouTube with HTTP 400)'
+          : null,
+    );
+
+    test(
+      'resolving YouTube TrackEntity returns playable stream URL responding with HTTP 200 or 206',
+      () async {
+        final track = TrackEntity(
+          id: 'KUN5Uf9mOBQ',
+          title: 'Arabic Kuthu',
+          artist: 'Anirudh Ravichander',
+          source: 'youtube',
+          coverUrl: 'https://example.com/cover.jpg',
+        );
+
+        final resolver = DefaultStreamResolver();
+        final playableUrl = await resolver.resolveStreamUrl(track.toSong());
+
+        expect(playableUrl, isNotNull);
+        expect(playableUrl!, startsWith('https://'));
+
+        // Fast probe: Verify that the resolved stream URL responds with HTTP 200 or 206
+        final response = await http.get(
+          Uri.parse(playableUrl),
+          headers: {
+            'Range': 'bytes=0-1024',
+            'User-Agent': YouTubeClient.vrUserAgent,
+            'Accept': '*/*',
+          },
+        ).timeout(const Duration(seconds: 8));
+
+        expect(response.statusCode == 200 || response.statusCode == 206, isTrue);
+      },
+      timeout: const Timeout(Duration(seconds: 30)),
+      skip: (Platform.environment['CI'] == 'true' ||
+              Platform.environment['GITHUB_ACTIONS'] == 'true')
+          ? 'Skipping live network probe on CI runners (datacenter IPs)'
           : null,
     );
   });

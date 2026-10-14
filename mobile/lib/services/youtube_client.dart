@@ -709,167 +709,192 @@ class YouTubeClient {
     }
   }
 
-  /// Tier 1 Fast Path: Queries YouTube InnerTube ANDROID_VR player endpoint directly.
-  /// On-device mobile requests frequently receive un-ciphered URLs (itag 140 / 251) directly,
-  /// avoiding heavy watch page HTML download and JS deciphering (~200ms vs ~2.5s).
-  static Future<String?> _resolveDirectInnertubeVrStream(String cleanId) async {
+  /// Fast HTTP GET probe to verify whether a googlevideo.com or stream URL is playable
+  /// and not 403-blocked by Google CDN. Returns true ONLY on HTTP 200 or 206.
+  static Future<bool> probeStreamUrl(String url) async {
+    if (url.isEmpty) return false;
     try {
-      final uri = Uri.parse('https://www.youtube.com/youtubei/v1/player?prettyPrint=false');
-      final payload = jsonEncode({
-        'context': {
-          'client': {
-            'clientName': 'ANDROID_VR',
-            'clientVersion': '1.56.21',
-            'androidSdkVersion': 32,
-            'gl': 'IN',
-            'hl': 'en',
-          }
-        },
-        'videoId': cleanId,
-      });
-
-      final response = await http.post(
+      final uri = Uri.parse(url);
+      final response = await http.get(
         uri,
         headers: {
-          'Content-Type': 'application/json',
+          'Range': 'bytes=0-1024',
           'User-Agent': vrUserAgent,
-          'X-YouTube-Client-Name': '28',
-          'X-YouTube-Client-Version': '1.56.21',
           'Accept': '*/*',
         },
-        body: payload,
-      ).timeout(const Duration(seconds: 6));
+      ).timeout(const Duration(seconds: 2));
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>?;
-        final streamingData = data?['streamingData'] as Map<String, dynamic>?;
-        final formats = (streamingData?['adaptiveFormats'] as List<dynamic>?) ?? [];
+      final isValid = response.statusCode == 200 || response.statusCode == 206;
+      if (!isValid) {
+        AppLogger.log('YouTubeClient', 'Stream probe rejected URL: HTTP ${response.statusCode} (403/Forbidden or invalid) for $url');
+      }
+      return isValid;
+    } catch (e) {
+      AppLogger.log('YouTubeClient', 'Stream probe network/timeout error: $e');
+      return false;
+    }
+  }
 
-        // Filter audio-only formats
-        final audioFormats = formats.where((f) {
-          final mime = f['mimeType']?.toString().toLowerCase() ?? '';
-          return mime.startsWith('audio/');
-        }).toList();
+  static final List<Map<String, dynamic>> _innertubePlayerConfigs = [
+    {
+      'name': 'ANDROID_VR',
+      'client': {
+        'clientName': 'ANDROID_VR',
+        'clientVersion': '1.56.21',
+        'androidSdkVersion': 32,
+        'gl': 'IN',
+        'hl': 'en',
+      },
+      'headers': {
+        'Content-Type': 'application/json',
+        'User-Agent': vrUserAgent,
+        'X-YouTube-Client-Name': '28',
+        'X-YouTube-Client-Version': '1.56.21',
+        'Accept': '*/*',
+      },
+    },
+    {
+      'name': 'IOS',
+      'client': {
+        'clientName': 'IOS',
+        'clientVersion': '19.45.4',
+        'deviceMake': 'Apple',
+        'deviceModel': 'iPhone14,3',
+        'osName': 'iOS',
+        'osVersion': '17.5.0.21F79',
+        'gl': 'IN',
+        'hl': 'en',
+      },
+      'headers': {
+        'Content-Type': 'application/json',
+        'User-Agent':
+            'com.google.ios.youtube/19.45.4 (iPhone14,3; U; CPU iOS 17_5 like Mac OS X; en_US)',
+        'X-YouTube-Client-Name': '5',
+        'X-YouTube-Client-Version': '19.45.4',
+        'Accept': '*/*',
+      },
+    },
+  ];
 
-        if (audioFormats.isNotEmpty) {
-          final quality = SettingsManager.streamingQuality;
-          Map<String, dynamic>? chosen;
+  /// Tier 1 Fast Path: Queries YouTube InnerTube ANDROID_VR and IOS player endpoints directly.
+  /// Checks adaptiveFormats (itag 140, itag 251) and HLS manifests, probing every candidate with a fast GET request.
+  static Future<String?> _resolveDirectInnertubeStream(String cleanId) async {
+    for (final config in _innertubePlayerConfigs) {
+      try {
+        final uri = Uri.parse('https://www.youtube.com/youtubei/v1/player?prettyPrint=false');
+        final payload = jsonEncode({
+          'context': {'client': config['client']},
+          'videoId': cleanId,
+        });
 
-          // 1. If user prefers data saver (96kbps), look for low bitrate
-          if (quality == '96kbps') {
-            for (final f in audioFormats) {
-              final bitrate = (f['bitrate'] as num?)?.toInt() ?? 0;
-              if (bitrate > 0 && bitrate <= 100000 && f['url'] != null) {
-                chosen = f as Map<String, dynamic>;
-                break;
-              }
-            }
-          }
+        final response = await http.post(
+          uri,
+          headers: Map<String, String>.from(config['headers']),
+          body: payload,
+        ).timeout(const Duration(seconds: 4));
 
-          // 2. Prioritize AAC 140 (128kbps audio/mp4) for universal hardware compatibility
-          if (chosen == null) {
-            for (final f in audioFormats) {
-              if (f['itag'] == 140 && f['url'] != null) {
-                chosen = f as Map<String, dynamic>;
-                break;
-              }
-            }
-          }
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body) as Map<String, dynamic>?;
+          final streamingData = data?['streamingData'] as Map<String, dynamic>?;
+          if (streamingData == null) continue;
 
-          // 3. Prioritize Opus 251 (audio/webm ~160kbps)
-          if (chosen == null) {
-            for (final f in audioFormats) {
-              if (f['itag'] == 251 && f['url'] != null) {
-                chosen = f as Map<String, dynamic>;
-                break;
-              }
-            }
-          }
+          final formats = (streamingData['adaptiveFormats'] as List<dynamic>?) ?? [];
+          final audioFormats = formats.where((f) {
+            final mime = f['mimeType']?.toString().toLowerCase() ?? '';
+            return mime.startsWith('audio/');
+          }).toList();
 
-          // 4. Any direct audio URL with highest bitrate
-          if (chosen == null) {
-            for (final f in audioFormats) {
-              if (f['url'] != null && (f['url'] as String).isNotEmpty) {
-                if (chosen == null || ((f['bitrate'] as num?)?.toInt() ?? 0) > ((chosen['bitrate'] as num?)?.toInt() ?? 0)) {
-                  chosen = f as Map<String, dynamic>;
+          final candidateUrls = <String>[];
+
+          if (audioFormats.isNotEmpty) {
+            final quality = SettingsManager.streamingQuality;
+
+            // 1. If user prefers data saver (96kbps), look for low bitrate
+            if (quality == '96kbps') {
+              for (final f in audioFormats) {
+                final bitrate = (f['bitrate'] as num?)?.toInt() ?? 0;
+                final url = f['url']?.toString();
+                if (bitrate > 0 && bitrate <= 100000 && url != null && url.isNotEmpty) {
+                  candidateUrls.add(url);
+                  break;
                 }
               }
             }
+
+            // 2. Prioritize AAC 140 (128kbps audio/mp4) for universal hardware compatibility
+            for (final f in audioFormats) {
+              final url = f['url']?.toString();
+              if (f['itag'] == 140 && url != null && url.isNotEmpty) {
+                candidateUrls.add(url);
+                break;
+              }
+            }
+
+            // 3. Prioritize Opus 251 (audio/webm ~160kbps)
+            for (final f in audioFormats) {
+              final url = f['url']?.toString();
+              if (f['itag'] == 251 && url != null && url.isNotEmpty) {
+                candidateUrls.add(url);
+                break;
+              }
+            }
+
+            // 4. Any direct audio URL with highest bitrate
+            for (final f in audioFormats) {
+              final url = f['url']?.toString();
+              if (url != null && url.isNotEmpty && !candidateUrls.contains(url)) {
+                candidateUrls.add(url);
+              }
+            }
           }
 
-          if (chosen != null && chosen['url'] != null) {
-            final directUrl = chosen['url'].toString();
-            if (directUrl.isNotEmpty) {
-              AppLogger.log('YouTubeClient', 'InnerTube ANDROID_VR direct stream resolved for $cleanId (itag ${chosen['itag']})');
-              return directUrl;
+          // 5. HLS Manifest fallback
+          final hlsUrl = streamingData['hlsManifestUrl']?.toString();
+          if (hlsUrl != null && hlsUrl.isNotEmpty && !candidateUrls.contains(hlsUrl)) {
+            candidateUrls.add(hlsUrl);
+          }
+
+          // Probe candidates: Only return the first candidate that passes HTTP 200/206 probe
+          for (final candidate in candidateUrls) {
+            final isPlayable = await probeStreamUrl(candidate);
+            if (isPlayable) {
+              AppLogger.log('YouTubeClient', 'InnerTube ${config['name']} direct stream verified and active for $cleanId');
+              return candidate;
             }
           }
         }
+      } catch (e) {
+        AppLogger.log('YouTubeClient', 'InnerTube ${config['name']} direct resolution notice for $cleanId: $e');
       }
-    } catch (e) {
-      AppLogger.log('YouTubeClient', 'InnerTube ANDROID_VR direct resolution notice for $cleanId: $e');
     }
     return null;
   }
 
-  /// Primary stream resolver for YouTube tracks.
-  /// First queries InnerTube ANDROID_VR endpoint, with seamless fallback to YouTubeExplode.
-  static Future<String?> getStreamUrl(String videoId, {String? title, String? artist}) async {
-    final cleanId = extractVideoId(videoId) ?? videoId.trim();
-    if (cleanId.isEmpty) return null;
-
-    final cached = _streamCache[cleanId];
-    if (cached != null && !cached.isExpired) {
-      return cached.url;
+  /// Resolves audio stream and verifies against Google CDN with live HTTP probe.
+  /// Dual-tier: InnerTube (ANDROID_VR & IOS) -> YouTubeExplode.
+  /// Returns null if Google CDN returns 403 or times out so Smart Replace is triggered.
+  static Future<String?> _resolveAndVerifyStream(String cleanId) async {
+    // ── Tier 1: Direct InnerTube (ANDROID_VR / IOS) + HLS ─────────────
+    final directUrl = await _resolveDirectInnertubeStream(cleanId);
+    if (directUrl != null && directUrl.isNotEmpty) {
+      return directUrl;
     }
 
-    final vrUrl = await _resolveDirectInnertubeVrStream(cleanId);
-    if (vrUrl != null && vrUrl.isNotEmpty) {
-      _streamCache[cleanId] = _CachedAudioStream(vrUrl, DateTime.now().add(const Duration(hours: 3)));
-      return vrUrl;
-    }
-
-    return getAudioStreamUrl(cleanId, title: title, artist: artist);
-  }
-
-  /// Client-side audio stream extractor resolving on-device with dual-tier fallback:
-  /// - Tier 1: Direct InnerTube ANDROID_VR client (sub-300ms, direct deciphered streams)
-  /// - Tier 2: YouTubeExplode on-device manifest extraction with watch page decipher fallback
-  /// Bypasses datacenter IP blocks, avoiding broken server-side stream resolution on release APKs.
-  static Future<String?> getAudioStreamUrl(String videoId, {String? title, String? artist}) async {
-    final cleanId = extractVideoId(videoId) ?? videoId.trim();
-    if (cleanId.isEmpty) return null;
-
-    // ── Tier 0: In-Memory Stream Cache Check (3-hour TTL) ─────────────
-    final cached = _streamCache[cleanId];
-    if (cached != null && !cached.isExpired) {
-      AppLogger.log('YouTubeClient', 'Resolved stream from memory cache for $cleanId');
-      return cached.url;
-    }
-
-    // ── Tier 1: Direct InnerTube ANDROID_VR Client (Fast Path) ───
-    final fastUrl = await _resolveDirectInnertubeVrStream(cleanId);
-    if (fastUrl != null && fastUrl.isNotEmpty) {
-      _streamCache[cleanId] = _CachedAudioStream(fastUrl, DateTime.now().add(const Duration(hours: 3)));
-      return fastUrl;
-    }
-
-    // ── Tier 2: Client-Side YouTubeExplode Dart (Full Manifest Resolution) ──
+    // ── Tier 2: Client-Side YouTubeExplode Dart (Full Manifest) ────────
     for (int attempt = 1; attempt <= 2; attempt++) {
       try {
         StreamManifest? manifest;
         try {
-          // Fast direct manifest extraction (requireWatchPage: false avoids heavy HTML/JS downloads)
           manifest = await _yt.videos.streamsClient.getManifest(
             cleanId,
             requireWatchPage: false,
-          ).timeout(const Duration(seconds: 14));
+          ).timeout(const Duration(seconds: 10));
         } catch (fastErr) {
           AppLogger.log('YouTubeClient', 'Fast manifest extraction notice for $cleanId: $fastErr. Falling back to full extraction.');
           manifest = await _yt.videos.streamsClient.getManifest(
             cleanId,
             requireWatchPage: true,
-          ).timeout(const Duration(seconds: 18));
+          ).timeout(const Duration(seconds: 14));
         }
 
         final audioStreams = manifest.audioOnly;
@@ -877,7 +902,6 @@ class YouTubeClient {
           AudioStreamInfo? chosenStream;
           final quality = SettingsManager.streamingQuality;
 
-          // Data Saver (96 kbps): choose lowest bitrate stream
           if (quality == '96kbps') {
             for (final s in audioStreams) {
               if (s.bitrate.kiloBitsPerSecond <= 100) {
@@ -887,8 +911,6 @@ class YouTubeClient {
             }
           }
 
-          // Standard or High: Strictly prioritize standard AAC / M4A stream (itag 140, 128kbps)
-          // 100% universally supported across Android ExoPlayer & iOS AVPlayer
           if (chosenStream == null) {
             for (final s in audioStreams) {
               if (s.tag == 140) {
@@ -898,7 +920,6 @@ class YouTubeClient {
             }
           }
 
-          // Fallback to Opus in WebM (itag 251, ~160kbps)
           if (chosenStream == null) {
             for (final s in audioStreams) {
               if (s.tag == 251) {
@@ -908,7 +929,6 @@ class YouTubeClient {
             }
           }
 
-          // Fallback to any other MP4 / M4A container
           if (chosenStream == null) {
             for (final s in audioStreams) {
               if (s.container.name.toLowerCase().contains('mp4') || s.container.name.toLowerCase().contains('m4a')) {
@@ -920,21 +940,53 @@ class YouTubeClient {
 
           chosenStream ??= audioStreams.withHighestBitrate();
           final url = chosenStream.url.toString();
-          _streamCache[cleanId] = _CachedAudioStream(url, DateTime.now().add(const Duration(hours: 3)));
-          AppLogger.log('YouTubeClient', 'Client-side resolved stream for $cleanId (itag ${chosenStream.tag}, ${chosenStream.container.name}, ${chosenStream.bitrate.kiloBitsPerSecond.round()}kbps)');
-          return url;
+
+          // CRITICAL: Live probe before returning YouTubeExplode URL
+          final isPlayable = await probeStreamUrl(url);
+          if (isPlayable) {
+            AppLogger.log('YouTubeClient', 'YouTubeExplode stream verified for $cleanId (itag ${chosenStream.tag})');
+            return url;
+          } else {
+            AppLogger.log('YouTubeClient', 'YouTubeExplode stream rejected by probe (403/Forbidden) for $cleanId');
+          }
         }
       } catch (e) {
-        AppLogger.log('YouTubeClient', 'Client-side stream extractor attempt $attempt notice for $cleanId: $e');
+        AppLogger.log('YouTubeClient', 'YouTubeExplode attempt $attempt notice for $cleanId: $e');
         if (attempt == 1) {
-          // Reset client instance on socket / connection error before second attempt
           closeIdleClient();
         }
       }
     }
 
+    AppLogger.log('YouTubeClient', 'All YouTube stream candidates failed probe / 403 Forbidden for $cleanId. Returning null for Smart Replace.');
     return null;
   }
+
+  /// Primary stream resolver for YouTube tracks.
+  /// Queries InnerTube (ANDROID_VR & IOS) and YouTubeExplode, verifying via live HTTP probe.
+  /// Returns null if all candidates fail or return 403 so StreamResolver triggers Smart Replace.
+  static Future<String?> getStreamUrl(String videoId, {String? title, String? artist}) async {
+    final cleanId = extractVideoId(videoId) ?? videoId.trim();
+    if (cleanId.isEmpty) return null;
+
+    final cached = _streamCache[cleanId];
+    if (cached != null && !cached.isExpired) {
+      return cached.url;
+    }
+
+    final verifiedUrl = await _resolveAndVerifyStream(cleanId);
+    if (verifiedUrl != null && verifiedUrl.isNotEmpty) {
+      _streamCache[cleanId] = _CachedAudioStream(verifiedUrl, DateTime.now().add(const Duration(hours: 3)));
+      return verifiedUrl;
+    }
+
+    return null;
+  }
+
+  /// Backward-compatible alias for [getStreamUrl]
+  static Future<String?> getAudioStreamUrl(String videoId, {String? title, String? artist}) =>
+      getStreamUrl(videoId, title: title, artist: artist);
+
 
   static void dispose() {
     closeIdleClient();

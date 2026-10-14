@@ -55,64 +55,68 @@ class _QueueSheetState extends State<QueueSheet> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              ValueListenableBuilder<List<Song>>(
-                valueListenable: audioHandler.playlistNotifier,
-                builder: (context, playlist, _) {
-                  return ValueListenableBuilder<int>(
-                    valueListenable: audioHandler.currentIndexNotifier,
-                    builder: (context, currentIndex, _) {
-                      final userQueue = audioHandler.queueHandler.userQueue;
-                      final contextQueue = audioHandler.queueHandler.contextQueue;
-                      final contextIndex = audioHandler.queueHandler.contextIndex;
-                      final upcomingCount = userQueue.length + max(0, contextQueue.length - contextIndex - 1);
+              Expanded(
+                child: ValueListenableBuilder<List<Song>>(
+                  valueListenable: audioHandler.playlistNotifier,
+                  builder: (context, playlist, _) {
+                    return ValueListenableBuilder<int>(
+                      valueListenable: audioHandler.currentIndexNotifier,
+                      builder: (context, currentIndex, _) {
+                        final userQueue = audioHandler.queueHandler.userQueue;
+                        final contextQueue = audioHandler.queueHandler.contextQueue;
+                        final contextIndex = audioHandler.queueHandler.contextIndex;
+                        final upcomingCount = userQueue.length + max(0, contextQueue.length - contextIndex - 1);
 
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Text(
-                                'Playback Queue',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF6366F1).withValues(alpha: 0.2),
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.4)),
-                                ),
-                                child: Text(
-                                  'Up Next ($upcomingCount)',
-                                  style: const TextStyle(
-                                    color: Color(0xFF818CF8),
-                                    fontSize: 11,
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Text(
+                                  'Playback Queue',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            userQueue.isNotEmpty
-                                ? 'Next in queue (${userQueue.length}) • Drag to reorder • Swipe to remove'
-                                : 'Up Next ($upcomingCount) • Drag to reorder • Swipe to remove',
-                            style: const TextStyle(
-                              color: Color(0xFF94A3B8),
-                              fontSize: 12,
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF6366F1).withValues(alpha: 0.2),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.4)),
+                                  ),
+                                  child: Text(
+                                    'Up Next ($upcomingCount)',
+                                    style: const TextStyle(
+                                      color: Color(0xFF818CF8),
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                        ],
-                      );
-                    },
-                  );
-                },
+                            const SizedBox(height: 2),
+                            Text(
+                              userQueue.isNotEmpty
+                                  ? 'Next in queue (${userQueue.length}) • Drag to reorder'
+                                  : 'Up Next ($upcomingCount) • Drag to reorder',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Color(0xFF94A3B8),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    );
+                  },
+                ),
               ),
               Row(
                 children: [

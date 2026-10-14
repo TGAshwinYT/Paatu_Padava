@@ -11,6 +11,7 @@ import '../widgets/settings/language_settings_card.dart';
 import '../widgets/settings/battery_settings_card.dart';
 import '../widgets/settings/diagnostics_settings_card.dart';
 import 'audio_quality_settings_screen.dart';
+import 'equalizer_settings_screen.dart';
 import 'downloads_settings_screen.dart';
 import 'storage_settings_screen.dart';
 import 'appearance_settings_screen.dart';
@@ -75,7 +76,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0E1A),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: const Color(0xFF0F172A),
         elevation: 0,
@@ -136,7 +137,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       onTap: () async {
                         await Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => const AudioQualitySettingsScreen()),
+                          MaterialPageRoute(builder: (_) => const EqualizerSettingsScreen()),
                         );
                         setState(() {});
                       },

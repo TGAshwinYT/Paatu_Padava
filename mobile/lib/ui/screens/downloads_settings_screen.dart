@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../services/settings_manager.dart';
 import '../../services/download_manager.dart';
 import '../widgets/mini_player.dart';
@@ -12,6 +14,144 @@ class DownloadsSettingsScreen extends StatefulWidget {
 
 class _DownloadsSettingsScreenState extends State<DownloadsSettingsScreen> {
   bool _isDeleting = false;
+  bool _isSdCardAvailable = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkSdCardAvailability();
+  }
+
+  Future<void> _checkSdCardAvailability() async {
+    try {
+      final extDirs = await getExternalStorageDirectories();
+      final hasSd = extDirs != null && extDirs.length > 1;
+      final sdPathExists = Directory('/storage/sdcard1').existsSync() || Directory('/storage/external_SD').existsSync();
+      if (mounted) {
+        setState(() {
+          _isSdCardAvailable = hasSd || sdPathExists;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _isSdCardAvailable = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _handleSdCardTap() async {
+    SettingsManager.setDownloadPath('SD Card');
+    if (!_isSdCardAvailable && mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('SD Card selected. Please ensure storage permissions are granted when media is inserted.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleCustomPathDialog(String currentPath) async {
+    final controller = TextEditingController(
+      text: (currentPath != 'Internal Storage' && currentPath != 'SD Card')
+          ? currentPath
+          : '/storage/emulated/0/Music/PaatuPadava',
+    );
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: const [
+            Icon(Icons.folder_rounded, color: Color(0xFF6366F1), size: 24),
+            SizedBox(width: 8),
+            Text(
+              'Set Storage Destination',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Enter the destination directory path where offline music will be saved:',
+              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13, height: 1.4),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: const Color(0xFF0F172A),
+                hintText: '/storage/emulated/0/Music/PaatuPadava',
+                hintStyle: const TextStyle(color: Color(0xFF64748B)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFF334155)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFF334155)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFF6366F1), width: 1.5),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx, 'DEFAULT');
+            },
+            child: const Text('Use Default', style: TextStyle(color: Color(0xFF818CF8))),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Color(0xFF94A3B8))),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF6366F1),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () {
+              final val = controller.text.trim();
+              Navigator.pop(ctx, val.isNotEmpty ? val : 'DEFAULT');
+            },
+            child: const Text('Save', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (result == 'DEFAULT') {
+      SettingsManager.setDownloadPath('Internal Storage');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Restored default internal storage location')),
+        );
+      }
+    } else if (result != null && result.isNotEmpty) {
+      SettingsManager.setDownloadPath(result);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Download storage path set to "$result"')),
+        );
+      }
+    }
+  }
 
   Future<void> _handleDeleteAll() async {
     final confirmed = await showDialog<bool>(
@@ -56,7 +196,7 @@ class _DownloadsSettingsScreenState extends State<DownloadsSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0E1A),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: const Color(0xFF0F172A),
         elevation: 0,
@@ -323,22 +463,39 @@ class _DownloadsSettingsScreenState extends State<DownloadsSettingsScreen> {
               ValueListenableBuilder<String>(
                 valueListenable: SettingsManager.downloadPathNotifier,
                 builder: (context, currentPath, _) {
+                  final isInternal = currentPath == 'Internal Storage';
+                  final isSd = currentPath == 'SD Card';
+                  final isCustom = !isInternal && !isSd;
+
                   return Column(
                     children: [
                       _buildPathTile(
                         title: 'Internal Device Storage',
                         subtitle: 'Primary fast storage (/storage/emulated/0/Music/PaatuPadava)',
                         icon: Icons.phone_android_rounded,
-                        isSelected: currentPath == 'Internal Storage',
+                        isSelected: isInternal,
                         onTap: () => SettingsManager.setDownloadPath('Internal Storage'),
                       ),
                       const Divider(color: Colors.white10, height: 16),
+                      Opacity(
+                        opacity: _isSdCardAvailable ? 1.0 : 0.45,
+                        child: _buildPathTile(
+                          title: 'SD Card / External Storage',
+                          subtitle: _isSdCardAvailable
+                              ? 'Removable micro-SD media (/storage/sdcard1/PaatuPadava)'
+                              : 'Removable micro-SD media (Not Detected — Tap to check permissions)',
+                          icon: Icons.sd_storage_rounded,
+                          isSelected: isSd,
+                          onTap: _handleSdCardTap,
+                        ),
+                      ),
+                      const Divider(color: Colors.white10, height: 16),
                       _buildPathTile(
-                        title: 'SD Card / External Storage',
-                        subtitle: 'Removable micro-SD media (/storage/sdcard1/PaatuPadava)',
-                        icon: Icons.sd_storage_rounded,
-                        isSelected: currentPath == 'SD Card',
-                        onTap: () => SettingsManager.setDownloadPath('SD Card'),
+                        title: 'Custom Folder / Browse...',
+                        subtitle: isCustom ? currentPath : 'Select custom folder or restore default storage path',
+                        icon: Icons.folder_open_rounded,
+                        isSelected: isCustom,
+                        onTap: () => _handleCustomPathDialog(currentPath),
                       ),
                     ],
                   );

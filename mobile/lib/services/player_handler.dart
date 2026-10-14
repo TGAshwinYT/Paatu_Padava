@@ -500,11 +500,6 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
         final err = ErrorHandler.resolve(e, stackTrace: stack, context: 'AudioPlayer.playbackEventStream');
         playbackErrorNotifier.value = err;
         debugPrint('[PlayerHandler] Playback error: ${err.userMessage}');
-        if (_queueHandler.hasNext) {
-          Future.delayed(const Duration(seconds: 2), () {
-            _queueHandler.skipToNext();
-          });
-        }
       },
     );
 

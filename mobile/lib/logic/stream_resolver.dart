@@ -171,11 +171,22 @@ class DefaultStreamResolver implements StreamResolver {
         if (!isInvalidated && song.streamUrl != null && song.streamUrl!.isNotEmpty && !isStreamExpired(song.id)) {
           return song.streamUrl;
         }
-        final matches = await SaavnClient.search('${song.title} ${song.artist}', limit: 3).timeout(_saavnSearchTimeout);
+        final cleanTitle = YouTubeClient.cleanTitle(song.title);
+        final query = song.artist.isNotEmpty ? '$cleanTitle ${song.artist}' : cleanTitle;
+        final matches = await SaavnClient.search(query, limit: 5).timeout(_saavnSearchTimeout);
         for (final match in matches) {
-          if (match.streamUrl != null && verifyAudioMatch(match, song)) {
+          if (match.streamUrl != null && match.streamUrl!.isNotEmpty && verifyAudioMatch(match, song)) {
             _invalidatedSongIds.remove(song.id);
             return match.streamUrl;
+          }
+        }
+        // Second pass: relaxed check for same ID or direct title match before falling back to YouTube
+        for (final match in matches) {
+          if (match.streamUrl != null && match.streamUrl!.isNotEmpty) {
+            if (match.id == song.id || normalizeForComparison(match.title) == normalizeForComparison(song.title)) {
+              _invalidatedSongIds.remove(song.id);
+              return match.streamUrl;
+            }
           }
         }
       } catch (e) {
@@ -184,7 +195,7 @@ class DefaultStreamResolver implements StreamResolver {
 
       // 3. Fallback: If JioSaavn has no stream, attempt to resolve via YouTube
       try {
-        final query = '${song.title} ${song.artist} audio';
+        final query = '${YouTubeClient.cleanTitle(song.title)} ${song.artist} audio';
         final ytMatches = await YouTubeClient.search(query, limit: 3);
         for (final yt in ytMatches) {
           final ytUrl = await YouTubeClient.getAudioStreamUrl(yt.id, title: song.title, artist: song.artist);
@@ -216,11 +227,12 @@ class DefaultStreamResolver implements StreamResolver {
         normCandTitle.contains(normTargetTitle));
 
     // 1. Duration check:
-    // If titles match directly or tracks are from YouTube, allow up to 45 seconds tolerance
-    // (YouTube music videos frequently include intros, outros, skits, and dialogue)
+    // If titles match directly or tracks are from YouTube, allow up to 60 seconds tolerance
+    // (YouTube music videos frequently include intros, outros, skits, and dialogue;
+    // Saavn tracks can have silence or album/single duration variance up to 30s)
     if (target.duration > 0 && candidate.duration > 0) {
       final diff = (candidate.duration - target.duration).abs();
-      final allowedTolerance = (isDirectTitleMatch || target.source == 'youtube' || candidate.source == 'youtube') ? 45 : 15;
+      final allowedTolerance = (isDirectTitleMatch || target.source == 'youtube' || candidate.source == 'youtube') ? 60 : 30;
       if (diff > allowedTolerance) {
         return false;
       }

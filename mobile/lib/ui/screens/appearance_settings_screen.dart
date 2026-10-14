@@ -8,7 +8,7 @@ class AppearanceSettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0E1A),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: const Color(0xFF0F172A),
         elevation: 0,
@@ -156,16 +156,28 @@ class AppearanceSettingsScreen extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Container(
-                  width: 20,
-                  height: 20,
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: color,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white24),
+                    color: isSelected
+                        ? const Color(0xFF6366F1).withValues(alpha: 0.2)
+                        : Colors.white.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    title.contains('AMOLED') ? 'PITCH BLACK' : 'SLATE NAVY',
+                    style: TextStyle(
+                      color: isSelected ? const Color(0xFF818CF8) : const Color(0xFF64748B),
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.8,
+                    ),
                   ),
                 ),
-                if (isSelected)
-                  const Icon(Icons.check_circle_rounded, color: Color(0xFF6366F1), size: 18),
+                Icon(
+                  isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                  color: isSelected ? const Color(0xFF6366F1) : const Color(0xFF475569),
+                  size: 20,
+                ),
               ],
             ),
             const SizedBox(height: 10),

@@ -9,7 +9,7 @@ class AudioQualitySettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0E1A),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: const Color(0xFF0F172A),
         elevation: 0,
@@ -34,10 +34,6 @@ class AudioQualitySettingsScreen extends StatelessWidget {
               _buildAutoplaySection(),
               const SizedBox(height: 20),
               _buildCrossfadeSection(),
-              const SizedBox(height: 20),
-              _buildSectionHeader('5-BAND HARDWARE EQUALIZER', Icons.tune_rounded),
-              const SizedBox(height: 10),
-              const EqualizerSettingsCard(),
             ],
           ),
           const Positioned(

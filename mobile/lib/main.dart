@@ -200,13 +200,18 @@ class PaatuPadavaApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      navigatorKey: navigatorKey,
-      title: 'Paatu Padava',
-      debugShowCheckedModeBanner: false,
-      themeMode: ThemeMode.dark,
-      darkTheme: AppTheme.darkTheme,
-      home: const MainNavigation(),
+    return ValueListenableBuilder<String>(
+      valueListenable: SettingsManager.themeModeNotifier,
+      builder: (context, themeMode, _) {
+        return MaterialApp(
+          navigatorKey: navigatorKey,
+          title: 'Paatu Padava',
+          debugShowCheckedModeBanner: false,
+          themeMode: ThemeMode.dark,
+          darkTheme: AppTheme.getTheme(themeMode),
+          home: const MainNavigation(),
+        );
+      },
     );
   }
 }

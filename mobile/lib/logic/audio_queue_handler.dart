@@ -98,6 +98,8 @@ class AudioQueueHandler {
   bool _isLookaheadTriggered = false;
   bool _wasStalledByNetwork = false;
   Duration _networkStallOffset = Duration.zero;
+  int _consecutivePlaybackErrors = 0;
+  static const int _maxConsecutivePlaybackErrors = 3;
   VoidCallback? _connectivityListener;
 
   AudioQueueHandler({
@@ -456,6 +458,7 @@ class AudioQueueHandler {
                     final targetNorm = getEffectiveVolumeForSong(current);
                     await player.setVolume(targetNorm);
                     _startVolumeWatchdog(current);
+                    _consecutivePlaybackErrors = 0;
                     AppLogger.log('AudioQueueHandler', 'Auto-recovery successful for "${current.title}"');
                     return;
                   } catch (recoveryErr) {
@@ -463,6 +466,26 @@ class AudioQueueHandler {
                   }
                 }
               }
+            }
+
+            _consecutivePlaybackErrors++;
+            if (_consecutivePlaybackErrors >= _maxConsecutivePlaybackErrors) {
+              AppLogger.log('AudioQueueHandler', 'Circuit breaker tripped: $_consecutivePlaybackErrors consecutive playback failures. Halting auto-skip storm.');
+              _consecutivePlaybackErrors = 0;
+              await player.stop();
+              final haltErr = AppError(
+                category: AppErrorCategory.unknown,
+                userMessage: 'Playback paused after multiple playback failures. Please check your network or try another song.',
+                actionLabel: 'Dismiss',
+                actionType: AppActionType.none,
+                errorCode: 'ERR_PLAYBACK_LOOP_HALTED',
+              );
+              errorNotifier.value = haltErr;
+              onError?.call(haltErr);
+              if (isAudioHandlerInitialized) {
+                audioHandler.playbackErrorNotifier.value = haltErr;
+              }
+              return;
             }
 
             if (!ConnectivityService.currentIsOnline && _currentTrack != null && !DownloadManager.isDownloaded(_currentTrack!.id)) {
@@ -479,6 +502,12 @@ class AudioQueueHandler {
             if (isAudioHandlerInitialized) {
               audioHandler.playbackErrorNotifier.value = appErr;
             }
+
+            if (hasNext && !_isDisposed) {
+              Future.delayed(const Duration(milliseconds: 600), () {
+                if (!_isDisposed && queue.isNotEmpty) skipToNext();
+              });
+            }
           }
         },
       );
@@ -488,6 +517,7 @@ class AudioQueueHandler {
       onPlayStateChanged?.call(state.playing);
 
       if (state.playing) {
+        _consecutivePlaybackErrors = 0;
         cancelIdleTimer();
       } else {
         startIdleTimer();
@@ -701,6 +731,24 @@ class AudioQueueHandler {
         }
       } else {
         AppLogger.log('AudioQueueHandler', 'Active song "${activeSong.title}" could not be resolved.');
+        _consecutivePlaybackErrors++;
+        if (_consecutivePlaybackErrors >= _maxConsecutivePlaybackErrors) {
+          _consecutivePlaybackErrors = 0;
+          await player.stop();
+          final err = AppError(
+            category: AppErrorCategory.songUnavailable,
+            userMessage: 'Playback paused after multiple tracks failed to load.',
+            actionLabel: 'Dismiss',
+            actionType: AppActionType.none,
+            errorCode: 'ERR_PLAYBACK_LOOP_HALTED',
+          );
+          errorNotifier.value = err;
+          onError?.call(err);
+          if (isAudioHandlerInitialized) {
+            audioHandler.playbackErrorNotifier.value = err;
+          }
+          return;
+        }
         if (autoPlay && hasNext) {
           await skipToNext();
           return;
@@ -781,13 +829,32 @@ class AudioQueueHandler {
           }
         }
 
+        _consecutivePlaybackErrors++;
+        if (_consecutivePlaybackErrors >= _maxConsecutivePlaybackErrors) {
+          _consecutivePlaybackErrors = 0;
+          await player.stop();
+          final haltErr = AppError(
+            category: AppErrorCategory.unknown,
+            userMessage: 'Playback paused after multiple track errors. Please check your connection or choose another song.',
+            actionLabel: 'Dismiss',
+            actionType: AppActionType.none,
+            errorCode: 'ERR_PLAYBACK_LOOP_HALTED',
+          );
+          errorNotifier.value = haltErr;
+          onError?.call(haltErr);
+          if (isAudioHandlerInitialized) {
+            audioHandler.playbackErrorNotifier.value = haltErr;
+          }
+          return;
+        }
+
         final appErr = ErrorHandler.resolve(e, stackTrace: stack, context: 'AudioQueueHandler.loadQueue');
         if (!hasNext && isAudioHandlerInitialized) {
           audioHandler.playbackErrorNotifier.value = appErr;
         }
-        if (hasNext) {
-          Future.delayed(const Duration(milliseconds: 500), () {
-            if (!_isDisposed && queue.isNotEmpty) skipToNext();
+        if (hasNext && !_isDisposed) {
+          Future.delayed(const Duration(milliseconds: 600), () {
+            if (!_isDisposed && queue.isNotEmpty && _sessionToken == token) skipToNext();
           });
         }
       }
@@ -1206,7 +1273,37 @@ class AudioQueueHandler {
 
     // Build audio source
     final activeSrc = await _buildAudioSource(song, allowNetworkResolve: false);
-    if (activeSrc == null || token != _sessionToken) return;
+    if (token != _sessionToken) return;
+
+    if (activeSrc == null) {
+      _consecutivePlaybackErrors++;
+      AppLogger.log('AudioQueueHandler', 'Failed to build audio source for "${song.title}". (Consecutive failures: $_consecutivePlaybackErrors)');
+      if (_consecutivePlaybackErrors >= _maxConsecutivePlaybackErrors) {
+        _consecutivePlaybackErrors = 0;
+        await player.stop();
+        final err = AppError(
+          category: AppErrorCategory.songUnavailable,
+          userMessage: 'Playback paused after multiple tracks failed to load.',
+          actionLabel: 'Dismiss',
+          actionType: AppActionType.none,
+          errorCode: 'ERR_PLAYBACK_LOOP_HALTED',
+        );
+        errorNotifier.value = err;
+        onError?.call(err);
+        if (isAudioHandlerInitialized) {
+          audioHandler.playbackErrorNotifier.value = err;
+        }
+        return;
+      }
+      if (hasNext && !_isDisposed) {
+        Future.delayed(const Duration(milliseconds: 600), () {
+          if (!_isDisposed && queue.isNotEmpty && _sessionToken == token) {
+            skipToNext();
+          }
+        });
+      }
+      return;
+    }
 
     final sources = <AudioSource>[activeSrc];
 
@@ -1237,6 +1334,7 @@ class AudioQueueHandler {
       if (token != _sessionToken) return;
       await _ensureAudioSessionActive();
       await player.play();
+      _consecutivePlaybackErrors = 0; // Playback began successfully
       if (crossfadeSec > 0) {
         _fadeVolumeTo(targetNorm, durationMs: (crossfadeSec * 600).clamp(250, 2000));
       } else {
@@ -1248,6 +1346,25 @@ class AudioQueueHandler {
     } catch (e, stack) {
       AppLogger.recordError(e, stack, context: 'AudioQueueHandler._playTrackEntity');
       debugPrint('[AudioQueueHandler] Play track error: $e');
+      _consecutivePlaybackErrors++;
+      if (_consecutivePlaybackErrors >= _maxConsecutivePlaybackErrors) {
+        _consecutivePlaybackErrors = 0;
+        await player.stop();
+        final err = ErrorHandler.resolve(e, stackTrace: stack, context: 'AudioQueueHandler._playTrackEntity');
+        errorNotifier.value = err;
+        onError?.call(err);
+        if (isAudioHandlerInitialized) {
+          audioHandler.playbackErrorNotifier.value = err;
+        }
+        return;
+      }
+      if (hasNext && !_isDisposed) {
+        Future.delayed(const Duration(milliseconds: 600), () {
+          if (!_isDisposed && queue.isNotEmpty && _sessionToken == token) {
+            skipToNext();
+          }
+        });
+      }
     }
   }
 
@@ -1618,7 +1735,7 @@ class AudioQueueHandler {
 
     final headers = <String, String>{};
     if (song.source == 'youtube' || streamUrl.contains('googlevideo.com') || song.id.length == 11) {
-      headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+      headers['Range'] = 'bytes=0-';
       headers['Accept'] = '*/*';
       headers['Connection'] = 'keep-alive';
     }

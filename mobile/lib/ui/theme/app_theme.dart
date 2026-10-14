@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../services/settings_manager.dart';
 
 /// Centralized Design System & Theme for Paatu Padava
 /// Matching the glowing Neon Violet/Purple (#A855F7) and Cyan (#06B6D4) logo theme.
@@ -51,18 +52,25 @@ class AppColors {
 }
 
 class AppTheme {
-  static ThemeData get darkTheme {
+  static ThemeData get darkTheme => getTheme(SettingsManager.themeMode);
+
+  static ThemeData getTheme(String mode) {
+    final bool isAmoled = mode == 'amoled';
+    final Color bgColor = isAmoled ? Colors.black : const Color(0xFF0A0E1A);
+    final Color surfaceColor = isAmoled ? const Color(0xFF0D0D0D) : const Color(0xFF0F172A);
+    final Color surfaceElevated = isAmoled ? const Color(0xFF171717) : const Color(0xFF1E293B);
+
     return ThemeData(
       brightness: Brightness.dark,
-      scaffoldBackgroundColor: AppColors.bgDark,
+      scaffoldBackgroundColor: bgColor,
       primaryColor: AppColors.neonViolet,
-      colorScheme: const ColorScheme.dark(
+      colorScheme: ColorScheme.dark(
         primary: AppColors.neonViolet,
         secondary: AppColors.electricCyan,
-        surface: AppColors.surfaceDark,
-        surfaceContainerHighest: AppColors.surfaceElevated,
+        surface: surfaceColor,
+        surfaceContainerHighest: surfaceElevated,
         onPrimary: AppColors.textWhite,
-        onSecondary: AppColors.bgDark,
+        onSecondary: bgColor,
         onSurface: AppColors.textWhite,
       ),
       textTheme: GoogleFonts.outfitTextTheme(
@@ -71,14 +79,14 @@ class AppTheme {
         bodyColor: AppColors.textWhite,
         displayColor: AppColors.textWhite,
       ),
-      appBarTheme: const AppBarTheme(
+      appBarTheme: AppBarTheme(
         backgroundColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
         systemOverlayStyle: SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
           statusBarIconBrightness: Brightness.light,
-          systemNavigationBarColor: AppColors.bgDark,
+          systemNavigationBarColor: bgColor,
           systemNavigationBarIconBrightness: Brightness.light,
         ),
       ),
@@ -86,7 +94,7 @@ class AppTheme {
         color: AppColors.textWhite,
       ),
       chipTheme: ChipThemeData(
-        backgroundColor: AppColors.surfaceElevated,
+        backgroundColor: surfaceElevated,
         selectedColor: AppColors.neonViolet.withValues(alpha: 0.25),
         secondarySelectedColor: AppColors.electricCyan.withValues(alpha: 0.25),
         labelStyle: const TextStyle(color: AppColors.textWhite, fontSize: 13),
@@ -94,7 +102,7 @@ class AppTheme {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       ),
       snackBarTheme: SnackBarThemeData(
-        backgroundColor: AppColors.surfaceElevated,
+        backgroundColor: surfaceElevated,
         contentTextStyle: const TextStyle(color: AppColors.textWhite, fontWeight: FontWeight.w600),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),

@@ -222,7 +222,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
             child: SafeArea(
               child: Column(
                 children: [
-                  // Top App Bar
+                    // Top App Bar
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                       child: Row(
@@ -232,26 +232,39 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                             icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 34, color: Colors.white),
                             onPressed: () => Navigator.of(context).pop(),
                           ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF131B2E),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-                            ),
-                            child: Text(
-                              song.source == 'offline'
-                                  ? 'OFFLINE LOSSLESS'
-                                  : (song.source == 'youtube' ? 'YOUTUBE MUSIC' : 'JIOSAAVN 320KBPS'),
-                              style: const TextStyle(
-                                color: Color(0xFF6366F1),
-                                fontSize: 11,
-                                letterSpacing: 1.2,
-                                fontWeight: FontWeight.w700,
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'PLAYING FROM',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(alpha: 0.45),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      letterSpacing: 1.2,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    song.album.isNotEmpty ? song.album : 'Paatu Padava',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
                           Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
                               ValueListenableBuilder<ConnectedDevice>(
                                 valueListenable: DeviceConnectCoordinator.instance.currentDeviceNotifier,
@@ -260,8 +273,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                   return IconButton(
                                     icon: Icon(
                                       isCasting ? Icons.cast_connected_rounded : Icons.cast_rounded,
-                                      color: isCasting ? const Color(0xFF10B981) : Colors.white,
-                                      size: 24,
+                                      color: isCasting ? const Color(0xFF10B981) : Colors.white70,
+                                      size: 22,
                                     ),
                                     tooltip: isCasting ? 'Streaming on ${device.name}' : 'Connect to a Device',
                                     onPressed: () => DeviceConnectSheet.show(context),
@@ -269,7 +282,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                 },
                               ),
                               IconButton(
-                                icon: const Icon(Icons.tune_rounded, color: Colors.white, size: 24),
+                                icon: const Icon(Icons.tune_rounded, color: Colors.white70, size: 22),
                                 tooltip: 'Equalizer',
                                 onPressed: () => PlayerEqualizerSheet.show(context),
                               ),
@@ -285,6 +298,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                         icon: Icon(
                                           isActive ? Icons.bedtime_rounded : Icons.bedtime_outlined,
                                           color: isActive ? const Color(0xFF6366F1) : Colors.white70,
+                                          size: 22,
                                         ),
                                         tooltip: 'Sleep Timer',
                                         onPressed: _showSleepTimerSheet,
@@ -293,8 +307,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                         GestureDetector(
                                           onTap: _showSleepTimerSheet,
                                           child: Container(
-                                            margin: const EdgeInsets.only(right: 6),
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            margin: const EdgeInsets.only(right: 4),
+                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                                             decoration: BoxDecoration(
                                               color: const Color(0xFF6366F1).withValues(alpha: 0.2),
                                               borderRadius: BorderRadius.circular(8),
@@ -320,7 +334,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                               ),
                               IconButton(
                                 icon: const Icon(Icons.queue_music_rounded, color: Colors.white, size: 26),
-                                tooltip: 'Open Queue',
+                                tooltip: 'Playback Queue',
                                 onPressed: () => QueueSheet.show(context),
                               ),
                             ],
@@ -483,15 +497,47 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        song.title,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 22,
-                                          fontWeight: FontWeight.bold,
-                                        ),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              song.title,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 22,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFF131B2E),
+                                              borderRadius: BorderRadius.circular(6),
+                                              border: Border.all(
+                                                color: song.source == 'offline'
+                                                    ? const Color(0xFF10B981).withValues(alpha: 0.3)
+                                                    : const Color(0xFF6366F1).withValues(alpha: 0.3),
+                                              ),
+                                            ),
+                                            child: Text(
+                                              song.source == 'offline'
+                                                  ? 'LOSSLESS'
+                                                  : (song.source == 'youtube' ? 'YOUTUBE' : '320 KBPS'),
+                                              style: TextStyle(
+                                                color: song.source == 'offline'
+                                                    ? const Color(0xFF34D399)
+                                                    : const Color(0xFF818CF8),
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w700,
+                                                letterSpacing: 0.8,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                       const SizedBox(height: 4),
                                       Builder(
@@ -635,29 +681,131 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                               child: PlayerControls(),
                             ),
 
-                            // Bottom Auto Radio Bar
-                            InkWell(
-                              onTap: () => _showRadioAndMixOptions(context, song),
-                              borderRadius: BorderRadius.circular(20),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF131B2E),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: const [
-                                    Icon(Icons.radio_rounded, size: 16, color: Color(0xFF6366F1)),
-                                    SizedBox(width: 8),
-                                    Text(
-                                      'Start Radio • Auto-Mix Similar Songs',
-                                      style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
-                                    ),
-                                  ],
-                                ),
-                              ),
+                            // Bottom Queue & Up Next Bar
+                            ValueListenableBuilder<List<Song>>(
+                              valueListenable: audioHandler.playlistNotifier,
+                              builder: (context, playlist, _) {
+                                return ValueListenableBuilder<int>(
+                                  valueListenable: audioHandler.currentIndexNotifier,
+                                  builder: (context, currentIndex, _) {
+                                    final upcomingTracks = (currentIndex >= 0 && currentIndex + 1 < playlist.length)
+                                        ? playlist.sublist(currentIndex + 1)
+                                        : <Song>[];
+                                    final nextSong = upcomingTracks.isNotEmpty ? upcomingTracks.first : null;
+                                    final upcomingCount = upcomingTracks.length;
+
+                                    return InkWell(
+                                      onTap: () => QueueSheet.show(context),
+                                      borderRadius: BorderRadius.circular(20),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF131B2E),
+                                          borderRadius: BorderRadius.circular(20),
+                                          border: Border.all(
+                                            color: const Color(0xFF6366F1).withValues(alpha: 0.18),
+                                          ),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.black.withValues(alpha: 0.25),
+                                              blurRadius: 10,
+                                              offset: const Offset(0, 3),
+                                            ),
+                                          ],
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(
+                                              Icons.queue_music_rounded,
+                                              size: 18,
+                                              color: Color(0xFF818CF8),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            if (nextSong != null) ...[
+                                              const Text(
+                                                'Up Next: ',
+                                                style: TextStyle(
+                                                  color: Color(0xFF818CF8),
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                              ConstrainedBox(
+                                                constraints: BoxConstraints(
+                                                  maxWidth: MediaQuery.of(context).size.width * 0.44,
+                                                ),
+                                                child: Text(
+                                                  '${nextSong.title} • ${nextSong.artist}',
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ),
+                                              if (upcomingCount > 1) ...[
+                                                const SizedBox(width: 6),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(0xFF6366F1).withValues(alpha: 0.25),
+                                                    borderRadius: BorderRadius.circular(8),
+                                                  ),
+                                                  child: Text(
+                                                    '+${upcomingCount - 1}',
+                                                    style: const TextStyle(
+                                                      color: Color(0xFFA5B4FC),
+                                                      fontSize: 10,
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ] else ...[
+                                              const Text(
+                                                'Queue (Empty)',
+                                                style: TextStyle(
+                                                  color: Colors.white70,
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ],
+                                            const SizedBox(width: 6),
+                                            const Icon(
+                                              Icons.keyboard_arrow_up_rounded,
+                                              size: 16,
+                                              color: Color(0xFF94A3B8),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Container(
+                                              height: 12,
+                                              width: 1,
+                                              color: Colors.white.withValues(alpha: 0.15),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            IconButton(
+                                              visualDensity: VisualDensity.compact,
+                                              padding: EdgeInsets.zero,
+                                              constraints: const BoxConstraints(),
+                                              icon: const Icon(
+                                                Icons.radio_rounded,
+                                                size: 16,
+                                                color: Color(0xFF6366F1),
+                                              ),
+                                              tooltip: 'Radio & Recommendations',
+                                              onPressed: () => _showRadioAndMixOptions(context, song),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                );
+                              },
                             ),
                           ],
                         ),

@@ -304,12 +304,18 @@ class HomeFeedProvider extends ChangeNotifier {
         img = SongRepository.verifiedArtistAvatars[norm]!;
       } else if (isSongCover || img.isEmpty) {
         try {
-          final fetched = await SpotifyImportService.getArtistProfileImage(name)
+          final liveImg = await SaavnClient.getArtistImage(name)
               .timeout(const Duration(seconds: 3), onTimeout: () => null);
-          if (fetched != null && fetched.isNotEmpty) {
-            img = fetched;
-          } else if (isSongCover) {
-            img = '';
+          if (liveImg != null && liveImg.isNotEmpty) {
+            img = liveImg;
+          } else {
+            final fetched = await SpotifyImportService.getArtistProfileImage(name)
+                .timeout(const Duration(seconds: 3), onTimeout: () => null);
+            if (fetched != null && fetched.isNotEmpty) {
+              img = fetched;
+            } else if (isSongCover) {
+              img = '';
+            }
           }
         } catch (_) {
           if (isSongCover) img = '';

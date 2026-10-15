@@ -44,6 +44,38 @@ set audioHandler(PaatuAudioHandler handler) => _audioHandlerInstance = handler;
 
 bool get isAudioHandlerInitialized => _audioHandlerInstance != null;
 
+// ignore: experimental_member_use
+class YouTubeByteStreamSource extends StreamAudioSource {
+  final String videoId;
+
+  YouTubeByteStreamSource(this.videoId, {super.tag});
+
+  @override
+  // ignore: experimental_member_use
+  Future<StreamAudioResponse> request([int? start, int? end]) async {
+    final streamInfo = await YouTubeClient.getBestAudioStreamInfo(videoId);
+    if (streamInfo == null) {
+      throw Exception('Failed to get audio stream info for $videoId');
+    }
+
+    final totalBytes = streamInfo.size.totalBytes;
+    final effectiveStart = start ?? 0;
+    final effectiveEnd = (end != null && end < totalBytes) ? end : totalBytes;
+
+    final stream = YouTubeClient.getAudioByteStream(videoId, start: effectiveStart, end: effectiveEnd);
+
+    // ignore: experimental_member_use
+    return StreamAudioResponse(
+      rangeRequestsSupported: true,
+      sourceLength: totalBytes,
+      contentLength: effectiveEnd - effectiveStart,
+      offset: effectiveStart,
+      stream: stream,
+      contentType: streamInfo.codec.mimeType,
+    );
+  }
+}
+
 /// App-lifetime audio background service handler coordinating playback,
 /// queue mutations, notification actions, and lock screen media session.
 class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler, WidgetsBindingObserver {
@@ -610,6 +642,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   }
 
   int _loadRequestId = 0;
+  int _activeLoadToken = 0;
+  bool _isPreparing = false;
+  bool get isPreparing => _isPreparing;
   final StreamResolver _streamResolver = DefaultStreamResolver();
 
   /// Auto-recovery when ExoPlayer throws a 403 Forbidden or source error.
@@ -656,64 +691,83 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   /// Loads and resolves a track with async request-ID race condition protection
   Future<void> loadTrack(TrackEntity track, {bool autoPlay = true}) async {
     final currentRequestId = ++_loadRequestId;
-    final song = track.toSong();
+    final token = ++_activeLoadToken;
+    _isPreparing = true;
 
-    String? url = song.streamUrl;
-    if (url == null || url.isEmpty || track.source == 'youtube' || _streamResolver.isExpired(track.id)) {
-      url = await _streamResolver.resolveStreamUrl(song);
-    }
+    try {
+      final song = track.toSong();
 
-    if (currentRequestId != _loadRequestId) return;
-
-    if (url != null && url.isNotEmpty) {
-      final isHls = url.contains('.m3u8') || url.contains('hls_variant');
-      final isGoogleVideo = track.source == 'youtube' || url.contains('googlevideo.com');
-      if (isGoogleVideo && !isHls && !url.contains('&range=')) {
-        final clen = Uri.tryParse(url)?.queryParameters['clen'];
-        if (clen != null && clen.isNotEmpty) {
-          url = '$url&range=0-$clen';
-        }
+      String? url = song.streamUrl;
+      if (url == null || url.isEmpty || track.source == 'youtube' || _streamResolver.isExpired(track.id)) {
+        url = await _streamResolver.resolveStreamUrl(song);
       }
-      song.streamUrl = url;
 
-      final headers = <String, String>{};
-      if (isGoogleVideo) {
-        if (isHls) {
-          headers['User-Agent'] = 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)';
-        } else {
-          headers['User-Agent'] = YouTubeClient.vrUserAgent;
-          if (!url.contains('&range=')) {
-            headers['Range'] = 'bytes=0-';
+      if (currentRequestId != _loadRequestId || token != _activeLoadToken) return;
+
+      if (url != null && url.isNotEmpty) {
+        final isHls = url.contains('.m3u8') || url.contains('hls_variant');
+        final isGoogleVideo = track.source == 'youtube' || url.contains('googlevideo.com');
+        if (isGoogleVideo && !isHls && !url.contains('&range=')) {
+          final clen = Uri.tryParse(url)?.queryParameters['clen'];
+          if (clen != null && clen.isNotEmpty) {
+            url = '$url&range=0-$clen';
           }
         }
-        headers['Accept'] = '*/*';
-        headers['Connection'] = 'keep-alive';
-      }
-      try {
-        final source = AudioSource.uri(
-          Uri.parse(url),
-          headers: headers.isNotEmpty ? headers : null,
-          tag: track.toMediaItem(),
-        );
-        await _player.setAudioSource(source);
-        if (currentRequestId != _loadRequestId) return;
-        if (_player.duration != null && _player.duration!.inMilliseconds > 0) {
-          track.durationMs = _player.duration!.inMilliseconds;
-          song.duration = _player.duration!.inSeconds;
-          if (mediaItem.value != null) {
-            mediaItem.add(mediaItem.value!.copyWith(duration: _player.duration));
+        song.streamUrl = url;
+
+        final headers = <String, String>{};
+        if (isGoogleVideo) {
+          if (isHls) {
+            headers['User-Agent'] = 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)';
+          } else {
+            headers['User-Agent'] = YouTubeClient.vrUserAgent;
+            if (!url.contains('&range=')) {
+              headers['Range'] = 'bytes=0-';
+            }
           }
-          _broadcastState();
+          headers['Accept'] = '*/*';
+          headers['Connection'] = 'keep-alive';
         }
-        if (autoPlay) {
-          await play();
+        try {
+          final source = AudioSource.uri(
+            Uri.parse(url),
+            headers: headers.isNotEmpty ? headers : null,
+            tag: track.toMediaItem(),
+          );
+          await _player.setAudioSource(source);
+          if (currentRequestId != _loadRequestId || token != _activeLoadToken) return;
+          if (_player.duration != null && _player.duration!.inMilliseconds > 0) {
+            track.durationMs = _player.duration!.inMilliseconds;
+            song.duration = _player.duration!.inSeconds;
+            if (mediaItem.value != null) {
+              mediaItem.add(mediaItem.value!.copyWith(duration: _player.duration));
+            }
+            _broadcastState();
+          }
+          if (autoPlay) {
+            await play();
+          }
+        } catch (e, stack) {
+          AppLogger.recordError(e, stack, context: 'PlayerHandler.loadTrack ExoPlayer source error');
+          // Try chunked byte stream before full Smart Replace
+          if (isGoogleVideo) {
+            try {
+              final chunkSource = YouTubeByteStreamSource(track.id, tag: track.toMediaItem());
+              await _player.setAudioSource(chunkSource);
+              if (currentRequestId != _loadRequestId || token != _activeLoadToken) return;
+              if (autoPlay) await play();
+              return;
+            } catch (_) {}
+          }
+          await _recoverWithSmartReplace(song, autoPlay: autoPlay);
         }
-      } catch (e, stack) {
-        AppLogger.recordError(e, stack, context: 'PlayerHandler.loadTrack ExoPlayer source error');
+      } else {
         await _recoverWithSmartReplace(song, autoPlay: autoPlay);
       }
-    } else {
-      await _recoverWithSmartReplace(song, autoPlay: autoPlay);
+    } finally {
+      if (token == _activeLoadToken) {
+        _isPreparing = false;
+      }
     }
   }
 
@@ -888,7 +942,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       if (tracks.isNotEmpty) {
         await _queueHandler.addAutoSuggestions(tracks);
         if (_queueHandler.hasNext) {
-          await _queueHandler.skipToNext();
+          await _queueHandler.skipToNext(isUserInitiated: false);
           return;
         }
       }

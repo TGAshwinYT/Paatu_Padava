@@ -52,7 +52,7 @@ class DefaultStreamResolver implements StreamResolver {
   })  : _youtubeClient = youtubeClient ?? YoutubeClient();
 
   static const Duration _overallTimeout = Duration(seconds: 8);
-  static const Duration _stageTimeout = Duration(seconds: 3);
+  static const Duration _stageTimeout = Duration(seconds: 4);
   static const Duration cacheTtl = Duration(hours: 3);
 
   /// High-integrity HTTP headers for Googlevideo CDN streams (Range + modern User-Agent)
@@ -74,6 +74,10 @@ class DefaultStreamResolver implements StreamResolver {
     final entry = _streamCache[songId];
     if (entry != null) {
       if (!entry.isExpired) {
+        if (YouTubeClient.isLinkExpired(entry.url)) {
+          _streamCache.remove(songId);
+          return null;
+        }
         return entry.url;
       }
       _streamCache.remove(songId); // Purge expired entry

@@ -133,7 +133,7 @@ class SaavnClient {
         'User-Agent': 'Mozilla/5.0',
         'Cookie': 'L=tamil%2Cenglish; gdpr_acceptance=true',
         'Accept': 'application/json, text/plain, */*',
-      }).timeout(const Duration(seconds: 4));
+      }).timeout(const Duration(seconds: 3));
       if (response.statusCode != 200) return [];
 
       final dynamic data = (response.body.isNotEmpty) ? json.decode(response.body) : null;
@@ -205,6 +205,30 @@ class SaavnClient {
       AppLogger.log('SaavnClient', 'getTrending error: $e');
     }
     return search('Tamil Top Hits', language: language);
+  }
+
+  /// Direct on-device artist avatar lookup via JioSaavn
+  static Future<String?> getArtistImage(String name) async {
+    final clean = name.trim();
+    if (clean.isEmpty) return null;
+    try {
+      final url = 'https://www.jiosaavn.com/api.php?__call=search.getArtistResults&_format=json&_marker=0&api_version=4&ctx=web6dot0&n=2&p=1&q=${Uri.encodeComponent(clean)}';
+      final response = await http.get(Uri.parse(url), headers: const {
+        'User-Agent': 'Mozilla/5.0',
+        'Cookie': 'L=tamil%2Cenglish; gdpr_acceptance=true',
+      }).timeout(const Duration(seconds: 3));
+
+      if (response.statusCode != 200) return null;
+      final data = json.decode(response.body);
+      if (data is Map && data['results'] is List && (data['results'] as List).isNotEmpty) {
+        final first = (data['results'] as List).first;
+        if (first is Map && first['image'] != null) {
+          final rawImg = first['image'].toString();
+          return _extractHighResImage(rawImg);
+        }
+      }
+    } catch (_) {}
+    return null;
   }
 
   static Future<List<Map<String, dynamic>>> searchAlbums(String query, {int limit = 15, String? language}) async {

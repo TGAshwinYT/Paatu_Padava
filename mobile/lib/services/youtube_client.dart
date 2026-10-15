@@ -21,6 +21,8 @@ class YouTubeClient {
 
   static const String vrUserAgent =
       'com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12; en_US; Quest 2; Build/SQ3A.220605.009.A1) gzip';
+  static const String androidUserAgent =
+      'com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US; Pixel 8 Pro; Build/UQ1A.240205.004) gzip';
 
   /// High-integrity HTTP headers for Googlevideo CDN streams.
   /// Enforces ANDROID_VR User-Agent and keep-alive to avoid connection drops and 403 Forbidden errors.
@@ -62,6 +64,80 @@ class YouTubeClient {
       'Connection': 'keep-alive',
       if (!isManifest && !hasRangeQuery) 'Range': 'bytes=0-',
     };
+  }
+
+  /// Returns true if a Googlevideo stream URL's expire parameter is within 60 seconds of expiring or already expired.
+  static bool isLinkExpired(String? url) {
+    if (url == null || url.isEmpty) return true;
+    try {
+      final uri = Uri.tryParse(url);
+      if (uri == null) return true;
+      final expireStr = uri.queryParameters['expire'];
+      if (expireStr == null) return false;
+      final expireSec = int.tryParse(expireStr);
+      if (expireSec == null) return false;
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      return nowSec >= (expireSec - 60);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Fetches the highest quality audio StreamInfo from YoutubeExplode
+  static Future<AudioStreamInfo?> getBestAudioStreamInfo(String videoId) async {
+    final cleanId = extractVideoId(videoId) ?? videoId.trim();
+    if (cleanId.isEmpty) return null;
+    try {
+      final manifest = await _yt.videos.streamsClient.getManifest(cleanId);
+      final audioStreams = manifest.audioOnly;
+      if (audioStreams.isEmpty) return null;
+
+      final quality = SettingsManager.streamingQuality;
+      if (quality == '96kbps') {
+        final low = audioStreams.where((s) => s.bitrate.kiloBitsPerSecond <= 100);
+        if (low.isNotEmpty) return low.withHighestBitrate();
+      }
+
+      // AAC 140 (128kbps m4a) first for universal hardware decoding, then Opus 251
+      for (final s in audioStreams) {
+        if (s.tag == 140) return s;
+      }
+      for (final s in audioStreams) {
+        if (s.tag == 251) return s;
+      }
+      return audioStreams.withHighestBitrate();
+    } catch (e) {
+      AppLogger.log('YouTubeClient', 'getBestAudioStreamInfo notice for $cleanId: $e');
+      return null;
+    }
+  }
+
+  /// Exposes a bounded byte stream for chunked streaming via YoutubeExplode or HTTP Range
+  static Stream<List<int>> getAudioByteStream(String videoId, {int? start, int? end}) async* {
+    final cleanId = extractVideoId(videoId) ?? videoId.trim();
+    final info = await getBestAudioStreamInfo(cleanId);
+    if (info == null) {
+      throw Exception('No audio stream info found for $cleanId');
+    }
+
+    final totalBytes = info.size.totalBytes;
+    final reqStart = start ?? 0;
+    final reqEnd = (end != null && end < totalBytes) ? end : totalBytes;
+
+    final client = http.Client();
+    try {
+      final request = http.Request('GET', Uri.parse(info.url.toString()));
+      request.headers.addAll({
+        'User-Agent': androidUserAgent,
+        'Range': 'bytes=$reqStart-${reqEnd > 0 ? reqEnd - 1 : ""}',
+        'Accept': '*/*',
+        'Connection': 'keep-alive',
+      });
+      final response = await client.send(request);
+      yield* response.stream;
+    } finally {
+      client.close();
+    }
   }
 
   static String cleanTitle(String title) {
@@ -1046,7 +1122,10 @@ class YouTubeClient {
 
     final cached = _streamCache[cleanId];
     if (cached != null && !cached.isExpired) {
-      return cached.url;
+      if (!isLinkExpired(cached.url)) {
+        return cached.url;
+      }
+      _streamCache.remove(cleanId);
     }
 
     final verifiedUrl = await _resolveAndVerifyStream(cleanId);

@@ -98,17 +98,17 @@ class _OnboardingArtistsScreenState extends State<OnboardingArtistsScreen> with 
     'dhee': [
       {'name': 'Arivu', 'image': 'https://c.saavncdn.com/artists/Arivu_500x500.jpg'},
       {'name': 'Pradeep Kumar', 'image': 'https://c.saavncdn.com/artists/Pradeep_Kumar_500x500.jpg'},
-      {'name': 'Sid Sriram', 'image': 'https://c.saavncdn.com/artists/Sid_Sriram_003_20230224102607_500x500.jpg'},
+      {'name': 'Sid Sriram', 'image': 'https://c.saavncdn.com/artists/Sid_Sriram_500x500.jpg'},
     ],
     'jonita gandhi': [
-      {'name': 'Anirudh Ravichander', 'image': 'https://c.saavncdn.com/artists/Anirudh_Ravichander_004_20231018104445_500x500.jpg'},
+      {'name': 'Anirudh Ravichander', 'image': 'https://c.saavncdn.com/artists/Anirudh_Ravichander_500x500.jpg'},
       {'name': 'Haricharan', 'image': 'https://c.saavncdn.com/artists/Haricharan_500x500.jpg'},
-      {'name': 'Sid Sriram', 'image': 'https://c.saavncdn.com/artists/Sid_Sriram_003_20230224102607_500x500.jpg'},
+      {'name': 'Sid Sriram', 'image': 'https://c.saavncdn.com/artists/Sid_Sriram_500x500.jpg'},
     ],
     'karthik': [
       {'name': 'Bombay Jayashri', 'image': 'https://c.saavncdn.com/artists/Bombay_Jayashri_500x500.jpg'},
       {'name': 'Harish Raghavendra', 'image': 'https://c.saavncdn.com/artists/Harish_Raghavendra_500x500.jpg'},
-      {'name': 'Shreya Ghoshal', 'image': 'https://c.saavncdn.com/artists/Shreya_Ghoshal_004_20221118121516_500x500.jpg'},
+      {'name': 'Shreya Ghoshal', 'image': 'https://c.saavncdn.com/artists/Shreya_Ghoshal_500x500.jpg'},
     ],
     'ilaiyaraaja': [
       {'name': 'S.P. Balasubrahmanyam', 'image': 'https://c.saavncdn.com/artists/S_P__Balasubrahmanyam_500x500.jpg'},
@@ -122,8 +122,8 @@ class _OnboardingArtistsScreenState extends State<OnboardingArtistsScreen> with 
     ],
     'd. imman': [
       {'name': 'Anthony Daasan', 'image': 'https://c.saavncdn.com/artists/Anthony_Daasan_500x500.jpg'},
-      {'name': 'Shreya Ghoshal', 'image': 'https://c.saavncdn.com/artists/Shreya_Ghoshal_004_20221118121516_500x500.jpg'},
-      {'name': 'Sid Sriram', 'image': 'https://c.saavncdn.com/artists/Sid_Sriram_003_20230224102607_500x500.jpg'},
+      {'name': 'Shreya Ghoshal', 'image': 'https://c.saavncdn.com/artists/Shreya_Ghoshal_500x500.jpg'},
+      {'name': 'Sid Sriram', 'image': 'https://c.saavncdn.com/artists/Sid_Sriram_500x500.jpg'},
     ],
     'vijay antony': [
       {'name': 'Harris Jayaraj', 'image': 'https://c.saavncdn.com/artists/Harris_Jayaraj_500x500.jpg'},
@@ -136,19 +136,19 @@ class _OnboardingArtistsScreenState extends State<OnboardingArtistsScreen> with 
       {'name': 'Karthik', 'image': 'https://c.saavncdn.com/artists/Karthik_500x500.jpg'},
     ],
     'andrea jeremiah': [
-      {'name': 'Anirudh Ravichander', 'image': 'https://c.saavncdn.com/artists/Anirudh_Ravichander_004_20231018104445_500x500.jpg'},
+      {'name': 'Anirudh Ravichander', 'image': 'https://c.saavncdn.com/artists/Anirudh_Ravichander_500x500.jpg'},
       {'name': 'Yuvan Shankar Raja', 'image': 'https://c.saavncdn.com/artists/Yuvan_Shankar_Raja_500x500.jpg'},
       {'name': 'Jonita Gandhi', 'image': 'https://c.saavncdn.com/artists/Jonita_Gandhi_500x500.jpg'},
     ],
     'arivu': [
-      {'name': 'Dhee', 'image': 'https://c.saavncdn.com/artists/Dhee_500x500.jpg'},
+      {'name': 'Dhee', 'image': 'https://c.saavncdn.com/artists/Dhee_20180510121326_500x500.jpg'},
       {'name': 'Pradeep Kumar', 'image': 'https://c.saavncdn.com/artists/Pradeep_Kumar_500x500.jpg'},
       {'name': 'Sean Roldan', 'image': 'https://c.saavncdn.com/artists/Sean_Roldan_500x500.jpg'},
     ],
     'sean roldan': [
       {'name': 'Pradeep Kumar', 'image': 'https://c.saavncdn.com/artists/Pradeep_Kumar_500x500.jpg'},
       {'name': 'Anthony Daasan', 'image': 'https://c.saavncdn.com/artists/Anthony_Daasan_500x500.jpg'},
-      {'name': 'Dhee', 'image': 'https://c.saavncdn.com/artists/Dhee_500x500.jpg'},
+      {'name': 'Dhee', 'image': 'https://c.saavncdn.com/artists/Dhee_20180510121326_500x500.jpg'},
     ],
   };
 
@@ -156,11 +156,11 @@ class _OnboardingArtistsScreenState extends State<OnboardingArtistsScreen> with 
   final List<Map<String, String>> _displayedArtists = [
     {
       'name': 'Anirudh Ravichander',
-      'image': 'https://c.saavncdn.com/artists/Anirudh_Ravichander_004_20231018104445_500x500.jpg',
+      'image': 'https://c.saavncdn.com/artists/Anirudh_Ravichander_500x500.jpg',
     },
     {
       'name': 'A.R. Rahman',
-      'image': 'https://c.saavncdn.com/artists/A_R__Rahman_002_20210219084131_500x500.jpg',
+      'image': 'https://c.saavncdn.com/artists/AR_Rahman_002_20210120084455_500x500.jpg',
     },
     {
       'name': 'Yuvan Shankar Raja',
@@ -180,19 +180,19 @@ class _OnboardingArtistsScreenState extends State<OnboardingArtistsScreen> with 
     },
     {
       'name': 'Sid Sriram',
-      'image': 'https://c.saavncdn.com/artists/Sid_Sriram_003_20230224102607_500x500.jpg',
+      'image': 'https://c.saavncdn.com/artists/Sid_Sriram_500x500.jpg',
     },
     {
       'name': 'G.V. Prakash Kumar',
-      'image': 'https://c.saavncdn.com/artists/G_V__Prakash_Kumar_500x500.jpg',
+      'image': 'https://c.saavncdn.com/artists/G_V__Prakash_Kumar_003_20251113063655_500x500.jpg',
     },
     {
       'name': 'Shreya Ghoshal',
-      'image': 'https://c.saavncdn.com/artists/Shreya_Ghoshal_004_20221118121516_500x500.jpg',
+      'image': 'https://c.saavncdn.com/artists/Shreya_Ghoshal_500x500.jpg',
     },
     {
       'name': 'Ilaiyaraaja',
-      'image': 'https://c.saavncdn.com/artists/Ilaiyaraaja_004_20220602053931_500x500.jpg',
+      'image': 'https://c.saavncdn.com/artists/Ilaiyaraaja_500x500.jpg',
     },
     {
       'name': 'D. Imman',

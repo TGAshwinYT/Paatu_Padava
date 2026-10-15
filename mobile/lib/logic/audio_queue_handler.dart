@@ -18,6 +18,7 @@ import '../services/battery_optimization_service.dart';
 import '../services/queue_cooldown_manager.dart';
 import '../services/des_decrypt.dart';
 import '../services/connectivity_service.dart';
+import '../services/smart_cache_service.dart';
 import 'stream_resolver.dart';
 import 'next_track_strategy.dart';
 
@@ -1377,8 +1378,14 @@ class AudioQueueHandler {
 
       final targetNorm = getEffectiveVolumeForSong(song);
       final crossfadeSec = SettingsManager.crossfadeSeconds;
-      final fadeInMs = crossfadeSec > 0 ? (crossfadeSec * 600).clamp(250, 2000) : 150;
-      _fadeVolumeTo(targetNorm, durationMs: fadeInMs);
+      if (crossfadeSec > 0) {
+        final fadeInMs = (crossfadeSec * 600).clamp(250, 2000);
+        _fadeVolumeTo(targetNorm, durationMs: fadeInMs);
+      } else {
+        try {
+          player.setVolume(targetNorm);
+        } catch (_) {}
+      }
       _startVolumeWatchdog(song);
       preloadUpcomingTracks();
     }
@@ -1617,6 +1624,9 @@ class AudioQueueHandler {
         }());
       }
     }
+
+    // Trigger Smart Predictive Offline Caching for upcoming tracks in background
+    SmartCacheService.instance.onQueueUpdated(currentSong, queue);
   }
 
   Future<void> _invalidateUpcomingPlaylistSource() async {
@@ -1911,6 +1921,10 @@ class AudioQueueHandler {
       if (match.localFilePath != null && File(match.localFilePath!).existsSync()) {
         return DecryptedStreamAudioSource(File(match.localFilePath!), tag: song.toMediaItem());
       }
+    }
+    final smartCacheFile = SmartCacheService.instance.getCachedAudioFile(song.id);
+    if (smartCacheFile != null && smartCacheFile.existsSync()) {
+      return DecryptedStreamAudioSource(smartCacheFile, tag: song.toMediaItem());
     }
 
     String? streamUrl = song.streamUrl;

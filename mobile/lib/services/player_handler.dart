@@ -26,6 +26,7 @@ import 'party_sync_coordinator.dart';
 import 'saavn_client.dart';
 import 'sleep_timer_service.dart';
 import 'lyrics_client.dart';
+import 'smart_cache_service.dart';
 import '../data/repositories/song_repository.dart';
 
 PaatuAudioHandler? _audioHandlerInstance;
@@ -275,6 +276,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       WidgetsBinding.instance.addObserver(this);
     } catch (_) {}
 
+    // Initialize Predictive Smart Cache for queue and radio streams
+    SmartCacheService.instance.init();
+
     _initAudioSession();
     _initStreams();
   }
@@ -372,6 +376,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       artist: song.artist,
       durationSeconds: song.duration,
     ));
+
+    // Predictive Smart Caching for upcoming queue and radio tracks
+    SmartCacheService.instance.onQueueUpdated(song, _queueHandler.queue);
 
     // Load lyrics with distinct state tracking
     reloadLyrics(targetSong: song);

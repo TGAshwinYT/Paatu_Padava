@@ -31,7 +31,7 @@ class Song {
   bool isDownloaded;
   String? localFilePath;
   int? downloadedAt;
-  final String source; // 'saavn', 'youtube', 'offline'
+  String source; // 'saavn', 'youtube', 'offline'
   String? lyrics;
   final String? language;
   final bool isSmartRecommended;

@@ -23,7 +23,6 @@ import 'favorites_manager.dart';
 import 'playlist_manager.dart';
 import 'app_logger.dart';
 import 'party_sync_coordinator.dart';
-import 'saavn_client.dart';
 import 'sleep_timer_service.dart';
 import 'lyrics_client.dart';
 import 'smart_cache_service.dart';
@@ -689,46 +688,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   bool get isPreparing => _isPreparing;
   final StreamResolver _streamResolver = DefaultStreamResolver();
 
-  /// Auto-recovery when ExoPlayer throws a 403 Forbidden or source error.
-  /// Resolves the song via SaavnClient Smart Replace using "${song.title} ${song.artist}"
-  /// and updates AudioPlayer so playback seamlessly continues without error.
-  Future<void> _recoverWithSmartReplace(Song song, {bool autoPlay = true}) async {
-    try {
-      AppLogger.log('PlayerHandler', 'ExoPlayer 403 auto-recovery: Smart Replacing "${song.title}"');
-      final cleanTitle = DefaultStreamResolver.extractCleanBaseTitle(song.title);
-      final cleanArtist = DefaultStreamResolver.extractFirstArtist(song.artist);
-      final query = cleanArtist.isNotEmpty ? '$cleanTitle $cleanArtist' : cleanTitle;
-      var matches = await SaavnClient.search(query, limit: 5).timeout(const Duration(seconds: 3), onTimeout: () => []);
-      if (matches.isEmpty) {
-        matches = await SaavnClient.search(cleanTitle, limit: 5).timeout(const Duration(seconds: 3), onTimeout: () => []);
-      }
-      for (final match in matches) {
-        if (match.streamUrl != null && match.streamUrl!.isNotEmpty) {
-          song.streamUrl = match.streamUrl;
-          DefaultStreamResolver.cacheStream(song.id, match.streamUrl!, source: 'saavn');
-          final fallbackSource = AudioSource.uri(
-            Uri.parse(match.streamUrl!),
-            tag: song.toMediaItem(),
-          );
-          await _player.setAudioSource(fallbackSource);
-          if (_player.duration != null && _player.duration!.inMilliseconds > 0) {
-            song.duration = _player.duration!.inSeconds;
-            if (mediaItem.value != null) {
-              mediaItem.add(mediaItem.value!.copyWith(duration: _player.duration));
-            }
-            _broadcastState();
-          }
-          if (autoPlay) {
-            await play();
-          }
-          AppLogger.log('PlayerHandler', 'Successfully auto-recovered playback via Smart Replace: "${match.title}"');
-          return;
-        }
-      }
-    } catch (e, stack) {
-      AppLogger.recordError(e, stack, context: 'PlayerHandler._recoverWithSmartReplace');
-    }
-  }
+
 
   /// Loads and resolves a track with async request-ID race condition protection
   Future<void> loadTrack(TrackEntity track, {bool autoPlay = true}) async {
@@ -744,36 +704,29 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
         url = await _streamResolver.resolveStreamUrl(song);
       }
 
-      if (currentRequestId != _loadRequestId || token != _activeLoadToken) return;
-
       if (url != null && url.isNotEmpty) {
-        final isHls = url.contains('.m3u8') || url.contains('hls_variant');
-        final isGoogleVideo = track.source == 'youtube' || url.contains('googlevideo.com');
-        if (isGoogleVideo && !isHls && !url.contains('&range=')) {
-          final clen = Uri.tryParse(url)?.queryParameters['clen'];
-          if (clen != null && clen.isNotEmpty) {
-            url = '$url&range=0-$clen';
-          }
+        final uri = Uri.tryParse(url);
+        final host = uri?.host.toLowerCase() ?? '';
+        final isGoogleVideo = host.contains('googlevideo.com');
+
+        final Map<String, String>? headers;
+        if (isGoogleVideo) {
+          final isHls = url.contains('.m3u8') || url.contains('hls_variant');
+          headers = {
+            'User-Agent': isHls
+                ? 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)'
+                : YouTubeClient.vrUserAgent,
+            'Accept': '*/*',
+            'Connection': 'keep-alive',
+          };
+        } else {
+          headers = null;
         }
         song.streamUrl = url;
-
-        final headers = <String, String>{};
-        if (isGoogleVideo) {
-          if (isHls) {
-            headers['User-Agent'] = 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)';
-          } else {
-            headers['User-Agent'] = YouTubeClient.vrUserAgent;
-            if (!url.contains('&range=')) {
-              headers['Range'] = 'bytes=0-';
-            }
-          }
-          headers['Accept'] = '*/*';
-          headers['Connection'] = 'keep-alive';
-        }
         try {
           final source = AudioSource.uri(
             Uri.parse(url),
-            headers: headers.isNotEmpty ? headers : null,
+            headers: headers,
             tag: track.toMediaItem(),
           );
           await _player.setAudioSource(source);
@@ -791,20 +744,14 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
           }
         } catch (e, stack) {
           AppLogger.recordError(e, stack, context: 'PlayerHandler.loadTrack ExoPlayer source error');
-          // Try chunked byte stream before full Smart Replace
-          if (isGoogleVideo) {
-            try {
-              final chunkSource = YouTubeByteStreamSource(track.id, tag: track.toMediaItem());
-              await _player.setAudioSource(chunkSource);
-              if (currentRequestId != _loadRequestId || token != _activeLoadToken) return;
-              if (autoPlay) await play();
-              return;
-            } catch (_) {}
-          }
-          await _recoverWithSmartReplace(song, autoPlay: autoPlay);
+          await _queueHandler.handlePlaybackError(e, stack, context: 'PlayerHandler.loadTrack');
         }
       } else {
-        await _recoverWithSmartReplace(song, autoPlay: autoPlay);
+        await _queueHandler.handlePlaybackError(
+          Exception('Unable to resolve playable stream for "${song.title}"'),
+          null,
+          context: 'PlayerHandler.loadTrack',
+        );
       }
     } finally {
       if (token == _activeLoadToken) {
@@ -1307,16 +1254,19 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
 
   @override
   Future<void> playFromUri(Uri uri, [Map<String, dynamic>? extras]) async {
-    final headers = <String, String>{};
-    final urlStr = uri.toString();
-    if (extras?['source'] == 'youtube' || urlStr.contains('googlevideo.com')) {
-      headers['User-Agent'] = YouTubeClient.vrUserAgent;
-      headers['Range'] = 'bytes=0-';
-      headers['Accept'] = '*/*';
-      headers['Connection'] = 'keep-alive';
+    final isGoogleVideo = uri.host.toLowerCase().contains('googlevideo.com');
+    final Map<String, String>? headers;
+    if (isGoogleVideo) {
+      headers = {
+        'User-Agent': YouTubeClient.vrUserAgent,
+        'Accept': '*/*',
+        'Connection': 'keep-alive',
+      };
+    } else {
+      headers = null;
     }
     try {
-      final source = AudioSource.uri(uri, headers: headers.isNotEmpty ? headers : null);
+      final source = AudioSource.uri(uri, headers: headers);
       await _player.setAudioSource(source);
       if (_player.duration != null && _player.duration!.inMilliseconds > 0) {
         if (mediaItem.value != null) {
@@ -1327,20 +1277,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       await play();
     } catch (e, stack) {
       AppLogger.recordError(e, stack, context: 'PlayerHandler.playFromUri');
-      final title = extras?['title']?.toString() ?? '';
-      final artist = extras?['artist']?.toString() ?? '';
-      if (title.isNotEmpty) {
-        final dummy = Song(
-          id: extras?['id']?.toString() ?? '',
-          title: title,
-          artist: artist,
-          album: extras?['album']?.toString() ?? '',
-          coverUrl: extras?['coverUrl']?.toString() ?? '',
-          duration: 0,
-          source: extras?['source']?.toString() ?? 'youtube',
-        );
-        await _recoverWithSmartReplace(dummy, autoPlay: true);
-      }
+      await _queueHandler.handlePlaybackError(e, stack, context: 'PlayerHandler.playFromUri');
     }
   }
 }

@@ -56,13 +56,10 @@ class YouTubeClient {
   /// HTTP headers the PLAYER or download manager must send for a YouTube stream [url].
   /// IMPORTANT: Omits Range header if the URL already contains &range= or is HLS to prevent 403 Forbidden.
   static Map<String, String> headersForUrl(String url) {
-    final isManifest = url.contains('.m3u8') || url.contains('hls_playlist') || url.contains('hls_variant');
-    final hasRangeQuery = url.contains('&range=');
     return {
       'User-Agent': userAgentForUrl(url),
       'Accept': '*/*',
       'Connection': 'keep-alive',
-      if (!isManifest && !hasRangeQuery) 'Range': 'bytes=0-',
     };
   }
 
@@ -864,17 +861,27 @@ class YouTubeClient {
     if (url.isEmpty) return false;
     try {
       final uri = Uri.parse(url);
+      final host = uri.host.toLowerCase();
+      final isGoogleVideo = host.contains('googlevideo.com');
       final isHls = url.contains('.m3u8') || url.contains('hls_variant');
-      final headers = isHls
-          ? {
-              'User-Agent': 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)',
-              'Accept': '*/*',
-            }
-          : {
-              if (!url.contains('&range=')) 'Range': 'bytes=0-1024',
-              'User-Agent': vrUserAgent,
-              'Accept': '*/*',
-            };
+      final Map<String, String> headers;
+      if (isGoogleVideo) {
+        headers = isHls
+            ? {
+                'User-Agent': 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)',
+                'Accept': '*/*',
+              }
+            : {
+                'Range': 'bytes=0-1024',
+                'User-Agent': vrUserAgent,
+                'Accept': '*/*',
+              };
+      } else {
+        headers = {
+          'Range': 'bytes=0-1024',
+          'Accept': '*/*',
+        };
+      }
       final response = await http.get(
         uri,
         headers: headers,
@@ -993,13 +1000,7 @@ class YouTubeClient {
           final candidateUrls = <String>[];
 
           String prepareStreamUrl(Map<dynamic, dynamic> f) {
-            var url = f['url']?.toString() ?? '';
-            if (url.isEmpty) return '';
-            final contentLength = f['contentLength']?.toString() ?? Uri.tryParse(url)?.queryParameters['clen'];
-            if (contentLength != null && contentLength.isNotEmpty && !url.contains('&range=')) {
-              url = '$url&range=0-$contentLength';
-            }
-            return url;
+            return f['url']?.toString() ?? '';
           }
 
           if (audioFormats.isNotEmpty) {
@@ -1079,19 +1080,9 @@ class YouTubeClient {
     // ── Tier 2: Client-Side YouTubeExplode Dart (Full Manifest) ────────
     for (int attempt = 1; attempt <= 2; attempt++) {
       try {
-        StreamManifest? manifest;
-        try {
-          manifest = await _yt.videos.streamsClient.getManifest(
-            cleanId,
-            requireWatchPage: false,
-          ).timeout(const Duration(seconds: 10));
-        } catch (fastErr) {
-          AppLogger.log('YouTubeClient', 'Fast manifest extraction notice for $cleanId: $fastErr. Falling back to full extraction.');
-          manifest = await _yt.videos.streamsClient.getManifest(
-            cleanId,
-            requireWatchPage: true,
-          ).timeout(const Duration(seconds: 14));
-        }
+        final manifest = await _yt.videos.streamsClient.getManifest(
+          cleanId,
+        ).timeout(const Duration(seconds: 12));
 
         final audioStreams = manifest.audioOnly;
         if (audioStreams.isNotEmpty) {
@@ -1135,13 +1126,7 @@ class YouTubeClient {
           }
 
           chosenStream ??= audioStreams.withHighestBitrate();
-          var url = chosenStream.url.toString();
-          final contentLength = chosenStream.size.totalBytes > 0
-              ? chosenStream.size.totalBytes.toString()
-              : Uri.tryParse(url)?.queryParameters['clen'];
-          if (contentLength != null && contentLength.isNotEmpty && !url.contains('&range=')) {
-            url = '$url&range=0-$contentLength';
-          }
+          final url = chosenStream.url.toString();
 
           // CRITICAL: Live probe before returning YouTubeExplode URL
           final isPlayable = await probeStreamUrl(url);

@@ -59,7 +59,7 @@ void main() {
       expect(find.text('1'), findsOneWidget);
     });
 
-    testWidgets('DismissDirection is startToEnd when onRemove is null', (tester) async {
+    testWidgets('DismissDirection is horizontal when onRemove is null (swipe-to-like gesture)', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -72,7 +72,7 @@ void main() {
       );
 
       final dismissible = tester.widget<Dismissible>(find.byType(Dismissible));
-      expect(dismissible.direction, equals(DismissDirection.startToEnd));
+      expect(dismissible.direction, equals(DismissDirection.horizontal));
     });
 
     testWidgets('DismissDirection is horizontal when onRemove is provided', (tester) async {

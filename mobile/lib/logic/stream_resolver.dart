@@ -147,7 +147,12 @@ class DefaultStreamResolver implements StreamResolver {
     if (track is Song) {
       return resolveStreamUrl(track, forceSaavnFallback: forceSaavnFallback);
     } else if (track is TrackEntity) {
-      return resolveStreamUrl(track.toSong(), forceSaavnFallback: forceSaavnFallback);
+      final s = track.toSong();
+      final u = await resolveStreamUrl(s, forceSaavnFallback: forceSaavnFallback);
+      if (s.source == 'saavn') {
+        track.source = 'saavn';
+      }
+      return u;
     }
     return null;
   }
@@ -193,6 +198,9 @@ class DefaultStreamResolver implements StreamResolver {
       final url = await _resolveStreamUrlInternal(song, forceSaavnFallback: forceSaavnFallback).timeout(_overallTimeout);
       sw.stop();
       if (url != null && url.isNotEmpty) {
+        if (url.contains('saavncdn.com')) {
+          song.source = 'saavn';
+        }
         cacheStream(song.id, url, source: song.source);
         song.streamUrl = url;
         AppLogger.log('StreamResolver', 'Resolved and cached stream for "${song.title}" in ${sw.elapsedMilliseconds}ms');
@@ -328,6 +336,7 @@ class DefaultStreamResolver implements StreamResolver {
         song.streamUrl!.contains('saavncdn.com') &&
         !_invalidatedSongIds.contains(song.id) &&
         !isStreamExpired(song.id)) {
+      song.source = 'saavn';
       return song.streamUrl;
     }
 
@@ -345,6 +354,7 @@ class DefaultStreamResolver implements StreamResolver {
         for (final match in saavnMatchesA) {
           if (match.streamUrl != null && match.streamUrl!.contains('saavncdn.com')) {
             AppLogger.log('StreamResolver', 'Stage A matched for "${song.title}": "${match.title}" -> ${match.streamUrl}');
+            song.source = 'saavn';
             song.streamUrl = match.streamUrl;
             cacheStream(song.id, match.streamUrl!, source: 'saavn');
             return match.streamUrl;
@@ -366,6 +376,7 @@ class DefaultStreamResolver implements StreamResolver {
         for (final match in saavnMatchesB) {
           if (match.streamUrl != null && match.streamUrl!.contains('saavncdn.com')) {
             AppLogger.log('StreamResolver', 'Stage B matched for "${song.title}": "${match.title}" -> ${match.streamUrl}');
+            song.source = 'saavn';
             song.streamUrl = match.streamUrl;
             cacheStream(song.id, match.streamUrl!, source: 'saavn');
             return match.streamUrl;

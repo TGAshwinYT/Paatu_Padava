@@ -200,12 +200,50 @@ class ErrorHandler {
     }
 
     final errStr = error.toString().toLowerCase();
+    if (errStr.contains('403') || errStr.contains('forbidden')) {
+      return AppError(
+        category: AppErrorCategory.songUnavailable,
+        userMessage: 'Stream access forbidden (HTTP 403). Falling back to alternative audio source.',
+        errorCode: 'ERR_STREAM_HTTP_403',
+        actionLabel: 'Retry',
+        actionType: AppActionType.retry,
+        debugDetails: error.toString(),
+      );
+    }
+    if (errStr.contains('416') || errStr.contains('range not satisfiable')) {
+      return AppError(
+        category: AppErrorCategory.songUnavailable,
+        userMessage: 'Playback range error (HTTP 416). Resetting byte buffer.',
+        errorCode: 'ERR_STREAM_HTTP_416',
+        actionLabel: 'Retry',
+        actionType: AppActionType.retry,
+        debugDetails: error.toString(),
+      );
+    }
+    if (errStr.contains('cleartext')) {
+      return AppError(
+        category: AppErrorCategory.songUnavailable,
+        userMessage: 'Cleartext audio streams are disabled by device security policy.',
+        errorCode: 'ERR_CLEARTEXT_NOT_PERMITTED',
+        debugDetails: error.toString(),
+      );
+    }
+    if (errStr.contains('ssl') || errStr.contains('handshake') || errStr.contains('certpath')) {
+      return AppError(
+        category: AppErrorCategory.offline,
+        userMessage: 'Secure connection error during audio streaming. Please check your network.',
+        errorCode: 'ERR_SSL_HANDSHAKE',
+        actionLabel: 'Retry',
+        actionType: AppActionType.retry,
+        debugDetails: error.toString(),
+      );
+    }
+
     if (errStr.contains('playerexception') ||
         errStr.contains('source error') ||
         errStr.contains('unplayable') ||
         errStr.contains('mediacodec') ||
         errStr.contains('exoplayer') ||
-        errStr.contains('403 forbidden') ||
         errStr.contains('failed to load url') ||
         errStr.contains('audio stream')) {
       return AppError.songUnavailable(

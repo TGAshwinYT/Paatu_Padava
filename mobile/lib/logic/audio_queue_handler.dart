@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
@@ -117,6 +119,7 @@ class AudioQueueHandler {
   int _fadeToken = 0;
   int _lastCrossfadeTimeMs = 0;
   bool _hasRetriedCurrentTrack = false;
+  bool _isRecovering = false;
   bool _isLookaheadTriggered = false;
   bool _wasStalledByNetwork = false;
   Duration _networkStallOffset = Duration.zero;
@@ -461,81 +464,7 @@ class AudioQueueHandler {
         (_) {},
         onError: (Object e, StackTrace st) async {
           AppLogger.recordError(e, st, context: 'AudioQueueHandler.playbackEventStream');
-          final current = currentSong;
-          if (current != null) {
-            AppLogger.log('AudioQueueHandler', 'Playback error on active track "${current.title}" (${current.id})');
-            current.streamUrl = null;
-            streamResolver.invalidate(current.id);
-            DefaultStreamResolver.invalidateStream(current.id);
-            YouTubeClient.invalidateStream(current.id);
-
-            if (!_hasRetriedCurrentTrack && !_isDisposed) {
-              _hasRetriedCurrentTrack = true;
-              AppLogger.log('AudioQueueHandler', 'Auto-recovery: resolving via Saavn fallback for "${current.title}"');
-              final freshUrl = await streamResolver.resolve(current, forceSaavnFallback: true);
-              if (freshUrl != null && freshUrl.isNotEmpty && !_isDisposed) {
-                current.streamUrl = freshUrl;
-                _updateTrackStreamUrl(current.id, freshUrl);
-                final freshSource = await _buildAudioSource(current, allowNetworkResolve: false);
-                if (freshSource != null && !_isDisposed) {
-                  try {
-                    await player.setAudioSource(freshSource);
-                    await _ensureAudioSessionActive();
-                    await player.play();
-                    final targetNorm = getEffectiveVolumeForSong(current);
-                    await player.setVolume(targetNorm);
-                    _startVolumeWatchdog(current);
-                    _consecutivePlaybackErrors = 0;
-                    AppLogger.log('AudioQueueHandler', 'Auto-recovery successful for "${current.title}"');
-                    return;
-                  } catch (recoveryErr) {
-                    AppLogger.log('AudioQueueHandler', 'Auto-recovery play failed: $recoveryErr');
-                  }
-                }
-              }
-            }
-
-            _consecutivePlaybackErrors++;
-            if (_consecutivePlaybackErrors >= _maxConsecutivePlaybackErrors) {
-              AppLogger.log('AudioQueueHandler', 'Circuit breaker tripped: $_consecutivePlaybackErrors consecutive playback failures. Halting auto-skip storm.');
-              _consecutivePlaybackErrors = 0;
-              await player.stop();
-              final haltErr = AppError(
-                category: AppErrorCategory.unknown,
-                userMessage: 'Playback paused after multiple playback failures. Please check your network or try another song.',
-                actionLabel: 'Dismiss',
-                actionType: AppActionType.none,
-                errorCode: 'ERR_PLAYBACK_LOOP_HALTED',
-              );
-              errorNotifier.value = haltErr;
-              onError?.call(haltErr);
-              if (isAudioHandlerInitialized) {
-                audioHandler.playbackErrorNotifier.value = haltErr;
-              }
-              return;
-            }
-
-            if (!ConnectivityService.currentIsOnline && _currentTrack != null && !DownloadManager.isDownloaded(_currentTrack!.id)) {
-              _wasStalledByNetwork = true;
-              if (player.position > Duration.zero) {
-                _networkStallOffset = player.position;
-              }
-              AppLogger.log('AudioQueueHandler', 'Network offline during playback error. Cached stall offset ${_networkStallOffset.inSeconds}s for automatic zero-touch recovery.');
-            }
-
-            final appErr = ErrorHandler.resolve(e, stackTrace: st, context: 'Playback event on ${current.title}');
-            errorNotifier.value = appErr;
-            onError?.call(appErr);
-            if (isAudioHandlerInitialized) {
-              audioHandler.playbackErrorNotifier.value = appErr;
-            }
-
-            if (hasNext && !_isDisposed) {
-              Future.delayed(const Duration(milliseconds: 600), () {
-                if (!_isDisposed && queue.isNotEmpty) skipToNext(isUserInitiated: false);
-              });
-            }
-          }
+          await handlePlaybackError(e, st, context: 'playbackEventStream');
         },
       );
     } catch (_) {}
@@ -609,6 +538,170 @@ class AudioQueueHandler {
         }
       }
     });
+  }
+
+  /// Captures the underlying ExoPlayer error status (HTTP 403, 416, SSL, Cleartext)
+  /// settling which cause is real even when just_audio masks it as PlatformException(0, Source error).
+  static Future<String> diagnosePlaybackError(Song song, dynamic error, StackTrace? stack) async {
+    final errStr = error.toString();
+    final detailsStr = (error is PlatformException) ? (error.details?.toString() ?? '') : '';
+    final combined = '$errStr $detailsStr ${stack?.toString() ?? ''}'.toLowerCase();
+
+    // 1. Direct regex inspection of error & details
+    if (combined.contains('403') || combined.contains('response code: 403')) {
+      return 'ExoPlayer HTTP 403 Forbidden: Google CDN or host rejected the stream token/headers.';
+    }
+    if (combined.contains('416') || combined.contains('response code: 416')) {
+      return 'ExoPlayer HTTP 416 Range Not Satisfiable: conflicting byte range requested (e.g. manual &range= query parameter conflict).';
+    }
+    if (combined.contains('cleartext') || combined.contains('cleartextnotpermitted')) {
+      return 'ExoPlayer CleartextNotPermittedException: Insecure HTTP cleartext blocked by Android Network Security Config.';
+    }
+    if (combined.contains('ssl') || combined.contains('handshake') || combined.contains('certpath')) {
+      return 'ExoPlayer SSLHandshakeException: TLS/SSL certificate or handshake negotiation failed.';
+    }
+
+    // 2. If masked as PlatformException(0, Source error), probe the actual URL with its headers
+    final url = song.streamUrl;
+    if (url != null && url.startsWith('http')) {
+      try {
+        final uri = Uri.parse(url);
+        final host = uri.host.toLowerCase();
+        final isGoogleVideo = host.contains('googlevideo.com');
+        final probeHeaders = <String, String>{
+          if (isGoogleVideo) 'User-Agent': YouTubeClient.vrUserAgent,
+          'Range': 'bytes=0-1024',
+          'Accept': '*/*',
+        };
+
+        final response = await http.get(uri, headers: probeHeaders).timeout(const Duration(seconds: 3));
+        if (response.statusCode == 403) {
+          return 'ExoPlayer HTTP 403 Forbidden: Google CDN rejected request (confirmed via live probe on $host).';
+        } else if (response.statusCode == 416) {
+          return 'ExoPlayer HTTP 416 Range Not Satisfiable: Byte range invalid (confirmed via live probe on $host).';
+        } else if (response.statusCode >= 400) {
+          return 'ExoPlayer HTTP ${response.statusCode}: Stream server returned error status on $host.';
+        } else {
+          return 'ExoPlayer probe returned HTTP ${response.statusCode} OK on $host (underlying issue is player decoding/codec or buffer stall, not HTTP rejection).';
+        }
+      } on SocketException catch (se) {
+        return 'ExoPlayer SocketException: Failed to reach stream host: ${se.message}';
+      } on HandshakeException catch (he) {
+        return 'ExoPlayer SSLHandshakeException: TLS/SSL handshake failed on stream host: ${he.message}';
+      } catch (probeErr) {
+        final pStr = probeErr.toString().toLowerCase();
+        if (pStr.contains('cleartext')) {
+          return 'ExoPlayer CleartextNotPermittedException: Non-HTTPS traffic blocked by Android.';
+        }
+        return 'PlatformException(0, Source error) [Probe failed: $probeErr]';
+      }
+    }
+
+    return (error is PlatformException)
+        ? 'PlatformException(${error.code}, ${error.message}, details: ${error.details})'
+        : errStr;
+  }
+
+  /// Centralized playback error recovery & diagnostic logger (Bloomee model).
+  /// Single entry point for all playback errors (both setAudioSource failures and playbackEventStream runtime errors).
+  /// Captures underlying ExoPlayer HTTP status (403, 416, SSL, Cleartext) and attempts Saavn fallback recovery ONCE.
+  Future<void> handlePlaybackError(dynamic error, StackTrace? stackTrace, {required String context}) async {
+    final current = currentSong;
+    if (current == null || _isDisposed) return;
+
+    if (_isRecovering) {
+      AppLogger.log('AudioQueueHandler', '[$context] Recovery already in progress for "${current.title}", ignoring duplicate error');
+      return;
+    }
+    _isRecovering = true;
+
+    try {
+      // 1. Capture and log the real underlying error
+      final diagnostic = await diagnosePlaybackError(current, error, stackTrace);
+      AppLogger.log('ExoPlayerDiagnostic', '[$context] Real Error for "${current.title}" (${current.id}) [${current.source}]: $diagnostic');
+
+      // Invalidate stream cache so stale/expired/403 URL is never reused
+      streamResolver.invalidate(current.id);
+      DefaultStreamResolver.invalidateStream(current.id);
+      YouTubeClient.invalidateStream(current.id);
+      current.streamUrl = null;
+
+      // 2. Retry handling collapsed to ONE single attempt per track
+      if (!_hasRetriedCurrentTrack && !_isDisposed) {
+        _hasRetriedCurrentTrack = true;
+        AppLogger.log('AudioQueueHandler', 'Single-pass fallback: resolving Saavn stream for "${current.title}"');
+
+        final freshUrl = await streamResolver.resolve(current, forceSaavnFallback: true);
+        if (freshUrl != null && freshUrl.isNotEmpty && !_isDisposed) {
+          current.streamUrl = freshUrl;
+          current.source = 'saavn';
+          _updateTrackStreamUrl(current.id, freshUrl, source: 'saavn');
+
+          final freshSource = await _buildAudioSource(current, allowNetworkResolve: false);
+          if (freshSource != null && !_isDisposed) {
+            try {
+              await player.setAudioSource(freshSource);
+              await _ensureAudioSessionActive();
+              await player.play();
+              final targetNorm = getEffectiveVolumeForSong(current);
+              await player.setVolume(targetNorm);
+              _startVolumeWatchdog(current);
+              _consecutivePlaybackErrors = 0;
+              AppLogger.log('AudioQueueHandler', 'Fallback recovery successful: "${current.title}" now playing via Saavn');
+              return;
+            } catch (recoveryErr, recoveryStack) {
+              final recDiag = await diagnosePlaybackError(current, recoveryErr, recoveryStack);
+              AppLogger.log('ExoPlayerDiagnostic', 'Fallback play failed for "${current.title}": $recDiag');
+            }
+          }
+        }
+      }
+
+      // 3. If fallback failed or track was already retried once:
+      _consecutivePlaybackErrors++;
+      if (_consecutivePlaybackErrors >= _maxConsecutivePlaybackErrors) {
+        AppLogger.log('AudioQueueHandler', 'Circuit breaker tripped: $_consecutivePlaybackErrors consecutive playback failures. Halting auto-skip storm.');
+        _consecutivePlaybackErrors = 0;
+        await player.stop();
+        final haltErr = AppError(
+          category: AppErrorCategory.unknown,
+          userMessage: 'Playback paused after multiple track errors. Please check your connection or choose another song.',
+          errorCode: 'ERR_PLAYBACK_LOOP_HALTED',
+          actionLabel: 'Dismiss',
+          actionType: AppActionType.none,
+        );
+        errorNotifier.value = haltErr;
+        onError?.call(haltErr);
+        if (isAudioHandlerInitialized) {
+          audioHandler.playbackErrorNotifier.value = haltErr;
+        }
+        return;
+      }
+
+      if (!ConnectivityService.currentIsOnline && _currentTrack != null && !DownloadManager.isDownloaded(_currentTrack!.id)) {
+        _wasStalledByNetwork = true;
+        if (player.position > Duration.zero) {
+          _networkStallOffset = player.position;
+        }
+        AppLogger.log('AudioQueueHandler', 'Network offline during playback error. Cached stall offset ${_networkStallOffset.inSeconds}s for automatic zero-touch recovery.');
+      }
+
+      final appErr = ErrorHandler.resolve(error, stackTrace: stackTrace, context: 'Playback error on ${current.title}');
+      errorNotifier.value = appErr;
+      onError?.call(appErr);
+      if (isAudioHandlerInitialized) {
+        audioHandler.playbackErrorNotifier.value = appErr;
+      }
+
+      if (hasNext && !_isDisposed) {
+        AppLogger.log('AudioQueueHandler', 'Advancing to next track after failure on "${current.title}"');
+        Future.delayed(const Duration(milliseconds: 600), () {
+          if (!_isDisposed && queue.isNotEmpty) skipToNext(isUserInitiated: false);
+        });
+      }
+    } finally {
+      _isRecovering = false;
+    }
   }
 
   /// Automatic stream re-attachment engine:
@@ -855,60 +948,7 @@ class AudioQueueHandler {
         _schedulePreload();
       } catch (e, stack) {
         AppLogger.recordError(e, stack, context: 'AudioQueueHandler.loadQueue setAudioSource');
-
-        // Immediate retry with invalidated cache if not already retried
-        if (!_hasRetriedCurrentTrack && !_isDisposed) {
-          _hasRetriedCurrentTrack = true;
-          activeSong.streamUrl = null;
-          streamResolver.invalidate(activeSong.id);
-          DefaultStreamResolver.invalidateStream(activeSong.id);
-          YouTubeClient.invalidateStream(activeSong.id);
-          final freshUrl = await _resolveStreamUrl(activeSong);
-          if (freshUrl != null && freshUrl.isNotEmpty && token == _sessionToken && !_isDisposed) {
-            activeSong.streamUrl = freshUrl;
-            _updateTrackStreamUrl(activeSong.id, freshUrl);
-            final freshSrc = await _buildAudioSource(activeSong, allowNetworkResolve: false);
-            if (freshSrc != null && !_isDisposed) {
-              try {
-                await player.setAudioSource(freshSrc);
-                if (autoPlay) {
-                  await _ensureAudioSessionActive();
-                  await player.play();
-                }
-                return;
-              } catch (_) {}
-            }
-          }
-        }
-
-        _consecutivePlaybackErrors++;
-        if (_consecutivePlaybackErrors >= _maxConsecutivePlaybackErrors) {
-          _consecutivePlaybackErrors = 0;
-          await player.stop();
-          final haltErr = AppError(
-            category: AppErrorCategory.unknown,
-            userMessage: 'Playback paused after multiple track errors. Please check your connection or choose another song.',
-            actionLabel: 'Dismiss',
-            actionType: AppActionType.none,
-            errorCode: 'ERR_PLAYBACK_LOOP_HALTED',
-          );
-          errorNotifier.value = haltErr;
-          onError?.call(haltErr);
-          if (isAudioHandlerInitialized) {
-            audioHandler.playbackErrorNotifier.value = haltErr;
-          }
-          return;
-        }
-
-        final appErr = ErrorHandler.resolve(e, stackTrace: stack, context: 'AudioQueueHandler.loadQueue');
-        if (!hasNext && isAudioHandlerInitialized) {
-          audioHandler.playbackErrorNotifier.value = appErr;
-        }
-        if (hasNext && !_isDisposed) {
-          Future.delayed(const Duration(milliseconds: 600), () {
-            if (!_isDisposed && queue.isNotEmpty && _sessionToken == token) skipToNext(isUserInitiated: false);
-          });
-        }
+        await handlePlaybackError(e, stack, context: 'loadQueue');
       }
     } finally {
       _isPreparing = false;
@@ -1640,18 +1680,27 @@ class AudioQueueHandler {
     }
   }
 
-  void _updateTrackStreamUrl(String trackId, String url) {
+  void _updateTrackStreamUrl(String trackId, String url, {String? source}) {
     if (_currentTrack?.id == trackId) {
-      _currentTrack = _currentTrack!.copyWith(streamUrl: url);
+      _currentTrack = _currentTrack!.copyWith(
+        streamUrl: url,
+        source: source ?? _currentTrack!.source,
+      );
     }
     for (int i = 0; i < _userQueue.length; i++) {
       if (_userQueue[i].id == trackId) {
-        _userQueue[i] = _userQueue[i].copyWith(streamUrl: url);
+        _userQueue[i] = _userQueue[i].copyWith(
+          streamUrl: url,
+          source: source ?? _userQueue[i].source,
+        );
       }
     }
     for (int i = 0; i < _contextQueue.length; i++) {
       if (_contextQueue[i].id == trackId) {
-        _contextQueue[i] = _contextQueue[i].copyWith(streamUrl: url);
+        _contextQueue[i] = _contextQueue[i].copyWith(
+          streamUrl: url,
+          source: source ?? _contextQueue[i].source,
+        );
       }
     }
   }
@@ -1946,29 +1995,25 @@ class AudioQueueHandler {
         streamUrl = streamUrl.replaceAll('_96.mp4', '_320.mp4').replaceAll('_160.mp4', '_320.mp4');
       }
     }
-    final isHls = streamUrl.contains('.m3u8') || streamUrl.contains('hls_variant');
-    final isGoogleVideo = streamUrl.contains('googlevideo.com') || song.source == 'youtube' || song.id.length == 11;
-    if (isGoogleVideo && !isHls && !streamUrl.contains('&range=')) {
-      final clen = Uri.tryParse(streamUrl)?.queryParameters['clen'];
-      if (clen != null && clen.isNotEmpty) {
-        streamUrl = '$streamUrl&range=0-$clen';
-      }
+    final uri = Uri.tryParse(streamUrl);
+    final host = uri?.host.toLowerCase() ?? '';
+    final isGoogleVideo = host.contains('googlevideo.com');
+
+    // Headers are ONLY for googlevideo.com; Saavn and other hosts get none (headers: null).
+    final Map<String, String>? headers;
+    if (isGoogleVideo) {
+      final isHls = streamUrl.contains('.m3u8') || streamUrl.contains('hls_variant');
+      headers = {
+        'User-Agent': isHls
+            ? 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)'
+            : YouTubeClient.vrUserAgent,
+        'Accept': '*/*',
+        'Connection': 'keep-alive',
+      };
+    } else {
+      headers = null;
     }
     song.streamUrl = streamUrl;
-
-    final headers = <String, String>{};
-    if (isGoogleVideo) {
-      if (isHls) {
-        headers['User-Agent'] = 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)';
-      } else {
-        headers['User-Agent'] = 'com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12; en_US; Quest 2; Build/SQ3A.220605.009.A1) gzip';
-        if (!streamUrl.contains('&range=')) {
-          headers['Range'] = 'bytes=0-';
-        }
-      }
-      headers['Accept'] = '*/*';
-      headers['Connection'] = 'keep-alive';
-    }
 
     try {
       final tempDir = await getTemporaryDirectory();
@@ -1979,13 +2024,13 @@ class AudioQueueHandler {
       }
       return AudioSource.uri(
         Uri.parse(streamUrl),
-        headers: headers.isNotEmpty ? headers : null,
+        headers: headers,
         tag: song.toMediaItem(),
       );
     } catch (_) {
       return AudioSource.uri(
         Uri.parse(streamUrl),
-        headers: headers.isNotEmpty ? headers : null,
+        headers: headers,
         tag: song.toMediaItem(),
       );
     }

@@ -38,7 +38,7 @@ class TrackEntity {
   final bool isDownloaded;
   final String? localFilePath;
   final int? downloadedAt;
-  final String source; // 'saavn', 'youtube', 'offline'
+  String source; // 'saavn', 'youtube', 'offline'
   final String? lyrics;
   final String? language;
   final bool isSmartRecommended;

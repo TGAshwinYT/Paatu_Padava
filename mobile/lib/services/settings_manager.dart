@@ -11,7 +11,7 @@ enum NextTrackStrategyMode {
 class SettingsManager {
   static const String boxName = 'settings_box';
 
-  static final ValueNotifier<String> streamingQualityNotifier = ValueNotifier<String>('auto');
+  static final ValueNotifier<String> streamingQualityNotifier = ValueNotifier<String>('320kbps');
   static final ValueNotifier<String> downloadQualityNotifier = ValueNotifier<String>('320kbps');
   static final ValueNotifier<bool> volumeNormalizationNotifier = ValueNotifier<bool>(true);
   static final ValueNotifier<bool> autoplayNotifier = ValueNotifier<bool>(true);
@@ -99,7 +99,7 @@ class SettingsManager {
   static Future<void> init() async {
     await Hive.openBox(boxName);
 
-    streamingQualityNotifier.value = _box.get('streaming_quality', defaultValue: 'auto') as String;
+    streamingQualityNotifier.value = _box.get('streaming_quality', defaultValue: '320kbps') as String;
     downloadQualityNotifier.value = _box.get('download_quality', defaultValue: '320kbps') as String;
     volumeNormalizationNotifier.value = _box.get('volume_normalization', defaultValue: true) as bool;
     autoplayNotifier.value = _box.get('autoplay', defaultValue: true) as bool;

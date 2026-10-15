@@ -15,6 +15,7 @@ class SleepTimerService extends ChangeNotifier {
 
   Timer? _timer;
   Duration _remainingTime = Duration.zero;
+  Duration _initialDuration = Duration.zero;
   bool _isActive = false;
   bool _stopAtEndOfTrack = false;
   bool _isFadingOut = false;
@@ -22,9 +23,16 @@ class SleepTimerService extends ChangeNotifier {
   StreamSubscription<PlayerState>? _playerStateSub;
 
   Duration get remainingTime => _remainingTime;
+  Duration get initialDuration => _initialDuration;
   bool get isActive => _isActive;
   bool get stopAtEndOfTrack => _stopAtEndOfTrack;
   bool get isFadingOut => _isFadingOut;
+
+  /// Returns remaining progress from 1.0 (just started) down to 0.0 (finished)
+  double get progressFraction {
+    if (_stopAtEndOfTrack || _initialDuration.inSeconds <= 0) return 1.0;
+    return (_remainingTime.inSeconds / _initialDuration.inSeconds).clamp(0.0, 1.0);
+  }
 
   /// Formatted duration as HH:MM:SS (or MM:SS if under 1 hour)
   String get formattedRemaining {
@@ -53,6 +61,7 @@ class SleepTimerService extends ChangeNotifier {
     if (stopAtEnd) {
       _stopAtEndOfTrack = true;
       _isActive = true;
+      _initialDuration = Duration.zero;
       _remainingTime = Duration.zero;
       _listenForEndOfTrack();
       _syncNotificationRemaining();
@@ -65,6 +74,7 @@ class SleepTimerService extends ChangeNotifier {
 
     _stopAtEndOfTrack = false;
     _isActive = true;
+    _initialDuration = duration;
     _remainingTime = duration;
     _syncNotificationRemaining();
     notifyListeners();
@@ -104,6 +114,7 @@ class SleepTimerService extends ChangeNotifier {
     }
 
     _stopAtEndOfTrack = false;
+    _initialDuration = _initialDuration + extra;
     _remainingTime = _remainingTime + extra;
     _isFadingOut = false;
 
@@ -136,6 +147,7 @@ class SleepTimerService extends ChangeNotifier {
     _stopAtEndOfTrack = false;
     _isFadingOut = false;
     _preFadeVolume = null;
+    _initialDuration = Duration.zero;
     _remainingTime = Duration.zero;
 
     if (isAudioHandlerInitialized) {

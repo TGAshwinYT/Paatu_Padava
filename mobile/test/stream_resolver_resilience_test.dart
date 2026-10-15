@@ -112,17 +112,17 @@ class FakeStreamResolver implements StreamResolver {
   Duration delay = Duration.zero;
 
   @override
-  Future<String?> resolve(dynamic track) async {
+  Future<String?> resolve(dynamic track, {bool forceSaavnFallback = false}) async {
     if (track is Song) {
-      return resolveStreamUrl(track);
+      return resolveStreamUrl(track, forceSaavnFallback: forceSaavnFallback);
     } else if (track is TrackEntity) {
-      return resolveStreamUrl(track.toSong());
+      return resolveStreamUrl(track.toSong(), forceSaavnFallback: forceSaavnFallback);
     }
     return null;
   }
 
   @override
-  Future<String?> resolveStreamUrl(Song song) async {
+  Future<String?> resolveStreamUrl(Song song, {bool forceSaavnFallback = false}) async {
     resolutionAttempts.add(song.id);
     if (delay > Duration.zero) {
       await Future<void>.delayed(delay);

@@ -12,18 +12,6 @@ import '../data/repositories/song_repository.dart';
 class SaavnClient {
   static const String baseUrl = 'https://www.jiosaavn.com/api.php';
 
-  /// Supports instance-style calls if instantiated
-  @override
-  dynamic noSuchMethod(Invocation invocation) {
-    if (invocation.memberName == #search) {
-      final query = invocation.positionalArguments.isNotEmpty ? invocation.positionalArguments[0].toString() : '';
-      final limit = invocation.namedArguments[#limit] as int? ?? 20;
-      final language = invocation.namedArguments[#language] as String?;
-      return search(query, limit: limit, language: language);
-    }
-    return super.noSuchMethod(invocation);
-  }
-
   /// Generates dynamic headers with JioSaavn's required regional Cookie.
   /// JioSaavn ignores URL language params on charts/playlists unless the 'Cookie: L=$lang' header is provided.
   static Map<String, String> getHeaders([String? language]) {
@@ -60,9 +48,9 @@ class SaavnClient {
   }
 
   static Song _parseSongItem(Map<String, dynamic> item) {
-    final more = item['more_info'] ?? {};
+    final more = (item['more_info'] is Map) ? (item['more_info'] as Map) : {};
     final encUrl = more['encrypted_media_url']?.toString() ?? '';
-    final audioUrl = decryptSaavnMediaUrl(encUrl);
+    final audioUrl = DesDecrypt.decrypt(encUrl);
     final rawLang = item['language']?.toString() ?? more['language']?.toString();
 
     // Do NOT treat actors or cast members (e.g. Prakash Raj) as music artists.
@@ -131,29 +119,27 @@ class SaavnClient {
     );
   }
 
-  static Future<List<Song>> search(String query, {int limit = 20, String? language}) async {
+  static Future<List<Song>> search(String query, {int limit = 10, String? language}) async {
     final clean = query.trim();
     if (clean.isEmpty) return [];
 
     try {
-      final queryParams = {
-        '__call': 'search.getResults',
-        '_format': 'json',
-        '_marker': '0',
-        'api_version': '4',
-        'ctx': 'web6dot0',
-        'p': '1',
-        'n': limit.toString(),
-        'q': clean,
-        if (language != null && language.isNotEmpty) 'languages': language.toLowerCase().trim(),
-      };
-
-      final uri = Uri.parse(baseUrl).replace(queryParameters: queryParams);
-      final response = await http.get(uri, headers: getHeaders(language)).timeout(const Duration(seconds: 6));
+      final langParam = (language != null && language.isNotEmpty)
+          ? '&languages=${Uri.encodeComponent(language.toLowerCase().trim())}'
+          : '';
+      final url = 'https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&_marker=0&api_version=4&ctx=web6dot0&n=$limit&p=1&q=${Uri.encodeComponent(clean)}$langParam';
+      final uri = Uri.parse(url);
+      final response = await http.get(uri, headers: const {
+        'User-Agent': 'Mozilla/5.0',
+        'Cookie': 'L=tamil%2Cenglish; gdpr_acceptance=true',
+        'Accept': 'application/json, text/plain, */*',
+      }).timeout(const Duration(seconds: 4));
       if (response.statusCode != 200) return [];
 
-      final data = json.decode(response.body);
-      final results = data['results'] as List<dynamic>? ?? [];
+      final dynamic data = (response.body.isNotEmpty) ? json.decode(response.body) : null;
+      final results = (data is Map && data['results'] is List)
+          ? (data['results'] as List<dynamic>)
+          : <dynamic>[];
 
       final List<Song> songs = [];
       for (final item in results) {
@@ -190,18 +176,35 @@ class SaavnClient {
     }
   }
 
+  /// Trending songs endpoint with safe null-aware map access and fallback
+  static Future<List<Song>> getTrendingSongs({String language = 'Tamil'}) async {
+    try {
+      final songs = await getTrending(language: language);
+      if (songs.isNotEmpty) return songs;
+    } catch (e) {
+      AppLogger.log('SaavnClient', 'getTrendingSongs error: $e');
+    }
+    return search('Tamil Top Hits', language: language);
+  }
+
   static Future<List<Song>> getTrending({String language = 'Tamil'}) async {
-    final songs = await search('$language Hit Songs', limit: 30, language: language);
-    final targetLang = language.toLowerCase().trim();
-    // Strictly filter out tracks where track['language'] != selectedLanguage for regional charts
-    final languageFiltered = songs.where((s) {
-      if (s.language != null && s.language!.isNotEmpty) {
-        return s.language!.toLowerCase().trim() == targetLang;
-      }
-      return true;
-    }).toList();
-    final filtered = SongRepository.filterByLanguage(languageFiltered, language);
-    return filtered.isNotEmpty ? filtered : languageFiltered;
+    try {
+      final songs = await search('$language Hit Songs', limit: 30, language: language);
+      final targetLang = language.toLowerCase().trim();
+      // Strictly filter out tracks where track['language'] != selectedLanguage for regional charts
+      final languageFiltered = songs.where((s) {
+        if (s.language != null && s.language!.isNotEmpty) {
+          return s.language!.toLowerCase().trim() == targetLang;
+        }
+        return true;
+      }).toList();
+      final filtered = SongRepository.filterByLanguage(languageFiltered, language);
+      if (filtered.isNotEmpty) return filtered;
+      if (languageFiltered.isNotEmpty) return languageFiltered;
+    } catch (e) {
+      AppLogger.log('SaavnClient', 'getTrending error: $e');
+    }
+    return search('Tamil Top Hits', language: language);
   }
 
   static Future<List<Map<String, dynamic>>> searchAlbums(String query, {int limit = 15, String? language}) async {
@@ -414,11 +417,15 @@ class SaavnClient {
       final response = await http.get(uri, headers: getHeaders(language)).timeout(const Duration(seconds: 6));
       if (response.statusCode != 200) return [];
 
-      final data = json.decode(response.body);
-      final list = (data is List) ? data : (data['songs'] ?? data['data'] ?? []);
+      final dynamic data = (response.body.isNotEmpty) ? json.decode(response.body) : null;
+      final list = (data is List)
+          ? data
+          : (data is Map ? (data['songs'] ?? data['data'] ?? []) : []);
       final List<Song> songs = [];
       for (final item in list) {
-        songs.add(_parseSongItem(Map<String, dynamic>.from(item)));
+        if (item is Map) {
+          songs.add(_parseSongItem(Map<String, dynamic>.from(item)));
+        }
       }
 
       final activeLang = (language != null && language.isNotEmpty)
@@ -437,7 +444,7 @@ class SaavnClient {
 
       return songs;
     } catch (e) {
-      AppLogger.log('SaavnClient', 'getTrendingSongs error: $e');
+      AppLogger.log('SaavnClient', 'getRelatedSongs error: $e');
       return [];
     }
   }

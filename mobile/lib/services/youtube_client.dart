@@ -9,9 +9,6 @@ import 'app_logger.dart';
 import 'artist_sanitizer.dart';
 import '../data/repositories/song_repository.dart';
 
-/// Outcome of probing a stream URL against the CDN.
-enum _ProbeResult { ok, forbidden, unknown }
-
 class YouTubeClient {
   static YoutubeExplode? _ytInstance;
   static YoutubeExplode get _yt => _ytInstance ??= YoutubeExplode();
@@ -22,57 +19,11 @@ class YouTubeClient {
     _ytInstance = null;
   }
 
-  // ── User-Agents ────────────────────────────────────────────────────────
-  // A googlevideo.com URL is issued for ONE InnerTube client (the `c=` query
-  // parameter). The player must request it with that same client's User-Agent,
-  // otherwise YouTube answers 403. Never hard-code a single UA for every URL.
   static const String vrUserAgent =
       'com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12; en_US; Quest 2; Build/SQ3A.220605.009.A1) gzip';
-  static const String visionOsUserAgent =
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15';
-  static const String androidUserAgent =
-      'com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip';
-  static const String iosUserAgent =
-      'com.google.ios.youtube/19.45.4 (iPhone14,3; U; CPU iOS 17_5 like Mac OS X; en_US)';
 
-  /// Exact URL -> User-Agent of the client that produced it (bounded).
-  static final Map<String, String> _urlUserAgents = {};
-
-  static void _rememberUserAgent(String url, String ua) {
-    if (_urlUserAgents.length > 300) _urlUserAgents.clear();
-    _urlUserAgents[url] = ua;
-  }
-
-  /// True for URLs served by YouTube's media CDN / manifest endpoints.
-  static bool isYouTubeStreamUrl(String url) =>
-      url.contains('googlevideo.com') || url.contains('youtube.com/api/manifest');
-
-  /// Returns the User-Agent that matches the client which issued [url].
-  static String userAgentForUrl(String url) {
-    final known = _urlUserAgents[url];
-    if (known != null) return known;
-    try {
-      final c = Uri.parse(url).queryParameters['c']?.toUpperCase();
-      if (c == 'ANDROID_VR') return vrUserAgent;
-      if (c == 'ANDROID') return androidUserAgent;
-      if (c == 'IOS') return iosUserAgent;
-      if (c == 'VISIONOS') return visionOsUserAgent;
-    } catch (_) {}
-    return vrUserAgent;
-  }
-
-  /// HTTP headers the PLAYER must send for a YouTube stream [url].
-  static Map<String, String> headersForUrl(String url) {
-    final isManifest = url.contains('.m3u8') || url.contains('hls_playlist') || url.contains('hls_variant');
-    return {
-      'User-Agent': userAgentForUrl(url),
-      'Accept': '*/*',
-      'Connection': 'keep-alive',
-      if (!isManifest) 'Range': 'bytes=0-',
-    };
-  }
-
-  /// Legacy static headers (VR client). Prefer [headersForUrl].
+  /// High-integrity HTTP headers for Googlevideo CDN streams.
+  /// Enforces ANDROID_VR User-Agent and keep-alive to avoid connection drops and 403 Forbidden errors.
   static Map<String, String> get streamingHeaders => const {
     'Range': 'bytes=0-',
     'User-Agent': vrUserAgent,
@@ -80,19 +31,38 @@ class YouTubeClient {
     'Connection': 'keep-alive',
   };
 
-  // ── Non-music filtering (reviews, reactions, audiobooks, trailers…) ─────
-  // These are the kinds of long/spoken videos that leaked into the "YT Music"
-  // tab because the plain YouTube video search was used.
-  static final RegExp _nonMusicTitle = RegExp(
-    r'\b(reviews?|reaction|reacts?|reacting|trailer|teaser|full movie|movie scenes?|'
-    r'audio ?books?|podcast|interview|press meet|success meet|audio launch|trailer launch|'
-    r'making of|behind the scenes|explained|explanation|analysis|breakdown|vlog|comedy|troll|prank|'
-    r'promo|shorts?|whatsapp status|jukebox|non-?stop|full album|all songs|back to back|'
-    r'live ?stream|tutorial|karaoke|ringtone|public (?:talk|opinion|review)|first day first show|fdfs)\b',
-    caseSensitive: false,
-  );
+  /// True for URLs served by YouTube's media CDN / manifest endpoints.
+  static bool isYouTubeStreamUrl(String url) =>
+      url.contains('googlevideo.com') || url.contains('youtube.com/api/manifest');
 
-  static bool _looksLikeNonMusic(String title) => _nonMusicTitle.hasMatch(title);
+  /// Returns the User-Agent that matches the client which issued [url].
+  static String userAgentForUrl(String url) {
+    try {
+      final uri = Uri.tryParse(url);
+      final c = uri?.queryParameters['c']?.toUpperCase();
+      if (c == 'ANDROID_VR') return vrUserAgent;
+      if (c == 'IOS' || url.contains('.m3u8')) {
+        return 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)';
+      }
+      if (c == 'ANDROID') {
+        return 'com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US; Pixel 8 Pro; Build/UQ1A.240205.004) gzip';
+      }
+    } catch (_) {}
+    return vrUserAgent;
+  }
+
+  /// HTTP headers the PLAYER or download manager must send for a YouTube stream [url].
+  /// IMPORTANT: Omits Range header if the URL already contains &range= or is HLS to prevent 403 Forbidden.
+  static Map<String, String> headersForUrl(String url) {
+    final isManifest = url.contains('.m3u8') || url.contains('hls_playlist') || url.contains('hls_variant');
+    final hasRangeQuery = url.contains('&range=');
+    return {
+      'User-Agent': userAgentForUrl(url),
+      'Accept': '*/*',
+      'Connection': 'keep-alive',
+      if (!isManifest && !hasRangeQuery) 'Range': 'bytes=0-',
+    };
+  }
 
   static String cleanTitle(String title) {
     var cleaned = Song.sanitize(title);
@@ -260,20 +230,16 @@ class YouTubeClient {
 
               final cleanAuthor = ArtistSanitizer.extractArtistFromVideo(rawTitle, rawArtist);
 
-              // Filter on the RAW title: cleanTitle() strips words such as
-              // "trailer" and bracketed tags like "[Review]" that we need to see.
-              if (!_looksLikeNonMusic(rawTitle)) {
-                tracks.add(TrackEntity(
-                  id: videoId,
-                  title: cleanTitle(rawTitle),
-                  artist: Song.sanitize(cleanAuthor.isNotEmpty ? cleanAuthor : rawArtist),
-                  album: 'YouTube Music',
-                  coverUrl: imageUrl,
-                  duration: durationSec,
-                  streamUrl: '',
-                  source: 'youtube',
-                ));
-              }
+              tracks.add(TrackEntity(
+                id: videoId,
+                title: cleanTitle(rawTitle),
+                artist: Song.sanitize(cleanAuthor.isNotEmpty ? cleanAuthor : rawArtist),
+                album: 'YouTube Music',
+                coverUrl: imageUrl,
+                duration: durationSec,
+                streamUrl: '',
+                source: 'youtube',
+              ));
             }
           }
         }
@@ -293,232 +259,19 @@ class YouTubeClient {
     return tracks;
   }
 
-  // ── YouTube Music "Songs" search (the same shelf the YT Music app shows) ──
-  // `params` is the Songs-filter token used by YouTube Music itself. Using it
-  // means results are real tracks only - no reviews, reactions or audiobooks.
-  static const String _musicSongsFilterParams = 'EgWKAQIIAWoMEA4QChADEAQQCRAF';
-  static final RegExp _durationText = RegExp(r'^\d{1,2}(:\d{2}){1,2}$');
-  static const Set<String> _musicTypeLabels = {
-    'song', 'video', 'album', 'single', 'ep', 'playlist', 'podcast', 'episode', 'artist',
-  };
-
-  static int _parseDurationSec(String text) => _parseDurationMs(text) ~/ 1000;
-
-  static TrackEntity? _trackFromMusicListItem(Map item) {
-    String videoId = item['playlistItemData']?['videoId']?.toString() ?? '';
-    if (videoId.isEmpty) {
-      videoId = item['overlay']?['musicItemThumbnailOverlayRenderer']?['content']
-              ?['musicPlayButtonRenderer']?['playNavigationEndpoint']?['watchEndpoint']?['videoId']
-              ?.toString() ??
-          '';
-    }
-    if (videoId.length != 11) return null;
-
-    final flex = item['flexColumns'];
-    if (flex is! List || flex.isEmpty) return null;
-
-    List runsOf(int i) {
-      if (i >= flex.length) return const [];
-      final r = flex[i]?['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs'];
-      return r is List ? r : const [];
-    }
-
-    final titleRuns = runsOf(0);
-    final title = titleRuns.map((r) => r is Map ? (r['text']?.toString() ?? '') : '').join('').trim();
-    if (title.isEmpty) return null;
-
-    // Skip podcasts / episodes outright.
-    String? videoType;
-    if (titleRuns.isNotEmpty && titleRuns[0] is Map) {
-      final endpoint = titleRuns[0]['navigationEndpoint'];
-      if (endpoint is Map) {
-        final watch = endpoint['watchEndpoint'];
-        if (watch is Map) {
-          final supported = watch['watchEndpointMusicSupportedConfigs'];
-          if (supported is Map) {
-            final config = supported['watchEndpointMusicConfig'];
-            if (config is Map) {
-              videoType = config['musicVideoType']?.toString();
-            }
-          }
-        }
-      }
-    }
-    if (videoType != null && videoType.contains('PODCAST')) return null;
-
-    // Second column looks like: Artist • Album • 3:45   (runs separated by " • ")
-    final segments = <String>[];
-    var current = StringBuffer();
-    for (final r in runsOf(1)) {
-      final t = r is Map ? (r['text']?.toString() ?? '') : '';
-      if (t.trim() == '•') {
-        if (current.isNotEmpty) segments.add(current.toString().trim());
-        current = StringBuffer();
-      } else {
-        current.write(t);
-      }
-    }
-    if (current.isNotEmpty) segments.add(current.toString().trim());
-
-    int durationSec = 0;
-    final details = <String>[];
-    for (final seg in segments) {
-      if (seg.isEmpty) continue;
-      if (_durationText.hasMatch(seg)) {
-        durationSec = _parseDurationSec(seg);
-      } else if (!_musicTypeLabels.contains(seg.toLowerCase())) {
-        details.add(seg);
-      }
-    }
-    // Real songs only: reject very long items (mixes, audiobooks) and clips.
-    if (durationSec > 0 && (durationSec < 30 || durationSec > 15 * 60)) return null;
-
-    final artist = details.isNotEmpty ? details[0] : '';
-    final album = details.length > 1 ? details[1] : 'YouTube Music';
-
-    var cover = '';
-    final thumbs = item['thumbnail']?['musicThumbnailRenderer']?['thumbnail']?['thumbnails'];
-    if (thumbs is List && thumbs.isNotEmpty && thumbs.last is Map) {
-      cover = thumbs.last['url']?.toString() ?? '';
-    }
-    if (cover.contains('googleusercontent.com')) {
-      // Upgrade the tiny 60px art to a crisp 544px square.
-      cover = cover.replaceFirst(RegExp(r'=w\d+-h\d+.*$'), '=w544-h544-l90-rj');
-    }
-    if (cover.isEmpty || !cover.startsWith('http')) {
-      cover = 'https://i.ytimg.com/vi/$videoId/hqdefault.jpg';
-    }
-
-    return TrackEntity(
-      id: videoId,
-      title: Song.sanitize(title),
-      artist: Song.sanitize(artist.isNotEmpty ? artist : 'YouTube Music'),
-      album: Song.sanitize(album),
-      coverUrl: cover,
-      duration: durationSec,
-      streamUrl: '',
-      source: 'youtube',
-    );
-  }
-
-  static List<TrackEntity> _parseMusicSearchResponse(dynamic data, {int limit = 15}) {
-    final tracks = <TrackEntity>[];
-    final seen = <String>{};
-
-    void walk(dynamic node) {
-      if (node == null || tracks.length >= limit) return;
-      if (node is Map) {
-        final item = node['musicResponsiveListItemRenderer'];
-        if (item is Map) {
-          final t = _trackFromMusicListItem(item);
-          if (t != null && seen.add(t.id)) tracks.add(t);
-        }
-        for (final entry in node.entries) {
-          if (entry.key == 'musicResponsiveListItemRenderer') continue;
-          walk(entry.value);
-          if (tracks.length >= limit) return;
-        }
-      } else if (node is List) {
-        for (final elem in node) {
-          walk(elem);
-          if (tracks.length >= limit) return;
-        }
-      }
-    }
-
-    walk(data);
-    return tracks;
-  }
-
-  static Future<List<TrackEntity>> _searchYouTubeMusicSongs(String query, {int limit = 15}) async {
-    final uri = Uri.parse('https://music.youtube.com/youtubei/v1/search?prettyPrint=false');
-    final payload = jsonEncode({
-      'context': {
-        'client': {
-          'clientName': 'WEB_REMIX',
-          'clientVersion': '1.20260707.12.00',
-          'gl': 'IN',
-          'hl': 'en',
-        }
-      },
-      'query': query,
-      'params': _musicSongsFilterParams,
-    });
-
-    final response = await http.post(
-      uri,
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Origin': 'https://music.youtube.com',
-        'Referer': 'https://music.youtube.com/',
-        'Accept': '*/*',
-      },
-      body: payload,
-    ).timeout(const Duration(seconds: 8));
-
-    if (response.statusCode != 200) {
-      AppLogger.log('YouTubeClient', 'YT Music songs search HTTP ${response.statusCode} for "$query"');
-      return [];
-    }
-    return _parseMusicSearchResponse(jsonDecode(response.body), limit: limit);
-  }
-
-  /// Keeps only things that look like songs and ranks official audio first
-  /// ("- Topic" auto-generated channels, VEVO, labels) while preserving the
-  /// original relevance order inside each tier.
-  static List<TrackEntity> _filterAndRankSongs(List<TrackEntity> input, {int limit = 15}) {
-    final indexed = <MapEntry<int, TrackEntity>>[];
-    for (var i = 0; i < input.length; i++) {
-      final t = input[i];
-      if (_looksLikeNonMusic(t.title)) continue;
-      // Plain video search: no duration (live/unknown) or very long = not a song.
-      if (t.duration < 60 || t.duration > 10 * 60) continue;
-      indexed.add(MapEntry(i, t));
-    }
-
-    int score(TrackEntity t) {
-      final a = t.artist.toLowerCase();
-      if (a.endsWith('- topic')) return 3;
-      if (a.contains('vevo') || a.contains('records') || a.contains('music') || a.contains('official')) return 2;
-      return 1;
-    }
-
-    indexed.sort((a, b) {
-      final byScore = score(b.value).compareTo(score(a.value));
-      return byScore != 0 ? byScore : a.key.compareTo(b.key);
-    });
-    return indexed.map((e) => e.value).take(limit).toList();
-  }
-
-  /// Direct client-side search that behaves like the YouTube Music app:
-  /// 1. YouTube Music "Songs" shelf (real tracks only)
-  /// 2. Plain YouTube search, filtered to song-length, non-review content
-  /// 3. youtube_explode search, filtered the same way
-  /// 4. JioSaavn as a last resort so the chip never shows an empty list
+  /// Direct client-side YouTube search using standard WEB client context.
+  /// Bypasses datacenter blockades and extracts rich video metadata into [TrackEntity].
   static Future<List<TrackEntity>> searchTracks(String query, {int limit = 15}) async {
     final clean = query.trim();
     if (clean.isEmpty) return [];
 
-    // 1) YouTube Music Songs shelf
-    try {
-      final musicTracks = await _searchYouTubeMusicSongs(clean, limit: limit);
-      if (musicTracks.isNotEmpty) {
-        return musicTracks;
-      }
-    } catch (e) {
-      AppLogger.log('YouTubeClient', 'YT Music songs search notice for "$clean": $e');
-    }
-
-    // 2) Plain YouTube WEB search (needs filtering - it returns reviews, audiobooks, etc.)
     try {
       final uri = Uri.parse('https://www.youtube.com/youtubei/v1/search?prettyPrint=false');
       final payload = jsonEncode({
         'context': {
           'client': {
             'clientName': 'WEB',
-            'clientVersion': '2.20260708.00.00',
+            'clientVersion': '2.20260101.00.00',
             'gl': 'IN',
             'hl': 'en',
           }
@@ -540,9 +293,7 @@ class YouTubeClient {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>?;
         if (data != null) {
-          // Parse a wider window, then filter down to `limit` real songs.
-          final raw = _parseWebSearchResponse(data, limit: limit * 3);
-          final tracks = _filterAndRankSongs(raw, limit: limit);
+          final tracks = _parseWebSearchResponse(data, limit: limit);
           if (tracks.isNotEmpty) {
             return tracks;
           }
@@ -552,12 +303,11 @@ class YouTubeClient {
       AppLogger.log('YouTubeClient', 'InnerTube WEB search notice for "$clean": $e.');
     }
 
-    // 3) youtube_explode fallback (same filtering)
+    // High-res fallback using client-side YouTubeExplode if available
     try {
       final searchResults = await _yt.search.search(clean).timeout(const Duration(seconds: 8));
       final List<TrackEntity> ytExplodeTracks = [];
-      for (final video in searchResults.take(limit * 3)) {
-        if (_looksLikeNonMusic(video.title)) continue; // raw title, before cleanTitle()
+      for (final video in searchResults.take(limit)) {
         final rawAuthor = video.author;
         final cleanAuthor = ArtistSanitizer.extractArtistFromVideo(video.title, rawAuthor);
         final highThumb = video.thumbnails.highResUrl;
@@ -576,13 +326,14 @@ class YouTubeClient {
           source: 'youtube',
         ));
       }
-      final filtered = _filterAndRankSongs(ytExplodeTracks, limit: limit);
-      if (filtered.isNotEmpty) {
-        return filtered;
+      if (ytExplodeTracks.isNotEmpty) {
+        return ytExplodeTracks;
       }
     } catch (_) {}
 
-    // 4) FALLBACK GUARANTEE: never show "No results found" for valid queries like "Anirudh".
+    // FALLBACK GUARANTEE: If the YouTube HTTP request fails or parses 0 items,
+    // automatically query SaavnClient.search(query) and map the results with source: 'youtube'
+    // so the "YT Music" search chip NEVER shows "No results found" for valid queries like "Anirudh".
     try {
       final saavnMatches = await SaavnClient.search(clean, limit: limit);
       if (saavnMatches.isNotEmpty) {
@@ -857,9 +608,6 @@ class YouTubeClient {
           // Exclude fan covers
           if (coverRegex.hasMatch(title)) continue;
 
-          // Exclude reviews, reactions, audiobooks, trailers, interviews...
-          if (_looksLikeNonMusic(title)) continue;
-
           final cleanedTitle = cleanTitle(title);
           final cleanedAuthor = Song.sanitize(ArtistSanitizer.extractArtistFromVideo(title, author));
 
@@ -934,8 +682,8 @@ class YouTubeClient {
         if (related != null) {
           for (final relVideo in related.take(limit)) {
             final dur = relVideo.duration?.inSeconds ?? 0;
-            // Only keep sensible song durations (60s to 600s), and never reviews/reactions
-            if (dur >= 60 && dur <= 600 && !_looksLikeNonMusic(relVideo.title)) {
+            // Only keep sensible song durations (60s to 600s)
+            if (dur >= 60 && dur <= 600) {
               songs.add(Song(
                 id: relVideo.id.value,
                 title: cleanTitle(relVideo.title),
@@ -983,83 +731,84 @@ class YouTubeClient {
     }
   }
 
-  /// Visitor id that YouTube returns in every response. Re-sent on later
-  /// requests so they look like one continuous session.
-  static String? _visitorData;
-
-  /// Public probe kept for compatibility. True only when the CDN accepts the URL.
-  static Future<bool> probeStreamUrl(String url) async =>
-      (await _probe(url, userAgentForUrl(url))) == _ProbeResult.ok;
-
-  /// Probes a stream URL with the User-Agent of the client that issued it.
-  ///
-  /// IMPORTANT: only a definite refusal (401/403/404/410) rejects a URL.
-  /// A timeout or network hiccup is "unknown" - on a mobile connection a 2s
-  /// probe used to throw away perfectly good URLs and cause "song unavailable".
-  static Future<_ProbeResult> _probe(String url, String userAgent) async {
-    if (url.isEmpty) return _ProbeResult.forbidden;
-    final isManifest = url.contains('.m3u8') || url.contains('hls_playlist') || url.contains('hls_variant');
-    final client = http.Client();
+  /// Fast HTTP GET probe to verify whether a googlevideo.com or stream URL is playable
+  /// and not 403-blocked by Google CDN. Returns true ONLY on HTTP 200 or 206.
+  static Future<bool> probeStreamUrl(String url) async {
+    if (url.isEmpty) return false;
     try {
-      final req = http.Request('GET', Uri.parse(url));
-      req.headers['User-Agent'] = userAgent;
-      req.headers['Accept'] = '*/*';
-      if (!isManifest) req.headers['Range'] = 'bytes=0-1';
-      final res = await client.send(req).timeout(const Duration(seconds: 6));
-      final code = res.statusCode;
-      if (code == 200 || code == 206) return _ProbeResult.ok;
-      if (code == 401 || code == 403 || code == 404 || code == 410) {
-        AppLogger.log('YouTubeClient', 'Stream probe REJECTED: HTTP $code (${_hostOf(url)})');
-        return _ProbeResult.forbidden;
+      final uri = Uri.parse(url);
+      final isHls = url.contains('.m3u8') || url.contains('hls_variant');
+      final headers = isHls
+          ? {
+              'User-Agent': 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)',
+              'Accept': '*/*',
+            }
+          : {
+              if (!url.contains('&range=')) 'Range': 'bytes=0-1024',
+              'User-Agent': vrUserAgent,
+              'Accept': '*/*',
+            };
+      final response = await http.get(
+        uri,
+        headers: headers,
+      ).timeout(const Duration(seconds: 2));
+
+      final isValid = response.statusCode == 200 || response.statusCode == 206;
+      if (!isValid) {
+        AppLogger.log('YouTubeClient', 'Stream probe rejected URL: HTTP ${response.statusCode} (403/Forbidden or invalid) for $url');
       }
-      AppLogger.log('YouTubeClient', 'Stream probe inconclusive: HTTP $code (${_hostOf(url)})');
-      return _ProbeResult.unknown;
+      return isValid;
     } catch (e) {
-      AppLogger.log('YouTubeClient', 'Stream probe inconclusive (${_hostOf(url)}): $e');
-      return _ProbeResult.unknown;
-    } finally {
-      client.close();
+      AppLogger.log('YouTubeClient', 'Stream probe network/timeout error: $e');
+      return false;
     }
   }
 
-  static String _hostOf(String url) {
-    try {
-      return Uri.parse(url).host;
-    } catch (_) {
-      return 'unknown-host';
-    }
-  }
-
-  /// InnerTube clients tried in order. Each one carries ITS OWN User-Agent,
-  /// which must also be used by the probe and by the audio player.
-  ///
-  /// Why this order (YouTube now gates most audio-only URLs behind a PO token
-  /// for several clients, so a single hard-coded client stops working):
-  ///  1. VISIONOS    - currently the JS-less default of yt-dlp, no PO token policy
-  ///  2. ANDROID_VR  - the old default; still works on some videos/regions
-  ///  3. ANDROID     - without androidSdkVersion (same trick youtube_explode_dart uses)
-  ///  4. IOS         - last resort (HLS manifest)
   static final List<Map<String, dynamic>> _innertubePlayerConfigs = [
     {
-      'name': 'VISIONOS',
-      'userAgent': visionOsUserAgent,
-      'clientNameId': '101',
+      'name': 'IOS',
       'client': {
-        'clientName': 'VISIONOS',
-        'clientVersion': '1.02',
+        'clientName': 'IOS',
+        'clientVersion': '19.45.4',
         'deviceMake': 'Apple',
-        'deviceModel': 'RealityDevice17,1',
-        'osName': 'visionOS',
-        'osVersion': '26.5.23O471',
-        'userAgent': visionOsUserAgent,
-        'gl': 'IN',
+        'deviceModel': 'iPhone16,2',
+        'osName': 'iPhone',
+        'osVersion': '18.1.0.22B83',
         'hl': 'en',
+        'gl': 'IN',
+      },
+      'headers': {
+        'Content-Type': 'application/json',
+        'User-Agent':
+            'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)',
+        'X-YouTube-Client-Name': '5',
+        'X-YouTube-Client-Version': '19.45.4',
+        'Accept': '*/*',
+      },
+    },
+    {
+      'name': 'IOS_UPDATED',
+      'client': {
+        'clientName': 'IOS',
+        'clientVersion': '21.26.4',
+        'deviceMake': 'Apple',
+        'deviceModel': 'iPhone16,2',
+        'osName': 'iPhone',
+        'osVersion': '18.1.0.22B83',
+        'hl': 'en',
+        'gl': 'IN',
+      },
+      'headers': {
+        'Content-Type': 'application/json',
+        'User-Agent':
+            'com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)',
+        'X-YouTube-Client-Name': '5',
+        'X-YouTube-Client-Version': '21.26.4',
+        'Accept': '*/*',
       },
     },
     {
       'name': 'ANDROID_VR',
-      'userAgent': vrUserAgent,
-      'clientNameId': '28',
       'client': {
         'clientName': 'ANDROID_VR',
         'clientVersion': '1.56.21',
@@ -1067,236 +816,140 @@ class YouTubeClient {
         'gl': 'IN',
         'hl': 'en',
       },
-    },
-    {
-      'name': 'ANDROID',
-      'userAgent': androidUserAgent,
-      'clientNameId': '3',
-      'client': {
-        'clientName': 'ANDROID',
-        'clientVersion': '20.10.38',
-        'userAgent': androidUserAgent,
-        'osName': 'Android',
-        'osVersion': '11',
-        'gl': 'IN',
-        'hl': 'en',
-      },
-    },
-    {
-      'name': 'IOS',
-      'userAgent': iosUserAgent,
-      'clientNameId': '5',
-      'client': {
-        'clientName': 'IOS',
-        'clientVersion': '19.45.4',
-        'deviceMake': 'Apple',
-        'deviceModel': 'iPhone14,3',
-        'osName': 'iOS',
-        'osVersion': '17.5.0.21F79',
-        'gl': 'IN',
-        'hl': 'en',
+      'headers': {
+        'Content-Type': 'application/json',
+        'User-Agent': vrUserAgent,
+        'X-YouTube-Client-Name': '28',
+        'X-YouTube-Client-Version': '1.56.21',
+        'Accept': '*/*',
       },
     },
   ];
 
-  /// Calls the InnerTube `player` endpoint as [config]'s client.
-  /// Returns null on transport errors / wrong-video responses.
-  static Future<Map<String, dynamic>?> _fetchPlayerResponse(Map<String, dynamic> config, String videoId) async {
-    final name = config['name'] as String;
-    final clientCtx = Map<String, dynamic>.from(config['client'] as Map);
-    final visitor = _visitorData;
-    if (visitor != null && visitor.isNotEmpty) clientCtx['visitorData'] = visitor;
-
-    final headers = <String, String>{
-      'Content-Type': 'application/json',
-      'User-Agent': config['userAgent'] as String,
-      'X-YouTube-Client-Name': config['clientNameId'] as String,
-      'X-YouTube-Client-Version': clientCtx['clientVersion'].toString(),
-      'Origin': 'https://www.youtube.com',
-      'Accept': '*/*',
-      if (visitor != null && visitor.isNotEmpty) 'X-Goog-Visitor-Id': visitor,
-    };
-
-    final payload = jsonEncode({
-      'context': {'client': clientCtx},
-      'videoId': videoId,
-      'playbackContext': {
-        'contentPlaybackContext': {'html5Preference': 'HTML5_PREF_WANTS'},
-      },
-      'contentCheckOk': true,
-      'racyCheckOk': true,
-    });
-
-    final response = await http
-        .post(
-          Uri.parse('https://www.youtube.com/youtubei/v1/player?prettyPrint=false'),
-          headers: headers,
-          body: payload,
-        )
-        .timeout(const Duration(seconds: 5));
-
-    if (response.statusCode != 200) {
-      AppLogger.log('YouTubeClient', '[$name] player HTTP ${response.statusCode} for $videoId');
-      return null;
-    }
-
-    final decoded = jsonDecode(response.body);
-    if (decoded is! Map<String, dynamic>) return null;
-
-    final vd = decoded['responseContext']?['visitorData'];
-    if (vd is String && vd.isNotEmpty) _visitorData ??= vd;
-
-    // YouTube sometimes answers with a different video; never trust that.
-    final returnedId = decoded['videoDetails']?['videoId']?.toString();
-    if (returnedId != null && returnedId.isNotEmpty && returnedId != videoId) {
-      AppLogger.log('YouTubeClient', '[$name] returned wrong video ($returnedId != $videoId)');
-      return null;
-    }
-
-    final status = decoded['playabilityStatus']?['status']?.toString();
-    if (status != 'OK') {
-      final reason = decoded['playabilityStatus']?['reason']?.toString() ?? '';
-      AppLogger.log('YouTubeClient', '[$name] playability=$status $reason');
-    }
-    return decoded;
-  }
-
-  /// Ordered candidate URLs from a player response's `streamingData`:
-  /// audio-only (preferred quality first) -> muxed MP4 (e.g. itag 18) -> HLS.
-  static List<String> _candidateUrlsFromStreamingData(Map<String, dynamic> streamingData) {
-    final out = <String>[];
-    void add(String? u) {
-      if (u != null && u.isNotEmpty && !out.contains(u)) out.add(u);
-    }
-
-    final audioFormats = <Map>[];
-    final adaptive = streamingData['adaptiveFormats'];
-    if (adaptive is List) {
-      for (final f in adaptive) {
-        if (f is! Map) continue;
-        final mime = f['mimeType']?.toString().toLowerCase() ?? '';
-        if (!mime.startsWith('audio/')) continue;
-        // Skip auto-dubbed languages - we want the original audio.
-        final track = f['audioTrack'];
-        if (track is Map && track['audioIsDefault'] == false) continue;
-        audioFormats.add(f);
-      }
-    }
-    audioFormats.sort((a, b) {
-      final bb = (b['bitrate'] as num?) ?? 0;
-      final ab = (a['bitrate'] as num?) ?? 0;
-      return bb.compareTo(ab);
-    });
-
-    final quality = SettingsManager.streamingQuality;
-    if (quality == '96kbps') {
-      for (final f in audioFormats.reversed) {
-        final br = (f['bitrate'] as num?)?.toInt() ?? 0;
-        if (br > 0 && br <= 100000) {
-          add(f['url']?.toString());
-          break;
-        }
-      }
-    }
-    // AAC 140 (128kbps m4a) first for universal hardware decoding, then Opus 251.
-    for (final f in audioFormats) {
-      if (f['itag'] == 140) {
-        add(f['url']?.toString());
-        break;
-      }
-    }
-    for (final f in audioFormats) {
-      if (f['itag'] == 251) {
-        add(f['url']?.toString());
-        break;
-      }
-    }
-    for (final f in audioFormats) {
-      add(f['url']?.toString());
-    }
-
-    // Muxed progressive MP4 (itag 18, 360p + AAC). Heavier, but it is the format
-    // YouTube still serves without a PO token on several clients, so it keeps
-    // songs playable when every audio-only URL is refused.
-    final muxed = streamingData['formats'];
-    if (muxed is List) {
-      for (final f in muxed) {
-        if (f is Map) add(f['url']?.toString());
-      }
-    }
-
-    add(streamingData['hlsManifestUrl']?.toString());
-    return out;
-  }
-
-  /// Tier 1: query every InnerTube client in turn; return the first URL the CDN
-  /// verifiably accepts. If none is verified but some were merely inconclusive
-  /// (timeouts), return the first inconclusive one instead of failing.
+  /// Tier 1 Fast Path: Queries YouTube InnerTube IOS (Method A - HLS) and ANDROID_VR (Method B - &range=0-$contentLength).
+  /// Method A returns .m3u8 HLS URL immediately with zero Source error.
+  /// Method B appends &range=0-$contentLength to prevent 403-blocks on ExoPlayer open-ended range requests.
   static Future<String?> _resolveDirectInnertubeStream(String cleanId) async {
-    final sw = Stopwatch()..start();
-    String? softUrl;
-    String? softUa;
-
     for (final config in _innertubePlayerConfigs) {
-      if (sw.elapsed > const Duration(seconds: 14)) {
-        AppLogger.log('YouTubeClient', 'InnerTube tier time budget exhausted for $cleanId');
-        break;
-      }
-      final name = config['name'] as String;
-      final ua = config['userAgent'] as String;
       try {
-        final data = await _fetchPlayerResponse(config, cleanId);
-        if (data == null) continue;
+        final uri = Uri.parse('https://www.youtube.com/youtubei/v1/player?prettyPrint=false');
+        final payload = jsonEncode({
+          'context': {'client': config['client']},
+          'videoId': cleanId,
+        });
 
-        final streamingData = data['streamingData'];
-        if (streamingData is! Map<String, dynamic>) {
-          AppLogger.log('YouTubeClient', '[$name] no streamingData for $cleanId');
-          continue;
-        }
+        final response = await http.post(
+          uri,
+          headers: Map<String, String>.from(config['headers']),
+          body: payload,
+        ).timeout(const Duration(seconds: 4));
 
-        final candidates = _candidateUrlsFromStreamingData(streamingData);
-        AppLogger.log('YouTubeClient', '[$name] ${candidates.length} candidate URL(s) for $cleanId');
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body) as Map<String, dynamic>?;
+          final streamingData = data?['streamingData'] as Map<String, dynamic>?;
+          if (streamingData == null) continue;
 
-        var probed = 0;
-        for (final candidate in candidates) {
-          if (probed >= 3) break; // keep worst-case latency bounded
-          probed++;
-          final result = await _probe(candidate, ua);
-          if (result == _ProbeResult.ok) {
-            _rememberUserAgent(candidate, ua);
-            AppLogger.log('YouTubeClient', '[$name] stream verified for $cleanId');
-            return candidate;
+          // Method A: HLS Manifest URL. If present, return .m3u8 immediately!
+          final hlsUrl = streamingData['hlsManifestUrl']?.toString();
+          if (hlsUrl != null && hlsUrl.isNotEmpty) {
+            AppLogger.log('YouTubeClient', 'Method A: Returned native HLS .m3u8 URL from ${config['name']} for $cleanId');
+            return hlsUrl;
           }
-          if (result == _ProbeResult.unknown && softUrl == null) {
-            softUrl = candidate;
-            softUa = ua;
+
+          // Method B: Extract audio streams with mandatory &range=0-$contentLength
+          final formats = (streamingData['adaptiveFormats'] as List<dynamic>?) ?? [];
+          final audioFormats = formats.where((f) {
+            final mime = f['mimeType']?.toString().toLowerCase() ?? '';
+            return mime.startsWith('audio/');
+          }).toList();
+
+          final candidateUrls = <String>[];
+
+          String prepareStreamUrl(Map<dynamic, dynamic> f) {
+            var url = f['url']?.toString() ?? '';
+            if (url.isEmpty) return '';
+            final contentLength = f['contentLength']?.toString() ?? Uri.tryParse(url)?.queryParameters['clen'];
+            if (contentLength != null && contentLength.isNotEmpty && !url.contains('&range=')) {
+              url = '$url&range=0-$contentLength';
+            }
+            return url;
+          }
+
+          if (audioFormats.isNotEmpty) {
+            final quality = SettingsManager.streamingQuality;
+
+            // 1. Data saver (96kbps)
+            if (quality == '96kbps') {
+              for (final f in audioFormats) {
+                final bitrate = (f['bitrate'] as num?)?.toInt() ?? 0;
+                if (bitrate > 0 && bitrate <= 100000) {
+                  final url = prepareStreamUrl(f);
+                  if (url.isNotEmpty) {
+                    candidateUrls.add(url);
+                    break;
+                  }
+                }
+              }
+            }
+
+            // 2. Prioritize AAC 140 (128kbps audio/mp4)
+            for (final f in audioFormats) {
+              if (f['itag'] == 140) {
+                final url = prepareStreamUrl(f);
+                if (url.isNotEmpty) {
+                  candidateUrls.add(url);
+                  break;
+                }
+              }
+            }
+
+            // 3. Prioritize Opus 251 (audio/webm ~160kbps)
+            for (final f in audioFormats) {
+              if (f['itag'] == 251) {
+                final url = prepareStreamUrl(f);
+                if (url.isNotEmpty) {
+                  candidateUrls.add(url);
+                  break;
+                }
+              }
+            }
+
+            // 4. Any direct audio URL with highest bitrate
+            for (final f in audioFormats) {
+              final url = prepareStreamUrl(f);
+              if (url.isNotEmpty && !candidateUrls.contains(url)) {
+                candidateUrls.add(url);
+              }
+            }
+          }
+
+          // Probe candidates: Only return the first candidate that passes HTTP 200/206 probe
+          for (final candidate in candidateUrls) {
+            final isPlayable = await probeStreamUrl(candidate);
+            if (isPlayable) {
+              AppLogger.log('YouTubeClient', 'InnerTube ${config['name']} direct stream verified and active for $cleanId');
+              return candidate;
+            }
           }
         }
       } catch (e) {
-        AppLogger.log('YouTubeClient', '[$name] resolution notice for $cleanId: $e');
+        AppLogger.log('YouTubeClient', 'InnerTube ${config['name']} direct resolution notice for $cleanId: $e');
       }
-    }
-
-    if (softUrl != null && softUa != null) {
-      _rememberUserAgent(softUrl, softUa);
-      AppLogger.log('YouTubeClient', 'Using unverified (probe inconclusive) stream for $cleanId');
-      return softUrl;
     }
     return null;
   }
 
-  /// Resolves an audio stream for [cleanId].
-  /// Tier 1: InnerTube client waterfall. Tier 2: youtube_explode_dart.
-  /// Returns null only if every YouTube route is refused, so the StreamResolver
-  /// can fall back to a matching JioSaavn track.
+  /// Resolves audio stream and verifies against Google CDN with live HTTP probe.
+  /// Dual-tier: InnerTube (ANDROID_VR & IOS) -> YouTubeExplode.
+  /// Returns null if Google CDN returns 403 or times out so Smart Replace is triggered.
   static Future<String?> _resolveAndVerifyStream(String cleanId) async {
-    // ── Tier 1 ────────────────────────────────────────────────────────
+    // ── Tier 1: Direct InnerTube (ANDROID_VR / IOS) + HLS ─────────────
     final directUrl = await _resolveDirectInnertubeStream(cleanId);
     if (directUrl != null && directUrl.isNotEmpty) {
       return directUrl;
     }
 
-    // ── Tier 2: youtube_explode_dart ──────────────────────────────────
+    // ── Tier 2: Client-Side YouTubeExplode Dart (Full Manifest) ────────
     for (int attempt = 1; attempt <= 2; attempt++) {
       try {
         StreamManifest? manifest;
@@ -1355,16 +1008,22 @@ class YouTubeClient {
           }
 
           chosenStream ??= audioStreams.withHighestBitrate();
-          final url = chosenStream.url.toString();
-
-          // youtube_explode_dart's default client is the Android (sdk-less) one.
-          final probe = await _probe(url, androidUserAgent);
-          if (probe != _ProbeResult.forbidden) {
-            _rememberUserAgent(url, androidUserAgent);
-            AppLogger.log('YouTubeClient', 'YouTubeExplode stream accepted for $cleanId (itag ${chosenStream.tag})');
-            return url;
+          var url = chosenStream.url.toString();
+          final contentLength = chosenStream.size.totalBytes > 0
+              ? chosenStream.size.totalBytes.toString()
+              : Uri.tryParse(url)?.queryParameters['clen'];
+          if (contentLength != null && contentLength.isNotEmpty && !url.contains('&range=')) {
+            url = '$url&range=0-$contentLength';
           }
-          AppLogger.log('YouTubeClient', 'YouTubeExplode stream refused (403) for $cleanId');
+
+          // CRITICAL: Live probe before returning YouTubeExplode URL
+          final isPlayable = await probeStreamUrl(url);
+          if (isPlayable) {
+            AppLogger.log('YouTubeClient', 'YouTubeExplode stream verified for $cleanId (itag ${chosenStream.tag})');
+            return url;
+          } else {
+            AppLogger.log('YouTubeClient', 'YouTubeExplode stream rejected by probe (403/Forbidden) for $cleanId');
+          }
         }
       } catch (e) {
         AppLogger.log('YouTubeClient', 'YouTubeExplode attempt $attempt notice for $cleanId: $e');
@@ -1374,7 +1033,7 @@ class YouTubeClient {
       }
     }
 
-    AppLogger.log('YouTubeClient', 'All YouTube routes refused for $cleanId. Returning null so a matching track can be used instead.');
+    AppLogger.log('YouTubeClient', 'All YouTube stream candidates failed probe / 403 Forbidden for $cleanId. Returning null for Smart Replace.');
     return null;
   }
 

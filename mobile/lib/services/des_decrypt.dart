@@ -5,6 +5,11 @@ import 'package:flutter/foundation.dart';
 import 'package:dart_des/dart_des.dart';
 import 'package:just_audio/just_audio.dart';
 
+/// Class-level helper for DES decryption conforming to Bloomee architecture
+class DesDecrypt {
+  static String decrypt(String encryptedUrl) => decryptSaavnMediaUrl(encryptedUrl);
+}
+
 /// Top-level synchronous DES decryption function suitable for direct isolate offloading.
 String decryptSaavnMediaUrl(String encryptedUrl) {
   if (encryptedUrl.isEmpty) return '';

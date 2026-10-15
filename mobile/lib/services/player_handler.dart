@@ -24,7 +24,6 @@ import 'playlist_manager.dart';
 import 'app_logger.dart';
 import 'party_sync_coordinator.dart';
 import 'saavn_client.dart';
-import 'artist_sanitizer.dart';
 
 PaatuAudioHandler? _audioHandlerInstance;
 
@@ -619,14 +618,12 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   Future<void> _recoverWithSmartReplace(Song song, {bool autoPlay = true}) async {
     try {
       AppLogger.log('PlayerHandler', 'ExoPlayer 403 auto-recovery: Smart Replacing "${song.title}"');
-      final cleanTitle = YouTubeClient.cleanTitle(song.title);
-      final cleanArtist = (song.artist.isNotEmpty && !ArtistSanitizer.isRecordLabelOrChannel(song.artist))
-          ? song.artist
-          : '';
+      final cleanTitle = DefaultStreamResolver.extractCleanBaseTitle(song.title);
+      final cleanArtist = DefaultStreamResolver.extractFirstArtist(song.artist);
       final query = cleanArtist.isNotEmpty ? '$cleanTitle $cleanArtist' : cleanTitle;
-      var matches = await SaavnClient.search(query, limit: 5).timeout(const Duration(seconds: 4), onTimeout: () => []);
+      var matches = await SaavnClient.search(query, limit: 5).timeout(const Duration(seconds: 3), onTimeout: () => []);
       if (matches.isEmpty) {
-        matches = await SaavnClient.search(cleanTitle, limit: 5).timeout(const Duration(seconds: 4), onTimeout: () => []);
+        matches = await SaavnClient.search(cleanTitle, limit: 5).timeout(const Duration(seconds: 3), onTimeout: () => []);
       }
       for (final match in matches) {
         if (match.streamUrl != null && match.streamUrl!.isNotEmpty) {
@@ -669,10 +666,28 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     if (currentRequestId != _loadRequestId) return;
 
     if (url != null && url.isNotEmpty) {
+      final isHls = url.contains('.m3u8') || url.contains('hls_variant');
+      final isGoogleVideo = track.source == 'youtube' || url.contains('googlevideo.com');
+      if (isGoogleVideo && !isHls && !url.contains('&range=')) {
+        final clen = Uri.tryParse(url)?.queryParameters['clen'];
+        if (clen != null && clen.isNotEmpty) {
+          url = '$url&range=0-$clen';
+        }
+      }
       song.streamUrl = url;
+
       final headers = <String, String>{};
-      if (YouTubeClient.isYouTubeStreamUrl(url)) {
-        headers.addAll(YouTubeClient.headersForUrl(url));
+      if (isGoogleVideo) {
+        if (isHls) {
+          headers['User-Agent'] = 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)';
+        } else {
+          headers['User-Agent'] = YouTubeClient.vrUserAgent;
+          if (!url.contains('&range=')) {
+            headers['Range'] = 'bytes=0-';
+          }
+        }
+        headers['Accept'] = '*/*';
+        headers['Connection'] = 'keep-alive';
       }
       try {
         final source = AudioSource.uri(
@@ -1189,8 +1204,11 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   Future<void> playFromUri(Uri uri, [Map<String, dynamic>? extras]) async {
     final headers = <String, String>{};
     final urlStr = uri.toString();
-    if (YouTubeClient.isYouTubeStreamUrl(urlStr)) {
-      headers.addAll(YouTubeClient.headersForUrl(urlStr));
+    if (extras?['source'] == 'youtube' || urlStr.contains('googlevideo.com')) {
+      headers['User-Agent'] = YouTubeClient.vrUserAgent;
+      headers['Range'] = 'bytes=0-';
+      headers['Accept'] = '*/*';
+      headers['Connection'] = 'keep-alive';
     }
     try {
       final source = AudioSource.uri(uri, headers: headers.isNotEmpty ? headers : null);

@@ -445,8 +445,8 @@ class AudioQueueHandler {
 
             if (!_hasRetriedCurrentTrack && !_isDisposed) {
               _hasRetriedCurrentTrack = true;
-              AppLogger.log('AudioQueueHandler', 'Auto-recovery: re-resolving fresh stream for "${current.title}"');
-              final freshUrl = await _resolveStreamUrl(current);
+              AppLogger.log('AudioQueueHandler', 'Auto-recovery: resolving via Saavn fallback for "${current.title}"');
+              final freshUrl = await streamResolver.resolve(current, forceSaavnFallback: true);
               if (freshUrl != null && freshUrl.isNotEmpty && !_isDisposed) {
                 current.streamUrl = freshUrl;
                 _updateTrackStreamUrl(current.id, freshUrl);
@@ -1759,13 +1759,28 @@ class AudioQueueHandler {
         streamUrl = streamUrl.replaceAll('_96.mp4', '_320.mp4').replaceAll('_160.mp4', '_320.mp4');
       }
     }
+    final isHls = streamUrl.contains('.m3u8') || streamUrl.contains('hls_variant');
+    final isGoogleVideo = streamUrl.contains('googlevideo.com') || song.source == 'youtube' || song.id.length == 11;
+    if (isGoogleVideo && !isHls && !streamUrl.contains('&range=')) {
+      final clen = Uri.tryParse(streamUrl)?.queryParameters['clen'];
+      if (clen != null && clen.isNotEmpty) {
+        streamUrl = '$streamUrl&range=0-$clen';
+      }
+    }
     song.streamUrl = streamUrl;
 
-    // Only YouTube CDN URLs need special headers, and they must carry the
-    // User-Agent of the client that issued the URL (a mismatch = HTTP 403).
     final headers = <String, String>{};
-    if (YouTubeClient.isYouTubeStreamUrl(streamUrl)) {
-      headers.addAll(YouTubeClient.headersForUrl(streamUrl));
+    if (isGoogleVideo) {
+      if (isHls) {
+        headers['User-Agent'] = 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)';
+      } else {
+        headers['User-Agent'] = 'com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12; en_US; Quest 2; Build/SQ3A.220605.009.A1) gzip';
+        if (!streamUrl.contains('&range=')) {
+          headers['Range'] = 'bytes=0-';
+        }
+      }
+      headers['Accept'] = '*/*';
+      headers['Connection'] = 'keep-alive';
     }
 
     try {

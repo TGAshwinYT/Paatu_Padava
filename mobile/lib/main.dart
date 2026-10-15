@@ -18,6 +18,7 @@ import 'services/cache_manager.dart';
 import 'services/battery_optimization_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
+import 'services/innertube_config_service.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/screens/main_navigation.dart';
 
@@ -113,6 +114,7 @@ Future<void> main() async {
         PlaylistManager.init(),
         SearchHistoryManager.init(),
         Hive.openBox('home_feed_cache'),
+        InnerTubeConfigService.initialize(),
         _initFirebase(),
         _initSupabase(),
       ]).timeout(const Duration(seconds: 2), onTimeout: () {

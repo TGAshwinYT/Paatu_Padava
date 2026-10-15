@@ -474,6 +474,7 @@ class AudioQueueHandler {
 
       if (state.playing) {
         _consecutivePlaybackErrors = 0;
+        _hasRetriedCurrentTrack = false;
         cancelIdleTimer();
       } else {
         startIdleTimer();
@@ -620,22 +621,59 @@ class AudioQueueHandler {
       final diagnostic = await diagnosePlaybackError(current, error, stackTrace);
       AppLogger.log('ExoPlayerDiagnostic', '[$context] Real Error for "${current.title}" (${current.id}) [${current.source}]: $diagnostic');
 
+      final failingUrl = current.streamUrl;
+      final isSaavnCdn = current.source == 'saavn' ||
+          current.source == 'jiosaavn' ||
+          (failingUrl != null && failingUrl.contains('saavncdn.com'));
+
       // Invalidate stream cache so stale/expired/403 URL is never reused
       streamResolver.invalidate(current.id);
       DefaultStreamResolver.invalidateStream(current.id);
       YouTubeClient.invalidateStream(current.id);
       current.streamUrl = null;
 
-      // 2. Retry handling collapsed to ONE single attempt per track
+      // 2. Retry handling with Bitrate Fallback + Cross-Provider Fallback
       if (!_hasRetriedCurrentTrack && !_isDisposed) {
         _hasRetriedCurrentTrack = true;
-        AppLogger.log('AudioQueueHandler', 'Single-pass fallback: resolving Saavn stream for "${current.title}"');
 
-        final freshUrl = await streamResolver.resolve(current, forceSaavnFallback: true);
+        // STEP 2A: If a Saavn stream failed (e.g. 320kbps 404/403 on CDN), try Bitrate Fallback (160kbps, then 96kbps)
+        if (isSaavnCdn && failingUrl != null) {
+          final fallbackUrl = SaavnBitrateHelper.getNextFallbackUrl(failingUrl);
+          if (fallbackUrl != null && !_isDisposed) {
+            AppLogger.log('AudioQueueHandler', 'Saavn bitrate fallback for "${current.title}": switching to lower bitrate $fallbackUrl');
+            current.streamUrl = fallbackUrl;
+            _updateTrackStreamUrl(current.id, fallbackUrl, source: 'saavn');
+            final fallbackSource = await _buildAudioSource(current, allowNetworkResolve: false);
+            if (fallbackSource != null && !_isDisposed) {
+              try {
+                await player.setAudioSource(fallbackSource);
+                await _ensureAudioSessionActive();
+                await player.play();
+                final targetNorm = getEffectiveVolumeForSong(current);
+                await player.setVolume(targetNorm);
+                _startVolumeWatchdog(current);
+                _consecutivePlaybackErrors = 0;
+                AppLogger.log('AudioQueueHandler', 'Saavn bitrate fallback successful: "${current.title}" playing at reduced bitrate');
+                return;
+              } catch (bitrateErr, bitrateStack) {
+                final bDiag = await diagnosePlaybackError(current, bitrateErr, bitrateStack);
+                AppLogger.log('ExoPlayerDiagnostic', 'Saavn bitrate fallback failed for "${current.title}": $bDiag');
+              }
+            }
+          }
+        }
+
+        // STEP 2B: Cross-source resolution fallback
+        AppLogger.log('AudioQueueHandler', 'Single-pass fallback: resolving fallback stream for "${current.title}"');
+        final freshUrl = await streamResolver.resolve(
+          current,
+          forceSaavnFallback: !isSaavnCdn,
+        );
         if (freshUrl != null && freshUrl.isNotEmpty && !_isDisposed) {
+          final resolvedSource = freshUrl.contains('saavncdn.com') ? 'saavn' : 'youtube';
           current.streamUrl = freshUrl;
-          current.source = 'saavn';
-          _updateTrackStreamUrl(current.id, freshUrl, source: 'saavn');
+          current.source = resolvedSource;
+          _updateTrackStreamUrl(current.id, freshUrl, source: resolvedSource);
 
           final freshSource = await _buildAudioSource(current, allowNetworkResolve: false);
           if (freshSource != null && !_isDisposed) {
@@ -647,7 +685,7 @@ class AudioQueueHandler {
               await player.setVolume(targetNorm);
               _startVolumeWatchdog(current);
               _consecutivePlaybackErrors = 0;
-              AppLogger.log('AudioQueueHandler', 'Fallback recovery successful: "${current.title}" now playing via Saavn');
+              AppLogger.log('AudioQueueHandler', 'Fallback recovery successful: "${current.title}" now playing via $resolvedSource');
               return;
             } catch (recoveryErr, recoveryStack) {
               final recDiag = await diagnosePlaybackError(current, recoveryErr, recoveryStack);
@@ -825,6 +863,7 @@ class AudioQueueHandler {
       _actuallyPlayedInSession.clear();
       _lastCompletedTrackId = null;
       _isAdvancing = false;
+      _hasRetriedCurrentTrack = false;
 
       _contextIndex = 0;
       _currentTrack = orderedTracks[0];
@@ -1985,15 +2024,9 @@ class AudioQueueHandler {
       return null;
     }
 
-    if (song.source == 'saavn' || song.source == 'jiosaavn' || streamUrl.contains('jiosaavn')) {
+    if (song.source == 'saavn' || song.source == 'jiosaavn' || streamUrl.contains('jiosaavn') || streamUrl.contains('saavncdn.com')) {
       final q = SettingsManager.streamingQuality;
-      if (q == '96kbps') {
-        streamUrl = streamUrl.replaceAll('_320.mp4', '_96.mp4').replaceAll('_160.mp4', '_96.mp4');
-      } else if (q == '160kbps') {
-        streamUrl = streamUrl.replaceAll('_320.mp4', '_160.mp4').replaceAll('_96.mp4', '_160.mp4');
-      } else {
-        streamUrl = streamUrl.replaceAll('_96.mp4', '_320.mp4').replaceAll('_160.mp4', '_320.mp4');
-      }
+      streamUrl = SaavnBitrateHelper.toBitrate(streamUrl, q);
     }
     final uri = Uri.tryParse(streamUrl);
     final host = uri?.host.toLowerCase() ?? '';

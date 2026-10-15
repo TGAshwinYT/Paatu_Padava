@@ -11,6 +11,7 @@ import 'settings_manager.dart';
 import 'youtube_client.dart';
 import 'error_handler.dart';
 import 'app_logger.dart';
+import 'des_decrypt.dart';
 
 class DownloadManager {
   static const String boxName = 'offline_songs';
@@ -228,15 +229,9 @@ class DownloadManager {
       if (cancelToken.isCancelled) return false;
 
       // Quality bitrate adjustments for JioSaavn download
-      if (audioUrl.contains('jiosaavn') || audioUrl.contains('.mp4')) {
+      if (audioUrl.contains('jiosaavn') || audioUrl.contains('saavncdn.com') || audioUrl.contains('.mp4')) {
         final q = SettingsManager.downloadQuality;
-        if (q == '96kbps') {
-          audioUrl = audioUrl.replaceAll('_320.mp4', '_96.mp4').replaceAll('_160.mp4', '_96.mp4');
-        } else if (q == '160kbps') {
-          audioUrl = audioUrl.replaceAll('_320.mp4', '_160.mp4').replaceAll('_96.mp4', '_160.mp4');
-        } else {
-          audioUrl = audioUrl.replaceAll('_96.mp4', '_320.mp4').replaceAll('_160.mp4', '_320.mp4');
-        }
+        audioUrl = SaavnBitrateHelper.toBitrate(audioUrl, q);
       }
 
       // 2. Prepare Storage Directory

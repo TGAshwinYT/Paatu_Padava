@@ -7,6 +7,7 @@ import 'saavn_client.dart';
 import 'settings_manager.dart';
 import 'app_logger.dart';
 import 'artist_sanitizer.dart';
+import 'innertube_config_service.dart';
 import '../data/repositories/song_repository.dart';
 
 class YouTubeClient {
@@ -48,6 +49,9 @@ class YouTubeClient {
       }
       if (c == 'ANDROID') {
         return 'com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US; Pixel 8 Pro; Build/UQ1A.240205.004) gzip';
+      }
+      if (c == 'WEB_REMIX' || url.contains('music.youtube.com')) {
+        return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
       }
     } catch (_) {}
     return vrUserAgent;
@@ -898,73 +902,10 @@ class YouTubeClient {
     }
   }
 
-  static final List<Map<String, dynamic>> _innertubePlayerConfigs = [
-    {
-      'name': 'IOS',
-      'client': {
-        'clientName': 'IOS',
-        'clientVersion': '19.45.4',
-        'deviceMake': 'Apple',
-        'deviceModel': 'iPhone16,2',
-        'osName': 'iPhone',
-        'osVersion': '18.1.0.22B83',
-        'hl': 'en',
-        'gl': 'IN',
-      },
-      'headers': {
-        'Content-Type': 'application/json',
-        'User-Agent':
-            'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)',
-        'X-YouTube-Client-Name': '5',
-        'X-YouTube-Client-Version': '19.45.4',
-        'Accept': '*/*',
-      },
-    },
-    {
-      'name': 'IOS_UPDATED',
-      'client': {
-        'clientName': 'IOS',
-        'clientVersion': '21.26.4',
-        'deviceMake': 'Apple',
-        'deviceModel': 'iPhone16,2',
-        'osName': 'iPhone',
-        'osVersion': '18.1.0.22B83',
-        'hl': 'en',
-        'gl': 'IN',
-      },
-      'headers': {
-        'Content-Type': 'application/json',
-        'User-Agent':
-            'com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)',
-        'X-YouTube-Client-Name': '5',
-        'X-YouTube-Client-Version': '21.26.4',
-        'Accept': '*/*',
-      },
-    },
-    {
-      'name': 'ANDROID_VR',
-      'client': {
-        'clientName': 'ANDROID_VR',
-        'clientVersion': '1.56.21',
-        'androidSdkVersion': 32,
-        'gl': 'IN',
-        'hl': 'en',
-      },
-      'headers': {
-        'Content-Type': 'application/json',
-        'User-Agent': vrUserAgent,
-        'X-YouTube-Client-Name': '28',
-        'X-YouTube-Client-Version': '1.56.21',
-        'Accept': '*/*',
-      },
-    },
-  ];
-
-  /// Tier 1 Fast Path: Queries YouTube InnerTube IOS (Method A - HLS) and ANDROID_VR (Method B - &range=0-$contentLength).
-  /// Method A returns .m3u8 HLS URL immediately with zero Source error.
-  /// Method B appends &range=0-$contentLength to prevent 403-blocks on ExoPlayer open-ended range requests.
+  /// Tier 1 Fast Path: Queries YouTube InnerTube clients (Method A - HLS) and direct streams (Method B).
+  /// InnerTube client configs are dynamically supplied by [InnerTubeConfigService] with remote JSON updates and built-in defaults.
   static Future<String?> _resolveDirectInnertubeStream(String cleanId) async {
-    for (final config in _innertubePlayerConfigs) {
+    for (final config in InnerTubeConfigService.clientConfigs) {
       try {
         final uri = Uri.parse('https://www.youtube.com/youtubei/v1/player?prettyPrint=false');
         final payload = jsonEncode({
@@ -990,7 +931,7 @@ class YouTubeClient {
             return hlsUrl;
           }
 
-          // Method B: Extract audio streams with mandatory &range=0-$contentLength
+          // Method B: Extract audio streams with bitrate fallback
           final formats = (streamingData['adaptiveFormats'] as List<dynamic>?) ?? [];
           final audioFormats = formats.where((f) {
             final mime = f['mimeType']?.toString().toLowerCase() ?? '';
@@ -1012,51 +953,52 @@ class YouTubeClient {
                 final bitrate = (f['bitrate'] as num?)?.toInt() ?? 0;
                 if (bitrate > 0 && bitrate <= 100000) {
                   final url = prepareStreamUrl(f);
-                  if (url.isNotEmpty) {
-                    candidateUrls.add(url);
-                    break;
-                  }
+                  if (url.isNotEmpty && !candidateUrls.contains(url)) candidateUrls.add(url);
                 }
               }
             }
 
-            // 2. Prioritize AAC 140 (128kbps audio/mp4)
+            // 2. AAC 140 (128kbps audio/mp4)
             for (final f in audioFormats) {
               if (f['itag'] == 140) {
                 final url = prepareStreamUrl(f);
-                if (url.isNotEmpty) {
-                  candidateUrls.add(url);
-                  break;
-                }
+                if (url.isNotEmpty && !candidateUrls.contains(url)) candidateUrls.add(url);
               }
             }
 
-            // 3. Prioritize Opus 251 (audio/webm ~160kbps)
+            // 3. Opus 251 (audio/webm ~160kbps)
             for (final f in audioFormats) {
               if (f['itag'] == 251) {
                 final url = prepareStreamUrl(f);
-                if (url.isNotEmpty) {
-                  candidateUrls.add(url);
-                  break;
-                }
+                if (url.isNotEmpty && !candidateUrls.contains(url)) candidateUrls.add(url);
               }
             }
 
-            // 4. Any direct audio URL with highest bitrate
+            // 4. Bitrate fallback: lower Opus bitrates (itag 250 ~70k, 249 ~50k)
             for (final f in audioFormats) {
-              final url = prepareStreamUrl(f);
-              if (url.isNotEmpty && !candidateUrls.contains(url)) {
-                candidateUrls.add(url);
+              if (f['itag'] == 250 || f['itag'] == 249) {
+                final url = prepareStreamUrl(f);
+                if (url.isNotEmpty && !candidateUrls.contains(url)) candidateUrls.add(url);
               }
+            }
+
+            // 5. Remaining direct audio URLs sorted by highest bitrate
+            final sorted = List.from(audioFormats)
+              ..sort((a, b) => ((b['bitrate'] as num?) ?? 0).compareTo((a['bitrate'] as num?) ?? 0));
+            for (final f in sorted) {
+              final url = prepareStreamUrl(f);
+              if (url.isNotEmpty && !candidateUrls.contains(url)) candidateUrls.add(url);
             }
           }
 
-          // Probe candidates: Only return the first candidate that passes HTTP 200/206 probe
+          // Probe candidates: return the first candidate that passes HTTP 200/206 probe
           for (final candidate in candidateUrls) {
             final isPlayable = await probeStreamUrl(candidate);
             if (isPlayable) {
               AppLogger.log('YouTubeClient', 'InnerTube ${config['name']} direct stream verified and active for $cleanId');
               return candidate;
+            } else {
+              AppLogger.log('YouTubeClient', 'InnerTube ${config['name']} stream candidate rejected by probe (403/Forbidden), trying bitrate fallback...');
             }
           }
         }
@@ -1068,16 +1010,16 @@ class YouTubeClient {
   }
 
   /// Resolves audio stream and verifies against Google CDN with live HTTP probe.
-  /// Dual-tier: InnerTube (ANDROID_VR & IOS) -> YouTubeExplode.
+  /// Dual-tier: InnerTube (Remote & Cached Configs) -> YouTubeExplode (Full Manifest with Bitrate Fallback).
   /// Returns null if Google CDN returns 403 or times out so Smart Replace is triggered.
   static Future<String?> _resolveAndVerifyStream(String cleanId) async {
-    // ── Tier 1: Direct InnerTube (ANDROID_VR / IOS) + HLS ─────────────
+    // ── Tier 1: Direct InnerTube (IOS / ANDROID_VR / WEB_REMIX) + HLS ─────────────
     final directUrl = await _resolveDirectInnertubeStream(cleanId);
     if (directUrl != null && directUrl.isNotEmpty) {
       return directUrl;
     }
 
-    // ── Tier 2: Client-Side YouTubeExplode Dart (Full Manifest) ────────
+    // ── Tier 2: Client-Side YouTubeExplode Dart (Full Manifest + Bitrate Fallback) ──
     for (int attempt = 1; attempt <= 2; attempt++) {
       try {
         final manifest = await _yt.videos.streamsClient.getManifest(
@@ -1086,55 +1028,64 @@ class YouTubeClient {
 
         final audioStreams = manifest.audioOnly;
         if (audioStreams.isNotEmpty) {
-          AudioStreamInfo? chosenStream;
+          final candidates = <AudioStreamInfo>[];
           final quality = SettingsManager.streamingQuality;
+
+          void addStream(AudioStreamInfo s) {
+            if (!candidates.contains(s)) candidates.add(s);
+          }
 
           if (quality == '96kbps') {
             for (final s in audioStreams) {
-              if (s.bitrate.kiloBitsPerSecond <= 100) {
-                chosenStream = s;
-                break;
-              }
+              if (s.bitrate.kiloBitsPerSecond <= 100) addStream(s);
             }
           }
 
-          if (chosenStream == null) {
-            for (final s in audioStreams) {
-              if (s.tag == 140) {
-                chosenStream = s;
-                break;
-              }
+          // 1. AAC 140 (128kbps audio/mp4 universal hardware decoder)
+          for (final s in audioStreams) {
+            if (s.tag == 140) addStream(s);
+          }
+
+          // 2. Opus 251 (160kbps audio/webm)
+          for (final s in audioStreams) {
+            if (s.tag == 251) addStream(s);
+          }
+
+          // 3. Lower Opus bitrates (itag 250 ~70kbps, 249 ~50kbps)
+          for (final s in audioStreams) {
+            if (s.tag == 250 || s.tag == 249) addStream(s);
+          }
+
+          // 4. All remaining audio streams sorted by descending bitrate
+          final sortedStreams = List<AudioStreamInfo>.from(audioStreams)
+            ..sort((a, b) => b.bitrate.compareTo(a.bitrate));
+          for (final s in sortedStreams) {
+            addStream(s);
+          }
+
+          // Probe candidates in order of bitrate preference (Bitrate Fallback!)
+          for (final candidate in candidates) {
+            final url = candidate.url.toString();
+            final isPlayable = await probeStreamUrl(url);
+            if (isPlayable) {
+              AppLogger.log('YouTubeClient', 'YouTubeExplode stream verified for $cleanId (itag ${candidate.tag}, ${candidate.bitrate.kiloBitsPerSecond}kbps)');
+              return url;
+            } else {
+              AppLogger.log('YouTubeClient', 'YouTubeExplode stream candidate itag ${candidate.tag} rejected by probe (403/Forbidden), trying bitrate fallback...');
             }
           }
 
-          if (chosenStream == null) {
-            for (final s in audioStreams) {
-              if (s.tag == 251) {
-                chosenStream = s;
-                break;
+          // 5. Muxed streams fallback (itag 18 / 22 contain AAC audio and rarely face 403 blocks)
+          if (manifest.muxed.isNotEmpty) {
+            final sortedMuxed = List.from(manifest.muxed)
+              ..sort((a, b) => b.bitrate.compareTo(a.bitrate));
+            for (final muxed in sortedMuxed) {
+              final url = muxed.url.toString();
+              if (await probeStreamUrl(url)) {
+                AppLogger.log('YouTubeClient', 'YouTubeExplode muxed stream verified for $cleanId (itag ${muxed.tag})');
+                return url;
               }
             }
-          }
-
-          if (chosenStream == null) {
-            for (final s in audioStreams) {
-              if (s.container.name.toLowerCase().contains('mp4') || s.container.name.toLowerCase().contains('m4a')) {
-                chosenStream = s;
-                break;
-              }
-            }
-          }
-
-          chosenStream ??= audioStreams.withHighestBitrate();
-          final url = chosenStream.url.toString();
-
-          // CRITICAL: Live probe before returning YouTubeExplode URL
-          final isPlayable = await probeStreamUrl(url);
-          if (isPlayable) {
-            AppLogger.log('YouTubeClient', 'YouTubeExplode stream verified for $cleanId (itag ${chosenStream.tag})');
-            return url;
-          } else {
-            AppLogger.log('YouTubeClient', 'YouTubeExplode stream rejected by probe (403/Forbidden) for $cleanId');
           }
         }
       } catch (e) {

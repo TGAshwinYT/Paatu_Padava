@@ -31,18 +31,6 @@ String decryptSaavnMediaUrl(String encryptedUrl) {
     }
 
     String url = utf8.decode(unpadded, allowMalformed: true).trim();
-    
-    // JioSaavn CDN serves audio in .mp4 (AAC) or .mp3 containers.
-    // Upgrade 96kbps / 160kbps to 320kbps for pristine high fidelity
-    if (url.contains('_96.mp4')) {
-      url = url.replaceAll('_96.mp4', '_320.mp4');
-    } else if (url.contains('_160.mp4')) {
-      url = url.replaceAll('_160.mp4', '_320.mp4');
-    } else if (url.contains('_96.mp3')) {
-      url = url.replaceAll('_96.mp3', '_320.mp3');
-    } else if (url.contains('_160.mp3')) {
-      url = url.replaceAll('_160.mp3', '_320.mp3');
-    }
 
     if (url.startsWith('http://')) {
       url = url.replaceFirst('http://', 'https://');
@@ -51,6 +39,84 @@ String decryptSaavnMediaUrl(String encryptedUrl) {
     return url;
   } catch (e) {
     return '';
+  }
+}
+
+/// Helper for managing JioSaavn CDN audio bitrates (320kbps, 160kbps, 96kbps)
+/// and seamless bitrate fallback to prevent HTTP 404/403 failures when 320kbps is unavailable.
+class SaavnBitrateHelper {
+  /// Converts a Saavn audio URL to the desired [bitrate] ('320', '160', '96').
+  static String toBitrate(String url, String bitrate) {
+    if (url.isEmpty) return url;
+    final b = bitrate.replaceAll('kbps', '').trim();
+    if (url.contains('.mp4')) {
+      return url
+          .replaceAll('_320.mp4', '_$b.mp4')
+          .replaceAll('_160.mp4', '_$b.mp4')
+          .replaceAll('_96.mp4', '_$b.mp4');
+    } else if (url.contains('.mp3')) {
+      return url
+          .replaceAll('_320.mp3', '_$b.mp3')
+          .replaceAll('_160.mp3', '_$b.mp3')
+          .replaceAll('_96.mp3', '_$b.mp3');
+    }
+    return url;
+  }
+
+  /// Returns ordered bitrate candidates based on user [targetQuality].
+  /// Default ('320kbps'): [320, 160, 96]
+  /// '160kbps': [160, 96, 320]
+  /// '96kbps': [96, 160, 320]
+  static List<String> getBitrateCandidates(String originalUrl, {String? targetQuality}) {
+    if (originalUrl.isEmpty) return [];
+    final q = targetQuality ?? '320kbps';
+
+    final u320 = toBitrate(originalUrl, '320');
+    final u160 = toBitrate(originalUrl, '160');
+    final u96 = toBitrate(originalUrl, '96');
+
+    final candidates = <String>[];
+    void addCandidate(String u) {
+      if (u.isNotEmpty && !candidates.contains(u)) {
+        candidates.add(u);
+      }
+    }
+
+    if (q == '96kbps') {
+      addCandidate(u96);
+      addCandidate(u160);
+      addCandidate(u320);
+    } else if (q == '160kbps') {
+      addCandidate(u160);
+      addCandidate(u96);
+      addCandidate(u320);
+    } else {
+      // High fidelity 320kbps preferred
+      addCandidate(u320);
+      addCandidate(u160);
+      addCandidate(u96);
+    }
+
+    addCandidate(originalUrl);
+    return candidates;
+  }
+
+  /// Returns the next available fallback bitrate for a failing [currentUrl].
+  /// If [currentUrl] was 320kbps -> falls back to 160kbps.
+  /// If [currentUrl] was 160kbps -> falls back to 96kbps.
+  /// If 96kbps or unknown -> returns null.
+  static String? getNextFallbackUrl(String currentUrl) {
+    if (currentUrl.isEmpty) return null;
+    if (currentUrl.contains('_320.mp4')) {
+      return currentUrl.replaceAll('_320.mp4', '_160.mp4');
+    } else if (currentUrl.contains('_320.mp3')) {
+      return currentUrl.replaceAll('_320.mp3', '_160.mp3');
+    } else if (currentUrl.contains('_160.mp4')) {
+      return currentUrl.replaceAll('_160.mp4', '_96.mp4');
+    } else if (currentUrl.contains('_160.mp3')) {
+      return currentUrl.replaceAll('_160.mp3', '_96.mp3');
+    }
+    return null;
   }
 }
 

@@ -5,13 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:just_audio/just_audio.dart';
 import '../../models/song.dart';
-import '../../domain/models/lyrics_state.dart';
 import '../../services/player_handler.dart';
 import '../../services/favorites_manager.dart';
 import '../widgets/queue_sheet.dart';
 import '../widgets/add_to_playlist_dialog.dart';
 import '../widgets/fluid_mesh_gradient.dart';
-import '../widgets/player/synced_lyrics_embed.dart';
 import '../widgets/player/player_download_button.dart';
 import '../widgets/player/player_equalizer_sheet.dart';
 import '../widgets/player/player_controls.dart';
@@ -33,8 +31,6 @@ class FullPlayerScreen extends StatefulWidget {
 
 class _FullPlayerScreenState extends State<FullPlayerScreen>
     with SingleTickerProviderStateMixin {
-  bool _showLyrics = false;
-
   // Double-tap heart/unheart animation overlay
   late final AnimationController _heartAnimController;
   late final Animation<double> _heartScaleAnimation;
@@ -321,70 +317,61 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                           children: [
-                            // Tab Switcher: Artwork / Lyrics
+                            // Cover & Fullscreen Lyrics Selector Pill
                             Container(
                               height: 36,
-                              width: 180,
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
                               decoration: BoxDecoration(
                                 color: const Color(0xFF131B2E),
                                 borderRadius: BorderRadius.circular(18),
                                 border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
                               ),
                               child: Row(
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Expanded(
-                                    child: GestureDetector(
-                                      onTap: () => setState(() => _showLyrics = false),
-                                      child: Container(
-                                        decoration: BoxDecoration(
-                                          color: !_showLyrics ? const Color(0xFF6366F1) : Colors.transparent,
-                                          borderRadius: BorderRadius.circular(18),
-                                        ),
-                                        child: Center(
-                                          child: Text(
-                                            'Cover',
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF6366F1),
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    child: const Text(
+                                      'Cover',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () => LyricsScreen.open(context, song: song),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: Colors.transparent,
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: const [
+                                          Text(
+                                            'Lyrics',
                                             style: TextStyle(
-                                              color: !_showLyrics ? Colors.white : const Color(0xFF94A3B8),
+                                              color: Color(0xFF94A3B8),
                                               fontSize: 12,
                                               fontWeight: FontWeight.bold,
                                             ),
                                           ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: GestureDetector(
-                                      onTap: () {
-                                        setState(() => _showLyrics = true);
-                                        LyricsScreen.open(context, song: song);
-                                      },
-                                      child: Container(
-                                        decoration: BoxDecoration(
-                                          color: _showLyrics ? const Color(0xFF6366F1) : Colors.transparent,
-                                          borderRadius: BorderRadius.circular(18),
-                                        ),
-                                        child: Center(
-                                          child: Row(
-                                            mainAxisAlignment: MainAxisAlignment.center,
-                                            children: [
-                                              Text(
-                                                'Lyrics',
-                                                style: TextStyle(
-                                                  color: _showLyrics ? Colors.white : const Color(0xFF94A3B8),
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 3),
-                                              Icon(
-                                                Icons.open_in_full_rounded,
-                                                size: 11,
-                                                color: _showLyrics ? Colors.white70 : const Color(0xFF94A3B8),
-                                              ),
-                                            ],
+                                          SizedBox(width: 4),
+                                          Icon(
+                                            Icons.open_in_full_rounded,
+                                            size: 11,
+                                            color: Color(0xFF94A3B8),
                                           ),
-                                        ),
+                                        ],
                                       ),
                                     ),
                                   ),
@@ -392,16 +379,14 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                               ),
                             ),
 
-                            // Middle Content: Album Artwork or Lyrics View
+                            // Middle Content: Album Artwork (Always visible on FullPlayerScreen)
                             RepaintBoundary(
                               child: SizedBox(
                                 height: MediaQuery.of(context).size.width * 0.82,
-                                child: _showLyrics
-                                    ? _buildLyricsView(song)
-                                    : PlayerGestureDetector(
-                                        onDoubleTap: () => _handleArtworkDoubleTap(song),
-                                        child: _buildArtworkView(song),
-                                      ),
+                                child: PlayerGestureDetector(
+                                  onDoubleTap: () => _handleArtworkDoubleTap(song),
+                                  child: _buildArtworkView(song),
+                                ),
                               ),
                             ),
 
@@ -649,121 +634,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     );
   }
 
-  Widget _buildLyricsView(Song song) {
-    return ValueListenableBuilder<LyricsState>(
-      valueListenable: audioHandler.lyricsStateNotifier,
-      builder: (context, state, _) {
-        return ValueListenableBuilder<String?>(
-          valueListenable: audioHandler.currentLyricsNotifier,
-          builder: (context, lyrics, _) {
-            if (state.status == LyricsStatus.loading && (lyrics == null || lyrics.trim().isEmpty)) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: const [
-                    CircularProgressIndicator(color: Color(0xFF818CF8)),
-                    SizedBox(height: 14),
-                    Text(
-                      'Finding synchronized lyrics...',
-                      style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13, fontWeight: FontWeight.w500),
-                    ),
-                  ],
-                ),
-              );
-            }
 
-            if (state.status == LyricsStatus.error && (lyrics == null || lyrics.trim().isEmpty)) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.05),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.cloud_off_rounded, size: 36, color: Color(0xFFEF4444)),
-                      ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        "Couldn't load lyrics",
-                        style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        state.error?.userMessage ?? 'Connection issue',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          OutlinedButton.icon(
-                            icon: const Icon(Icons.refresh_rounded, size: 14, color: Colors.white),
-                            label: const Text('Retry', style: TextStyle(color: Colors.white, fontSize: 12)),
-                            onPressed: () => audioHandler.reloadLyrics(),
-                          ),
-                          const SizedBox(width: 8),
-                          ElevatedButton.icon(
-                            icon: const Icon(Icons.open_in_full_rounded, size: 14, color: Colors.white),
-                            label: const Text('Search', style: TextStyle(color: Colors.white, fontSize: 12)),
-                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF6366F1)),
-                            onPressed: () => LyricsScreen.open(context, song: song),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }
-
-            if (lyrics == null || lyrics.trim().isEmpty) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.05),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.lyrics_rounded, size: 42, color: Color(0xFF64748B)),
-                    ),
-                    const SizedBox(height: 14),
-                    const Text(
-                      'No lyrics found for this track',
-                      style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14, fontWeight: FontWeight.w500),
-                    ),
-                    const SizedBox(height: 12),
-                    ElevatedButton.icon(
-                      icon: const Icon(Icons.open_in_full_rounded, size: 14, color: Colors.white),
-                      label: const Text('Search Lyrics (Fullscreen)', style: TextStyle(color: Colors.white, fontSize: 12)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF6366F1),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      ),
-                      onPressed: () => LyricsScreen.open(context, song: song),
-                    ),
-                  ],
-                ),
-              );
-            }
-
-            return SyncedLyricsEmbed(
-              lyrics: lyrics,
-              song: song,
-            );
-          },
-        );
-      },
-    );
-  }
 
   Widget _defaultCover() {
     return Container(

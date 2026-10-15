@@ -6,10 +6,37 @@ import '../../services/api_client.dart';
 import '../../services/history_manager.dart';
 import '../../services/supabase_service.dart';
 import '../../services/app_logger.dart';
+import '../../services/lyrics_client.dart';
+import '../../domain/models/lyrics_state.dart';
 
 /// Centralized repository for fetching, merging, and strictly deduplicating music feeds.
 class SongRepository {
   static final HtmlUnescape _unescape = HtmlUnescape();
+
+  /// Retrieves lyrics for a track directly on-device via LyricsClient with zero backend calls.
+  static Future<LyricsState> getLyrics({
+    required String trackId,
+    required String title,
+    required String artist,
+    int durationSeconds = 0,
+  }) {
+    return LyricsClient.instance.fetchLyrics(
+      trackId: trackId,
+      title: title,
+      artist: artist,
+      durationSeconds: durationSeconds,
+    );
+  }
+
+  /// Convenience method to retrieve lyrics for a [Song] model.
+  static Future<LyricsState> getLyricsForSong(Song song) {
+    return getLyrics(
+      trackId: song.id,
+      title: song.title,
+      artist: song.artist,
+      durationSeconds: song.duration,
+    );
+  }
 
   /// Normalizes a song title by stripping metadata tags, HTML entities, and punctuation.
   static String normalizeTitle(String rawTitle) {

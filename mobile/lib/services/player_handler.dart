@@ -25,6 +25,8 @@ import 'app_logger.dart';
 import 'party_sync_coordinator.dart';
 import 'saavn_client.dart';
 import 'sleep_timer_service.dart';
+import 'lyrics_client.dart';
+import '../data/repositories/song_repository.dart';
 
 PaatuAudioHandler? _audioHandlerInstance;
 
@@ -363,6 +365,14 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     _hasRecordedListen = false;
     lyricsOffsetMsNotifier.value = 0;
 
+    // Pre-fetch lyrics directly in background on-device (0ms latency for user)
+    unawaited(LyricsClient.instance.fetchLyrics(
+      trackId: song.id,
+      title: song.title,
+      artist: song.artist,
+      durationSeconds: song.duration,
+    ));
+
     // Load lyrics with distinct state tracking
     reloadLyrics(targetSong: song);
 
@@ -432,24 +442,47 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
 
     lyricsStateNotifier.value = const LyricsState.loading();
     try {
-      final lyrics = await ApiClient.fetchLyrics(song);
+      final state = await SongRepository.getLyricsForSong(song);
       if (currentSong?.id != song.id) return;
-      if (lyrics != null && lyrics.trim().isNotEmpty) {
-        final dual = _buildDualLyrics(lyrics);
+      lyricsStateNotifier.value = state;
+      if (state.status == LyricsStatus.loaded && state.lyrics != null) {
+        final dual = state.dualLyrics ?? _buildDualLyrics(state.lyrics!);
         dualLyricsNotifier.value = dual;
         final selected = dual.getLyricsForLanguage(lyricsLanguageNotifier.value);
         currentLyricsNotifier.value = selected;
-        lyricsStateNotifier.value = LyricsState.loaded(selected, dualLyrics: dual);
       } else {
         currentLyricsNotifier.value = null;
         dualLyricsNotifier.value = null;
-        lyricsStateNotifier.value = const LyricsState.notFound();
       }
     } catch (e, stack) {
       if (currentSong?.id != song.id) return;
       final appErr = ErrorHandler.resolve(e, stackTrace: stack, context: 'PaatuAudioHandler.reloadLyrics');
       lyricsStateNotifier.value = LyricsState.error(appErr);
     }
+  }
+
+  int? _lastReselectedDurationSec;
+
+  void _checkLyricsDurationReselection(Song song, int actualDurationSeconds) {
+    if (actualDurationSeconds <= 0) return;
+    if (_lastReselectedDurationSec == actualDurationSeconds) return;
+    _lastReselectedDurationSec = actualDurationSeconds;
+
+    unawaited(() async {
+      final newState = await LyricsClient.instance.reselectForActualDuration(
+        trackId: song.id,
+        actualDurationSeconds: actualDurationSeconds,
+      );
+      if (newState != null && currentSong?.id == song.id) {
+        lyricsStateNotifier.value = newState;
+        if (newState.lyrics != null) {
+          final dual = newState.dualLyrics ?? _buildDualLyrics(newState.lyrics!);
+          dualLyricsNotifier.value = dual;
+          final selected = dual.getLyricsForLanguage(lyricsLanguageNotifier.value);
+          currentLyricsNotifier.value = selected;
+        }
+      }
+    }());
   }
 
   void _broadcastState({bool downgradeNotification = false}) {
@@ -561,6 +594,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
             mediaItem.add(mediaItem.value!.copyWith(duration: dur));
           }
           _broadcastState();
+          if (currentSong != null) {
+            _checkLyricsDurationReselection(currentSong!, dur.inSeconds);
+          }
         }
       });
     } catch (_) {}

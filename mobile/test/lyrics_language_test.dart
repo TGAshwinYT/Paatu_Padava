@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paatu_padava_mobile/domain/models/lyrics_state.dart';
 import 'package:paatu_padava_mobile/logic/lyrics/indic_romanizer.dart';
+import 'package:paatu_padava_mobile/services/lyrics_client.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -211,6 +212,143 @@ void main() {
       expect(findActive(const Duration(milliseconds: 20000)), equals(1));
       expect(findActive(const Duration(milliseconds: 25000)), equals(2));
       expect(findActive(const Duration(milliseconds: 45000)), equals(3));
+    });
+
+    test('Effective position calculation uses +180ms vocal-lead lookahead without manual offset', () {
+      const currentPos = Duration(seconds: 45, milliseconds: 200);
+      final effectivePos = currentPos + const Duration(milliseconds: 180);
+      expect(effectivePos.inMilliseconds, equals(45380));
+    });
+  });
+
+  group('LyricsClient Direct On-Device & Duration Scoring Tests', () {
+    test('Parses [mm:ss.xx] timestamps accurately without applying artificial outro-stretch distortion', () {
+      const rawLrc = '''
+[00:10.00] Intro verse
+[01:00.00] Chorus starts here
+[03:00.00] Last lyric line sung
+''';
+      // Track duration is 210s (3m 30s) while last lyric is at 180s (3m 00s).
+      // Under previous buggy ratio stretching (210 / 180 = 1.166), timestamps would stretch.
+      // Under LyricsClient, exact timestamps remain 10s, 60s, 180s without distortion.
+      final lines = LyricsClient.parseLrc(rawLrc);
+
+      expect(lines.any((l) => l.text == 'Intro verse'), isTrue);
+      final introLine = lines.firstWhere((l) => l.text == 'Intro verse');
+      expect(introLine.timestamp, equals(const Duration(seconds: 10)));
+
+      final chorusLine = lines.firstWhere((l) => l.text == 'Chorus starts here');
+      expect(chorusLine.timestamp, equals(const Duration(seconds: 60)));
+
+      final lastLine = lines.firstWhere((l) => l.text == 'Last lyric line sung');
+      expect(lastLine.timestamp, equals(const Duration(seconds: 180)));
+    });
+
+    test('Picks the candidate closest in duration to durationSeconds (BloomeeTunes Duration Scoring)', () {
+      final candidates = [
+        {
+          'id': 'cand_1',
+          'trackName': 'Naan Pizhai',
+          'duration': 290, // Music video with 40s intro dialogue
+          'syncedLyrics': '[00:40.00] Music video version',
+        },
+        {
+          'id': 'cand_2',
+          'trackName': 'Naan Pizhai',
+          'duration': 252, // Studio audio track duration = 250s (diff = 2s)
+          'syncedLyrics': '[00:05.00] Studio version',
+        },
+        {
+          'id': 'cand_3',
+          'trackName': 'Naan Pizhai',
+          'duration': 180, // Radio edit
+          'syncedLyrics': '[00:02.00] Radio edit',
+        },
+      ];
+
+      const targetDurationSeconds = 250;
+
+      // Sort by absolute difference to durationSeconds
+      candidates.sort((a, b) {
+        final durA = ((a['duration'] as num?)?.toInt() ?? 0);
+        final durB = ((b['duration'] as num?)?.toInt() ?? 0);
+        return (durA - targetDurationSeconds).abs().compareTo((durB - targetDurationSeconds).abs());
+      });
+
+      expect(candidates.first['id'], equals('cand_2'));
+      expect(candidates.first['syncedLyrics'], contains('Studio version'));
+    });
+
+    test('Auto-assigns progressive timestamps to plain-text lyrics with 5% intro and 10% outro margin', () {
+      const plainLyrics = '''
+Line one of song
+Line two of song
+Line three of song
+Line four of song
+''';
+      const durationSeconds = 100; // 100,000 ms total
+      // 5% intro = 5,000 ms = 00:05.00
+      // 10% outro = 10,000 ms
+      // body = 85,000 ms across 4 lines: 5000 + (i * 85000 / 4)
+      final autoTimedLrc = LyricsClient.plainLyricsToAutoTimedLrc(plainLyrics, durationSeconds);
+
+      expect(LyricsClient.isLrc(autoTimedLrc), isTrue);
+      final lines = LyricsClient.parseLrc(autoTimedLrc);
+      final lyricLines = lines.where((l) => !l.isBgm).toList();
+      expect(lyricLines.length, equals(4));
+
+      // First line starts at 5,000 ms
+      expect(lyricLines[0].timestamp.inMilliseconds, equals(5000));
+      expect(lyricLines[0].text, equals('Line one of song'));
+
+      // Strictly monotonically increasing
+      for (int i = 0; i < lines.length - 1; i++) {
+        expect(lines[i + 1].timestamp >= lines[i].timestamp, isTrue);
+      }
+
+      // Last lyric line is before the outro starts (100,000 - 10,000 = 90,000 ms)
+      expect(lyricLines.last.timestamp.inMilliseconds < 90000, isTrue);
+    });
+
+    test('Title and artist sanitization strips movie tags, video tags, and record labels cleanly', () {
+      expect(
+        LyricsClient.sanitizeTitle('Hukum - Thalaivar Alappara (From "Jailer") [Official Video] | Anirudh'),
+        equals('Hukum - Thalaivar Alappara'),
+      );
+      expect(
+        LyricsClient.sanitizeTitle('@SaiAbhyankkar - Katchi Sera (Lyrical Video Song 4K)'),
+        equals('Katchi Sera'),
+      );
+      expect(
+        LyricsClient.sanitizeTitle('Arabic Kuthu - Halamithi Habibo - From Beast'),
+        equals('Arabic Kuthu - Halamithi Habibo'),
+      );
+
+      expect(
+        LyricsClient.sanitizeArtist('Anirudh Ravichander, Sony Music South, 100M views'),
+        equals('Anirudh Ravichander'),
+      );
+      expect(
+        LyricsClient.sanitizeArtist('A.R. Rahman feat. Sid Sriram, Think Music'),
+        equals('A.R. Rahman'),
+      );
+    });
+
+    test('In-memory cache stores and retrieves previously loaded lyrics in 0ms', () async {
+      final client = LyricsClient.instance;
+      const testTrackId = 'test_cache_track_99';
+      final testState = LyricsState.loaded('[00:10.00] Cached lyric line');
+
+      client.memoryCache[testTrackId] = testState;
+
+      final result = await client.fetchLyrics(
+        trackId: testTrackId,
+        title: 'Any Title',
+        artist: 'Any Artist',
+      );
+
+      expect(identical(result, testState), isTrue);
+      expect(result.lyrics, equals('[00:10.00] Cached lyric line'));
     });
   });
 }

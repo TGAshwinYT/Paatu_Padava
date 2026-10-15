@@ -5,8 +5,8 @@ import 'package:flutter/rendering.dart';
 import '../../../models/song.dart';
 import '../../../domain/models/lyrics_state.dart';
 import '../../../services/player_handler.dart';
+import '../../../services/lyrics_client.dart';
 import '../../screens/lyrics_screen.dart';
-import '../../../logic/lyrics/indic_romanizer.dart';
 
 class SyncedLyricsEmbed extends StatefulWidget {
   final String lyrics;
@@ -24,7 +24,7 @@ class SyncedLyricsEmbed extends StatefulWidget {
 
 class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
   final ScrollController _scrollController = ScrollController();
-  final List<_LrcLine> _lines = [];
+  final List<LyricLine> _lines = [];
   final List<GlobalKey> _lineKeys = [];
   StreamSubscription<Duration>? _posSub;
   StreamSubscription<bool>? _playingSub;
@@ -38,7 +38,6 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
     super.initState();
     _parseLyrics();
     _subscribePosition();
-    audioHandler.lyricsOffsetMsNotifier.addListener(_onOffsetChanged);
   }
 
   int _findActiveLineIndex(Duration effectivePosition) {
@@ -60,11 +59,12 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
     return idx;
   }
 
-  void _onOffsetChanged() {
-    if (mounted && _isLrc && _lines.isNotEmpty) {
-      final pos = audioHandler.player.position;
-      final manualOffsetMs = audioHandler.lyricsOffsetMsNotifier.value;
-      final effectivePosition = pos + Duration(milliseconds: manualOffsetMs);
+  @override
+  void didUpdateWidget(covariant SyncedLyricsEmbed oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.lyrics != widget.lyrics) {
+      _parseLyrics();
+      final effectivePosition = audioHandler.player.position + const Duration(milliseconds: 180);
       final idx = _findActiveLineIndex(effectivePosition);
       if (idx != _activeIndex) {
         setState(() => _activeIndex = idx);
@@ -74,18 +74,8 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
   }
 
   @override
-  void didUpdateWidget(covariant SyncedLyricsEmbed oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.lyrics != widget.lyrics) {
-      _parseLyrics();
-      _onOffsetChanged();
-    }
-  }
-
-  @override
   void dispose() {
     _playingSub?.cancel();
-    audioHandler.lyricsOffsetMsNotifier.removeListener(_onOffsetChanged);
     _posSub?.cancel();
     _userScrollResumeTimer?.cancel();
     _scrollController.dispose();
@@ -96,106 +86,14 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
     _lines.clear();
     _lineKeys.clear();
 
-    final timestampRegex = RegExp(r'\[(\d+):(\d+(?:\.\d+)?)\]');
-    final rawLines = widget.lyrics.split('\n');
-    _isLrc = rawLines.any((l) => timestampRegex.hasMatch(l.trim()));
-
-    if (!_isLrc) return;
-
-    // Parse standard LRC header offset (e.g. [offset:+500] or [offset:-200]) in milliseconds
-    final offsetRegex = RegExp(r'^\[offset:\s*([+-]?\d+)\s*\]', caseSensitive: false);
-    int headerOffsetMs = 0;
-    for (final line in rawLines) {
-      final m = offsetRegex.firstMatch(line.trim());
-      if (m != null) {
-        headerOffsetMs = int.tryParse(m.group(1)!) ?? 0;
-        break;
-      }
+    String effectiveLyrics = widget.lyrics;
+    if (!LyricsClient.isLrc(effectiveLyrics)) {
+      effectiveLyrics = LyricsClient.plainLyricsToAutoTimedLrc(effectiveLyrics, widget.song.duration);
     }
 
-    final List<_LrcLine> parsed = [];
-    for (final line in rawLines) {
-      final matches = timestampRegex.allMatches(line);
-      if (matches.isNotEmpty) {
-        final text = Song.sanitize(line.replaceAll(timestampRegex, '').trim());
-        if (text.isEmpty) continue;
-        final romanized = IndicRomanizer.hasIndicScript(text) ? IndicRomanizer.romanize(text) : null;
-
-        for (final m in matches) {
-          final min = int.tryParse(m.group(1)!) ?? 0;
-          final sec = double.tryParse(m.group(2)!) ?? 0.0;
-          final rawMs = ((min * 60 + sec) * 1000).toInt();
-          final effectiveMs = math.max(0, rawMs + headerOffsetMs);
-          parsed.add(_LrcLine(
-            timestamp: Duration(milliseconds: effectiveMs),
-            text: text,
-            romanizedText: romanized,
-            isBgm: false,
-          ));
-        }
-      }
-    }
-
-    parsed.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-
-    // Skew Normalization
-    if (parsed.isNotEmpty) {
-      final int audioDurationMs = audioHandler.player.duration?.inMilliseconds ??
-          (widget.song.duration > 0 ? widget.song.duration * 1000 : 0);
-      final int lastLyricMs = parsed.last.timestamp.inMilliseconds;
-      final double ratio = (audioDurationMs > 0 && lastLyricMs > 0) ? (audioDurationMs / lastLyricMs) : 1.0;
-
-      if (ratio >= 0.94 && ratio <= 1.06 && ratio != 1.0) {
-        for (int i = 0; i < parsed.length; i++) {
-          final p = parsed[i];
-          final scaledMs = (p.timestamp.inMilliseconds * ratio).round();
-          Duration? scaledEnd;
-          if (p.endTimestamp != null) {
-            scaledEnd = Duration(milliseconds: (p.endTimestamp!.inMilliseconds * ratio).round());
-          }
-          parsed[i] = _LrcLine(
-            timestamp: Duration(milliseconds: scaledMs),
-            endTimestamp: scaledEnd,
-            text: p.text,
-            romanizedText: p.romanizedText,
-            isBgm: p.isBgm,
-          );
-        }
-      }
-    }
-
-    // Detect BGM / Instrumental pauses > 6 seconds
-    if (parsed.isNotEmpty) {
-      if (parsed.first.timestamp > const Duration(seconds: 6)) {
-        _lines.add(_LrcLine(
-          timestamp: Duration.zero,
-          endTimestamp: parsed.first.timestamp,
-          text: '• • • ♪',
-          isBgm: true,
-        ));
-      }
-
-      for (int i = 0; i < parsed.length; i++) {
-        _lines.add(parsed[i]);
-
-        if (i < parsed.length - 1) {
-          final current = parsed[i];
-          final next = parsed[i + 1];
-          final gap = next.timestamp - current.timestamp;
-
-          if (gap > const Duration(seconds: 6)) {
-            final vocalMs = math.min(2500, (gap.inMilliseconds ~/ 3));
-            final bgmStart = current.timestamp + Duration(milliseconds: vocalMs);
-            _lines.add(_LrcLine(
-              timestamp: bgmStart,
-              endTimestamp: next.timestamp,
-              text: '• • • ♪',
-              isBgm: true,
-            ));
-          }
-        }
-      }
-    }
+    final parsed = LyricsClient.parseLrc(effectiveLyrics);
+    _lines.addAll(parsed);
+    _isLrc = _lines.isNotEmpty;
 
     for (int i = 0; i < _lines.length; i++) {
       _lineKeys.add(GlobalKey());
@@ -207,8 +105,7 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
     _posSub = audioHandler.lyricsPositionStream.listen((pos) {
       if (!mounted || !_isLrc || _lines.isEmpty) return;
 
-      final manualOffsetMs = audioHandler.lyricsOffsetMsNotifier.value;
-      final effectivePosition = pos + Duration(milliseconds: manualOffsetMs);
+      final effectivePosition = pos + const Duration(milliseconds: 180);
       final idx = _findActiveLineIndex(effectivePosition);
 
       if (idx != _activeIndex) {
@@ -466,9 +363,7 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onTap: () {
-                      final manualOffsetMs = audioHandler.lyricsOffsetMsNotifier.value;
-                      final targetSeek = line.timestamp - Duration(milliseconds: manualOffsetMs);
-                      audioHandler.seek(targetSeek < Duration.zero ? Duration.zero : targetSeek);
+                      audioHandler.seek(line.timestamp);
                       _isUserScrolling = false;
                       _scrollToActive(idx);
                     },
@@ -635,20 +530,4 @@ class _BgmPulseIndicatorState extends State<_BgmPulseIndicator>
       ),
     );
   }
-}
-
-class _LrcLine {
-  final Duration timestamp;
-  final Duration? endTimestamp;
-  final String text;
-  final String? romanizedText;
-  final bool isBgm;
-
-  _LrcLine({
-    required this.timestamp,
-    this.endTimestamp,
-    required this.text,
-    this.romanizedText,
-    this.isBgm = false,
-  });
 }

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
@@ -7,30 +6,13 @@ import '../../models/song.dart';
 import '../../services/player_handler.dart';
 import '../../services/settings_manager.dart';
 import '../../domain/models/lyrics_state.dart';
-import '../widgets/lyrics_offset_pill.dart';
+import '../../services/lyrics_client.dart';
 import '../widgets/lyrics/bgm_pulse_indicator.dart';
 import '../widgets/lyrics/lyrics_playback_bar.dart';
 import '../widgets/lyrics/wrong_lyrics_sheet.dart';
 import '../widgets/lyrics/lyrics_top_bar.dart';
 import '../widgets/lyrics/lyrics_empty_states.dart';
 import '../widgets/fluid_mesh_gradient.dart';
-import '../../logic/lyrics/indic_romanizer.dart';
-
-class _LrcLine {
-  final Duration timestamp;
-  final Duration? endTimestamp;
-  final String text;
-  final String? romanizedText;
-  final bool isBgm;
-
-  const _LrcLine({
-    required this.timestamp,
-    this.endTimestamp,
-    required this.text,
-    this.romanizedText,
-    this.isBgm = false,
-  });
-}
 
 /// Full-screen BloomeeTunes-style synchronized lyrics page with real-time
 /// floating offset synchronization pill and glassmorphic bottom controls.
@@ -60,7 +42,7 @@ class LyricsScreen extends StatefulWidget {
 
 class _LyricsScreenState extends State<LyricsScreen> {
   final ScrollController _scrollController = ScrollController();
-  final List<_LrcLine> _lines = [];
+  final List<LyricLine> _lines = [];
   final List<GlobalKey> _lineKeys = [];
 
   StreamSubscription<Duration>? _posSub;
@@ -69,23 +51,17 @@ class _LyricsScreenState extends State<LyricsScreen> {
   int _activeIndex = -1;
   bool _isUserScrolling = false;
   bool _isLrc = false;
-  bool _showOffsetPill = true;
   bool _isFullscreen = false;
-  int _manualOffsetMs = 0;
   StreamSubscription<bool>? _playingSub;
 
   @override
   void initState() {
     super.initState();
-    _manualOffsetMs = audioHandler.lyricsOffsetMsNotifier.value;
     _parseLyrics(audioHandler.currentLyricsNotifier.value);
 
     // Listen to reactive lyrics updates
     audioHandler.currentLyricsNotifier.addListener(_onLyricsChanged);
     audioHandler.lyricsStateNotifier.addListener(_onLyricsChanged);
-
-    // Listen to manual offset changes from other components
-    audioHandler.lyricsOffsetMsNotifier.addListener(_onOffsetNotifierChanged);
 
     // Subscribe to position stream with effective offset calculation
     _subscribePosition();
@@ -99,7 +75,6 @@ class _LyricsScreenState extends State<LyricsScreen> {
     _scrollController.dispose();
     audioHandler.currentLyricsNotifier.removeListener(_onLyricsChanged);
     audioHandler.lyricsStateNotifier.removeListener(_onLyricsChanged);
-    audioHandler.lyricsOffsetMsNotifier.removeListener(_onOffsetNotifierChanged);
     super.dispose();
   }
 
@@ -108,16 +83,6 @@ class _LyricsScreenState extends State<LyricsScreen> {
       setState(() {
         _parseLyrics(audioHandler.currentLyricsNotifier.value);
       });
-    }
-  }
-
-  void _onOffsetNotifierChanged() {
-    final newOffset = audioHandler.lyricsOffsetMsNotifier.value;
-    if (newOffset != _manualOffsetMs && mounted) {
-      setState(() {
-        _manualOffsetMs = newOffset;
-      });
-      _updateActiveIndexForPosition(audioHandler.player.position);
     }
   }
 
@@ -130,109 +95,16 @@ class _LyricsScreenState extends State<LyricsScreen> {
       return;
     }
 
-    final timestampRegex = RegExp(r'\[(\d+):(\d+(?:\.\d+)?)\]');
-    final rawLines = rawLyrics.split('\n');
-    _isLrc = rawLines.any((l) => timestampRegex.hasMatch(l.trim()));
-
-    if (!_isLrc) return;
-
-    // Parse standard LRC header offset (e.g. [offset:+500] or [offset:-200]) in milliseconds
-    final offsetRegex = RegExp(r'^\[offset:\s*([+-]?\d+)\s*\]', caseSensitive: false);
-    int headerOffsetMs = 0;
-    for (final line in rawLines) {
-      final m = offsetRegex.firstMatch(line.trim());
-      if (m != null) {
-        headerOffsetMs = int.tryParse(m.group(1)!) ?? 0;
-        break;
-      }
-    }
-
-    final List<_LrcLine> parsed = [];
-
-    for (final line in rawLines) {
-      final matches = timestampRegex.allMatches(line);
-      if (matches.isNotEmpty) {
-        final text = Song.sanitize(line.replaceAll(timestampRegex, '').trim());
-        if (text.isEmpty) continue;
-        final romanized = IndicRomanizer.hasIndicScript(text) ? IndicRomanizer.romanize(text) : null;
-
-        for (final m in matches) {
-          final min = int.tryParse(m.group(1)!) ?? 0;
-          final sec = double.tryParse(m.group(2)!) ?? 0.0;
-          final rawMs = ((min * 60 + sec) * 1000).toInt();
-          final effectiveMs = math.max(0, rawMs + headerOffsetMs);
-          parsed.add(_LrcLine(
-            timestamp: Duration(milliseconds: effectiveMs),
-            text: text,
-            romanizedText: romanized,
-            isBgm: false,
-          ));
-        }
-      }
-    }
-
-    parsed.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-
-    // Skew Normalization
-    if (parsed.isNotEmpty) {
+    String effectiveLyrics = rawLyrics;
+    if (!LyricsClient.isLrc(effectiveLyrics)) {
       final curSong = widget.initialSong ?? audioHandler.currentSong;
-      final int audioDurationMs = audioHandler.player.duration?.inMilliseconds ??
-          ((curSong?.duration != null && curSong!.duration > 0) ? curSong.duration * 1000 : 0);
-      final int lastLyricMs = parsed.last.timestamp.inMilliseconds;
-      final double ratio = (audioDurationMs > 0 && lastLyricMs > 0) ? (audioDurationMs / lastLyricMs) : 1.0;
-
-      if (ratio >= 0.94 && ratio <= 1.06 && ratio != 1.0) {
-        for (int i = 0; i < parsed.length; i++) {
-          final p = parsed[i];
-          final scaledMs = (p.timestamp.inMilliseconds * ratio).round();
-          Duration? scaledEnd;
-          if (p.endTimestamp != null) {
-            scaledEnd = Duration(milliseconds: (p.endTimestamp!.inMilliseconds * ratio).round());
-          }
-          parsed[i] = _LrcLine(
-            timestamp: Duration(milliseconds: scaledMs),
-            endTimestamp: scaledEnd,
-            text: p.text,
-            romanizedText: p.romanizedText,
-            isBgm: p.isBgm,
-          );
-        }
-      }
+      final durSec = audioHandler.player.duration?.inSeconds ?? (curSong?.duration ?? 180);
+      effectiveLyrics = LyricsClient.plainLyricsToAutoTimedLrc(effectiveLyrics, durSec);
     }
 
-    // Bloomee BGM / Instrumental pauses (>6s gaps)
-    if (parsed.isNotEmpty) {
-      // Intro instrumental pause > 6s
-      if (parsed.first.timestamp > const Duration(seconds: 6)) {
-        _lines.add(_LrcLine(
-          timestamp: Duration.zero,
-          endTimestamp: parsed.first.timestamp,
-          text: '• • • ♪',
-          isBgm: true,
-        ));
-      }
-
-      for (int i = 0; i < parsed.length; i++) {
-        _lines.add(parsed[i]);
-
-        if (i < parsed.length - 1) {
-          final current = parsed[i];
-          final next = parsed[i + 1];
-          final gap = next.timestamp - current.timestamp;
-
-          if (gap > const Duration(seconds: 6)) {
-            final vocalMs = math.min(2500, (gap.inMilliseconds ~/ 3));
-            final bgmStart = current.timestamp + Duration(milliseconds: vocalMs);
-            _lines.add(_LrcLine(
-              timestamp: bgmStart,
-              endTimestamp: next.timestamp,
-              text: '• • • ♪',
-              isBgm: true,
-            ));
-          }
-        }
-      }
-    }
+    final parsed = LyricsClient.parseLrc(effectiveLyrics);
+    _lines.addAll(parsed);
+    _isLrc = _lines.isNotEmpty;
 
     for (int i = 0; i < _lines.length; i++) {
       _lineKeys.add(GlobalKey());
@@ -286,11 +158,11 @@ class _LyricsScreenState extends State<LyricsScreen> {
   }
 
   /// Calculates the active lyric index using binary search:
-  /// effectivePosition = currentPosition + Duration(milliseconds: manualOffsetMs)
+  /// exact LRC timestamp + 180ms vocal-lead lookahead to eliminate lag.
   void _updateActiveIndexForPosition(Duration currentPosition) {
     if (!_isLrc || _lines.isEmpty) return;
 
-    final effectivePosition = currentPosition + Duration(milliseconds: _manualOffsetMs);
+    final effectivePosition = currentPosition + const Duration(milliseconds: 180);
     final idx = _findActiveLineIndex(effectivePosition);
 
     if (idx != _activeIndex) {
@@ -311,7 +183,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
         Scrollable.ensureVisible(
           keyContext,
           alignment: 0.45, // Centers active line smoothly at 45% eye-level
-          duration: const Duration(milliseconds: 500),
+          duration: const Duration(milliseconds: 350),
           curve: Curves.easeOutCubic,
         );
       }
@@ -333,11 +205,10 @@ class _LyricsScreenState extends State<LyricsScreen> {
     });
   }
 
-  /// Seeking on line tap applies: target = line.timestamp - Duration(milliseconds: manualOffsetMs)
-  void _seekToLine(_LrcLine line, int idx) {
+  /// Seeking on line tap applies exact line timestamp
+  void _seekToLine(LyricLine line, int idx) {
     HapticFeedback.lightImpact();
-    final targetSeek = line.timestamp - Duration(milliseconds: _manualOffsetMs);
-    final clampedSeek = targetSeek < Duration.zero ? Duration.zero : targetSeek;
+    final clampedSeek = line.timestamp < Duration.zero ? Duration.zero : line.timestamp;
 
     audioHandler.seek(clampedSeek);
     _isUserScrolling = false;
@@ -384,54 +255,10 @@ class _LyricsScreenState extends State<LyricsScreen> {
                     child: LyricsTopBar(
                       song: currentSong,
                       isLrc: _isLrc,
-                      showOffsetPill: _showOffsetPill,
-                      manualOffsetMs: _manualOffsetMs,
                       isFullscreen: _isFullscreen,
-                      onToggleOffsetPill: () => setState(() => _showOffsetPill = !_showOffsetPill),
                       onOpenWrongLyricsPicker: () => WrongLyricsSheet.show(context, currentSong),
                       onToggleFullscreen: () => setState(() => _isFullscreen = !_isFullscreen),
                       onCollapse: () => Navigator.of(context).pop(),
-                    ),
-                  ),
-
-                // 4. Floating LyricsOffsetPill Stacked Above Bottom Playback Controls
-                if (_isLrc && !_isFullscreen)
-                  Positioned(
-                    bottom: 125,
-                    left: 0,
-                    right: 0,
-                    child: AnimatedSlide(
-                      duration: const Duration(milliseconds: 260),
-                      curve: Curves.easeOutCubic,
-                      offset: _showOffsetPill ? Offset.zero : const Offset(0, 1.4),
-                      child: AnimatedOpacity(
-                        duration: const Duration(milliseconds: 220),
-                        opacity: _showOffsetPill ? 1.0 : 0.0,
-                        child: Center(
-                          child: LyricsOffsetPill(
-                            offsetMs: _manualOffsetMs,
-                            onOffsetChanged: (newMs) {
-                              setState(() {
-                                _manualOffsetMs = newMs;
-                              });
-                              audioHandler.lyricsOffsetMsNotifier.value = newMs;
-                              _updateActiveIndexForPosition(audioHandler.player.position);
-                            },
-                            onClose: () {
-                              setState(() {
-                                _showOffsetPill = false;
-                              });
-                            },
-                            onReset: () {
-                              setState(() {
-                                _manualOffsetMs = 0;
-                              });
-                              audioHandler.lyricsOffsetMsNotifier.value = 0;
-                              _updateActiveIndexForPosition(audioHandler.player.position);
-                            },
-                          ),
-                        ),
-                      ),
                     ),
                   ),
 

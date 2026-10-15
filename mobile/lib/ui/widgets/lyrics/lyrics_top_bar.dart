@@ -7,10 +7,7 @@ import '../../../services/player_handler.dart';
 class LyricsTopBar extends StatelessWidget {
   final Song? song;
   final bool isLrc;
-  final bool showOffsetPill;
-  final int manualOffsetMs;
   final bool isFullscreen;
-  final VoidCallback onToggleOffsetPill;
   final VoidCallback onOpenWrongLyricsPicker;
   final VoidCallback onToggleFullscreen;
   final VoidCallback onCollapse;
@@ -19,10 +16,7 @@ class LyricsTopBar extends StatelessWidget {
     super.key,
     required this.song,
     required this.isLrc,
-    required this.showOffsetPill,
-    required this.manualOffsetMs,
     required this.isFullscreen,
-    required this.onToggleOffsetPill,
     required this.onOpenWrongLyricsPicker,
     required this.onToggleFullscreen,
     required this.onCollapse,
@@ -31,7 +25,6 @@ class LyricsTopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
-    final isOffsetActive = manualOffsetMs != 0;
 
     return ClipRect(
       child: BackdropFilter(
@@ -163,53 +156,6 @@ class LyricsTopBar extends StatelessWidget {
                   );
                 },
               ),
-
-              // Button to reopen or toggle the Floating LyricsOffsetPill (ONLY for synced LRC)
-              if (isLrc) ...[
-                Tooltip(
-                  message: showOffsetPill ? 'Hide Offset Pill' : 'Show Sync Offset Pill',
-                  child: InkWell(
-                    onTap: onToggleOffsetPill,
-                    borderRadius: BorderRadius.circular(20),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: isOffsetActive
-                            ? const Color(0xFF9333EA).withValues(alpha: 0.25)
-                            : (showOffsetPill ? Colors.white.withValues(alpha: 0.12) : Colors.transparent),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: isOffsetActive
-                              ? const Color(0xFF9333EA).withValues(alpha: 0.5)
-                              : Colors.white.withValues(alpha: 0.12),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.tune_rounded,
-                            size: 16,
-                            color: isOffsetActive ? const Color(0xFF06B6D4) : Colors.white70,
-                          ),
-                          if (isOffsetActive) ...[
-                            const SizedBox(width: 4),
-                            Text(
-                              manualOffsetMs > 0 ? '+${manualOffsetMs}ms' : '${manualOffsetMs}ms',
-                              style: const TextStyle(
-                                color: Color(0xFF06B6D4),
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 4),
-              ],
 
               // Wrong Lyrics Picker / Manual Search
               IconButton(

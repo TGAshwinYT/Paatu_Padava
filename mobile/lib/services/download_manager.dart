@@ -258,9 +258,16 @@ class DownloadManager {
 
       int expectedTotalBytes = -1;
 
+      // googlevideo.com refuses downloads whose User-Agent doesn't match the
+      // client that issued the URL.
+      final ytDownloadHeaders = YouTubeClient.isYouTubeStreamUrl(audioUrl)
+          ? (Map<String, String>.from(YouTubeClient.headersForUrl(audioUrl))..remove('Range'))
+          : null;
+
       await _dio.download(
         audioUrl,
         tempFilePath,
+        options: ytDownloadHeaders != null ? Options(headers: ytDownloadHeaders) : null,
         cancelToken: cancelToken,
         onReceiveProgress: (received, total) {
           if (total > 0) expectedTotalBytes = total;

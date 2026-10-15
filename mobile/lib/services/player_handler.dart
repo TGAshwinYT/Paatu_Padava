@@ -671,11 +671,8 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     if (url != null && url.isNotEmpty) {
       song.streamUrl = url;
       final headers = <String, String>{};
-      if (track.source == 'youtube' || url.contains('googlevideo.com')) {
-        headers['User-Agent'] = YouTubeClient.vrUserAgent;
-        headers['Range'] = 'bytes=0-';
-        headers['Accept'] = '*/*';
-        headers['Connection'] = 'keep-alive';
+      if (YouTubeClient.isYouTubeStreamUrl(url)) {
+        headers.addAll(YouTubeClient.headersForUrl(url));
       }
       try {
         final source = AudioSource.uri(
@@ -1192,11 +1189,8 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   Future<void> playFromUri(Uri uri, [Map<String, dynamic>? extras]) async {
     final headers = <String, String>{};
     final urlStr = uri.toString();
-    if (extras?['source'] == 'youtube' || urlStr.contains('googlevideo.com')) {
-      headers['User-Agent'] = YouTubeClient.vrUserAgent;
-      headers['Range'] = 'bytes=0-';
-      headers['Accept'] = '*/*';
-      headers['Connection'] = 'keep-alive';
+    if (YouTubeClient.isYouTubeStreamUrl(urlStr)) {
+      headers.addAll(YouTubeClient.headersForUrl(urlStr));
     }
     try {
       final source = AudioSource.uri(uri, headers: headers.isNotEmpty ? headers : null);

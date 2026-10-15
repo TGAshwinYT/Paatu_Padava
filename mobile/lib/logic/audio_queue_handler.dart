@@ -1761,12 +1761,11 @@ class AudioQueueHandler {
     }
     song.streamUrl = streamUrl;
 
+    // Only YouTube CDN URLs need special headers, and they must carry the
+    // User-Agent of the client that issued the URL (a mismatch = HTTP 403).
     final headers = <String, String>{};
-    if (song.source == 'youtube' || streamUrl.contains('googlevideo.com') || song.id.length == 11) {
-      headers['User-Agent'] = 'com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12; en_US; Quest 2; Build/SQ3A.220605.009.A1) gzip';
-      headers['Range'] = 'bytes=0-';
-      headers['Accept'] = '*/*';
-      headers['Connection'] = 'keep-alive';
+    if (YouTubeClient.isYouTubeStreamUrl(streamUrl)) {
+      headers.addAll(YouTubeClient.headersForUrl(streamUrl));
     }
 
     try {

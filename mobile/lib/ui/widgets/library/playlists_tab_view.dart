@@ -6,6 +6,7 @@ import '../../../services/playlist_manager.dart';
 import '../../../services/favorites_manager.dart';
 import '../../../services/player_handler.dart';
 import '../join_playlist_dialog.dart';
+import 'create_blend_sheet.dart';
 import '../../screens/playlist_screen.dart';
 import '../../screens/liked_songs_screen.dart';
 
@@ -30,6 +31,19 @@ class PlaylistsTabView extends StatelessWidget {
     );
   }
 
+  Widget _buildBlendIcon() {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFF6366F1), Color(0xFFEC4899)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 24),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<List<UserPlaylist>>(
@@ -37,10 +51,10 @@ class PlaylistsTabView extends StatelessWidget {
       builder: (context, playlists, _) {
         return CustomScrollView(
           slivers: [
-            // Create Playlist & Join Shared Buttons
+            // Create Playlist, Join Shared & Blend Buttons
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
                 child: Row(
                   children: [
                     Expanded(
@@ -48,7 +62,7 @@ class PlaylistsTabView extends StatelessWidget {
                         onTap: onCreatePlaylist,
                         borderRadius: BorderRadius.circular(16),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
                               colors: [
@@ -62,17 +76,20 @@ class PlaylistsTabView extends StatelessWidget {
                             border: Border.all(color: const Color(0xFF1DB954).withValues(alpha: 0.35)),
                           ),
                           child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               const CircleAvatar(
-                                radius: 16,
+                                radius: 13,
                                 backgroundColor: Color(0xFF1DB954),
-                                child: Icon(Icons.add_rounded, color: Colors.black, size: 20),
+                                child: Icon(Icons.add_rounded, color: Colors.black, size: 16),
                               ),
-                              const SizedBox(width: 10),
-                              Expanded(
+                              const SizedBox(width: 6),
+                              Flexible(
                                 child: Text(
-                                  'Create Playlist',
-                                  style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                  'Create',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
                                 ),
                               ),
                             ],
@@ -80,13 +97,13 @@ class PlaylistsTabView extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: InkWell(
                         onTap: () => JoinPlaylistDialog.show(context),
                         borderRadius: BorderRadius.circular(16),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
                               colors: [
@@ -100,17 +117,61 @@ class PlaylistsTabView extends StatelessWidget {
                             border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.35)),
                           ),
                           child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               const CircleAvatar(
-                                radius: 16,
+                                radius: 13,
                                 backgroundColor: Color(0xFF6366F1),
-                                child: Icon(Icons.group_add_rounded, color: Colors.white, size: 18),
+                                child: Icon(Icons.group_add_rounded, color: Colors.white, size: 15),
                               ),
-                              const SizedBox(width: 10),
-                              Expanded(
+                              const SizedBox(width: 6),
+                              Flexible(
                                 child: Text(
-                                  'Join Shared',
-                                  style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                  'Join',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => CreateBlendSheet.show(context),
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                const Color(0xFFEC4899).withValues(alpha: 0.18),
+                                const Color(0xFF131B2E),
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFFEC4899).withValues(alpha: 0.35)),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const CircleAvatar(
+                                radius: 13,
+                                backgroundColor: Color(0xFFEC4899),
+                                child: Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 14),
+                              ),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  'Blend',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
                                 ),
                               ),
                             ],
@@ -221,13 +282,15 @@ class PlaylistsTabView extends StatelessWidget {
                         child: SizedBox(
                           width: 52,
                           height: 52,
-                          child: playlist.coverUrl.isNotEmpty
-                              ? CachedNetworkImage(
-                                  imageUrl: playlist.coverUrl,
-                                  fit: BoxFit.cover,
-                                  errorWidget: (_, __, ___) => _buildPlaylistIcon(),
-                                )
-                              : _buildPlaylistIcon(),
+                          child: playlist.isBlend
+                              ? _buildBlendIcon()
+                              : (playlist.coverUrl.isNotEmpty
+                                  ? CachedNetworkImage(
+                                      imageUrl: playlist.coverUrl,
+                                      fit: BoxFit.cover,
+                                      errorWidget: (_, __, ___) => _buildPlaylistIcon(),
+                                    )
+                                  : _buildPlaylistIcon()),
                         ),
                       ),
                       title: Text(
@@ -238,7 +301,14 @@ class PlaylistsTabView extends StatelessWidget {
                       ),
                       subtitle: Row(
                         children: [
-                          if (playlist.isCollaborative) ...[
+                          if (playlist.isBlend) ...[
+                            const Icon(Icons.auto_awesome_rounded, color: Color(0xFFEC4899), size: 14),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Blend • ${playlist.tasteMatchScore ?? 86}% Match • ',
+                              style: GoogleFonts.outfit(color: const Color(0xFFEC4899), fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                          ] else if (playlist.isCollaborative) ...[
                             const Icon(Icons.group_rounded, color: Color(0xFF34D399), size: 14),
                             const SizedBox(width: 4),
                             Text(

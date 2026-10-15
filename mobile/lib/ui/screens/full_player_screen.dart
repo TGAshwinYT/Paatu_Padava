@@ -22,6 +22,8 @@ import '../widgets/artist_picker_sheet.dart';
 import '../../services/sleep_timer_service.dart';
 import '../widgets/player/sleep_timer_sheet.dart';
 import '../widgets/player/music_video_player_view.dart';
+import '../../services/device_connect_coordinator.dart';
+import '../widgets/player/device_connect_sheet.dart';
 
 class FullPlayerScreen extends StatefulWidget {
   const FullPlayerScreen({Key? key}) : super(key: key);
@@ -251,6 +253,21 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                           ),
                           Row(
                             children: [
+                              ValueListenableBuilder<ConnectedDevice>(
+                                valueListenable: DeviceConnectCoordinator.instance.currentDeviceNotifier,
+                                builder: (context, device, _) {
+                                  final isCasting = !device.isLocal;
+                                  return IconButton(
+                                    icon: Icon(
+                                      isCasting ? Icons.cast_connected_rounded : Icons.cast_rounded,
+                                      color: isCasting ? const Color(0xFF10B981) : Colors.white,
+                                      size: 24,
+                                    ),
+                                    tooltip: isCasting ? 'Streaming on ${device.name}' : 'Connect to a Device',
+                                    onPressed: () => DeviceConnectSheet.show(context),
+                                  );
+                                },
+                              ),
                               IconButton(
                                 icon: const Icon(Icons.tune_rounded, color: Colors.white, size: 24),
                                 tooltip: 'Equalizer',
@@ -577,6 +594,41 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 
                             // Seek Bar & Timers (isolated scrubber with internal isDragging gate)
                             PlayerScrubber(song: song),
+
+                            // Active Remote Casting Indicator Banner
+                            ValueListenableBuilder<ConnectedDevice>(
+                              valueListenable: DeviceConnectCoordinator.instance.currentDeviceNotifier,
+                              builder: (context, device, _) {
+                                if (device.isLocal) return const SizedBox.shrink();
+                                return GestureDetector(
+                                  onTap: () => DeviceConnectSheet.show(context),
+                                  child: Container(
+                                    margin: const EdgeInsets.symmetric(vertical: 4),
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.35)),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.speaker_rounded, size: 14, color: Color(0xFF10B981)),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          'Listening on ${device.name}',
+                                          style: const TextStyle(
+                                            color: Color(0xFF10B981),
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
 
                             // Main Controls: Smart Shuffle, Prev, Play/Pause, Next, Repeat
                             const RepaintBoundary(

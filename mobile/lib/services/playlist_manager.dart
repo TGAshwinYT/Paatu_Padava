@@ -1,9 +1,11 @@
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../models/song.dart';
 import 'supabase_service.dart';
 import 'sync_manager.dart';
+import 'collaborative_playlist_service.dart';
 
 class UserPlaylist {
   String id;
@@ -13,6 +15,9 @@ class UserPlaylist {
   bool isCollaborative;
   String? inviteCode;
   String? ownerId;
+  bool isBlend;
+  String? blendPartnerName;
+  int? tasteMatchScore;
 
   UserPlaylist({
     required this.id,
@@ -22,6 +27,9 @@ class UserPlaylist {
     this.isCollaborative = false,
     this.inviteCode,
     this.ownerId,
+    this.isBlend = false,
+    this.blendPartnerName,
+    this.tasteMatchScore,
   });
 
   Map<String, dynamic> toMap() => {
@@ -32,6 +40,9 @@ class UserPlaylist {
     'is_collaborative': isCollaborative,
     'invite_code': inviteCode,
     'owner_id': ownerId,
+    'is_blend': isBlend,
+    'blend_partner_name': blendPartnerName,
+    'taste_match_score': tasteMatchScore,
   };
 
   factory UserPlaylist.fromMap(Map<dynamic, dynamic> map) {
@@ -44,6 +55,9 @@ class UserPlaylist {
       isCollaborative: map['is_collaborative'] == true,
       inviteCode: map['invite_code']?.toString(),
       ownerId: map['owner_id']?.toString(),
+      isBlend: map['is_blend'] == true,
+      blendPartnerName: map['blend_partner_name']?.toString(),
+      tasteMatchScore: (map['taste_match_score'] as num?)?.toInt(),
     );
   }
 
@@ -55,6 +69,9 @@ class UserPlaylist {
     bool? isCollaborative,
     String? inviteCode,
     String? ownerId,
+    bool? isBlend,
+    String? blendPartnerName,
+    int? tasteMatchScore,
   }) {
     return UserPlaylist(
       id: id ?? this.id,
@@ -64,6 +81,9 @@ class UserPlaylist {
       isCollaborative: isCollaborative ?? this.isCollaborative,
       inviteCode: inviteCode ?? this.inviteCode,
       ownerId: ownerId ?? this.ownerId,
+      isBlend: isBlend ?? this.isBlend,
+      blendPartnerName: blendPartnerName ?? this.blendPartnerName,
+      tasteMatchScore: tasteMatchScore ?? this.tasteMatchScore,
     );
   }
 
@@ -149,5 +169,60 @@ class PlaylistManager {
   /// Renames a playlist in local storage and Supabase cloud
   static Future<void> renamePlaylist(String playlistId, String newTitle) async {
     await SyncManager.renamePlaylist(playlistId, newTitle);
+  }
+
+  /// Creates a Spotify-style Blend playlist merging user tracks with a partner's tracks.
+  /// Automatically interleaves tracks, tags 'addedBy', calculates taste match %,
+  /// and enables collaboration mode.
+  static Future<UserPlaylist> createBlendPlaylist({
+    required String partnerName,
+    required List<Song> userTracks,
+    required List<Song> partnerTracks,
+    int? customTasteMatch,
+  }) async {
+    // 1. Calculate realistic taste match score if not explicitly supplied
+    int matchScore = customTasteMatch ?? 0;
+    if (matchScore <= 0) {
+      final userArtists = userTracks.map((s) => s.artist.toLowerCase()).toSet();
+      final partnerArtists = partnerTracks.map((s) => s.artist.toLowerCase()).toSet();
+      final intersection = userArtists.intersection(partnerArtists);
+      if (userArtists.isEmpty && partnerArtists.isEmpty) {
+        matchScore = 86;
+      } else {
+        final totalUnique = userArtists.union(partnerArtists).length;
+        final base = totalUnique > 0 ? ((intersection.length / totalUnique) * 100).round() : 75;
+        matchScore = (base + 66).clamp(68, 98);
+      }
+    }
+
+    // 2. Interleave tracks alternating between User and Partner
+    final mergedTracks = <Song>[];
+    final maxLen = max(userTracks.length, partnerTracks.length);
+    for (int i = 0; i < maxLen; i++) {
+      if (i < userTracks.length) {
+        final song = userTracks[i];
+        mergedTracks.add(song.copyWith(addedBy: 'You'));
+      }
+      if (i < partnerTracks.length) {
+        final song = partnerTracks[i];
+        mergedTracks.add(song.copyWith(addedBy: partnerName));
+      }
+    }
+
+    final id = const Uuid().v4();
+    final blend = UserPlaylist(
+      id: id,
+      title: '$partnerName + You',
+      createdAt: DateTime.now().millisecondsSinceEpoch,
+      tracks: mergedTracks,
+      isCollaborative: true,
+      inviteCode: CollaborativePlaylistService.generateInviteCode(),
+      isBlend: true,
+      blendPartnerName: partnerName,
+      tasteMatchScore: matchScore,
+    );
+
+    await savePlaylistDirectly(blend);
+    return blend;
   }
 }

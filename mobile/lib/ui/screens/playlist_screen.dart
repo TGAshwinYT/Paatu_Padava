@@ -419,7 +419,51 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                       background: Stack(
                         fit: StackFit.expand,
                         children: [
-                          if (hasCover)
+                          if (playlist.isBlend)
+                            Container(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [Color(0xFF4338CA), Color(0xFFBE185D)],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                              ),
+                              child: Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const SizedBox(height: 20),
+                                    Container(
+                                      padding: const EdgeInsets.all(16),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.15),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 36),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black45,
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(color: Colors.white24),
+                                      ),
+                                      child: Text(
+                                        '${playlist.tasteMatchScore ?? 86}% TASTE MATCH',
+                                        style: GoogleFonts.outfit(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12,
+                                          letterSpacing: 1.2,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            )
+                          else if (hasCover)
                             CachedNetworkImage(
                               imageUrl: playlist.coverUrl,
                               fit: BoxFit.cover,
@@ -499,6 +543,43 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                               ],
                             ],
                           ),
+                          if (playlist.isBlend) ...[
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    const Color(0xFF6366F1).withValues(alpha: 0.15),
+                                    const Color(0xFFEC4899).withValues(alpha: 0.15),
+                                  ],
+                                ),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: const Color(0xFFEC4899).withValues(alpha: 0.3)),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: const BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [Color(0xFF6366F1), Color(0xFFEC4899)],
+                                      ),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(Icons.favorite_rounded, color: Colors.white, size: 16),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'Shared blend with ${playlist.blendPartnerName ?? "Friend"}. Tracks are curated from both your music tastes in real time.',
+                                      style: GoogleFonts.outfit(color: Colors.white70, fontSize: 12),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 14),
                           if (tracks.isNotEmpty)
                             SingleChildScrollView(

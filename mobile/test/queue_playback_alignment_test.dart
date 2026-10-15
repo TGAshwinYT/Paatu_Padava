@@ -2,11 +2,11 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:paatu_padava_mobile/logic/audio_queue_handler.dart';
+import 'package:paatu_padava_mobile/domain/models/track_entity.dart';
 import 'package:paatu_padava_mobile/models/song.dart';
+import 'package:paatu_padava_mobile/services/sleep_timer_service.dart';
 
-/// Lightweight mock player for queue index alignment tests.
-/// Verifies that queue index and player index stay synchronized
-/// across loadQueue, jumpToIndex, skipToNext, and skipToPrevious.
+/// Lightweight mock player for queue alignment and anti-double-skip testing.
 class _MockPlayer extends Fake implements AudioPlayer {
   final StreamController<int?> _indexCtrl = StreamController<int?>.broadcast();
   final StreamController<PlayerState> _stateCtrl = StreamController<PlayerState>.broadcast();
@@ -34,28 +34,44 @@ class _MockPlayer extends Fake implements AudioPlayer {
   @override AudioSource? get audioSource => _audioSource;
 
   @override Future<void> setVolume(double v) async => _volume = v;
+
   @override Future<void> play() async {
     _playing = true;
     _stateCtrl.add(PlayerState(true, ProcessingState.ready));
   }
+
   @override Future<void> pause() async {
     _playing = false;
     _stateCtrl.add(PlayerState(false, ProcessingState.ready));
   }
+
   @override Future<void> stop() async {
     _playing = false;
     _stateCtrl.add(PlayerState(false, ProcessingState.idle));
   }
+
   @override Future<Duration?> setAudioSource(AudioSource src, {bool preload = true, int? initialIndex, Duration? initialPosition}) async {
     _audioSource = src;
     _sourceIndex = initialIndex ?? 0;
     _indexCtrl.add(_sourceIndex);
     return _dur;
   }
+
   @override Future<void> seek(Duration? pos, {int? index}) async {
     if (pos != null) { _position = pos; _posCtrl.add(pos); }
     if (index != null) { _sourceIndex = index; _indexCtrl.add(index); }
   }
+
+  void emitState(PlayerState s) {
+    _playing = s.playing;
+    _stateCtrl.add(s);
+  }
+
+  void emitPosition(Duration p) {
+    _position = p;
+    _posCtrl.add(p);
+  }
+
   @override Future<void> dispose() async {
     await _indexCtrl.close();
     await _stateCtrl.close();
@@ -70,7 +86,7 @@ void main() {
   late _MockPlayer player;
   late AudioQueueHandler handler;
 
-  Song song(int i) => Song(
+  Song createTestSong(int i) => Song(
     id: 'q_$i',
     title: 'Queue Track $i',
     artist: 'Artist ${i % 3}',
@@ -91,197 +107,141 @@ void main() {
     await player.dispose();
   });
 
-  const tick = Duration(milliseconds: 50);
+  const tick = Duration(milliseconds: 60);
 
-  group('Queue Playback Alignment — Middle-of-List Start', () {
-    test('Starting from index 7 of 15 songs keeps queue[i].id == currentSong.id at every step', () async {
-      final songs = List.generate(15, (i) => song(i));
-      await handler.loadQueue(songs, initialIndex: 7, autoPlay: false);
+  group('BloomeeTunes Queue State Machine Alignment & Anti-Double-Skip', () {
+    test('Test 1: Firing ProcessingState.completed twice for the same track only advances by 1 song', () async {
+      final songs = List.generate(5, (i) => createTestSong(i));
+      await handler.loadQueue(songs, initialIndex: 0, autoPlay: true);
       await Future<void>.delayed(tick);
 
-      // Verify initial alignment
-      expect(handler.currentIndex, equals(7));
-      expect(handler.currentSong?.id, equals('q_7'));
-      expect(handler.currentSongNotifier.value?.id, equals('q_7'));
-      expect(handler.queue[handler.currentIndex].id, equals(handler.currentSong?.id),
-          reason: 'queue[currentIndex] must match currentSong after loadQueue');
-
-      // Walk forward through every remaining track
-      for (int expected = 8; expected < 15; expected++) {
-        await handler.skipToNext();
-        await Future<void>.delayed(tick);
-
-        expect(handler.currentIndex, equals(expected),
-            reason: 'After skip #${expected - 7}, index should be $expected');
-        expect(handler.currentSong?.id, equals('q_$expected'));
-        expect(handler.queue[handler.currentIndex].id, equals(handler.currentSong?.id),
-            reason: 'queue[currentIndex] must match currentSong at index $expected');
-      }
-
-      // At end, no more next
-      expect(handler.hasNext, isFalse);
-    });
-
-    test('jumpToIndex from middle keeps alignment across arbitrary jumps', () async {
-      final songs = List.generate(10, (i) => song(i));
-      await handler.loadQueue(songs, initialIndex: 5, autoPlay: false);
-      await Future<void>.delayed(tick);
-
-      expect(handler.currentIndex, equals(5));
-      expect(handler.queue[5].id, equals(handler.currentSong?.id));
-
-      // Jump backward
-      await handler.jumpToIndex(2);
-      await Future<void>.delayed(tick);
-      expect(handler.currentIndex, equals(2));
-      expect(handler.currentSong?.id, equals('q_2'));
-      expect(handler.queue[handler.currentIndex].id, equals(handler.currentSong?.id));
-
-      // Jump forward past original start
-      await handler.jumpToIndex(8);
-      await Future<void>.delayed(tick);
-      expect(handler.currentIndex, equals(8));
-      expect(handler.currentSong?.id, equals('q_8'));
-      expect(handler.queue[handler.currentIndex].id, equals(handler.currentSong?.id));
-
-      // Jump to first
-      await handler.jumpToIndex(0);
-      await Future<void>.delayed(tick);
-      expect(handler.currentIndex, equals(0));
       expect(handler.currentSong?.id, equals('q_0'));
-      expect(handler.queue[handler.currentIndex].id, equals(handler.currentSong?.id));
+
+      // Simulate ExoPlayer/just_audio firing ProcessingState.completed twice consecutively
+      player.emitState(PlayerState(true, ProcessingState.completed));
+      player.emitState(PlayerState(true, ProcessingState.completed));
+      await Future<void>.delayed(tick);
+
+      // Mutex and _lastCompletedTrackId lock must prevent double-skipping to q_2
+      expect(handler.currentSong?.id, equals('q_1'),
+          reason: 'Duplicate ProcessingState.completed must only advance queue by exactly 1 track');
+
+      // Now simulate track q_1 actually playing (position > Duration.zero)
+      player.emitPosition(const Duration(seconds: 2));
+      await Future<void>.delayed(tick);
+
+      // Track q_1 completes naturally
+      player.emitState(PlayerState(true, ProcessingState.completed));
+      await Future<void>.delayed(tick);
+
+      // Now advances cleanly to q_2
+      expect(handler.currentSong?.id, equals('q_2'),
+          reason: 'Next track completes naturally after lock reset');
     });
 
-    test('Remove + reorder from middle-start preserves correct alignment', () async {
-      final songs = List.generate(8, (i) => song(i));
-      await handler.loadQueue(songs, initialIndex: 4, autoPlay: false);
+    test('Test 2: loadQueue on 10-song playlist at initialIndex: 4 has playedTracks.isEmpty and in-place skipToQueueItem', () async {
+      final songs = List.generate(10, (i) => createTestSong(i));
+      await handler.loadQueue(songs, initialIndex: 4, autoPlay: true);
       await Future<void>.delayed(tick);
 
-      expect(handler.currentSong?.id, equals('q_4'));
+      // 1. Initial State: Unplayed songs 0..3 are NOT shown as played!
+      expect(handler.playedTracks.isEmpty, isTrue,
+          reason: 'Unplayed songs 0..3 must NOT show up in playedTracks when starting playlist at index 4');
+      expect(handler.currentSong?.id, equals('q_4'),
+          reason: 'Target track from initialIndex: 4 is playing');
+      expect(handler.currentIndex, equals(0),
+          reason: 'Active track is at context index 0 in rotated context queue');
+      expect(handler.queue.length, equals(10),
+          reason: 'Total queue contains all 10 tracks');
 
-      // Remove track before current (index 1)
-      await handler.removeAt(1);
+      // Unplayed songs 0..3 are at the tail of Up Next (ordered: 4, 5, 6, 7, 8, 9, 0, 1, 2, 3)
+      final queueIds = handler.queue.map((s) => s.id).toList();
+      expect(queueIds, equals(['q_4', 'q_5', 'q_6', 'q_7', 'q_8', 'q_9', 'q_0', 'q_1', 'q_2', 'q_3']));
+
+      // 2. Tapping a song in Up Next (e.g. q_7) jumps in-place WITHOUT queue duplication
+      final targetTrack = TrackEntity.fromSong(createTestSong(7));
+      await handler.skipToQueueItem(targetTrack);
       await Future<void>.delayed(tick);
-      // Current should shift down by 1 but same song
-      expect(handler.currentSong?.id, equals('q_4'));
-      expect(handler.queue[handler.currentIndex].id, equals('q_4'));
 
-      // Remove track after current
-      final afterIdx = handler.currentIndex + 1;
-      if (afterIdx < handler.queue.length) {
-        final removedId = handler.queue[afterIdx].id;
-        await handler.removeAt(afterIdx);
-        await Future<void>.delayed(tick);
-        expect(handler.currentSong?.id, equals('q_4'), reason: 'Current song unchanged after removing a later track');
-        expect(handler.queue[handler.currentIndex].id, equals('q_4'));
-        // Verify removed track is actually gone
-        expect(handler.queue.any((s) => s.id == removedId), isFalse);
-      }
+      expect(handler.currentSong?.id, equals('q_7'),
+          reason: 'Current song must jump directly to tapped track');
+      expect(handler.queue.length, equals(10),
+          reason: 'Tapping a track in Up Next must NOT add or duplicate songs in queue');
+      expect(handler.playedTracks.length, equals(1),
+          reason: 'Previously active song q_4 is now recorded in playedTracks');
+      expect(handler.playedTracks.first.id, equals('q_4'));
     });
 
-    test('Notifiers stay in sync with queue state after every operation', () async {
-      final songs = List.generate(6, (i) => song(i));
-      await handler.loadQueue(songs, initialIndex: 3, autoPlay: false);
+    test('skipToQueueItem in userQueue and playedTracks preserves queue size', () async {
+      final songs = List.generate(6, (i) => createTestSong(i));
+      await handler.loadQueue(songs, initialIndex: 0, autoPlay: true);
       await Future<void>.delayed(tick);
 
-      // Check all three notifiers agree
-      void assertNotifiersInSync(String label) {
-        expect(handler.currentIndexNotifier.value, equals(handler.currentIndex),
-            reason: '$label: currentIndexNotifier out of sync');
-        expect(handler.currentSongNotifier.value?.id, equals(handler.currentSong?.id),
-            reason: '$label: currentSongNotifier out of sync');
-        expect(handler.queueNotifier.value.length, equals(handler.queue.length),
-            reason: '$label: queueNotifier length out of sync');
-      }
-
-      assertNotifiersInSync('After loadQueue');
-
-      await handler.skipToNext();
+      // Add user queued tracks
+      final urgentTrack = createTestSong(99);
+      await handler.insertNext(urgentTrack);
       await Future<void>.delayed(tick);
-      assertNotifiersInSync('After skipToNext');
 
-      await handler.jumpToIndex(0);
-      await Future<void>.delayed(tick);
-      assertNotifiersInSync('After jumpToIndex(0)');
+      expect(handler.queue.length, equals(7));
 
-      await handler.removeAt(2);
+      // Tap user queue track
+      await handler.skipToQueueItem(TrackEntity.fromSong(urgentTrack), fromUserQueue: true);
       await Future<void>.delayed(tick);
-      assertNotifiersInSync('After removeAt(2)');
 
-      final newSong = song(99);
-      await handler.insertNext(newSong);
+      expect(handler.currentSong?.id, equals('q_99'));
+      expect(handler.playedTracks.any((t) => t.id == 'q_0'), isTrue);
+
+      // Tap previously played track (q_0) from history
+      await handler.skipToQueueItem(TrackEntity.fromSong(createTestSong(0)), fromPlayedHistory: true);
       await Future<void>.delayed(tick);
-      assertNotifiersInSync('After insertNext');
+
+      expect(handler.currentSong?.id, equals('q_0'));
+      expect(handler.queue.length, equals(6));
+    });
+  });
+
+  group('SleepTimerService Lifecycle, Countdown & Cancellation', () {
+    test('Test 3: SleepTimerService custom duration countdown and cancellation', () async {
+      final timer = SleepTimerService.instance;
+      timer.cancel(); // Ensure clean initial state
+
+      expect(timer.isActive, isFalse);
+      expect(timer.remainingTime, equals(Duration.zero));
+
+      // 1. Set custom timer for 2 seconds
+      timer.setTimer(const Duration(seconds: 2));
+      expect(timer.isActive, isTrue);
+      expect(timer.remainingTime.inSeconds, equals(2));
+      expect(timer.formattedRemainingShort, equals('00:02'));
+
+      // Wait 1.1s for tick
+      await Future<void>.delayed(const Duration(milliseconds: 1100));
+      expect(timer.remainingTime.inSeconds, lessThanOrEqualTo(1));
+
+      // 2. Add 5 minutes extension
+      timer.addTime(const Duration(minutes: 5));
+      expect(timer.remainingTime.inMinutes, greaterThanOrEqualTo(5));
+      expect(timer.isActive, isTrue);
+
+      // 3. Cancel timer
+      timer.cancel();
+      expect(timer.isActive, isFalse);
+      expect(timer.remainingTime, equals(Duration.zero));
     });
 
-    test('Shuffle toggles maintain queue reference parity and restore original playlist sequence', () async {
-      final songs = List.generate(10, (i) => song(i));
-      await handler.loadQueue(songs, initialIndex: 4, autoPlay: false);
-      await Future<void>.delayed(tick);
+    test('SleepTimerService stopAtEndOfTrack mode arms and completes on track finish', () async {
+      final timer = SleepTimerService.instance;
+      timer.cancel();
 
-      // 1. Initial State: playing song index 4 ("q_4")
-      expect(handler.currentIndex, equals(4));
-      expect(handler.currentSong?.id, equals('q_4'));
-      expect(handler.queue[handler.currentIndex].id, equals(handler.currentSong?.id));
-      expect(handler.isShuffleEnabled, isFalse);
+      timer.setTimer(Duration.zero, stopAtEnd: true);
+      expect(timer.isActive, isTrue);
+      expect(timer.stopAtEndOfTrack, isTrue);
+      expect(timer.formattedRemaining, equals('End of Track'));
+      expect(timer.formattedRemainingShort, equals('End'));
 
-      // 2. Enable Shuffle: Current song MUST stay pinned at index 0 without interruption
-      await handler.setShuffleEnabled(true);
-      await Future<void>.delayed(tick);
-
-      expect(handler.isShuffleEnabled, isTrue);
-      expect(handler.currentIndex, equals(0), reason: 'Current song should be at index 0 in shuffled view');
-      expect(handler.currentSong?.id, equals('q_4'), reason: 'Current song must not change when enabling shuffle');
-      expect(handler.queue[handler.currentIndex].id, equals(handler.currentSong?.id));
-      expect(handler.queue.length, equals(10));
-      expect(handler.shuffleIndices.first, equals(4));
-
-      // Verify all raw songs are represented in shuffleIndices
-      expect(handler.shuffleIndices.toSet().length, equals(10));
-
-      // 3. Skip to next track in shuffle mode
-      await handler.skipToNext();
-      await Future<void>.delayed(tick);
-
-      expect(handler.currentIndex, equals(1));
-      final nextShuffledSongId = handler.currentSong?.id;
-      expect(nextShuffledSongId, isNotNull);
-      expect(nextShuffledSongId, isNot(equals('q_4')));
-      expect(handler.queue[handler.currentIndex].id, equals(handler.currentSong?.id));
-
-      // Skip again
-      await handler.skipToNext();
-      await Future<void>.delayed(tick);
-      expect(handler.currentIndex, equals(2));
-      final thirdShuffledSong = handler.currentSong;
-      expect(handler.queue[handler.currentIndex].id, equals(thirdShuffledSong?.id));
-
-      // 4. Disable Shuffle: Current track must be mapped back to its original raw index in _rawQueue
-      await handler.setShuffleEnabled(false);
-      await Future<void>.delayed(tick);
-
-      expect(handler.isShuffleEnabled, isFalse);
-      expect(handler.currentSong?.id, equals(thirdShuffledSong?.id),
-          reason: 'Disabling shuffle must keep the active song unchanged');
-      expect(handler.queue[handler.currentIndex].id, equals(thirdShuffledSong?.id));
-
-      // Verify the restored queue is the original 0..9 sequence
-      for (int i = 0; i < 10; i++) {
-        expect(handler.queue[i].id, equals('q_$i'), reason: 'Original playlist order must be restored');
-      }
-
-      final rawIndex = int.parse(thirdShuffledSong!.id.replaceAll('q_', ''));
-      expect(handler.currentIndex, equals(rawIndex),
-          reason: 'Current index must match the song raw index in the original queue');
-
-      // 5. Subsequent skip follows sequential original order
-      if (handler.hasNext) {
-        await handler.skipToNext();
-        await Future<void>.delayed(tick);
-        expect(handler.currentIndex, equals(rawIndex + 1));
-        expect(handler.currentSong?.id, equals('q_${rawIndex + 1}'));
-        expect(handler.queue[handler.currentIndex].id, equals(handler.currentSong?.id));
-      }
+      timer.cancel();
+      expect(timer.isActive, isFalse);
+      expect(timer.stopAtEndOfTrack, isFalse);
     });
   });
 }

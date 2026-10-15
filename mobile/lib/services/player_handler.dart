@@ -24,6 +24,7 @@ import 'playlist_manager.dart';
 import 'app_logger.dart';
 import 'party_sync_coordinator.dart';
 import 'saavn_client.dart';
+import 'sleep_timer_service.dart';
 
 PaatuAudioHandler? _audioHandlerInstance;
 
@@ -96,8 +97,6 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   final ValueNotifier<bool> isSmartShuffleNotifier = ValueNotifier<bool>(false);
   final ValueNotifier<AppError?> playbackErrorNotifier = ValueNotifier<AppError?>(null);
 
-  Timer? _sleepTimer;
-  Timer? _countdownTicker;
   bool _hasRecordedListen = false;
   bool _hasRecordedHistory = false;
   bool _isForegroundDowngraded = false;
@@ -963,33 +962,12 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
 
   // ================= Sleep Timer ================= //
 
-  void setSleepTimer(Duration duration) {
-    cancelSleepTimer();
-    DateTime endTime = DateTime.now().add(duration);
-    sleepTimerRemainingNotifier.value = duration;
-
-    _countdownTicker = Timer.periodic(const Duration(seconds: 1), (timer) {
-      final remaining = endTime.difference(DateTime.now());
-      if (remaining.isNegative) {
-        cancelSleepTimer();
-        pause();
-      } else {
-        sleepTimerRemainingNotifier.value = remaining;
-      }
-    });
-
-    _sleepTimer = Timer(duration, () {
-      pause();
-      cancelSleepTimer();
-    });
+  void setSleepTimer(Duration duration, {bool stopAtEnd = false}) {
+    SleepTimerService.instance.setTimer(duration, stopAtEnd: stopAtEnd);
   }
 
   void cancelSleepTimer() {
-    _sleepTimer?.cancel();
-    _countdownTicker?.cancel();
-    _sleepTimer = null;
-    _countdownTicker = null;
-    sleepTimerRemainingNotifier.value = null;
+    SleepTimerService.instance.cancel();
   }
 
   // ================= Standard Controls ================= //
@@ -1127,6 +1105,36 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       NextTrackStrategyFactory.recordSkip(current, listenedSeconds: pos.inSeconds);
     }
     await _queueHandler.jumpToIndex(index);
+  }
+
+  Future<void> skipToQueueTrack(
+    TrackEntity targetTrack, {
+    bool fromUserQueue = false,
+    bool fromPlayedHistory = false,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastSkipTimeMs < _skipDebounceMs) {
+      AppLogger.log('PlayerHandler', 'skipToQueueTrack ignored due to 300ms debounce lock');
+      return;
+    }
+    _lastSkipTimeMs = now;
+
+    final current = currentSong;
+    if (current != null) {
+      final pos = _player.position;
+      final dur = _player.duration ?? const Duration(seconds: 180);
+      _smartShuffleController.recordPlaybackFeedback(
+        current,
+        listenedSeconds: pos.inSeconds,
+        totalSeconds: dur.inSeconds,
+      );
+      NextTrackStrategyFactory.recordSkip(current, listenedSeconds: pos.inSeconds);
+    }
+    await _queueHandler.skipToQueueItem(
+      targetTrack,
+      fromUserQueue: fromUserQueue,
+      fromPlayedHistory: fromPlayedHistory,
+    );
   }
 
   @override

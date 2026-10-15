@@ -290,10 +290,10 @@ void main() {
 
     test('5. addAllToQueue inserts multiple tracks sequentially into the user queue block', () async {
       final albumTracks = List.generate(10, (i) => createSampleSong('album_$i', 'Album $i'));
-      await queueHandler.loadQueue(albumTracks, initialIndex: 2, autoPlay: false);
+      await queueHandler.loadQueue(albumTracks, initialIndex: 0, autoPlay: false);
       await Future<void>.delayed(const Duration(milliseconds: 30));
 
-      // User is on Album Track 2 (index 2). Adds 3 tracks via addAllToQueue
+      // User is on Album Track 0. Adds 3 tracks via addAllToQueue
       final batch = [
         createSampleSong('batch_1', 'Batch 1'),
         createSampleSong('batch_2', 'Batch 2'),
@@ -303,20 +303,20 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 30));
 
       expect(queueHandler.queue.length, equals(13));
-      expect(queueHandler.queue[3].id, equals('batch_1'));
-      expect(queueHandler.queue[4].id, equals('batch_2'));
-      expect(queueHandler.queue[5].id, equals('batch_3'));
-      expect(queueHandler.queue[6].id, equals('album_3')); // Next album track shifted to 6
+      expect(queueHandler.queue[1].id, equals('batch_1'));
+      expect(queueHandler.queue[2].id, equals('batch_2'));
+      expect(queueHandler.queue[3].id, equals('batch_3'));
+      expect(queueHandler.queue[4].id, equals('album_1')); // Next album track shifted to 4
     });
 
     test('6. "Play Next" completion cleanly resumes album context sequence at contextIndex + 1 without jumping to Auto-Suggestion', () async {
       // 5-track album: [album_0, album_1, album_2, album_3, album_4]
       final albumTracks = List.generate(5, (i) => createSampleSong('album_$i', 'Album $i'));
-      await queueHandler.loadQueue(albumTracks, initialIndex: 1, autoPlay: false); // Playing album_1
+      await queueHandler.loadQueue(albumTracks, initialIndex: 0, autoPlay: false); // Playing album_0
       await Future<void>.delayed(const Duration(milliseconds: 30));
 
-      expect(queueHandler.currentSong?.id, equals('album_1'));
-      expect(queueHandler.contextIndex, equals(1));
+      expect(queueHandler.currentSong?.id, equals('album_0'));
+      expect(queueHandler.contextIndex, equals(0));
 
       // User selects "Play Next" for user_next
       final playNextSong = createSampleSong('user_next', 'User Next Song');
@@ -324,7 +324,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 30));
 
       // Play Next is immediately next in queue
-      expect(queueHandler.queue[2].id, equals('user_next'));
+      expect(queueHandler.queue[1].id, equals('user_next'));
       expect(queueHandler.userQueue.length, equals(1));
 
       // 1. Advance to user_next
@@ -333,17 +333,17 @@ void main() {
 
       expect(queueHandler.currentSong?.id, equals('user_next'));
       expect(queueHandler.currentTrackIsFromUserQueue, isTrue);
-      // contextIndex remains anchored to 1
-      expect(queueHandler.contextIndex, equals(1));
+      // contextIndex remains anchored to 0
+      expect(queueHandler.contextIndex, equals(0));
 
       // 2. Finished playing user_next -> Skip or complete track
       await queueHandler.skipToNext();
       await Future<void>.delayed(const Duration(milliseconds: 30));
 
-      // MUST resume album sequence at album_2 (contextIndex 2), NOT trigger auto-suggestion!
-      expect(queueHandler.currentSong?.id, equals('album_2'));
+      // MUST resume album sequence at album_1 (contextIndex 1), NOT trigger auto-suggestion!
+      expect(queueHandler.currentSong?.id, equals('album_1'));
       expect(queueHandler.currentTrackIsFromUserQueue, isFalse);
-      expect(queueHandler.contextIndex, equals(2));
+      expect(queueHandler.contextIndex, equals(1));
       expect(queueHandler.hasNext, isTrue);
     });
 

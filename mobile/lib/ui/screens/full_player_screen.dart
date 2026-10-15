@@ -21,6 +21,8 @@ import 'lyrics_screen.dart';
 import '../../services/artist_sanitizer.dart';
 import '../../data/repositories/song_repository.dart';
 import '../widgets/artist_picker_sheet.dart';
+import '../../services/sleep_timer_service.dart';
+import '../widgets/player/sleep_timer_sheet.dart';
 
 class FullPlayerScreen extends StatefulWidget {
   const FullPlayerScreen({Key? key}) : super(key: key);
@@ -108,55 +110,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     }
   }
 
-  void _openSleepTimerDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: const [
-            Icon(Icons.bedtime_rounded, color: Color(0xFF6366F1)),
-            SizedBox(width: 8),
-            Text('Sleep Timer', style: TextStyle(color: Colors.white, fontSize: 18)),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _sleepTimerOption('15 Minutes', const Duration(minutes: 15)),
-            _sleepTimerOption('30 Minutes', const Duration(minutes: 30)),
-            _sleepTimerOption('45 Minutes', const Duration(minutes: 45)),
-            _sleepTimerOption('60 Minutes', const Duration(minutes: 60)),
-            const Divider(color: Colors.white10),
-            ListTile(
-              title: const Text('Turn Off Sleep Timer', style: TextStyle(color: Colors.redAccent)),
-              onTap: () {
-                audioHandler.cancelSleepTimer();
-                Navigator.pop(context);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _sleepTimerOption(String title, Duration duration) {
-    return ListTile(
-      title: Text(title, style: const TextStyle(color: Colors.white70)),
-      trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Color(0xFF64748B)),
-      onTap: () {
-        audioHandler.setSleepTimer(duration);
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Music will stop in $title'),
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      },
-    );
+  void _showSleepTimerSheet() {
+    SleepTimerSheet.show(context);
   }
 
   void _showRadioAndMixOptions(BuildContext context, Song song) {
@@ -303,16 +258,48 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                 tooltip: 'Equalizer',
                                 onPressed: () => PlayerEqualizerSheet.show(context),
                               ),
-                              ValueListenableBuilder<Duration?>(
-                                valueListenable: audioHandler.sleepTimerRemainingNotifier,
-                                builder: (context, remaining, _) {
-                                  return IconButton(
-                                    icon: Icon(
-                                      remaining != null ? Icons.bedtime_rounded : Icons.bedtime_outlined,
-                                      color: remaining != null ? const Color(0xFF6366F1) : Colors.white70,
-                                    ),
-                                    tooltip: 'Sleep Timer',
-                                    onPressed: _openSleepTimerDialog,
+                              ListenableBuilder(
+                                listenable: SleepTimerService.instance,
+                                builder: (context, _) {
+                                  final timer = SleepTimerService.instance;
+                                  final isActive = timer.isActive;
+                                  return Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: Icon(
+                                          isActive ? Icons.bedtime_rounded : Icons.bedtime_outlined,
+                                          color: isActive ? const Color(0xFF6366F1) : Colors.white70,
+                                        ),
+                                        tooltip: 'Sleep Timer',
+                                        onPressed: _showSleepTimerSheet,
+                                      ),
+                                      if (isActive)
+                                        GestureDetector(
+                                          onTap: _showSleepTimerSheet,
+                                          child: Container(
+                                            margin: const EdgeInsets.only(right: 6),
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFF6366F1).withValues(alpha: 0.2),
+                                              borderRadius: BorderRadius.circular(8),
+                                              border: Border.all(
+                                                color: const Color(0xFF6366F1).withValues(alpha: 0.4),
+                                                width: 1,
+                                              ),
+                                            ),
+                                            child: Text(
+                                              timer.formattedRemainingShort,
+                                              style: const TextStyle(
+                                                color: Color(0xFF818CF8),
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                fontFeatures: [FontFeature.tabularFigures()],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                    ],
                                   );
                                 },
                               ),

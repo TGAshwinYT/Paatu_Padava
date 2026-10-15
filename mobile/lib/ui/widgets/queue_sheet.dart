@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../logic/smart_shuffle_controller.dart';
 import '../../models/song.dart';
+import '../../domain/models/track_entity.dart';
 import '../../services/favorites_manager.dart';
 import '../../services/player_handler.dart';
 
@@ -212,10 +213,12 @@ class _QueueSheetState extends State<QueueSheet> {
                     );
                   }
 
-                  // 1. Played tracks (indices < currentIndex), auto-trimmed to last 10
-                  final hasPlayed = currentIndex > 0;
-                  final playedStartIndex = (currentIndex - 10).clamp(0, currentIndex);
-                  final playedTracks = hasPlayed ? playlist.sublist(playedStartIndex, currentIndex) : <Song>[];
+                  // 1. Actually played tracks from session
+                  final playedEntities = audioHandler.queueHandler.playedTracks;
+                  final hasPlayed = playedEntities.isNotEmpty;
+                  final playedStartIndex = (playedEntities.length - 10).clamp(0, playedEntities.length);
+                  final displayedPlayedEntities = hasPlayed ? playedEntities.sublist(playedStartIndex) : <TrackEntity>[];
+                  final playedTracks = displayedPlayedEntities.map((t) => t.toSong()).toList();
 
                   // 2. Now Playing track
                   final nowPlaying = (currentIndex >= 0 && currentIndex < playlist.length)
@@ -245,7 +248,7 @@ class _QueueSheetState extends State<QueueSheet> {
                     children: [
                       // SECTION 1: PLAYED (COLLAPSED & AUTO-TRIMMED TO LAST 10)
                       if (hasPlayed) ...[
-                        _buildPlayedSectionHeader(currentIndex, playedTracks.length),
+                        _buildPlayedSectionHeader(playedEntities.length, playedTracks.length),
                         if (_isPlayedExpanded)
                           ...playedTracks.asMap().entries.map((entry) {
                             final actualIdx = playedStartIndex + entry.key;
@@ -706,7 +709,21 @@ class _QueueSheetState extends State<QueueSheet> {
       ),
       child: ListTile(
         onTap: () {
-          audioHandler.jumpToIndex(index);
+          if (isPlayed) {
+            audioHandler.queueHandler.skipToQueueItem(
+              TrackEntity.fromSong(song),
+              fromPlayedHistory: true,
+            );
+          } else if (isUser) {
+            audioHandler.queueHandler.skipToQueueItem(
+              TrackEntity.fromSong(song),
+              fromUserQueue: true,
+            );
+          } else {
+            audioHandler.queueHandler.skipToQueueItem(
+              TrackEntity.fromSong(song),
+            );
+          }
         },
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
         leading: Row(

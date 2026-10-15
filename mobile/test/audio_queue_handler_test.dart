@@ -151,10 +151,11 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
       expect(queueHandler.queue.length, equals(5));
-      expect(queueHandler.currentIndex, equals(2));
+      expect(queueHandler.currentIndex, equals(0));
       expect(queueHandler.currentSong?.id, equals('song_2'));
-      expect(queueHandler.currentIndexNotifier.value, equals(2));
+      expect(queueHandler.currentIndexNotifier.value, equals(0));
       expect(queueHandler.currentSongNotifier.value?.id, equals('song_2'));
+      expect(queueHandler.playedTracks.isEmpty, isTrue);
     });
 
     test('2. Jump to index updates currentIndex and currentSong correctly', () async {
@@ -174,25 +175,30 @@ void main() {
 
     test('3. Remove current track plays the next available track at that index', () async {
       final songs = List.generate(4, (i) => createSampleSong('song_$i', 'Track $i'));
-      await queueHandler.loadQueue(songs, initialIndex: 1, autoPlay: false);
+      await queueHandler.loadQueue(songs, initialIndex: 0, autoPlay: false);
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
-      expect(queueHandler.currentSong?.id, equals('song_1'));
-      expect(queueHandler.currentIndex, equals(1));
+      expect(queueHandler.currentSong?.id, equals('song_0'));
+      expect(queueHandler.currentIndex, equals(0));
 
-      // Remove current song ('song_1')
-      await queueHandler.removeAt(1);
+      // Remove current song ('song_0')
+      await queueHandler.removeAt(0);
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
       expect(queueHandler.queue.length, equals(3));
-      expect(queueHandler.currentIndex, equals(1));
-      // What was at index 2 ('song_2') is now shifted to index 1
-      expect(queueHandler.currentSong?.id, equals('song_2'));
+      expect(queueHandler.currentIndex, equals(0));
+      expect(queueHandler.currentSong?.id, equals('song_1'));
     });
 
     test('4. Remove track before current decrements currentIndex without shifting active song', () async {
       final songs = List.generate(4, (i) => createSampleSong('song_$i', 'Track $i'));
-      await queueHandler.loadQueue(songs, initialIndex: 2, autoPlay: false);
+      await queueHandler.loadQueue(songs, initialIndex: 0, autoPlay: false);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      // Advance to index 2
+      await queueHandler.skipToNext();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await queueHandler.skipToNext();
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
       expect(queueHandler.currentSong?.id, equals('song_2'));
@@ -204,13 +210,18 @@ void main() {
 
       expect(queueHandler.queue.length, equals(3));
       expect(queueHandler.currentIndex, equals(1));
-      // Current song should still be 'song_2', now at index 1
       expect(queueHandler.currentSong?.id, equals('song_2'));
     });
 
     test('5. Reorder tracks properly updates indices and preserves playing song', () async {
       final songs = List.generate(5, (i) => createSampleSong('song_$i', 'Track $i'));
-      await queueHandler.loadQueue(songs, initialIndex: 2, autoPlay: false);
+      await queueHandler.loadQueue(songs, initialIndex: 0, autoPlay: false);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      // Advance to index 2
+      await queueHandler.skipToNext();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await queueHandler.skipToNext();
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
       expect(queueHandler.currentSong?.id, equals('song_2'));
@@ -219,7 +230,6 @@ void main() {
       // Move track 0 to index 4 (past current)
       await queueHandler.reorder(0, 4);
       await Future<void>.delayed(const Duration(milliseconds: 50));
-      // Index of current song ('song_2') should shift from 2 to 1
       expect(queueHandler.currentIndex, equals(1));
       expect(queueHandler.currentSong?.id, equals('song_2'));
 
@@ -232,7 +242,7 @@ void main() {
 
     test('6. Insert next places song right after current playing song', () async {
       final songs = List.generate(4, (i) => createSampleSong('song_$i', 'Track $i'));
-      await queueHandler.loadQueue(songs, initialIndex: 1, autoPlay: false);
+      await queueHandler.loadQueue(songs, initialIndex: 0, autoPlay: false);
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
       final urgentSong = createSampleSong('urgent_1', 'Urgent Track');
@@ -240,9 +250,9 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
       expect(queueHandler.queue.length, equals(5));
-      expect(queueHandler.queue[2].id, equals('urgent_1'));
-      expect(queueHandler.currentIndex, equals(1));
-      expect(queueHandler.currentSong?.id, equals('song_1'));
+      expect(queueHandler.queue[1].id, equals('urgent_1'));
+      expect(queueHandler.currentIndex, equals(0));
+      expect(queueHandler.currentSong?.id, equals('song_0'));
     });
 
     test('7. Completion advancing exactly one track (skipToNext)', () async {

@@ -301,7 +301,7 @@ void main() {
       await Future<void>.delayed(tick);
 
       // Must be Song 1 (not Song 2!)
-      expect(queueHandler.currentIndex, equals(1));
+      expect(queueHandler.currentIndex, equals(0));
       expect(queueHandler.currentSong?.id, equals('song_1'));
       expect(changedSong?.id, equals('song_1'));
       expect(player._sourceIndex, equals(0)); // Player window starts at 0 for active song!
@@ -309,7 +309,7 @@ void main() {
       // Now skip to next
       await queueHandler.skipToNext();
       await Future<void>.delayed(tick);
-      expect(queueHandler.currentIndex, equals(2));
+      expect(queueHandler.currentIndex, equals(1));
       expect(queueHandler.currentSong?.id, equals('song_2'));
     });
 

@@ -526,7 +526,13 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                             child: Text(
                                               song.source == 'offline'
                                                   ? 'LOSSLESS'
-                                                  : (song.source == 'youtube' ? 'YOUTUBE' : '320 KBPS'),
+                                                  : (song.source == 'youtube'
+                                                      ? 'YOUTUBE'
+                                                      : (song.streamUrl?.contains('_160.') == true
+                                                          ? '160 KBPS'
+                                                          : (song.streamUrl?.contains('_96.') == true
+                                                              ? '96 KBPS'
+                                                              : '320 KBPS'))),
                                               style: TextStyle(
                                                 color: song.source == 'offline'
                                                     ? const Color(0xFF34D399)

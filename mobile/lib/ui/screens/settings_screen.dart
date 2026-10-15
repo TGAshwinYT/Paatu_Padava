@@ -109,12 +109,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ]),
                   builder: (context, _) {
                     final quality = SettingsManager.streamingQuality;
+                    final qualityLabel = quality == 'auto' ? 'Auto (Adaptive)' : quality;
                     final isNorm = SettingsManager.isVolumeNormalizationEnabled;
                     return _buildNavigationTile(
                       icon: Icons.graphic_eq_rounded,
                       iconColor: const Color(0xFF6366F1),
                       title: 'Audio Quality & Streaming',
-                      subtitle: '$quality • Loudness Normalization ${isNorm ? "On" : "Off"}',
+                      subtitle: '$qualityLabel • Loudness Normalization ${isNorm ? "On" : "Off"}',
                       onTap: () async {
                         await Navigator.push(
                           context,

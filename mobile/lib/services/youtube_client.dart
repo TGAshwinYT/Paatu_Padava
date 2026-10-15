@@ -93,7 +93,7 @@ class YouTubeClient {
       final audioStreams = manifest.audioOnly;
       if (audioStreams.isEmpty) return null;
 
-      final quality = SettingsManager.streamingQuality;
+      final quality = SettingsManager.effectiveStreamingQuality;
       if (quality == '96kbps') {
         final low = audioStreams.where((s) => s.bitrate.kiloBitsPerSecond <= 100);
         if (low.isNotEmpty) return low.withHighestBitrate();
@@ -945,7 +945,7 @@ class YouTubeClient {
           }
 
           if (audioFormats.isNotEmpty) {
-            final quality = SettingsManager.streamingQuality;
+            final quality = SettingsManager.effectiveStreamingQuality;
 
             // 1. Data saver (96kbps)
             if (quality == '96kbps') {
@@ -1029,7 +1029,7 @@ class YouTubeClient {
         final audioStreams = manifest.audioOnly;
         if (audioStreams.isNotEmpty) {
           final candidates = <AudioStreamInfo>[];
-          final quality = SettingsManager.streamingQuality;
+          final quality = SettingsManager.effectiveStreamingQuality;
 
           void addStream(AudioStreamInfo s) {
             if (!candidates.contains(s)) candidates.add(s);

@@ -174,8 +174,15 @@ class AudioQualitySettingsCard extends StatelessWidget {
                     ),
                   ),
                   _buildQualityRadioTile(
+                    title: 'Auto (Adaptive)',
+                    subtitle: 'Dynamically adapts bitrate to network speed to eliminate buffering (Recommended)',
+                    value: 'auto',
+                    groupValue: streamingQuality,
+                    onChanged: (val) => SettingsManager.setStreamingQuality(val!),
+                  ),
+                  _buildQualityRadioTile(
                     title: 'Lossless 320 kbps',
-                    subtitle: 'Studio fidelity audio streaming (Recommended)',
+                    subtitle: 'Studio fidelity audio streaming',
                     value: '320kbps',
                     groupValue: streamingQuality,
                     onChanged: (val) => SettingsManager.setStreamingQuality(val!),

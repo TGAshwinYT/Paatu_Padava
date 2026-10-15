@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'auth_manager.dart';
+import 'connectivity_service.dart';
 
 enum NextTrackStrategyMode {
   spotifyStyle,
@@ -10,7 +11,7 @@ enum NextTrackStrategyMode {
 class SettingsManager {
   static const String boxName = 'settings_box';
 
-  static final ValueNotifier<String> streamingQualityNotifier = ValueNotifier<String>('320kbps');
+  static final ValueNotifier<String> streamingQualityNotifier = ValueNotifier<String>('auto');
   static final ValueNotifier<String> downloadQualityNotifier = ValueNotifier<String>('320kbps');
   static final ValueNotifier<bool> volumeNormalizationNotifier = ValueNotifier<bool>(true);
   static final ValueNotifier<bool> autoplayNotifier = ValueNotifier<bool>(true);
@@ -37,6 +38,15 @@ class SettingsManager {
   static final ValueNotifier<String> downloadPathNotifier = ValueNotifier<String>('Internal Storage');
 
   static String get streamingQuality => streamingQualityNotifier.value;
+  /// Returns the resolved bitrate string ('320kbps', '160kbps', '96kbps').
+  /// If user selected 'auto', dynamically queries ConnectivityService for the optimal bitrate.
+  static String get effectiveStreamingQuality {
+    final q = streamingQualityNotifier.value;
+    if (q == 'auto') {
+      return ConnectivityService.recommendedStreamingQuality;
+    }
+    return q;
+  }
   static String get downloadQuality => downloadQualityNotifier.value;
   static bool get isVolumeNormalizationEnabled => volumeNormalizationNotifier.value;
   static bool get isAutoplayEnabled => autoplayNotifier.value;
@@ -89,7 +99,7 @@ class SettingsManager {
   static Future<void> init() async {
     await Hive.openBox(boxName);
 
-    streamingQualityNotifier.value = _box.get('streaming_quality', defaultValue: '320kbps') as String;
+    streamingQualityNotifier.value = _box.get('streaming_quality', defaultValue: 'auto') as String;
     downloadQualityNotifier.value = _box.get('download_quality', defaultValue: '320kbps') as String;
     volumeNormalizationNotifier.value = _box.get('volume_normalization', defaultValue: true) as bool;
     autoplayNotifier.value = _box.get('autoplay', defaultValue: true) as bool;

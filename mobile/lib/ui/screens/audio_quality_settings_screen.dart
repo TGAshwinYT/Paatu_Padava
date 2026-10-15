@@ -96,6 +96,14 @@ class AudioQualitySettingsScreen extends StatelessWidget {
                   return Column(
                     children: [
                       _buildQualityOption(
+                        title: 'Auto (Adaptive)',
+                        subtitle: 'Dynamically adapts bitrate to network speed to eliminate buffering (Recommended).',
+                        badge: 'AUTO',
+                        isSelected: currentQuality == 'auto',
+                        onTap: () => SettingsManager.setStreamingQuality('auto'),
+                      ),
+                      const Divider(color: Colors.white10, height: 16),
+                      _buildQualityOption(
                         title: 'Data Saver (96 kbps)',
                         subtitle: 'Uses ~40 MB per hour. Best for slow or limited cellular networks.',
                         badge: '96k',

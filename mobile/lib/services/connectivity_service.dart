@@ -11,9 +11,65 @@ class ConnectivityService {
   static Timer? _heartbeatTimer;
   static bool _isChecking = false;
   static bool _isPaused = false;
+  static int _lastLatencyMs = 50;
+  static String _networkType = 'unknown';
 
   static ValueListenable<bool> get isOnline => isOnlineNotifier;
   static bool get currentIsOnline => isOnlineNotifier.value;
+  static int get lastLatencyMs => _lastLatencyMs;
+  static String get networkType => _networkType;
+
+  /// Visible for testing: inject synthetic network conditions
+  @visibleForTesting
+  static void setMockConditions({int? latencyMs, String? networkType, bool? isOnline}) {
+    if (latencyMs != null) _lastLatencyMs = latencyMs;
+    if (networkType != null) _networkType = networkType;
+    if (isOnline != null) isOnlineNotifier.value = isOnline;
+  }
+
+  /// Calculates the recommended audio streaming bitrate based on network type and latency.
+  /// - Wi-Fi / Low latency (<250ms) -> 320kbps (Lossless studio audio)
+  /// - Cellular / Moderate latency (250-400ms) -> 160kbps (High quality, zero stutter)
+  /// - Weak network / High latency (>400ms) / Offline -> 96kbps (Data saver / instant play)
+  static String get recommendedStreamingQuality {
+    if (!isOnlineNotifier.value) return '96kbps';
+    if (_networkType == 'cellular') {
+      return _lastLatencyMs > 400 ? '96kbps' : '160kbps';
+    }
+    if (_networkType == 'wifi' || _networkType == 'ethernet') {
+      return _lastLatencyMs > 600 ? '160kbps' : '320kbps';
+    }
+    // Unknown interface: determine purely from round-trip ping / lookup latency
+    if (_lastLatencyMs > 400) return '96kbps';
+    if (_lastLatencyMs > 250) return '160kbps';
+    return '320kbps';
+  }
+
+  /// Probes network interfaces to detect Wi-Fi vs Cellular connection
+  static Future<String> detectNetworkType() async {
+    try {
+      final interfaces = await NetworkInterface.list();
+      for (final iface in interfaces) {
+        final name = iface.name.toLowerCase();
+        if (iface.addresses.any((a) => !a.isLoopback)) {
+          if (name.contains('wlan') ||
+              name.contains('wi-fi') ||
+              name.contains('wifi') ||
+              name.contains('eth')) {
+            return 'wifi';
+          }
+          if (name.contains('rmnet') ||
+              name.contains('ccmni') ||
+              name.contains('pdp') ||
+              name.contains('wwan') ||
+              name.contains('cell')) {
+            return 'cellular';
+          }
+        }
+      }
+    } catch (_) {}
+    return 'unknown';
+  }
 
   /// Initializes reachability check and begins background-safe polling
   static void init() {
@@ -55,6 +111,10 @@ class ConnectivityService {
 
     try {
       bool reachable = false;
+      final sw = Stopwatch()..start();
+
+      // Detect network interface
+      _networkType = await detectNetworkType();
 
       // 1. Primary check: Our own backend host
       final backendHost = Uri.tryParse(AppConfig.backendUrl)?.host;
@@ -84,8 +144,13 @@ class ConnectivityService {
         }
       }
 
+      sw.stop();
+      if (reachable) {
+        _lastLatencyMs = sw.elapsedMilliseconds;
+      }
+
       if (isOnlineNotifier.value != reachable) {
-        debugPrint('[ConnectivityService] Network state changed: ${reachable ? "ONLINE" : "OFFLINE"}');
+        debugPrint('[ConnectivityService] Network state changed: ${reachable ? "ONLINE" : "OFFLINE"} (type: $_networkType, latency: ${_lastLatencyMs}ms)');
         isOnlineNotifier.value = reachable;
       }
       _isChecking = false;

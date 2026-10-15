@@ -119,6 +119,8 @@ class AudioQueueHandler {
   int _fadeToken = 0;
   int _lastCrossfadeTimeMs = 0;
   bool _hasRetriedCurrentTrack = false;
+  bool _hasDownscaledCurrentTrack = false;
+  Timer? _bufferStallTimer;
   bool _isRecovering = false;
   bool _isLookaheadTriggered = false;
   bool _wasStalledByNetwork = false;
@@ -480,6 +482,12 @@ class AudioQueueHandler {
         startIdleTimer();
       }
 
+      if (state.playing && state.processingState == ProcessingState.buffering) {
+        _startBufferStallWatchdog();
+      } else {
+        _cancelBufferStallWatchdog();
+      }
+
       if (!ConnectivityService.currentIsOnline && _currentTrack != null && !DownloadManager.isDownloaded(_currentTrack!.id)) {
         if (state.processingState == ProcessingState.buffering || state.processingState == ProcessingState.idle || !state.playing) {
           _wasStalledByNetwork = true;
@@ -539,6 +547,59 @@ class AudioQueueHandler {
         }
       }
     });
+  }
+
+  /// Monitors active playback for prolonged buffer stalls (>3.5s) on weak networks.
+  /// If the current track is on a high bitrate (e.g. 320kbps or 160kbps), dynamically
+  /// downscales to the next available bitrate (e.g. 160kbps or 96kbps) in-place at the exact
+  /// current playback position. This eliminates prolonged buffering without interrupting audio.
+  void _startBufferStallWatchdog() {
+    _bufferStallTimer?.cancel();
+    if (_hasDownscaledCurrentTrack || _isDisposed || _isAdvancing || _isRecovering) return;
+
+    _bufferStallTimer = Timer(const Duration(milliseconds: 3500), () async {
+      if (_isDisposed || _isAdvancing || _isRecovering) return;
+      final current = currentSong;
+      if (current == null || !player.playing || player.processingState != ProcessingState.buffering) return;
+
+      // Local offline downloads never buffer on network
+      if (DownloadManager.isDownloaded(current.id)) return;
+
+      final currentUrl = current.streamUrl;
+      if (currentUrl == null || currentUrl.isEmpty) return;
+
+      final fallbackUrl = SaavnBitrateHelper.getNextFallbackUrl(currentUrl);
+      if (fallbackUrl != null && fallbackUrl != currentUrl && !_isDisposed) {
+        _hasDownscaledCurrentTrack = true;
+        final currentPos = player.position;
+        AppLogger.log(
+          'AudioQueueHandler',
+          'Buffer stall dynamic rescue: stream stalled >3.5s for "${current.title}". Downscaling to $fallbackUrl at ${currentPos.inSeconds}s to eliminate buffering.',
+        );
+        current.streamUrl = fallbackUrl;
+        _updateTrackStreamUrl(current.id, fallbackUrl);
+
+        final downscaledSource = await _buildAudioSource(current, allowNetworkResolve: false);
+        if (downscaledSource != null && !_isDisposed) {
+          try {
+            await player.setAudioSource(downscaledSource, initialPosition: currentPos);
+            await _ensureAudioSessionActive();
+            await player.play();
+            final targetNorm = getEffectiveVolumeForSong(current);
+            await player.setVolume(targetNorm);
+            _startVolumeWatchdog(current);
+            AppLogger.log('AudioQueueHandler', 'Buffer stall dynamic rescue succeeded for "${current.title}"');
+          } catch (e) {
+            AppLogger.log('AudioQueueHandler', 'Buffer stall dynamic rescue notice: $e');
+          }
+        }
+      }
+    });
+  }
+
+  void _cancelBufferStallWatchdog() {
+    _bufferStallTimer?.cancel();
+    _bufferStallTimer = null;
   }
 
   /// Captures the underlying ExoPlayer error status (HTTP 403, 416, SSL, Cleartext)
@@ -983,6 +1044,8 @@ class AudioQueueHandler {
         }
 
         _hasRetriedCurrentTrack = false;
+        _hasDownscaledCurrentTrack = false;
+        _cancelBufferStallWatchdog();
         onQueueProgress?.call(currentIndex, queue.length);
         _schedulePreload();
       } catch (e, stack) {
@@ -1591,6 +1654,9 @@ class AudioQueueHandler {
         await _ensureAudioSessionActive();
         await player.play();
         _consecutivePlaybackErrors = 0; // Playback began successfully
+        _hasRetriedCurrentTrack = false;
+        _hasDownscaledCurrentTrack = false;
+        _cancelBufferStallWatchdog();
         if (crossfadeSec > 0) {
           _fadeVolumeTo(targetNorm, durationMs: (crossfadeSec * 600).clamp(250, 2000));
         } else {
@@ -2025,7 +2091,7 @@ class AudioQueueHandler {
     }
 
     if (song.source == 'saavn' || song.source == 'jiosaavn' || streamUrl.contains('jiosaavn') || streamUrl.contains('saavncdn.com')) {
-      final q = SettingsManager.streamingQuality;
+      final q = SettingsManager.effectiveStreamingQuality;
       streamUrl = SaavnBitrateHelper.toBitrate(streamUrl, q);
     }
     final uri = Uri.tryParse(streamUrl);
@@ -2088,6 +2154,7 @@ class AudioQueueHandler {
     _playbackEventSub?.cancel();
     _positionSub?.cancel();
     cancelIdleTimer();
+    _cancelBufferStallWatchdog();
     _sequenceStateSub?.cancel();
     _currentIndexSub?.cancel();
     _playerStateSub?.cancel();

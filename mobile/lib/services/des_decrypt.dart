@@ -45,10 +45,12 @@ String decryptSaavnMediaUrl(String encryptedUrl) {
 /// Helper for managing JioSaavn CDN audio bitrates (320kbps, 160kbps, 96kbps)
 /// and seamless bitrate fallback to prevent HTTP 404/403 failures when 320kbps is unavailable.
 class SaavnBitrateHelper {
-  /// Converts a Saavn audio URL to the desired [bitrate] ('320', '160', '96').
+  /// Converts a Saavn audio URL to the desired [bitrate] ('auto', '320', '160', '96').
+  /// If 'auto' is passed, defaults to '320' to prevent malformed _auto.mp4 URLs.
   static String toBitrate(String url, String bitrate) {
     if (url.isEmpty) return url;
-    final b = bitrate.replaceAll('kbps', '').trim();
+    final clean = bitrate.replaceAll('kbps', '').trim();
+    final b = (clean == 'auto' || clean.isEmpty) ? '320' : clean;
     if (url.contains('.mp4')) {
       return url
           .replaceAll('_320.mp4', '_$b.mp4')
@@ -64,12 +66,12 @@ class SaavnBitrateHelper {
   }
 
   /// Returns ordered bitrate candidates based on user [targetQuality].
-  /// Default ('320kbps'): [320, 160, 96]
+  /// Default ('320kbps' or 'auto'): [320, 160, 96]
   /// '160kbps': [160, 96, 320]
   /// '96kbps': [96, 160, 320]
   static List<String> getBitrateCandidates(String originalUrl, {String? targetQuality}) {
     if (originalUrl.isEmpty) return [];
-    final q = targetQuality ?? '320kbps';
+    final q = targetQuality ?? 'auto';
 
     final u320 = toBitrate(originalUrl, '320');
     final u160 = toBitrate(originalUrl, '160');
@@ -91,7 +93,7 @@ class SaavnBitrateHelper {
       addCandidate(u96);
       addCandidate(u320);
     } else {
-      // High fidelity 320kbps preferred
+      // High fidelity 320kbps preferred (for 'auto' or '320kbps')
       addCandidate(u320);
       addCandidate(u160);
       addCandidate(u96);

@@ -21,6 +21,7 @@ import '../../data/repositories/song_repository.dart';
 import '../widgets/artist_picker_sheet.dart';
 import '../../services/sleep_timer_service.dart';
 import '../widgets/player/sleep_timer_sheet.dart';
+import '../widgets/player/music_video_player_view.dart';
 
 class FullPlayerScreen extends StatefulWidget {
   const FullPlayerScreen({Key? key}) : super(key: key);
@@ -38,6 +39,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   bool _showHeartOverlay = false;
   bool _lastHeartWasLiked = true;
   Timer? _heartDismissTimer;
+  bool _isVideoMode = false;
 
   @override
   void initState() {
@@ -317,7 +319,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                           children: [
-                            // Cover & Fullscreen Lyrics Selector Pill
+                            // Song / Video / Lyrics Selector Pill (YouTube Music style)
                             Container(
                               height: 36,
                               padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -329,27 +331,86 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF6366F1),
-                                      borderRadius: BorderRadius.circular(16),
-                                    ),
-                                    child: const Text(
-                                      'Cover',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
+                                  // Song / Cover mode
+                                  GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () {
+                                      if (_isVideoMode) {
+                                        HapticFeedback.selectionClick();
+                                        setState(() => _isVideoMode = false);
+                                      }
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: !_isVideoMode ? const Color(0xFF6366F1) : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.music_note_rounded,
+                                            size: 13,
+                                            color: !_isVideoMode ? Colors.white : const Color(0xFF94A3B8),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            'Song',
+                                            style: TextStyle(
+                                              color: !_isVideoMode ? Colors.white : const Color(0xFF94A3B8),
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 4),
+                                  const SizedBox(width: 2),
+                                  // Video mode (YouTube Music Style!)
+                                  GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () {
+                                      if (!_isVideoMode) {
+                                        HapticFeedback.selectionClick();
+                                        setState(() => _isVideoMode = true);
+                                      }
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: _isVideoMode ? const Color(0xFFF43F5E) : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.play_circle_fill_rounded,
+                                            size: 13,
+                                            color: _isVideoMode ? Colors.white : const Color(0xFF94A3B8),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            'Video',
+                                            style: TextStyle(
+                                              color: _isVideoMode ? Colors.white : const Color(0xFF94A3B8),
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 2),
+                                  // Fullscreen Lyrics
                                   GestureDetector(
                                     behavior: HitTestBehavior.opaque,
                                     onTap: () => LyricsScreen.open(context, song: song),
                                     child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                       decoration: BoxDecoration(
                                         color: Colors.transparent,
                                         borderRadius: BorderRadius.circular(16),
@@ -379,16 +440,24 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                               ),
                             ),
 
-                            // Middle Content: Album Artwork (Always visible on FullPlayerScreen)
-                            RepaintBoundary(
-                              child: SizedBox(
-                                height: MediaQuery.of(context).size.width * 0.82,
-                                child: PlayerGestureDetector(
-                                  onDoubleTap: () => _handleArtworkDoubleTap(song),
-                                  child: _buildArtworkView(song),
+                            // Middle Content: Album Artwork or Official Music Video
+                            if (_isVideoMode)
+                              MusicVideoPlayerView(
+                                song: song,
+                                onSwitchToCover: () {
+                                  if (mounted) setState(() => _isVideoMode = false);
+                                },
+                              )
+                            else
+                              RepaintBoundary(
+                                child: SizedBox(
+                                  height: MediaQuery.of(context).size.width * 0.82,
+                                  child: PlayerGestureDetector(
+                                    onDoubleTap: () => _handleArtworkDoubleTap(song),
+                                    child: _buildArtworkView(song),
+                                  ),
                                 ),
                               ),
-                            ),
 
                             // Song Title, Artist, and Favorite Row
                             Row(

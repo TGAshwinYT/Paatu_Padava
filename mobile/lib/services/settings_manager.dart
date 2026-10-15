@@ -17,6 +17,10 @@ class SettingsManager {
   static final ValueNotifier<int> crossfadeDurationNotifier = ValueNotifier<int>(0);
   static final ValueNotifier<String> eqPresetNotifier = ValueNotifier<String>('flat');
   static final ValueNotifier<List<double>> eqBandsNotifier = ValueNotifier<List<double>>([0.0, 0.0, 0.0, 0.0, 0.0]);
+  static final ValueNotifier<double> bassBoostNotifier = ValueNotifier<double>(0.0);
+  static final ValueNotifier<double> virtualizerNotifier = ValueNotifier<double>(0.0);
+  static final ValueNotifier<Map<String, List<double>>> customEqPresetsNotifier =
+      ValueNotifier<Map<String, List<double>>>({});
   static final ValueNotifier<List<String>> languagesNotifier = ValueNotifier<List<String>>(['Tamil', 'English']);
   static final ValueNotifier<NextTrackStrategyMode> nextTrackStrategyNotifier =
       ValueNotifier<NextTrackStrategyMode>(NextTrackStrategyMode.spotifyStyle);
@@ -39,6 +43,9 @@ class SettingsManager {
   static int get crossfadeSeconds => crossfadeDurationNotifier.value;
   static String get eqPreset => eqPresetNotifier.value;
   static List<double> get eqBands => eqBandsNotifier.value;
+  static double get bassBoost => bassBoostNotifier.value;
+  static double get virtualizer => virtualizerNotifier.value;
+  static Map<String, List<double>> get customEqPresets => customEqPresetsNotifier.value;
   static NextTrackStrategyMode get nextTrackStrategy => nextTrackStrategyNotifier.value;
   static int get maxCacheSizeMb => maxCacheSizeMbNotifier.value;
   static int get bluetoothDelayMs => bluetoothDelayMsNotifier.value;
@@ -67,12 +74,16 @@ class SettingsManager {
 
   static final Map<String, List<double>> presets = {
     'flat': [0.0, 0.0, 0.0, 0.0, 0.0],
-    'bass_boost': [5.5, 4.0, 1.0, 0.0, 0.0],
-    'vocal': [-1.0, 2.0, 4.5, 3.0, 1.0],
-    'rock': [4.0, 2.0, -1.0, 2.5, 4.0],
-    'pop': [-1.0, 1.5, 3.5, 2.0, -1.0],
-    'classical': [3.0, 2.0, 0.0, 2.5, 3.5],
+    'bass_boost': [6.0, 4.5, 1.0, 0.0, 0.0],
+    'bass_treble': [5.0, 2.5, -1.0, 3.0, 5.0],
+    'acoustic': [3.5, 2.5, 1.5, 2.0, 2.5],
     'electronic': [4.5, 3.0, 0.0, 2.0, 4.0],
+    'rock': [4.5, 2.5, -1.0, 2.5, 4.5],
+    'pop': [-1.0, 2.0, 4.0, 2.5, -1.0],
+    'classical': [4.0, 2.5, 0.0, 2.5, 4.0],
+    'hip_hop': [5.5, 3.5, 0.0, 2.0, 3.5],
+    'vocal_booster': [-1.5, 2.5, 5.5, 3.5, 1.0],
+    'deep': [5.0, 3.5, 1.0, -1.0, -2.0],
   };
 
   static Future<void> init() async {
@@ -90,6 +101,20 @@ class SettingsManager {
       eqBandsNotifier.value = rawBands.map((e) => (e as num).toDouble()).toList();
     } else {
       eqBandsNotifier.value = presets['flat']!;
+    }
+
+    bassBoostNotifier.value = (_box.get('bass_boost_strength', defaultValue: 0.0) as num).toDouble();
+    virtualizerNotifier.value = (_box.get('virtualizer_strength', defaultValue: 0.0) as num).toDouble();
+
+    final rawCustomPresets = _box.get('custom_eq_presets');
+    if (rawCustomPresets is Map) {
+      final parsed = <String, List<double>>{};
+      rawCustomPresets.forEach((k, v) {
+        if (v is List) {
+          parsed[k.toString()] = v.map((e) => (e as num).toDouble()).toList();
+        }
+      });
+      customEqPresetsNotifier.value = parsed;
     }
 
     final rawLangs = _box.get('languages');
@@ -209,6 +234,9 @@ class SettingsManager {
       eqBandsNotifier.value = List<double>.from(presets[presetKey]!);
       await _box.put('eq_preset', presetKey);
       await _box.put('eq_bands', eqBandsNotifier.value);
+    } else if (presetKey.startsWith('custom_')) {
+      final name = presetKey.substring(7);
+      await applyCustomEqPreset(name);
     }
   }
 
@@ -220,6 +248,47 @@ class SettingsManager {
       eqPresetNotifier.value = 'custom';
       await _box.put('eq_preset', 'custom');
       await _box.put('eq_bands', updated);
+    }
+  }
+
+  static Future<void> setBassBoost(double value) async {
+    final clamped = value.clamp(0.0, 1.0);
+    bassBoostNotifier.value = clamped;
+    await _box.put('bass_boost_strength', clamped);
+  }
+
+  static Future<void> setVirtualizer(double value) async {
+    final clamped = value.clamp(0.0, 1.0);
+    virtualizerNotifier.value = clamped;
+    await _box.put('virtualizer_strength', clamped);
+  }
+
+  static Future<void> applyCustomEqPreset(String name) async {
+    final currentCustom = customEqPresetsNotifier.value;
+    if (currentCustom.containsKey(name)) {
+      final bands = List<double>.from(currentCustom[name]!);
+      eqPresetNotifier.value = 'custom_$name';
+      eqBandsNotifier.value = bands;
+      await _box.put('eq_preset', 'custom_$name');
+      await _box.put('eq_bands', bands);
+    }
+  }
+
+  static Future<void> saveCustomEqPreset(String name, List<double> bands) async {
+    final updated = Map<String, List<double>>.from(customEqPresetsNotifier.value);
+    updated[name] = List<double>.from(bands);
+    customEqPresetsNotifier.value = updated;
+    await _box.put('custom_eq_presets', updated);
+    await applyCustomEqPreset(name);
+  }
+
+  static Future<void> deleteCustomEqPreset(String name) async {
+    final updated = Map<String, List<double>>.from(customEqPresetsNotifier.value);
+    updated.remove(name);
+    customEqPresetsNotifier.value = updated;
+    await _box.put('custom_eq_presets', updated);
+    if (eqPresetNotifier.value == 'custom_$name') {
+      await setEqPreset('flat');
     }
   }
 

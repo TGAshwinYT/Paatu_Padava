@@ -112,6 +112,57 @@ class YouTubeClient {
     }
   }
 
+  /// Fetches direct video streaming URL (muxed 720p/360p or MP4 video) for YouTube Music Video playback
+  static Future<String?> getBestVideoStreamUrl(String videoId) async {
+    final cleanId = extractVideoId(videoId) ?? videoId.trim();
+    if (cleanId.isEmpty) return null;
+    try {
+      final manifest = await _yt.videos.streamsClient.getManifest(cleanId);
+      // Prefer muxed streams (combined video + audio) for immediate hardware playback
+      if (manifest.muxed.isNotEmpty) {
+        final bestMuxed = manifest.muxed.withHighestBitrate();
+        return bestMuxed.url.toString();
+      }
+      // Fallback to video-only MP4
+      final mp4Streams = manifest.videoOnly.where((s) => s.container.name == 'mp4');
+      if (mp4Streams.isNotEmpty) {
+        return mp4Streams.withHighestBitrate().url.toString();
+      }
+      if (manifest.video.isNotEmpty) {
+        return manifest.video.withHighestBitrate().url.toString();
+      }
+    } catch (e) {
+      AppLogger.log('YouTubeClient', 'getBestVideoStreamUrl error for $cleanId: $e');
+    }
+    return null;
+  }
+
+  /// Resolves the 11-character YouTube video ID for any track
+  static Future<String?> resolveVideoIdForSong(Song song) async {
+    if (song.source == 'youtube' && !song.id.startsWith('saavn_')) {
+      final clean = extractVideoId(song.id);
+      if (clean != null && clean.isNotEmpty) return clean;
+      if (song.id.length == 11) return song.id;
+    }
+    for (final v in song.versions) {
+      if (v.source == 'youtube' && !v.id.startsWith('saavn_')) {
+        final clean = extractVideoId(v.id);
+        if (clean != null && clean.isNotEmpty) return clean;
+        if (v.id.length == 11) return v.id;
+      }
+    }
+    try {
+      final query = '${song.title} ${song.artist} official music video';
+      final searchList = await _yt.search.search(query);
+      if (searchList.isNotEmpty) {
+        return searchList.first.id.value;
+      }
+    } catch (e) {
+      AppLogger.log('YouTubeClient', 'resolveVideoIdForSong error: $e');
+    }
+    return null;
+  }
+
   /// Exposes a bounded byte stream for chunked streaming via YoutubeExplode or HTTP Range
   static Stream<List<int>> getAudioByteStream(String videoId, {int? start, int? end}) async* {
     final cleanId = extractVideoId(videoId) ?? videoId.trim();

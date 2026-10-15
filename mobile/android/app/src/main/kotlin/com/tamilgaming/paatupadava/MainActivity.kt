@@ -3,7 +3,9 @@ package com.tamilgaming.paatupadava
 import android.content.Context
 import android.content.Intent
 import android.media.audiofx.AudioEffect
+import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
+import android.media.audiofx.Virtualizer
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
@@ -17,6 +19,8 @@ class MainActivity: AudioServiceActivity() {
     private val CHANNEL = "com.tamilgaming.paatupadava/equalizer"
     private val BATTERY_CHANNEL = "com.tamilgaming.paatupadava/battery"
     private var equalizer: Equalizer? = null
+    private var bassBoost: BassBoost? = null
+    private var virtualizer: Virtualizer? = null
     private var currentSessionId: Int = 0
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
@@ -114,6 +118,14 @@ class MainActivity: AudioServiceActivity() {
                             equalizer = Equalizer(0, sessionId).apply {
                                 enabled = true
                             }
+                            bassBoost?.release()
+                            bassBoost = try {
+                                BassBoost(0, sessionId).apply { enabled = true }
+                            } catch (e: Exception) { null }
+                            virtualizer?.release()
+                            virtualizer = try {
+                                Virtualizer(0, sessionId).apply { enabled = true }
+                            } catch (e: Exception) { null }
                             currentSessionId = sessionId
                             result.success(true)
                         } catch (e: Exception) {
@@ -150,6 +162,28 @@ class MainActivity: AudioServiceActivity() {
                         result.success(false)
                     }
                 }
+                "setBassBoostStrength" -> {
+                    val strength = call.argument<Int>("strength") ?: 0
+                    try {
+                        if (bassBoost != null && bassBoost?.strengthSupported == true) {
+                            bassBoost?.setStrength(strength.toShort())
+                        }
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("BASS_ERROR", e.message, null)
+                    }
+                }
+                "setVirtualizerStrength" -> {
+                    val strength = call.argument<Int>("strength") ?: 0
+                    try {
+                        if (virtualizer != null && virtualizer?.strengthSupported == true) {
+                            virtualizer?.setStrength(strength.toShort())
+                        }
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("VIRTUALIZER_ERROR", e.message, null)
+                    }
+                }
                 "openSystemEqualizer" -> {
                     val sessionId = call.argument<Int>("sessionId") ?: currentSessionId
                     try {
@@ -172,7 +206,15 @@ class MainActivity: AudioServiceActivity() {
                     try {
                         equalizer?.release()
                     } catch (e: Exception) {}
+                    try {
+                        bassBoost?.release()
+                    } catch (e: Exception) {}
+                    try {
+                        virtualizer?.release()
+                    } catch (e: Exception) {}
                     equalizer = null
+                    bassBoost = null
+                    virtualizer = null
                     currentSessionId = 0
                     result.success(true)
                 }
@@ -185,7 +227,15 @@ class MainActivity: AudioServiceActivity() {
         try {
             equalizer?.release()
         } catch (e: Exception) {}
+        try {
+            bassBoost?.release()
+        } catch (e: Exception) {}
+        try {
+            virtualizer?.release()
+        } catch (e: Exception) {}
         equalizer = null
+        bassBoost = null
+        virtualizer = null
         super.onDestroy()
     }
 }

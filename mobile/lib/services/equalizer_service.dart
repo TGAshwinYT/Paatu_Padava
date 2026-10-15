@@ -14,6 +14,8 @@ class EqualizerService {
   static bool get isBound => _isBound;
 
   static VoidCallback? _eqBandsListener;
+  static VoidCallback? _bassBoostListener;
+  static VoidCallback? _virtualizerListener;
 
   /// Initializes equalizer service and binds to the player's Android Audio Session ID.
   /// Documented as an app-lifetime singleton tied to the active audio player session.
@@ -32,6 +34,20 @@ class EqualizerService {
       };
       SettingsManager.eqBandsNotifier.addListener(_eqBandsListener!);
     }
+
+    if (_bassBoostListener == null) {
+      _bassBoostListener = () {
+        applyBassBoost();
+      };
+      SettingsManager.bassBoostNotifier.addListener(_bassBoostListener!);
+    }
+
+    if (_virtualizerListener == null) {
+      _virtualizerListener = () {
+        applyVirtualizer();
+      };
+      SettingsManager.virtualizerNotifier.addListener(_virtualizerListener!);
+    }
   }
 
   /// Sets the native AudioSessionId
@@ -47,8 +63,10 @@ class EqualizerService {
       await _channel.invokeMethod('setAudioSessionId', {'sessionId': sessionId});
       _isBound = true;
       debugPrint('[EqualizerService] Successfully bound to Android AudioSession: $sessionId');
-      // Apply existing saved bands immediately
+      // Apply existing saved bands and effects immediately
       await applyCurrentBands();
+      await applyBassBoost();
+      await applyVirtualizer();
     } catch (e) {
       debugPrint('[EqualizerService] setAudioSessionId error: $e');
     }
@@ -66,6 +84,42 @@ class EqualizerService {
     } catch (e) {
       debugPrint('[EqualizerService] applyCurrentBands error: $e');
     }
+  }
+
+  /// Sends bass boost strength (0 to 1000) to native DSP
+  static Future<void> applyBassBoost() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    if (_activeSessionId == null || _activeSessionId == 0) return;
+    try {
+      final strength = (SettingsManager.bassBoost * 1000).round();
+      await _channel.invokeMethod('setBassBoostStrength', {'strength': strength});
+    } catch (e) {
+      debugPrint('[EqualizerService] applyBassBoost error: $e');
+    }
+  }
+
+  /// Sends virtualizer strength (0 to 1000) to native DSP
+  static Future<void> applyVirtualizer() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    if (_activeSessionId == null || _activeSessionId == 0) return;
+    try {
+      final strength = (SettingsManager.virtualizer * 1000).round();
+      await _channel.invokeMethod('setVirtualizerStrength', {'strength': strength});
+    } catch (e) {
+      debugPrint('[EqualizerService] applyVirtualizer error: $e');
+    }
+  }
+
+  /// Sets bass boost level (0.0 to 1.0)
+  static Future<void> setBassBoost(double value) async {
+    await SettingsManager.setBassBoost(value);
+    await applyBassBoost();
+  }
+
+  /// Sets virtualizer / spatial audio simulation level (0.0 to 1.0)
+  static Future<void> setVirtualizer(double value) async {
+    await SettingsManager.setVirtualizer(value);
+    await applyVirtualizer();
   }
 
   /// Sets a single band gain
@@ -108,6 +162,14 @@ class EqualizerService {
     if (_eqBandsListener != null) {
       SettingsManager.eqBandsNotifier.removeListener(_eqBandsListener!);
       _eqBandsListener = null;
+    }
+    if (_bassBoostListener != null) {
+      SettingsManager.bassBoostNotifier.removeListener(_bassBoostListener!);
+      _bassBoostListener = null;
+    }
+    if (_virtualizerListener != null) {
+      SettingsManager.virtualizerNotifier.removeListener(_virtualizerListener!);
+      _virtualizerListener = null;
     }
     try {
       _channel.invokeMethod('release');

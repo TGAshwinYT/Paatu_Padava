@@ -6,6 +6,8 @@ import '../../services/download_manager.dart';
 import '../../services/player_handler.dart';
 import 'add_to_playlist_dialog.dart';
 
+import '../../services/favorites_manager.dart';
+
 class SwipeableSongTile extends StatelessWidget {
   final Song song;
   final List<Song> queue;
@@ -26,9 +28,7 @@ class SwipeableSongTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Dismissible(
       key: ValueKey('swipe_${song.id}_${index ?? 0}'),
-      direction: onRemove != null
-          ? DismissDirection.horizontal
-          : DismissDirection.startToEnd,
+      direction: DismissDirection.horizontal,
       // Swipe Right: Queue Next
       background: Container(
         alignment: Alignment.centerLeft,
@@ -52,7 +52,7 @@ class SwipeableSongTile extends StatelessWidget {
           ],
         ),
       ),
-      // Swipe Left: Optional Delete / Remove
+      // Swipe Left: Optional Delete / Remove OR Like Song
       secondaryBackground: onRemove != null
           ? Container(
               alignment: Alignment.centerRight,
@@ -70,7 +70,39 @@ class SwipeableSongTile extends StatelessWidget {
                 ],
               ),
             )
-          : null,
+          : Container(
+              alignment: Alignment.centerRight,
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFFF43F5E).withValues(alpha: 0.50),
+                    const Color(0xFFE11D48).withValues(alpha: 0.90),
+                  ],
+                ),
+              ),
+              child: ValueListenableBuilder<List<Song>>(
+                valueListenable: FavoritesManager.favoritesNotifier,
+                builder: (context, _, __) {
+                  final isFav = FavoritesManager.isFavorite(song.id);
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Text(
+                        isFav ? 'Remove Like' : 'Like Song',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(
+                        isFav ? Icons.favorite_border_rounded : Icons.favorite_rounded,
+                        color: Colors.white,
+                        size: 24,
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
       confirmDismiss: (direction) async {
         if (direction == DismissDirection.startToEnd) {
           // Swipe Right: Queue next with haptic feedback
@@ -101,10 +133,44 @@ class SwipeableSongTile extends StatelessWidget {
           );
           // Return false so item rebounds back into the list!
           return false;
-        } else if (direction == DismissDirection.endToStart && onRemove != null) {
-          HapticFeedback.lightImpact();
-          onRemove?.call();
-          return true;
+        } else if (direction == DismissDirection.endToStart) {
+          if (onRemove != null) {
+            HapticFeedback.lightImpact();
+            onRemove?.call();
+            return true;
+          } else {
+            // Swipe Left to Like / Save
+            HapticFeedback.mediumImpact();
+            final wasLiked = await FavoritesManager.toggleFavorite(song);
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    Icon(
+                      wasLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                      color: const Color(0xFFF43F5E),
+                      size: 18,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        wasLiked ? 'Added "${song.title}" to Liked Songs' : 'Removed from Liked Songs',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ],
+                ),
+                backgroundColor: const Color(0xFF1E293B),
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+            return false; // Rebound back!
+          }
         }
         return false;
       },

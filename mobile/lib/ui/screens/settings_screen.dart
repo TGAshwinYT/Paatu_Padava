@@ -15,6 +15,7 @@ import 'equalizer_settings_screen.dart';
 import 'downloads_settings_screen.dart';
 import 'storage_settings_screen.dart';
 import 'appearance_settings_screen.dart';
+import 'home_settings_screen.dart';
 import 'party_sync_settings_screen.dart';
 import 'listening_recap_screen.dart';
 
@@ -197,6 +198,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildSectionHeader('DISPLAY & PREFERENCES', Icons.palette_rounded),
               const SizedBox(height: 10),
               _buildHubContainer([
+                AnimatedBuilder(
+                  animation: Listenable.merge([
+                    SettingsManager.homeHeroBannerModeNotifier,
+                    SettingsManager.homeTop10ChartLayoutNotifier,
+                    SettingsManager.homeRememberFeelingNotifier,
+                  ]),
+                  builder: (context, _) {
+                    final heroMode = SettingsManager.homeHeroBannerMode;
+                    final chartLayout = SettingsManager.homeTop10ChartLayout;
+                    final heroText = heroMode == 'smart' ? 'Adaptive' : (heroMode == 'flagship' ? 'Top 50' : 'Time-of-Day');
+                    final chartText = chartLayout == 'vertical' ? 'Ranked #1-#10' : '3D Slider';
+                    return _buildNavigationTile(
+                      icon: Icons.dashboard_customize_rounded,
+                      iconColor: const Color(0xFF8B5CF6),
+                      title: 'Home Feed & Experience',
+                      subtitle: '$heroText Hero • $chartText • Privacy Mood Guard',
+                      onTap: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const HomeSettingsScreen()),
+                        );
+                        setState(() {});
+                      },
+                    );
+                  },
+                ),
+                const Divider(color: Colors.white10, height: 1),
                 AnimatedBuilder(
                   animation: Listenable.merge([
                     SettingsManager.themeModeNotifier,

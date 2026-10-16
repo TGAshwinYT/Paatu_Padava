@@ -15,6 +15,7 @@ import '../services/spotify_import_service.dart';
 import '../services/cache_manager.dart';
 import 'stream_resolver.dart';
 import '../domain/models/track_entity.dart';
+import '../domain/models/home_feed_models.dart';
 
 class HomeFeedState {
   final List<Song> madeForYou;
@@ -25,6 +26,11 @@ class HomeFeedState {
   final List<Map<String, dynamic>> popularArtists;
   final List<Map<String, dynamic>> featuredAlbums;
   final List<Song> recentHistory;
+  final HeroShowcase? heroShowcase;
+  final List<RankedChartSong> top10Charts;
+  final List<FeelingMix> feelingMixes;
+  final List<Song> quickPicks;
+  final String activeFeeling;
   final bool isLoading;
   final String? error;
   final AppError? appError;
@@ -38,6 +44,11 @@ class HomeFeedState {
     this.popularArtists = const [],
     this.featuredAlbums = const [],
     this.recentHistory = const [],
+    this.heroShowcase,
+    this.top10Charts = const [],
+    this.feelingMixes = const [],
+    this.quickPicks = const [],
+    this.activeFeeling = 'all',
     this.isLoading = false,
     this.error,
     this.appError,
@@ -50,7 +61,8 @@ class HomeFeedState {
       spotifyTop10.isEmpty &&
       newReleases.isEmpty &&
       popularArtists.isEmpty &&
-      featuredAlbums.isEmpty;
+      featuredAlbums.isEmpty &&
+      (heroShowcase == null || heroShowcase!.tracks.isEmpty);
 
   HomeFeedState copyWith({
     List<Song>? madeForYou,
@@ -61,6 +73,11 @@ class HomeFeedState {
     List<Map<String, dynamic>>? popularArtists,
     List<Map<String, dynamic>>? featuredAlbums,
     List<Song>? recentHistory,
+    HeroShowcase? heroShowcase,
+    List<RankedChartSong>? top10Charts,
+    List<FeelingMix>? feelingMixes,
+    List<Song>? quickPicks,
+    String? activeFeeling,
     bool? isLoading,
     String? error,
     AppError? appError,
@@ -74,6 +91,11 @@ class HomeFeedState {
       popularArtists: popularArtists ?? this.popularArtists,
       featuredAlbums: featuredAlbums ?? this.featuredAlbums,
       recentHistory: recentHistory ?? this.recentHistory,
+      heroShowcase: heroShowcase ?? this.heroShowcase,
+      top10Charts: top10Charts ?? this.top10Charts,
+      feelingMixes: feelingMixes ?? this.feelingMixes,
+      quickPicks: quickPicks ?? this.quickPicks,
+      activeFeeling: activeFeeling ?? this.activeFeeling,
       isLoading: isLoading ?? this.isLoading,
       error: error,
       appError: appError,
@@ -150,6 +172,12 @@ class HomeFeedProvider extends ChangeNotifier {
     loadFeed();
   }
 
+  void setActiveFeeling(String feelingId) {
+    if (_state.activeFeeling == feelingId) return;
+    _state = _state.copyWith(activeFeeling: feelingId);
+    notifyListeners();
+  }
+
   Future<void> _loadCachedFeed(String lang) async {
     try {
       final raw = CacheManager.getCachedHomeFeedSync(lang) ?? await CacheManager.getCachedHomeFeed(lang);
@@ -174,7 +202,46 @@ class HomeFeedProvider extends ChangeNotifier {
         }).toList();
         final recentHistory = HistoryManager.getRecentSongs();
 
-        if (madeForYou.isNotEmpty || trendingMerged.isNotEmpty || youtubeTrending.isNotEmpty || spotifyTop10.isNotEmpty) {
+        HeroShowcase? heroShowcase;
+        if (raw['heroShowcase'] is Map) {
+          try {
+            heroShowcase = HeroShowcase.fromMap(Map<String, dynamic>.from(raw['heroShowcase'] as Map));
+          } catch (_) {}
+        }
+
+        final top10Charts = (raw['top10Charts'] as List<dynamic>?)
+                ?.map((e) {
+                  try {
+                    return RankedChartSong.fromMap(Map<String, dynamic>.from(e as Map));
+                  } catch (_) {
+                    return null;
+                  }
+                })
+                .whereType<RankedChartSong>()
+                .toList() ??
+            [];
+
+        final feelingMixes = (raw['feelingMixes'] as List<dynamic>?)
+                ?.map((e) {
+                  try {
+                    return FeelingMix.fromMap(Map<String, dynamic>.from(e as Map));
+                  } catch (_) {
+                    return null;
+                  }
+                })
+                .whereType<FeelingMix>()
+                .toList() ??
+            [];
+
+        final quickPicks = _decodeSongList(raw['quickPicks']);
+        final rememberFeeling = SettingsManager.isHomeRememberFeelingEnabled;
+        final savedFeeling = rememberFeeling ? (raw['activeFeeling']?.toString() ?? 'all') : 'all';
+
+        if (madeForYou.isNotEmpty ||
+            trendingMerged.isNotEmpty ||
+            youtubeTrending.isNotEmpty ||
+            spotifyTop10.isNotEmpty ||
+            heroShowcase != null) {
           _state = HomeFeedState(
             madeForYou: madeForYou,
             trendingMerged: trendingMerged,
@@ -184,6 +251,11 @@ class HomeFeedProvider extends ChangeNotifier {
             popularArtists: popularArtists,
             featuredAlbums: featuredAlbums,
             recentHistory: recentHistory,
+            heroShowcase: heroShowcase,
+            top10Charts: top10Charts,
+            feelingMixes: feelingMixes,
+            quickPicks: quickPicks,
+            activeFeeling: savedFeeling,
             isLoading: false, // Instant cache-first render: no loading spinner
           );
           notifyListeners();
@@ -208,6 +280,11 @@ class HomeFeedProvider extends ChangeNotifier {
         'newReleases': feed.newReleases.map((s) => s.toMap()).toList(),
         'popularArtists': feed.popularArtists,
         'featuredAlbums': feed.featuredAlbums,
+        'heroShowcase': feed.heroShowcase?.toMap(),
+        'top10Charts': feed.top10Charts.map((r) => r.toMap()).toList(),
+        'feelingMixes': feed.feelingMixes.map((f) => f.toMap()).toList(),
+        'quickPicks': feed.quickPicks.map((s) => s.toMap()).toList(),
+        'activeFeeling': feed.activeFeeling,
         'cached_at': DateTime.now().millisecondsSinceEpoch,
       };
       await CacheManager.saveCachedHomeFeed(lang, cacheData);
@@ -353,11 +430,28 @@ class HomeFeedProvider extends ChangeNotifier {
   /// Background revalidation of fresh Home Feed sections
   Future<void> _revalidateFeed(String lang) async {
     try {
+      // Parallel fetch for flagship editorial showcase, top 10 ranked chart, feeling mixes, and quick picks
+      final extraFutures = Future.wait([
+        SongRepository.getFlagshipShowcase(
+          language: lang,
+          heroMode: SettingsManager.homeHeroBannerMode,
+        ),
+        SongRepository.getTop10RankedCharts(language: lang),
+        SongRepository.getFeelingMixes(language: lang),
+        SongRepository.getQuickPicks(language: lang),
+      ]);
+
       // SWR Step 2: Consolidated single-payload API request with 3s timeout so sleeping server never delays
       Map<String, dynamic>? unifiedFeed;
       try {
         unifiedFeed = await ApiClient.getHomeFeed(lang).timeout(const Duration(seconds: 3));
       } catch (_) {}
+
+      final extra = await extraFutures;
+      final heroShowcase = extra[0] as HeroShowcase;
+      final top10Charts = extra[1] as List<RankedChartSong>;
+      final feelingMixes = extra[2] as List<FeelingMix>;
+      final quickPicks = extra[3] as List<Song>;
 
       if (unifiedFeed != null &&
           (unifiedFeed['madeForYou'] is List || unifiedFeed['trending'] is List)) {
@@ -426,6 +520,11 @@ class HomeFeedProvider extends ChangeNotifier {
           popularArtists: popularArtists,
           featuredAlbums: featuredAlbums,
           recentHistory: recentHistory,
+          heroShowcase: heroShowcase.tracks.isNotEmpty ? heroShowcase : _state.heroShowcase,
+          top10Charts: top10Charts.isNotEmpty ? top10Charts : _state.top10Charts,
+          feelingMixes: feelingMixes.isNotEmpty ? feelingMixes : _state.feelingMixes,
+          quickPicks: quickPicks.isNotEmpty ? quickPicks : _state.quickPicks,
+          activeFeeling: _state.activeFeeling,
           isLoading: false,
         );
         _persistFeedToCache(lang, _state);
@@ -474,7 +573,8 @@ class HomeFeedProvider extends ChangeNotifier {
           trendingMerged.isNotEmpty ||
           ytTrending.isNotEmpty ||
           spotifyTop10.isNotEmpty ||
-          newReleases.isNotEmpty;
+          newReleases.isNotEmpty ||
+          heroShowcase.tracks.isNotEmpty;
 
       if (hasFreshData || _state.isEmpty) {
         _state = HomeFeedState(
@@ -486,6 +586,11 @@ class HomeFeedProvider extends ChangeNotifier {
           popularArtists: popularArtists.isNotEmpty ? popularArtists : _state.popularArtists,
           featuredAlbums: featuredAlbums.isNotEmpty ? featuredAlbums : _state.featuredAlbums,
           recentHistory: recentHistory.isNotEmpty ? recentHistory : _state.recentHistory,
+          heroShowcase: heroShowcase.tracks.isNotEmpty ? heroShowcase : _state.heroShowcase,
+          top10Charts: top10Charts.isNotEmpty ? top10Charts : _state.top10Charts,
+          feelingMixes: feelingMixes.isNotEmpty ? feelingMixes : _state.feelingMixes,
+          quickPicks: quickPicks.isNotEmpty ? quickPicks : _state.quickPicks,
+          activeFeeling: _state.activeFeeling,
           isLoading: false,
         );
         if (hasFreshData) {

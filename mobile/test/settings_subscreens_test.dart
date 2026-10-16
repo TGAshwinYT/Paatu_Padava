@@ -42,6 +42,7 @@ void main() {
       expect(find.text('Downloads & Network Rules'), findsOneWidget);
       expect(find.text('Storage & Cache Management'), findsOneWidget);
       expect(find.text('Appearance & Display'), findsOneWidget);
+      expect(find.text('Home Feed & Experience'), findsOneWidget);
       expect(find.text('Music Languages'), findsOneWidget);
       expect(find.text('Multi-Phone Party Sync & Latency'), findsOneWidget);
       expect(find.text('Paatu Recap & Music Wrapped'), findsOneWidget);

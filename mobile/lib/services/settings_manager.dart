@@ -36,6 +36,10 @@ class SettingsManager {
   static final ValueNotifier<bool> keepScreenAwakeNotifier = ValueNotifier<bool>(false);
   static final ValueNotifier<bool> downloadWifiOnlyNotifier = ValueNotifier<bool>(false);
   static final ValueNotifier<String> downloadPathNotifier = ValueNotifier<String>('Internal Storage');
+  static final ValueNotifier<String> homeHeroBannerModeNotifier = ValueNotifier<String>('smart');
+  static final ValueNotifier<String> homeTop10ChartLayoutNotifier = ValueNotifier<String>('vertical');
+  static final ValueNotifier<bool> homeRememberFeelingNotifier = ValueNotifier<bool>(false);
+  static final ValueNotifier<bool> homeShowQuickPicksNotifier = ValueNotifier<bool>(true);
 
   static String get streamingQuality => streamingQualityNotifier.value;
   /// Returns the resolved bitrate string ('320kbps', '160kbps', '96kbps').
@@ -68,6 +72,10 @@ class SettingsManager {
   static bool get isKeepScreenAwakeEnabled => keepScreenAwakeNotifier.value;
   static bool get isDownloadWifiOnlyEnabled => downloadWifiOnlyNotifier.value;
   static String get downloadPath => downloadPathNotifier.value;
+  static String get homeHeroBannerMode => homeHeroBannerModeNotifier.value;
+  static String get homeTop10ChartLayout => homeTop10ChartLayoutNotifier.value;
+  static bool get isHomeRememberFeelingEnabled => homeRememberFeelingNotifier.value;
+  static bool get isHomeShowQuickPicksEnabled => homeShowQuickPicksNotifier.value;
 
   /// Single coordinated preferred languages accessor:
   /// Uses AuthManager profile preferences as the source of truth,
@@ -148,6 +156,10 @@ class SettingsManager {
     keepScreenAwakeNotifier.value = _box.get('keep_screen_awake', defaultValue: false) as bool;
     downloadWifiOnlyNotifier.value = _box.get('download_wifi_only', defaultValue: false) as bool;
     downloadPathNotifier.value = _box.get('download_path', defaultValue: 'Internal Storage') as String;
+    homeHeroBannerModeNotifier.value = _box.get('home_hero_banner_mode', defaultValue: 'smart') as String;
+    homeTop10ChartLayoutNotifier.value = _box.get('home_top10_chart_layout', defaultValue: 'vertical') as String;
+    homeRememberFeelingNotifier.value = _box.get('home_remember_feeling', defaultValue: false) as bool;
+    homeShowQuickPicksNotifier.value = _box.get('home_show_quick_picks', defaultValue: true) as bool;
   }
 
   static Future<void> setThemeMode(String mode) async {
@@ -178,6 +190,26 @@ class SettingsManager {
   static Future<void> setDownloadPath(String path) async {
     downloadPathNotifier.value = path;
     await _box.put('download_path', path);
+  }
+
+  static Future<void> setHomeHeroBannerMode(String mode) async {
+    homeHeroBannerModeNotifier.value = mode;
+    await _box.put('home_hero_banner_mode', mode);
+  }
+
+  static Future<void> setHomeTop10ChartLayout(String layout) async {
+    homeTop10ChartLayoutNotifier.value = layout;
+    await _box.put('home_top10_chart_layout', layout);
+  }
+
+  static Future<void> setHomeRememberFeeling(bool enabled) async {
+    homeRememberFeelingNotifier.value = enabled;
+    await _box.put('home_remember_feeling', enabled);
+  }
+
+  static Future<void> setHomeShowQuickPicks(bool enabled) async {
+    homeShowQuickPicksNotifier.value = enabled;
+    await _box.put('home_show_quick_picks', enabled);
   }
 
   static Future<void> setLyricsPreferredLanguage(String lang) async {

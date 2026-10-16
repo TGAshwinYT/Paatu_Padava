@@ -103,6 +103,7 @@ class PartySyncCoordinator {
   static RealtimeChannel? _partyChannel;
   static Timer? _hostHeartbeatTimer;
   static Timer? _ntpHandshakeTimer;
+  static Timer? _rollingNtpTimer;
   static final String _clientId = _uuid.v4();
   static final List<NtpSample> _ntpSamples = [];
 
@@ -163,6 +164,7 @@ class PartySyncCoordinator {
         final t1 = DateTime.now().millisecondsSinceEpoch;
         final t0 = payload['t0'] as int?;
         final senderId = payload['senderId']?.toString();
+        final isRolling = payload['isRolling'] == true;
         if (t0 != null && senderId != null) {
           final t2 = DateTime.now().millisecondsSinceEpoch;
           channel.sendBroadcastMessage(
@@ -172,6 +174,7 @@ class PartySyncCoordinator {
               't1': t1,
               't2': t2,
               'recipientId': senderId,
+              'isRolling': isRolling,
             },
           );
         }
@@ -294,13 +297,23 @@ class PartySyncCoordinator {
           final t0 = payload['t0'] as int?;
           final t1 = payload['t1'] as int?;
           final t2 = payload['t2'] as int?;
+          final isRolling = payload['isRolling'] == true;
           if (t0 != null && t1 != null && t2 != null) {
             final sample = NtpSample(t0: t0, t1: t1, t2: t2, t3: t3);
-            _ntpSamples.add(sample);
-            measuredRttMsNotifier.value = sample.rtt;
-            final offset = NtpCalculator.calculateOffset(_ntpSamples);
-            clockOffsetMsNotifier.value = offset;
-            syncStatusDescription.value = 'In Sync (RTT: ${sample.rtt}ms, Offset: ${offset}ms)';
+            if (isRolling) {
+              // Continuous background NTP: smooth offset via Exponential Moving Average (EWMA)
+              final curOffset = clockOffsetMsNotifier.value;
+              final smoothedOffset = (curOffset * 0.8 + sample.offset * 0.2).round();
+              clockOffsetMsNotifier.value = smoothedOffset;
+              measuredRttMsNotifier.value = (measuredRttMsNotifier.value * 0.7 + sample.rtt * 0.3).round();
+            } else {
+              // Initial handshake: gather 8 samples and calculate low-RTT median
+              _ntpSamples.add(sample);
+              measuredRttMsNotifier.value = sample.rtt;
+              final offset = NtpCalculator.calculateOffset(_ntpSamples);
+              clockOffsetMsNotifier.value = offset;
+              syncStatusDescription.value = 'In Sync (RTT: ${sample.rtt}ms, Offset: ${offset}ms)';
+            }
 
             // Update self peer RTT in local state and notify channel
             _knownPeers[_clientId] = selfPeer.copyWith(rttMs: sample.rtt);
@@ -316,6 +329,13 @@ class PartySyncCoordinator {
             );
           }
         }
+      },
+    );
+
+    channel.onBroadcast(
+      event: 'sync_queue',
+      callback: (payload) async {
+        await _handleRemoteQueue(payload);
       },
     );
 
@@ -425,7 +445,43 @@ class PartySyncCoordinator {
       pingsSent++;
       if (pingsSent >= 8) {
         timer.cancel();
+        // Transition to continuous rolling NTP in background
+        _startRollingNtp();
       }
+    });
+  }
+
+  /// Starts periodic background NTP pings (every 12 seconds) to track and cancel thermal clock drift
+  static void _startRollingNtp() {
+    _rollingNtpTimer?.cancel();
+    _rollingNtpTimer = Timer.periodic(const Duration(seconds: 12), (timer) {
+      if (_partyChannel == null || role != PartyRole.joiner) {
+        timer.cancel();
+        return;
+      }
+      _executeRollingNtpPing();
+    });
+  }
+
+  /// Sends 3 lightweight NTP pings spaced by 120ms to update the rolling clock offset
+  static void _executeRollingNtpPing() {
+    if (_partyChannel == null || role != PartyRole.joiner) return;
+    int pingsSent = 0;
+    Timer.periodic(const Duration(milliseconds: 120), (timer) {
+      if (_partyChannel == null || role != PartyRole.joiner || pingsSent >= 3) {
+        timer.cancel();
+        return;
+      }
+      final t0 = DateTime.now().millisecondsSinceEpoch;
+      _partyChannel?.sendBroadcastMessage(
+        event: 'ntp_ping',
+        payload: {
+          't0': t0,
+          'senderId': _clientId,
+          'isRolling': true,
+        },
+      );
+      pingsSent++;
     });
   }
 
@@ -436,6 +492,7 @@ class PartySyncCoordinator {
     final currentPosMs = playbackState.position.inMilliseconds;
     final isPlaying = playbackState.playing;
     final curSong = audioHandler.currentSong;
+    final currentQueue = audioHandler.playlist;
 
     _partyChannel?.sendBroadcastMessage(
       event: 'sync_heartbeat',
@@ -450,14 +507,20 @@ class PartySyncCoordinator {
         'isPlaying': isPlaying,
         'peerCount': _knownPeers.length,
         'peers': _knownPeers.values.map((p) => p.toMap()).toList(),
+        'queue': currentQueue.take(20).map((s) => s.toMap()).toList(),
       },
     );
   }
 
   /// Host: Notifies connected speakers when a new track starts playing
-  static Future<void> notifyHostPlay(Song song, {int positionMs = 0}) async {
-    if (!isHost) return;
-    const leadTimeMs = 400;
+  static Future<void> notifyHostPlay(
+    Song song, {
+    int positionMs = 0,
+    List<Song>? queue,
+    int? currentIndex,
+  }) async {
+    if (!isHost || _partyChannel == null) return;
+    const leadTimeMs = 1200;
     final now = DateTime.now().millisecondsSinceEpoch;
     final startAtEpochMs = now + leadTimeMs;
 
@@ -468,13 +531,56 @@ class PartySyncCoordinator {
         'songId': song.id,
         'positionMs': positionMs,
         'startAtEpochMs': startAtEpochMs,
+        'currentIndex': currentIndex ?? 0,
+        'queue': queue?.take(30).map((s) => s.toMap()).toList(),
+      },
+    );
+  }
+
+  /// Host: Notifies connected speakers when active track transitions automatically or via skip
+  static Future<void> notifyHostTrackTransition(
+    Song song, {
+    List<Song>? queue,
+    int? currentIndex,
+  }) async {
+    if (!isHost || _partyChannel == null) return;
+    const leadTimeMs = 1200;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final startAtEpochMs = now + leadTimeMs;
+
+    _partyChannel?.sendBroadcastMessage(
+      event: 'sync_play',
+      payload: {
+        'song': song.toMap(),
+        'songId': song.id,
+        'positionMs': 0,
+        'startAtEpochMs': startAtEpochMs,
+        'currentIndex': currentIndex ?? 0,
+        'queue': queue?.take(30).map((s) => s.toMap()).toList(),
+      },
+    );
+  }
+
+  /// Host: Notifies connected speakers when playback queue is updated or modified
+  static void notifyHostQueueUpdated(List<Song> queue, int currentIndex) {
+    if (!isHost || _partyChannel == null) return;
+    final curSong = audioHandler.currentSong;
+    final isPlaying = audioHandler.playbackState.value.playing;
+
+    _partyChannel?.sendBroadcastMessage(
+      event: 'sync_queue',
+      payload: {
+        'queue': queue.take(30).map((s) => s.toMap()).toList(),
+        'currentIndex': currentIndex,
+        'activeSongId': curSong?.id,
+        'isPlaying': isPlaying,
       },
     );
   }
 
   /// Host: Notifies connected speakers when playback pauses
   static Future<void> notifyHostPause() async {
-    if (!isHost) return;
+    if (!isHost || _partyChannel == null) return;
     final pos = audioHandler.playbackState.value.position.inMilliseconds;
     _partyChannel?.sendBroadcastMessage(
       event: 'sync_pause',
@@ -484,8 +590,8 @@ class PartySyncCoordinator {
 
   /// Host: Notifies connected speakers when user seeks
   static Future<void> notifyHostSeek(Duration position) async {
-    if (!isHost) return;
-    const leadTimeMs = 250;
+    if (!isHost || _partyChannel == null) return;
+    const leadTimeMs = 300;
     final now = DateTime.now().millisecondsSinceEpoch;
     final startAtEpochMs = now + leadTimeMs;
 
@@ -500,9 +606,9 @@ class PartySyncCoordinator {
 
   /// Host: Notifies connected speakers when playback resumes
   static Future<void> notifyHostResume() async {
-    if (!isHost) return;
+    if (!isHost || _partyChannel == null) return;
     final pos = audioHandler.playbackState.value.position.inMilliseconds;
-    const leadTimeMs = 300;
+    const leadTimeMs = 400;
     final now = DateTime.now().millisecondsSinceEpoch;
     final startAtEpochMs = now + leadTimeMs;
     final curSong = audioHandler.currentSong;
@@ -518,14 +624,14 @@ class PartySyncCoordinator {
     );
   }
 
-  /// Host: Scheduled Play trigger (broadcasting start at now + 2000ms future epoch)
+  /// Host: Scheduled Play trigger (broadcasting start at now + 1200ms future epoch)
   static Future<void> hostPlaySong(Song song, {int positionMs = 0}) async {
     if (!isHost) {
       await audioHandler.playSong(song);
       return;
     }
 
-    const leadTimeMs = 2000;
+    const leadTimeMs = 1200;
     final now = DateTime.now().millisecondsSinceEpoch;
     final startAtEpochMs = now + leadTimeMs;
 
@@ -586,33 +692,112 @@ class PartySyncCoordinator {
       final songData = payload['song'] as Map<dynamic, dynamic>?;
       if (songData == null) return;
 
-      final song = Song.fromMap(songData);
-      final positionMs = payload['positionMs'] as int? ?? 0;
-      final startAtEpochMs = payload['startAtEpochMs'] as int? ?? 0;
+      final song = Song.fromMap(Map<String, dynamic>.from(songData));
+      final positionMs = (payload['positionMs'] as num?)?.toInt() ?? 0;
+      final startAtEpochMs = (payload['startAtEpochMs'] as num?)?.toInt() ?? 0;
+      final rawQueue = payload['queue'] as List<dynamic>?;
+
+      List<Song>? queue;
+      if (rawQueue != null && rawQueue.isNotEmpty) {
+        queue = rawQueue.map((item) => Song.fromMap(Map<String, dynamic>.from(item as Map))).toList();
+      }
 
       syncStatusDescription.value = 'Syncing "${song.title}"...';
 
-      // Load media and position
-      await audioHandler.playSong(song, queue: [song]);
-      if (positionMs > 0) {
-        await audioHandler.seek(Duration(milliseconds: positionMs));
-      } else {
-        await audioHandler.seek(Duration.zero);
+      final currentSong = audioHandler.currentSong;
+      final bool isSameSong = currentSong?.id == song.id;
+
+      if (!isSameSong) {
+        // Load media and mirrored queue into joiner queue handler
+        await audioHandler.playSong(
+          song,
+          queue: queue ?? [song],
+          preserveUserQueue: false,
+        );
       }
 
-      final delayMs = ScheduledPlaybackCalculator.calculateScheduledDelayMs(
-        startAtEpochMs: startAtEpochMs,
-        currentLocalEpochMs: DateTime.now().millisecondsSinceEpoch,
-        clockOffsetMs: clockOffsetMs,
-      );
+      final nowLocal = DateTime.now().millisecondsSinceEpoch;
+      final estimatedHostTimeMs = nowLocal + clockOffsetMs;
+      final delayMs = startAtEpochMs - estimatedHostTimeMs;
 
-      if (delayMs > 0 && delayMs < 5000) {
+      if (delayMs > 0) {
+        // Scheduled start is in the future: pre-position and hold until barrier triggers
+        if (positionMs > 0) {
+          await audioHandler.seek(Duration(milliseconds: positionMs));
+        } else {
+          await audioHandler.seek(Duration.zero);
+        }
         await audioHandler.pause();
         await Future.delayed(Duration(milliseconds: delayMs));
         await audioHandler.play();
+      } else {
+        // Scheduled start has already elapsed (e.g. stream URL resolution delay):
+        // Seek to exact elapsed playback position and play immediately!
+        final targetPosMs = ScheduledPlaybackCalculator.calculateElapsedPositionMs(
+          startAtEpochMs: startAtEpochMs,
+          positionMs: positionMs,
+          currentLocalEpochMs: nowLocal,
+          clockOffsetMs: clockOffsetMs,
+          bluetoothDelayMs: SettingsManager.bluetoothDelayMs,
+          hardwareLatencyMs: SettingsManager.hardwareAudioLatencyMs,
+        );
+        if (targetPosMs > 0) {
+          await audioHandler.seek(Duration(milliseconds: targetPosMs));
+        }
+        await audioHandler.play();
       }
+      syncStatusDescription.value = 'In Sync';
     } catch (e) {
       debugPrint('[PartySyncCoordinator] handleRemotePlay error: $e');
+    }
+  }
+
+  /// Joiner: Mirrors host queue in local AudioQueueHandler for gapless consecutive song transitions
+  static Future<void> _handleRemoteQueue(Map<String, dynamic> payload) async {
+    if (role != PartyRole.joiner) return;
+    try {
+      final rawQueue = payload['queue'] as List<dynamic>?;
+      if (rawQueue == null || rawQueue.isEmpty) return;
+
+      final hostIndex = (payload['currentIndex'] as num?)?.toInt() ?? 0;
+      final isPlaying = payload['isPlaying'] == true;
+
+      final songs = rawQueue.map((item) => Song.fromMap(Map<String, dynamic>.from(item as Map))).toList();
+
+      final currentQueue = audioHandler.playlist;
+      bool isMatch = currentQueue.length == songs.length;
+      if (isMatch) {
+        for (int i = 0; i < songs.length; i++) {
+          if (currentQueue[i].id != songs[i].id) {
+            isMatch = false;
+            break;
+          }
+        }
+      }
+
+      if (!isMatch) {
+        AppLogger.log('PartySyncCoordinator', 'Mirroring host queue (${songs.length} songs, active index: $hostIndex)');
+        final currentSong = audioHandler.currentSong;
+        final targetIndex = hostIndex.clamp(0, songs.length - 1);
+        final targetSong = songs[targetIndex];
+
+        if (currentSong?.id == targetSong.id) {
+          // Same song is already active; load queue without resetting playback position
+          await audioHandler.playSong(
+            targetSong,
+            queue: songs,
+            preserveUserQueue: false,
+          );
+        } else if (isPlaying) {
+          await audioHandler.playSong(
+            targetSong,
+            queue: songs,
+            preserveUserQueue: false,
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('[PartySyncCoordinator] handleRemoteQueue error: $e');
     }
   }
 
@@ -655,8 +840,17 @@ class PartySyncCoordinator {
           final title = payload['title']?.toString() ?? 'host track';
           syncStatusDescription.value = 'Syncing track: $title';
           try {
-            final song = Song.fromMap(hostSongData);
-            await audioHandler.playSong(song, queue: [song]);
+            final song = Song.fromMap(Map<String, dynamic>.from(hostSongData));
+            final rawQueue = payload['queue'] as List<dynamic>?;
+            List<Song>? queue;
+            if (rawQueue != null && rawQueue.isNotEmpty) {
+              queue = rawQueue.map((item) => Song.fromMap(Map<String, dynamic>.from(item as Map))).toList();
+            }
+            await audioHandler.playSong(
+              song,
+              queue: queue ?? [song],
+              preserveUserQueue: false,
+            );
             final refHostEpoch = payload['referenceHostEpochMs'] as int?;
             final refHostPos = payload['referencePositionMs'] as int?;
             if (refHostEpoch != null && refHostPos != null) {
@@ -675,6 +869,8 @@ class PartySyncCoordinator {
             }
             if (!isHostPlaying) {
               await audioHandler.pause();
+            } else {
+              await audioHandler.play();
             }
           } catch (e) {
             AppLogger.log('PartySyncCoordinator', 'Heartbeat auto-load track notice: $e');
@@ -722,6 +918,8 @@ class PartySyncCoordinator {
     final action = DriftReconciler.reconcileDrift(
       currentPositionMs: currentPos,
       expectedPositionMs: expectedPos,
+      deadbandMs: 8,
+      microAdjustMaxMs: 250,
     );
 
     if (action.isHardSeek && action.seekTargetMs != null) {
@@ -742,7 +940,7 @@ class PartySyncCoordinator {
       syncStatusDescription.value = action.playbackSpeed > 1.0 ? 'Catching up (+2%)' : 'Slowing down (-2%)';
     } else {
       audioHandler.setSpeed(1.0);
-      syncStatusDescription.value = 'In Sync (|drift| < 10ms)';
+      syncStatusDescription.value = 'In Sync (|drift| < 8ms)';
     }
   }
 
@@ -759,6 +957,8 @@ class PartySyncCoordinator {
     _hostHeartbeatTimer = null;
     _ntpHandshakeTimer?.cancel();
     _ntpHandshakeTimer = null;
+    _rollingNtpTimer?.cancel();
+    _rollingNtpTimer = null;
 
     if (_partyChannel != null) {
       try {

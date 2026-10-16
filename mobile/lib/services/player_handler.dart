@@ -274,6 +274,16 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     };
     FavoritesManager.favoritesNotifier.addListener(_favListener!);
 
+    // Synchronize host queue mutations to all connected party speakers
+    _queueHandler.queueNotifier.addListener(() {
+      if (PartySyncCoordinator.isHost) {
+        PartySyncCoordinator.notifyHostQueueUpdated(
+          _queueHandler.queue,
+          _queueHandler.currentIndex,
+        );
+      }
+    });
+
     // Connect 5-band equalizer directly to native audio session ID
     int? initialSessionId;
     try {
@@ -391,6 +401,15 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
 
     // Predictive Smart Caching for upcoming queue and radio tracks
     SmartCacheService.instance.onQueueUpdated(song, _queueHandler.queue);
+
+    // Synchronize automatic or skip track transitions to all party speakers
+    if (PartySyncCoordinator.isHost) {
+      PartySyncCoordinator.notifyHostTrackTransition(
+        song,
+        queue: _queueHandler.queue,
+        currentIndex: _queueHandler.currentIndex,
+      );
+    }
 
     _broadcastState();
   }
@@ -817,7 +836,11 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     await applyVolumeNormalization(song);
 
     if (PartySyncCoordinator.isHost) {
-      PartySyncCoordinator.notifyHostPlay(song);
+      PartySyncCoordinator.notifyHostPlay(
+        song,
+        queue: queue ?? _queueHandler.queue,
+        currentIndex: targetIndex,
+      );
     }
   }
 

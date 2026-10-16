@@ -188,4 +188,22 @@ class ScheduledPlaybackCalculator {
 
     return max(0, rawExpected + bluetoothDelayMs + hardwareLatencyMs);
   }
+
+  /// Calculates the exact playback position when the scheduled start epoch has already passed
+  /// (e.g. when CDN stream URL resolution or buffering on joiner took longer than lead time).
+  static int calculateElapsedPositionMs({
+    required int startAtEpochMs,
+    required int positionMs,
+    required int currentLocalEpochMs,
+    int clockOffsetMs = 0,
+    int bluetoothDelayMs = 0,
+    int hardwareLatencyMs = 0,
+  }) {
+    final estimatedHostTimeMs = currentLocalEpochMs + clockOffsetMs;
+    if (estimatedHostTimeMs <= startAtEpochMs) {
+      return positionMs;
+    }
+    final elapsedMs = estimatedHostTimeMs - startAtEpochMs;
+    return max(0, positionMs + elapsedMs + bluetoothDelayMs + hardwareLatencyMs);
+  }
 }

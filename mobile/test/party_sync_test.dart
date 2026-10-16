@@ -184,6 +184,34 @@ void main() {
       );
       expect(pos, equals(45000));
     });
+
+    test('calculateElapsedPositionMs computes accurate catch-up position when joiner resolution exceeds lead time', () {
+      const scheduledStart = 1001200; // scheduled start at now + 1200ms
+      const nowLocal = 1002000; // joiner took 2000ms to resolve stream (800ms past barrier)
+      const clockOffset = 50; // host is 50ms ahead (host time = 1002050)
+      const positionMs = 0; // started from beginning
+
+      final catchUpPos = ScheduledPlaybackCalculator.calculateElapsedPositionMs(
+        startAtEpochMs: scheduledStart,
+        positionMs: positionMs,
+        currentLocalEpochMs: nowLocal,
+        clockOffsetMs: clockOffset,
+        bluetoothDelayMs: 100,
+      );
+
+      // elapsedMs = (1002000 + 50) - 1001200 = 850ms
+      // total = 0 + 850 + 100 = 950ms
+      expect(catchUpPos, equals(950));
+    });
+
+    test('calculateElapsedPositionMs returns original position when startAtEpochMs is in the future', () {
+      final futurePos = ScheduledPlaybackCalculator.calculateElapsedPositionMs(
+        startAtEpochMs: 2000000,
+        positionMs: 3500,
+        currentLocalEpochMs: 1000000,
+      );
+      expect(futurePos, equals(3500));
+    });
   });
 
   group('PeerDeviceInfo & Peer Presence Tracking', () {

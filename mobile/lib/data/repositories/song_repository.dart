@@ -7,6 +7,7 @@ import '../../services/history_manager.dart';
 import '../../services/supabase_service.dart';
 import '../../services/app_logger.dart';
 import '../../services/lyrics_client.dart';
+import '../../services/artist_sanitizer.dart';
 import '../../domain/models/lyrics_state.dart';
 
 /// Centralized repository for fetching, merging, and strictly deduplicating music feeds.

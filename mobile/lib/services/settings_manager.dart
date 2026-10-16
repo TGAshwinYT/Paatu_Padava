@@ -41,6 +41,7 @@ class SettingsManager {
   static final ValueNotifier<String> homeTop10ChartLayoutNotifier = ValueNotifier<String>('vertical');
   static final ValueNotifier<bool> homeRememberFeelingNotifier = ValueNotifier<bool>(false);
   static final ValueNotifier<bool> homeShowQuickPicksNotifier = ValueNotifier<bool>(true);
+  static final ValueNotifier<bool> persistentBackgroundPlaybackNotifier = ValueNotifier<bool>(false);
 
   static String get streamingQuality => streamingQualityNotifier.value;
   /// Returns the resolved bitrate string ('320kbps', '160kbps', '96kbps').
@@ -77,6 +78,7 @@ class SettingsManager {
   static String get homeTop10ChartLayout => homeTop10ChartLayoutNotifier.value;
   static bool get isHomeRememberFeelingEnabled => homeRememberFeelingNotifier.value;
   static bool get isHomeShowQuickPicksEnabled => homeShowQuickPicksNotifier.value;
+  static bool get isPersistentBackgroundPlaybackEnabled => persistentBackgroundPlaybackNotifier.value;
 
   /// Single coordinated preferred languages accessor:
   /// Uses AuthManager profile preferences as the source of truth,
@@ -161,6 +163,13 @@ class SettingsManager {
     homeTop10ChartLayoutNotifier.value = _box.get('home_top10_chart_layout', defaultValue: 'vertical') as String;
     homeRememberFeelingNotifier.value = _box.get('home_remember_feeling', defaultValue: false) as bool;
     homeShowQuickPicksNotifier.value = _box.get('home_show_quick_picks', defaultValue: true) as bool;
+    persistentBackgroundPlaybackNotifier.value =
+        _box.get('persistent_background_playback', defaultValue: false) as bool;
+  }
+
+  static Future<void> setPersistentBackgroundPlayback(bool enabled) async {
+    persistentBackgroundPlaybackNotifier.value = enabled;
+    await _box.put('persistent_background_playback', enabled);
   }
 
   static Future<void> setThemeMode(String mode) async {

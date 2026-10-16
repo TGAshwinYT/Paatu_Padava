@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../services/battery_optimization_service.dart';
+import '../../../services/settings_manager.dart';
 
 class BatterySettingsCard extends StatefulWidget {
   const BatterySettingsCard({super.key});
@@ -131,6 +132,37 @@ class _BatterySettingsCardState extends State<BatterySettingsCard> {
                 padding: const EdgeInsets.symmetric(vertical: 12),
               ),
             ),
+          ),
+          const Divider(color: Colors.white10, height: 28),
+          ValueListenableBuilder<bool>(
+            valueListenable: SettingsManager.persistentBackgroundPlaybackNotifier,
+            builder: (context, isPersistent, _) {
+              return Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: const [
+                        Text(
+                          'Keep Playing When App Is Closed',
+                          style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                        ),
+                        SizedBox(height: 3),
+                        Text(
+                          'Continue playing and advancing to next songs when clearing from Recent Apps (RAM). Tapping Pause will close the app completely.',
+                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11, height: 1.3),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch(
+                    value: isPersistent,
+                    activeColor: const Color(0xFF10B981),
+                    onChanged: (val) => SettingsManager.setPersistentBackgroundPlayback(val),
+                  ),
+                ],
+              );
+            },
           ),
         ],
       ),

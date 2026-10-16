@@ -33,6 +33,8 @@ class AudioQualitySettingsScreen extends StatelessWidget {
               _buildAutoplaySection(),
               const SizedBox(height: 20),
               _buildCrossfadeSection(),
+              const SizedBox(height: 20),
+              _buildPersistentBackgroundPlaybackSection(),
             ],
           ),
           const Positioned(
@@ -468,6 +470,63 @@ class AudioQualitySettingsScreen extends StatelessWidget {
                       divisions: 12,
                       onChanged: (val) => SettingsManager.setCrossfadeSeconds(val.toInt()),
                     ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPersistentBackgroundPlaybackSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader('BACKGROUND RESILIENCE & APP CLOSURE', Icons.all_inclusive_rounded),
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF131B2E),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+          ),
+          child: ValueListenableBuilder<bool>(
+            valueListenable: SettingsManager.persistentBackgroundPlaybackNotifier,
+            builder: (context, isPersistent, _) {
+              return Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF6366F1).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.phonelink_ring_rounded, color: Color(0xFF818CF8), size: 22),
+                  ),
+                  const SizedBox(width: 14),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Keep Playing When App Is Closed',
+                          style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                        ),
+                        SizedBox(height: 3),
+                        Text(
+                          'Keep playing and advancing to next songs even when Paatu Padava is closed or cleared from Recent Apps (RAM). Tapping Pause will close the player completely.',
+                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch(
+                    value: isPersistent,
+                    activeColor: const Color(0xFF6366F1),
+                    onChanged: (val) => SettingsManager.setPersistentBackgroundPlayback(val),
                   ),
                 ],
               );

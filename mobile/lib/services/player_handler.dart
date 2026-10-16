@@ -103,6 +103,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   bool _hasRecordedHistory = false;
   bool _isForegroundDowngraded = false;
   bool _isAppInBackground = false;
+  bool _isAppTaskRemoved = false;
   bool _resumeOnInterruptionEnd = false;
   StreamSubscription? _becomingNoisySub;
   StreamSubscription<AudioInterruptionEvent>? _interruptionSub;
@@ -132,10 +133,14 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   List<Song> get playlist => _queueHandler.queue;
   int get currentIndex => _queueHandler.currentIndex;
   Song? get currentSong => _queueHandler.currentSong;
+  bool get isAppTaskRemoved => _isAppTaskRemoved;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      _isAppTaskRemoved = false;
+    }
     final inBackground = state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached ||
         state == AppLifecycleState.hidden;
@@ -988,6 +993,44 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     if (PartySyncCoordinator.isHost) {
       PartySyncCoordinator.notifyHostPause();
     }
+    // If the app UI task was closed from Recents/RAM while persistent playback was enabled,
+    // pausing playback terminates the service completely as requested.
+    if (_isAppTaskRemoved && SettingsManager.isPersistentBackgroundPlaybackEnabled) {
+      AppLogger.log('PaatuAudioHandler', 'User paused playback after app task was closed -> stopping service completely');
+      await stop();
+    }
+  }
+
+  @override
+  Future<void> onTaskRemoved() async {
+    _isAppTaskRemoved = true;
+    AppLogger.log(
+      'PaatuAudioHandler',
+      'onTaskRemoved invoked from Android OS. persistentPlayback=${SettingsManager.isPersistentBackgroundPlaybackEnabled}, isPlaying=${_player.playing}',
+    );
+
+    if (!SettingsManager.isPersistentBackgroundPlaybackEnabled) {
+      // Feature is OFF (Default):
+      // Clearing recent apps immediately stops audio playback and removes notification
+      await stop();
+    } else {
+      // Feature is ON:
+      // If audio is actively playing, DO NOT stop! Keep the foreground service alive
+      // and allow the gapless queue to continue playing next songs.
+      if (_player.playing) {
+        _isForegroundDowngraded = false;
+        _broadcastState();
+      } else {
+        // If already paused or idle when cleared from Recents, close the app totally as normal
+        await stop();
+      }
+    }
+  }
+
+  @override
+  Future<void> onNotificationDeleted() async {
+    AppLogger.log('PaatuAudioHandler', 'Media notification dismissed by user -> stopping service');
+    await stop();
   }
 
   @override

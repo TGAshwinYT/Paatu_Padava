@@ -289,8 +289,9 @@ class SongRepository {
   static Future<List<Song>> getMadeForYou({required String language}) async {
     final List<Song> candidates = [];
     final List<String> topArtists = [];
+    final Set<String> topArtistsSet = <String>{};
 
-    // 1. Prioritize user-selected artists from Supabase
+    // 1. Prioritize user-selected artists from Supabase with O(1) set tracking
     try {
       final supaUser = SupabaseService.currentUser;
       if (supaUser != null) {
@@ -298,7 +299,7 @@ class SongRepository {
         for (final fa in favArtists) {
           final faName = fa['artist_name']?.toString() ?? '';
           final norm = normalizeArtist(faName);
-          if (norm.isNotEmpty && !topArtists.contains(norm)) {
+          if (norm.isNotEmpty && topArtistsSet.add(norm)) {
             topArtists.add(norm);
           }
         }
@@ -322,7 +323,7 @@ class SongRepository {
         ..sort((a, b) => (artistCounts[b] ?? 0).compareTo(artistCounts[a] ?? 0));
 
       for (final ha in sortedHistoryArtists) {
-        if (!topArtists.contains(ha) && topArtists.length < 5) {
+        if (topArtists.length < 5 && topArtistsSet.add(ha)) {
           topArtists.add(ha);
         }
       }

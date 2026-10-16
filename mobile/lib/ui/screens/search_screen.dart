@@ -17,6 +17,7 @@ import '../../services/audius_client.dart';
 import '../../services/search_service.dart';
 import '../../data/repositories/song_repository.dart';
 import '../../logic/stream_resolver.dart';
+import '../../core/dsa/prefix_trie.dart';
 import '../theme/app_theme.dart';
 import 'library_screen.dart';
 import '../widgets/search/search_error_view.dart';
@@ -85,6 +86,9 @@ class _SearchScreenState extends State<SearchScreen> {
       ValueNotifier<FuzzyCorrectionResult?>(null);
   final ValueNotifier<SearchResultsState> _resultsNotifier =
       ValueNotifier<SearchResultsState>(const SearchResultsState());
+
+  // O(K) Prefix Trie for sub-millisecond instant autocomplete on keystroke
+  final PrefixTrie<String> _localSearchTrie = PrefixTrie<String>();
 
   final List<String> _trendingArtists = [
     'Anirudh Ravichander',
@@ -161,7 +165,35 @@ class _SearchScreenState extends State<SearchScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _populateLocalSearchTrie();
+    SearchHistoryManager.historyNotifier.addListener(_updateTrieWithHistory);
+  }
+
+  void _populateLocalSearchTrie() {
+    for (int i = 0; i < _trendingArtists.length; i++) {
+      _localSearchTrie.insert(_trendingArtists[i], weight: 100 - i);
+    }
+    for (int i = 0; i < _browseCategories.length; i++) {
+      final title = _browseCategories[i]['title'] as String?;
+      if (title != null) {
+        _localSearchTrie.insert(title, weight: 80 - i);
+      }
+    }
+    _updateTrieWithHistory();
+  }
+
+  void _updateTrieWithHistory() {
+    final recent = SearchHistoryManager.historyNotifier.value;
+    for (int i = 0; i < recent.length; i++) {
+      _localSearchTrie.insert(recent[i], weight: 120 - i);
+    }
+  }
+
+  @override
   void dispose() {
+    SearchHistoryManager.historyNotifier.removeListener(_updateTrieWithHistory);
     _searchController.dispose();
     _debounceTimer?.cancel();
     _currentTabNotifier.dispose();
@@ -185,12 +217,19 @@ class _SearchScreenState extends State<SearchScreen> {
       return;
     }
 
+    // Instant O(K) Trie Autocomplete Lookup (0ms local latency before network debouncing)
+    final instantMatches = _localSearchTrie.findByPrefix(clean, limit: 6).map((m) => m.term).toList();
+    if (instantMatches.isNotEmpty) {
+      _suggestionsNotifier.value = instantMatches;
+    }
+
     // 400ms Debounce: strictly prevents API requests and rebuilds while typing
     _debounceTimer = Timer(const Duration(milliseconds: 400), () {
       if (!mounted) return;
-      ApiClient.searchSuggestions(clean).then((suggs) {
+      ApiClient.searchSuggestions(clean).then((remoteSuggs) {
         if (mounted && _searchController.text.trim() == clean) {
-          _suggestionsNotifier.value = suggs;
+          final Set<String> merged = {...instantMatches, ...remoteSuggs};
+          _suggestionsNotifier.value = merged.take(8).toList();
         }
       });
       _executeSearch(clean, saveHistory: false);

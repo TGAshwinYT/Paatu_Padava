@@ -11,6 +11,7 @@ import '../services/audius_client.dart';
 import '../services/artist_sanitizer.dart';
 import '../services/download_manager.dart';
 import '../core/app_config.dart';
+import '../core/dsa/lru_cache.dart';
 
 /// Representation of an in-memory cached stream URL with a strict Time-To-Live (TTL).
 class StreamCacheEntry {
@@ -42,7 +43,7 @@ abstract class StreamResolver {
 /// 1. Direct provider extraction (YouTube / JioSaavn)
 /// 2. Cross-provider fallback matching with audio verification
 /// 3. Resilient timeout management
-/// 4. 3-hour TTL in-memory stream cache (Spotify/YT Music model)
+/// 4. 3-hour TTL in-memory stream cache (Spotify/YT Music model) with O(1) LRU eviction
 class DefaultStreamResolver implements StreamResolver {
   final YoutubeClient _youtubeClient;
 
@@ -58,35 +59,37 @@ class DefaultStreamResolver implements StreamResolver {
   /// High-integrity HTTP headers for Googlevideo CDN streams (Range + modern User-Agent)
   static Map<String, String> get streamingHeaders => YouTubeClient.streamingHeaders;
 
-  // In-memory stream cache enforcing 3-hour TTL to prevent HTTP 403 CDN expirations
-  static final Map<String, StreamCacheEntry> _streamCache = {};
+  // O(1) In-memory LRU stream cache enforcing 3-hour TTL & 250 capacity to eliminate memory bloat
+  static final LruCache<String, StreamCacheEntry> _streamCache =
+      LruCache<String, StreamCacheEntry>(capacity: 250, defaultTtl: cacheTtl);
   static final Set<String> _invalidatedSongIds = {};
   static final Map<String, Future<String?>> _inFlightResolutions = {};
 
-  /// Caches a resolved stream URL with a 3-hour TTL
+  /// Caches a resolved stream URL with O(1) LRU insertion and a 3-hour TTL
   static void cacheStream(String songId, String url, {Duration ttl = cacheTtl, String source = 'unknown'}) {
     _invalidatedSongIds.remove(songId);
-    _streamCache[songId] = StreamCacheEntry(url, DateTime.now().add(ttl), source: source);
+    _streamCache.put(
+      songId,
+      StreamCacheEntry(url, DateTime.now().add(ttl), source: source),
+      ttl: ttl,
+    );
   }
 
-  /// Retrieves an unexpired cached stream URL, or null if expired/absent
+  /// Retrieves an unexpired cached stream URL in O(1) time, or null if expired/absent
   static String? getCachedStream(String songId) {
     if (_invalidatedSongIds.contains(songId)) return null;
-    final entry = _streamCache[songId];
+    final entry = _streamCache.get(songId);
     if (entry != null) {
-      if (!entry.isExpired) {
-        if (YouTubeClient.isLinkExpired(entry.url)) {
-          _streamCache.remove(songId);
-          return null;
-        }
-        return entry.url;
+      if (YouTubeClient.isLinkExpired(entry.url)) {
+        _streamCache.remove(songId);
+        return null;
       }
-      _streamCache.remove(songId); // Purge expired entry
+      return entry.url;
     }
     return null;
   }
 
-  /// Invalidates cached stream URL for a given song (e.g. on playback error / HTTP 403)
+  /// Invalidates cached stream URL for a given song in O(1) time (e.g. on playback error / HTTP 403)
   static void invalidateStream(String songId) {
     _streamCache.remove(songId);
     _inFlightResolutions.remove(songId);
@@ -94,7 +97,7 @@ class DefaultStreamResolver implements StreamResolver {
     YouTubeClient.invalidateStream(songId);
   }
 
-  /// Clears entire stream cache
+  /// Clears entire stream cache in O(1) time
   static void clearCache() {
     _streamCache.clear();
     _inFlightResolutions.clear();
@@ -104,8 +107,7 @@ class DefaultStreamResolver implements StreamResolver {
   /// Checks if a song's cached stream has expired
   static bool isStreamExpired(String songId) {
     if (_invalidatedSongIds.contains(songId)) return true;
-    final entry = _streamCache[songId];
-    return entry != null && entry.isExpired;
+    return _streamCache.isExpired(songId);
   }
 
   @override

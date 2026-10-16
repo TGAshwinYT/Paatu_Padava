@@ -343,7 +343,7 @@ class _SearchScreenState extends State<SearchScreen> {
         _resultsNotifier.value = SearchResultsState(albums: genuineAlbums);
         _isSearchingNotifier.value = false;
       } else if (tab == 'Artists') {
-        final artistsFuture = SaavnClient.searchArtists(clean, limit: 25)
+        final artistsFuture = SaavnClient.searchArtists(clean, limit: 25, language: prefLang)
             .timeout(const Duration(seconds: 3), onTimeout: () => <Map<String, dynamic>>[]);
         final songsFuture = SaavnClient.search(clean, limit: 15, language: prefLang)
             .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
@@ -366,11 +366,13 @@ class _SearchScreenState extends State<SearchScreen> {
               !ArtistSanitizer.isCompositeOrMultiArtist(genuine) &&
               ArtistSanitizer.isGenuineArtist(genuine)) {
             final canonical = ArtistSanitizer.canonicalArtistName(genuine);
+            final norm = SongRepository.normalizeArtist(canonical);
+            final avatar = SongRepository.verifiedArtistAvatars[norm];
             if (!isAlreadyPresent(canonical)) {
               correlatedArtists.add({
                 'id': song.artistId ?? 'art_${song.id}',
                 'name': canonical,
-                'image': song.coverUrl,
+                'image': avatar ?? (ArtistSanitizer.isPlaceholderImage(song.coverUrl) ? '' : song.coverUrl),
                 'role': 'Artist',
               });
             }
@@ -384,16 +386,25 @@ class _SearchScreenState extends State<SearchScreen> {
               !ArtistSanitizer.isCompositeOrMultiArtist(rawName) &&
               ArtistSanitizer.isGenuineArtist(rawName)) {
             final canonical = ArtistSanitizer.canonicalArtistName(rawName);
+            final norm = SongRepository.normalizeArtist(canonical);
+            final avatar = SongRepository.verifiedArtistAvatars[norm];
+            final artImg = art['image']?.toString();
             if (!isAlreadyPresent(canonical)) {
               correlatedArtists.add({
                 ...art,
                 'name': canonical,
+                'image': avatar ?? (ArtistSanitizer.isPlaceholderImage(artImg) ? '' : (artImg ?? '')),
               });
             }
           }
         }
 
-        _resultsNotifier.value = SearchResultsState(artists: correlatedArtists);
+        final filteredArtists = SearchService.filterArtistsByLanguage(
+          correlatedArtists,
+          language: prefLang,
+          query: clean,
+        );
+        _resultsNotifier.value = SearchResultsState(artists: filteredArtists);
         _isSearchingNotifier.value = false;
       } else if (tab == 'YT Music' || tab == 'YouTube Music' || tab == 'YouTube') {
         final intent = SearchService.understandQuery(clean);

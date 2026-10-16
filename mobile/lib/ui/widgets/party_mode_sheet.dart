@@ -33,8 +33,14 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
   Future<void> _handleStartParty() async {
     final code = await PartySyncCoordinator.startParty();
     if (code == null && mounted) {
+      ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not start party session. Check internet connection.')),
+        const SnackBar(
+          content: Text('Could not start party session. Check internet connection.'),
+          duration: Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Color(0xFFEF4444),
+        ),
       );
     }
   }
@@ -48,8 +54,14 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
     setState(() => _isJoining = false);
 
     if (!success && mounted) {
+      ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to join party. Check the code and try again.')),
+        const SnackBar(
+          content: Text('Failed to join party. Check the code and try again.'),
+          duration: Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Color(0xFFEF4444),
+        ),
       );
     }
   }
@@ -336,8 +348,13 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
                 label: const Text('Copy'),
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: code));
+                  ScaffoldMessenger.of(context).clearSnackBars();
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Party code copied to clipboard!')),
+                    const SnackBar(
+                      content: Text('Party code copied to clipboard!'),
+                      duration: Duration(seconds: 2),
+                      behavior: SnackBarBehavior.floating,
+                    ),
                   );
                 },
               ),

@@ -10,6 +10,7 @@ import 'settings_manager.dart';
 import 'fuzzy_search_service.dart';
 import 'error_handler.dart';
 import 'app_logger.dart';
+import 'artist_sanitizer.dart';
 import '../data/repositories/song_repository.dart';
 
 class QueryIntent {
@@ -180,6 +181,90 @@ class SearchService {
       });
     }
     return valid;
+  }
+
+  /// Strictly filters search artists by language, purging Bollywood/Hindi leaks,
+  /// English pop stars (e.g. Justin Bieber) from regional queries, and placeholder images.
+  static List<Map<String, dynamic>> filterArtistsByLanguage(
+    List<Map<String, dynamic>> artists, {
+    required String language,
+    required String query,
+  }) {
+    final lowerLang = language.toLowerCase().trim();
+    final isTamil = lowerLang == 'tamil';
+    final lowerQuery = query.toLowerCase().trim();
+
+    const westernPopSingers = {
+      'justin bieber',
+      'taylor swift',
+      'ed sheeran',
+      'ariana grande',
+      'billie eilish',
+      'drake',
+      'dua lipa',
+      'the weeknd',
+      'shawn mendes',
+      'selena gomez',
+      'post malone',
+      'charlie puth',
+      'bruno mars',
+      'katy perry',
+      'rihanna',
+      'eminem',
+    };
+
+    const hindiSingers = {
+      'arijit singh',
+      'neha kakkar',
+      'badshah',
+      'jubin nautiyal',
+      'atif aslam',
+      'vishal mishra',
+      'darshan raval',
+      'armaan malik',
+      'yo yo honey singh',
+      'b praak',
+      'guru randhawa',
+      'tony kakkar',
+      'sonu nigam',
+      'kumar sanu',
+      'alka yagnik',
+      'udith narayan',
+      'mika singh',
+      'sunidhi chauhan',
+    };
+
+    final filtered = <Map<String, dynamic>>[];
+    for (final item in artists) {
+      final name = (item['name'] ?? item['title'] ?? '').toString().trim();
+      final norm = SongRepository.normalizeArtist(name);
+      if (norm.isEmpty) continue;
+
+      // Filter out accidental spam or false substring hits (e.g. Tamilia, Tamil Nambi)
+      if (!ArtistSanitizer.isGenuineArtist(name)) continue;
+
+      // Filter out generic placeholder images with camera or mic icons unless officially verified
+      final img = item['image']?.toString();
+      if (ArtistSanitizer.isPlaceholderImage(img) && !SongRepository.isArtistVerified(name)) {
+        continue;
+      }
+
+      // If user explicitly searched for this artist by name, keep it
+      if (norm.contains(lowerQuery) || lowerQuery.contains(norm)) {
+        filtered.add(item);
+        continue;
+      }
+
+      // For regional modes (e.g. Tamil), block cross-language leaks (Justin Bieber, Bollywood artists)
+      if (isTamil) {
+        if (westernPopSingers.contains(norm)) continue;
+        if (norm != 'shreya ghoshal' && hindiSingers.contains(norm)) continue;
+        if (RegExp(r'[\u0900-\u097F]').hasMatch(name)) continue;
+      }
+
+      filtered.add(item);
+    }
+    return filtered;
   }
 
   /// Understands user query: detects script, explicit language override, and Tanglish transliteration.
@@ -458,8 +543,17 @@ class SearchService {
 
       final Future<List<Map<String, dynamic>>> artistsFuture = () async {
         try {
-          return await SaavnClient.searchArtists(intent.cleanQuery, limit: 12)
+          final isGeneric = intent.cleanQuery.toLowerCase() == 'top hits' ||
+              intent.cleanQuery.toLowerCase() == 'hits' ||
+              intent.cleanQuery.toLowerCase() == 'top songs' ||
+              intent.cleanQuery.toLowerCase() == 'songs';
+          final artistSearchQuery = (intent.explicitLanguage != null &&
+                  !intent.cleanQuery.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
+              ? (isGeneric ? 'Top ${intent.explicitLanguage!} Artists' : '${intent.explicitLanguage!} ${intent.cleanQuery}')
+              : intent.cleanQuery;
+          final rawArtists = await SaavnClient.searchArtists(artistSearchQuery, limit: 12, language: effectiveLang)
               .timeout(const Duration(seconds: 3), onTimeout: () => <Map<String, dynamic>>[]);
+          return filterArtistsByLanguage(rawArtists, language: effectiveLang, query: intent.cleanQuery);
         } catch (e) {
           debugPrint('[SearchService] Upstream Saavn artists search fault isolated: $e');
           return <Map<String, dynamic>>[];

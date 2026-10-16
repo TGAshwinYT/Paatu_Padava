@@ -59,6 +59,9 @@ class SearchArtistsList extends StatelessWidget {
             radius: 26,
             backgroundColor: AppColors.surfaceElevated,
             backgroundImage: img.isNotEmpty ? CachedNetworkImageProvider(img, maxWidth: 150, maxHeight: 150) : null,
+            child: img.isEmpty
+                ? const Icon(Icons.person_rounded, color: AppColors.textSecondary, size: 22)
+                : null,
           ),
           title: Text(
             name,

@@ -366,11 +366,13 @@ class _DeviceConnectSheetState extends State<DeviceConnectSheet> with SingleTick
                                     HapticFeedback.mediumImpact();
                                     final success = await DeviceConnectCoordinator.instance.switchToDevice(dev);
                                     if (context.mounted) {
+                                      ScaffoldMessenger.of(context).clearSnackBars();
                                       if (success) {
                                         ScaffoldMessenger.of(context).showSnackBar(
                                           SnackBar(
                                             content: Text('Switched playback to ${dev.name}'),
                                             backgroundColor: const Color(0xFF10B981),
+                                            behavior: SnackBarBehavior.floating,
                                             duration: const Duration(seconds: 2),
                                           ),
                                         );
@@ -379,6 +381,8 @@ class _DeviceConnectSheetState extends State<DeviceConnectSheet> with SingleTick
                                           SnackBar(
                                             content: Text('Could not reach ${dev.name}. Device is offline or not on this Wi-Fi network.'),
                                             backgroundColor: const Color(0xFFEF4444),
+                                            behavior: SnackBarBehavior.floating,
+                                            duration: const Duration(milliseconds: 2800),
                                             action: SnackBarAction(
                                               label: 'Settings',
                                               textColor: Colors.white,
@@ -390,7 +394,6 @@ class _DeviceConnectSheetState extends State<DeviceConnectSheet> with SingleTick
                                                 }
                                               },
                                             ),
-                                            duration: const Duration(seconds: 4),
                                           ),
                                         );
                                       }

@@ -594,6 +594,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                         radius: 34,
                                         backgroundColor: AppColors.surfaceElevated,
                                         backgroundImage: img.isNotEmpty ? CachedNetworkImageProvider(img) : null,
+                                        child: img.isEmpty
+                                            ? const Icon(Icons.person_rounded, color: AppColors.textSecondary, size: 28)
+                                            : null,
                                       ),
                                     ),
                                     const SizedBox(height: 6),

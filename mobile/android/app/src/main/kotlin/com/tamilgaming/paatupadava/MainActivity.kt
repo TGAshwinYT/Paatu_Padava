@@ -149,7 +149,7 @@ class MainActivity: AudioServiceActivity() {
                         try {
                             if (currentSessionId != 0) {
                                 try {
-                                    val closeIntent = Intent(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_PANEL).apply {
+                                    val closeIntent = Intent(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION).apply {
                                         putExtra(AudioEffect.EXTRA_AUDIO_SESSION, currentSessionId)
                                         putExtra(AudioEffect.EXTRA_PACKAGE_NAME, packageName)
                                     }
@@ -193,7 +193,7 @@ class MainActivity: AudioServiceActivity() {
 
                             // Broadcast so Android AudioFlinger attaches DSP chain
                             try {
-                                val openIntent = Intent(AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_PANEL).apply {
+                                val openIntent = Intent(AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION).apply {
                                     putExtra(AudioEffect.EXTRA_AUDIO_SESSION, sessionId)
                                     putExtra(AudioEffect.EXTRA_PACKAGE_NAME, packageName)
                                     putExtra(AudioEffect.EXTRA_CONTENT_TYPE, AudioEffect.CONTENT_TYPE_MUSIC)
@@ -296,7 +296,7 @@ class MainActivity: AudioServiceActivity() {
                 "release" -> {
                     try {
                         if (currentSessionId != 0) {
-                            val closeIntent = Intent(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_PANEL).apply {
+                            val closeIntent = Intent(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION).apply {
                                 putExtra(AudioEffect.EXTRA_AUDIO_SESSION, currentSessionId)
                                 putExtra(AudioEffect.EXTRA_PACKAGE_NAME, packageName)
                             }
@@ -326,7 +326,7 @@ class MainActivity: AudioServiceActivity() {
     override fun onDestroy() {
         try {
             if (currentSessionId != 0) {
-                val closeIntent = Intent(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_PANEL).apply {
+                val closeIntent = Intent(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION).apply {
                     putExtra(AudioEffect.EXTRA_AUDIO_SESSION, currentSessionId)
                     putExtra(AudioEffect.EXTRA_PACKAGE_NAME, packageName)
                 }

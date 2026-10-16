@@ -359,12 +359,14 @@ class _ArtistScreenState extends State<ArtistScreen> {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 6),
-                      const Icon(
-                        Icons.verified_rounded,
-                        color: Color(0xFF38BDF8),
-                        size: 16,
-                      ),
+                      if (SongRepository.isArtistVerified(widget.artistName)) ...[
+                        const SizedBox(width: 6),
+                        const Icon(
+                          Icons.verified_rounded,
+                          color: Color(0xFF38BDF8),
+                          size: 16,
+                        ),
+                      ],
                     ],
                   ),
                   background: Stack(

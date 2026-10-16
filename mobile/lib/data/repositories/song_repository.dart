@@ -447,7 +447,23 @@ class SongRepository {
     'chinmayi': 'https://c.saavncdn.com/artists/Chinmayi_Sripada_500x500.jpg',
     'swetha mohan': 'https://c.saavncdn.com/artists/Shweta_Mohan_500x500.jpg',
     's.p. balasubrahmanyam': 'https://c.saavncdn.com/artists/S_P__Balasubrahmanyam_500x500.jpg',
+    'spb': 'https://c.saavncdn.com/artists/S_P__Balasubrahmanyam_500x500.jpg',
     'k.s. chithra': 'https://c.saavncdn.com/artists/K_S__Chithra_500x500.jpg',
+    'chithra': 'https://c.saavncdn.com/artists/K_S__Chithra_500x500.jpg',
+    'k.j. yesudas': 'https://c.saavncdn.com/artists/K_J__Yesudas_500x500.jpg',
+    'yesudas': 'https://c.saavncdn.com/artists/K_J__Yesudas_500x500.jpg',
+    'vijay antony': 'https://c.saavncdn.com/artists/Vijay_Antony_500x500.jpg',
+    'deva': 'https://c.saavncdn.com/artists/Deva_500x500.jpg',
+    'vidyasagar': 'https://c.saavncdn.com/artists/Vidyasagar_500x500.jpg',
+    'shankar mahadevan': 'https://c.saavncdn.com/artists/Shankar_Mahadevan_500x500.jpg',
+    'sam c.s.': 'https://c.saavncdn.com/artists/Sam_C_S__500x500.jpg',
+    'sean roldan': 'https://c.saavncdn.com/artists/Sean_Roldan_500x500.jpg',
+    's. janaki': 'https://c.saavncdn.com/artists/S__Janaki_500x500.jpg',
+    'p. susheela': 'https://c.saavncdn.com/artists/P__Susheela_500x500.jpg',
+    'tippu': 'https://c.saavncdn.com/artists/Tippu_500x500.jpg',
+    'unnikrishnan': 'https://c.saavncdn.com/artists/P__Unnikrishnan_500x500.jpg',
+    'srinivas': 'https://c.saavncdn.com/artists/Srinivas_500x500.jpg',
+    't.m. soundararajan': 'https://c.saavncdn.com/artists/T_M__Soundararajan_500x500.jpg',
   };
 
   static const Map<String, String> _verifiedArtistAvatars = verifiedArtistAvatars;
@@ -462,6 +478,13 @@ class SongRepository {
     'Sid Sriram',
     'Santhosh Narayanan',
   ];
+
+  /// Returns whether the given artist is an officially verified artist in Paatu Padava
+  static bool isArtistVerified(String artistName) {
+    final norm = normalizeArtist(artistName);
+    return _verifiedArtistAvatars.containsKey(norm) ||
+        tamilArtistSeeds.any((s) => normalizeArtist(s) == norm);
+  }
 
   /// Fetches Popular Artists with high-res avatars, replacing low-res or generic placeholder icons.
   static Future<List<Map<String, dynamic>>> getPopularArtists({required String language}) async {
@@ -515,6 +538,11 @@ class SongRepository {
             (img.contains('c.saavncdn.com') && !img.contains('/artists/'));
         if (isSongCover) {
           img = _verifiedArtistAvatars[norm] ?? '';
+        }
+
+        // Filter out generic placeholder images with camera or mic icons
+        if (ArtistSanitizer.isPlaceholderImage(img) && !isArtistVerified(name)) {
+          continue;
         }
 
         enriched.add({

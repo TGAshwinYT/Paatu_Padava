@@ -126,6 +126,24 @@ class ArtistSanitizer {
     'status',
   };
 
+  /// Obscure non-profile channels, accidental substring collisions, and devotional tags
+  /// (e.g. "tamilia" - Italian metal band member Domenico Francesco Tamilia,
+  ///  "tamil nambi" - obscure non-verified devotional catalog, generic devotional tags)
+  static const Set<String> _accidentalOrSpamArtists = {
+    'tamil nambi',
+    'tamil nambis',
+    'tamilia',
+    'domenico francesco tamilia',
+    'tamil christian',
+    'tamil devotional',
+    'tamil comedy',
+    'tamil dialogue',
+    'tamil rhymes',
+    'tamil songs',
+    'tamil hits',
+    'tamil music',
+  };
+
   /// Non-Musician Actors / Comedians / Film Stars (Pure cast members who should not override composers/singers)
   static const Set<String> _nonMusicianActors = {
     'rajinikanth',
@@ -229,7 +247,14 @@ class ArtistSanitizer {
       if (rawName == actor || rawName.contains(actor)) return false;
     }
 
-    // 5. Role validation if present
+    // 5. Check accidental substring hits, devotional labels, and obscure non-profile tags
+    for (final spam in _accidentalOrSpamArtists) {
+      if (rawName == spam || rawName == '${spam}s' || rawName.startsWith('$spam ') || rawName.endsWith(' $spam')) {
+        return false;
+      }
+    }
+
+    // 6. Role validation if present
     if (role.isNotEmpty) {
       final isActor = role.contains('actor') || role.contains('starring') || role.contains('cast');
       final isMusician = role.contains('music') ||
@@ -245,6 +270,21 @@ class ArtistSanitizer {
     }
 
     return true;
+  }
+
+  /// Detects whether an image URL is a generic placeholder (camera, microphone, or default asset)
+  static bool isPlaceholderImage(String? url) {
+    if (url == null || url.trim().isEmpty) return true;
+    final lower = url.toLowerCase().trim();
+    return lower.contains('default_artist') ||
+        lower.contains('default_album') ||
+        lower.contains('placeholder') ||
+        lower.contains('no_image') ||
+        lower.contains('camera') ||
+        lower.contains('mic_placeholder') ||
+        lower.contains('/_artists/') ||
+        lower.endsWith('/artist.jpg') ||
+        lower.endsWith('/artist.png');
   }
 
   /// Checks if a string is a known record label or channel name

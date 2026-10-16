@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'home_screen.dart';
@@ -19,6 +20,7 @@ class MainNavigation extends StatefulWidget {
 
 class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObserver {
   int _currentIndex = 0;
+  Timer? _errorFadeTimer;
 
   final List<Widget> _screens = const [
     HomeScreen(),
@@ -36,6 +38,7 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
 
   @override
   void dispose() {
+    _errorFadeTimer?.cancel();
     audioHandler.playbackErrorNotifier.removeListener(_onPlaybackError);
     ConnectivityService.dispose();
     WidgetsBinding.instance.removeObserver(this);
@@ -46,7 +49,9 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
     final err = audioHandler.playbackErrorNotifier.value;
     if (err == null || !mounted) return;
     final hasActiveMiniPlayer = audioHandler.currentSong != null;
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+    _errorFadeTimer?.cancel();
+    ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
@@ -70,7 +75,7 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
           ],
         ),
         backgroundColor: const Color(0xFFEF4444),
-        duration: const Duration(seconds: 4),
+        duration: const Duration(milliseconds: 2800),
         action: err.actionLabel != null
             ? SnackBarAction(
                 label: err.actionLabel!,
@@ -84,6 +89,13 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
             : null,
       ),
     );
+
+    // Auto-clear error state after banner fades out so it does not persist in memory
+    _errorFadeTimer = Timer(const Duration(milliseconds: 3000), () {
+      if (mounted && audioHandler.playbackErrorNotifier.value == err) {
+        audioHandler.playbackErrorNotifier.value = null;
+      }
+    });
   }
 
   @override

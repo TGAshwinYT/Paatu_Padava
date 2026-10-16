@@ -22,6 +22,9 @@ class MainActivity: AudioServiceActivity() {
     private var bassBoost: BassBoost? = null
     private var virtualizer: Virtualizer? = null
     private var currentSessionId: Int = 0
+    private var currentBassStrength: Short = 0
+    private var currentVirtualizerStrength: Short = 0
+    private var currentLevels: ShortArray? = null
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -50,7 +53,7 @@ class MainActivity: AudioServiceActivity() {
             }
         }
 
-        // Battery optimization & manufacturer detection channel
+        // Battery optimization & system device connection channel
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, BATTERY_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "requestNotificationPermission" -> {
@@ -104,6 +107,36 @@ class MainActivity: AudioServiceActivity() {
                         }
                     }
                 }
+                "openBluetoothSettings" -> {
+                    try {
+                        val intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
+                }
+                "openCastSettings" -> {
+                    try {
+                        val intent = Intent(Settings.ACTION_CAST_SETTINGS).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        if (intent.resolveActivity(packageManager) != null) {
+                            startActivity(intent)
+                            result.success(true)
+                        } else {
+                            val fallback = Intent(Settings.ACTION_SETTINGS).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            startActivity(fallback)
+                            result.success(true)
+                        }
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
@@ -114,19 +147,60 @@ class MainActivity: AudioServiceActivity() {
                     val sessionId = call.argument<Int>("sessionId") ?: 0
                     if (sessionId != 0 && sessionId != currentSessionId) {
                         try {
+                            if (currentSessionId != 0) {
+                                try {
+                                    val closeIntent = Intent(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_PANEL).apply {
+                                        putExtra(AudioEffect.EXTRA_AUDIO_SESSION, currentSessionId)
+                                        putExtra(AudioEffect.EXTRA_PACKAGE_NAME, packageName)
+                                    }
+                                    sendBroadcast(closeIntent)
+                                } catch (e: Exception) {}
+                            }
+
                             equalizer?.release()
-                            equalizer = Equalizer(0, sessionId).apply {
+                            equalizer = Equalizer(1000, sessionId).apply {
                                 enabled = true
+                                currentLevels?.let { levels ->
+                                    for (i in levels.indices) {
+                                        if (i < numberOfBands) {
+                                            setBandLevel(i.toShort(), levels[i])
+                                        }
+                                    }
+                                }
                             }
                             bassBoost?.release()
                             bassBoost = try {
-                                BassBoost(0, sessionId).apply { enabled = true }
+                                BassBoost(1000, sessionId).apply {
+                                    enabled = true
+                                    if (currentBassStrength > 0 && strengthSupported) {
+                                        setStrength(currentBassStrength)
+                                    }
+                                }
                             } catch (e: Exception) { null }
                             virtualizer?.release()
                             virtualizer = try {
-                                Virtualizer(0, sessionId).apply { enabled = true }
+                                Virtualizer(1000, sessionId).apply {
+                                    enabled = true
+                                    try {
+                                        forceVirtualizationMode(Virtualizer.VIRTUALIZATION_MODE_TRANSAURAL)
+                                    } catch (e: Exception) {}
+                                    if (currentVirtualizerStrength > 0 && strengthSupported) {
+                                        setStrength(currentVirtualizerStrength)
+                                    }
+                                }
                             } catch (e: Exception) { null }
                             currentSessionId = sessionId
+
+                            // Broadcast so Android AudioFlinger attaches DSP chain
+                            try {
+                                val openIntent = Intent(AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_PANEL).apply {
+                                    putExtra(AudioEffect.EXTRA_AUDIO_SESSION, sessionId)
+                                    putExtra(AudioEffect.EXTRA_PACKAGE_NAME, packageName)
+                                    putExtra(AudioEffect.EXTRA_CONTENT_TYPE, AudioEffect.CONTENT_TYPE_MUSIC)
+                                }
+                                sendBroadcast(openIntent)
+                            } catch (e: Exception) {}
+
                             result.success(true)
                         } catch (e: Exception) {
                             result.error("EQ_ERROR", e.message, null)
@@ -147,16 +221,22 @@ class MainActivity: AudioServiceActivity() {
                 }
                 "setAllBands" -> {
                     val levels = call.argument<List<Int>>("levels")
-                    if (levels != null && equalizer != null) {
-                        try {
-                            for (i in levels.indices) {
-                                if (i < equalizer!!.numberOfBands) {
-                                    equalizer!!.setBandLevel(i.toShort(), levels[i].toShort())
+                    if (levels != null) {
+                        val shortLevels = ShortArray(levels.size) { levels[it].toShort() }
+                        currentLevels = shortLevels
+                        if (equalizer != null) {
+                            try {
+                                for (i in shortLevels.indices) {
+                                    if (i < equalizer!!.numberOfBands) {
+                                        equalizer!!.setBandLevel(i.toShort(), shortLevels[i])
+                                    }
                                 }
+                                result.success(true)
+                            } catch (e: Exception) {
+                                result.error("EQ_ERROR", e.message, null)
                             }
+                        } else {
                             result.success(true)
-                        } catch (e: Exception) {
-                            result.error("EQ_ERROR", e.message, null)
                         }
                     } else {
                         result.success(false)
@@ -164,9 +244,13 @@ class MainActivity: AudioServiceActivity() {
                 }
                 "setBassBoostStrength" -> {
                     val strength = call.argument<Int>("strength") ?: 0
+                    currentBassStrength = strength.toShort()
                     try {
-                        if (bassBoost != null && bassBoost?.strengthSupported == true) {
-                            bassBoost?.setStrength(strength.toShort())
+                        if (bassBoost != null) {
+                            bassBoost?.enabled = true
+                            if (bassBoost?.strengthSupported == true) {
+                                bassBoost?.setStrength(currentBassStrength)
+                            }
                         }
                         result.success(true)
                     } catch (e: Exception) {
@@ -175,9 +259,16 @@ class MainActivity: AudioServiceActivity() {
                 }
                 "setVirtualizerStrength" -> {
                     val strength = call.argument<Int>("strength") ?: 0
+                    currentVirtualizerStrength = strength.toShort()
                     try {
-                        if (virtualizer != null && virtualizer?.strengthSupported == true) {
-                            virtualizer?.setStrength(strength.toShort())
+                        if (virtualizer != null) {
+                            virtualizer?.enabled = true
+                            try {
+                                virtualizer?.forceVirtualizationMode(Virtualizer.VIRTUALIZATION_MODE_TRANSAURAL)
+                            } catch (e: Exception) {}
+                            if (virtualizer?.strengthSupported == true) {
+                                virtualizer?.setStrength(currentVirtualizerStrength)
+                            }
                         }
                         result.success(true)
                     } catch (e: Exception) {
@@ -204,6 +295,15 @@ class MainActivity: AudioServiceActivity() {
                 }
                 "release" -> {
                     try {
+                        if (currentSessionId != 0) {
+                            val closeIntent = Intent(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_PANEL).apply {
+                                putExtra(AudioEffect.EXTRA_AUDIO_SESSION, currentSessionId)
+                                putExtra(AudioEffect.EXTRA_PACKAGE_NAME, packageName)
+                            }
+                            sendBroadcast(closeIntent)
+                        }
+                    } catch (e: Exception) {}
+                    try {
                         equalizer?.release()
                     } catch (e: Exception) {}
                     try {
@@ -224,6 +324,15 @@ class MainActivity: AudioServiceActivity() {
     }
 
     override fun onDestroy() {
+        try {
+            if (currentSessionId != 0) {
+                val closeIntent = Intent(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_PANEL).apply {
+                    putExtra(AudioEffect.EXTRA_AUDIO_SESSION, currentSessionId)
+                    putExtra(AudioEffect.EXTRA_PACKAGE_NAME, packageName)
+                }
+                sendBroadcast(closeIntent)
+            }
+        } catch (e: Exception) {}
         try {
             equalizer?.release()
         } catch (e: Exception) {}

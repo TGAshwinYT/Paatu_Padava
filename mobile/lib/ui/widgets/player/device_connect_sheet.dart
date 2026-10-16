@@ -364,15 +364,36 @@ class _DeviceConnectSheetState extends State<DeviceConnectSheet> with SingleTick
                                 ? null
                                 : () async {
                                     HapticFeedback.mediumImpact();
-                                    await DeviceConnectCoordinator.instance.switchToDevice(dev);
+                                    final success = await DeviceConnectCoordinator.instance.switchToDevice(dev);
                                     if (context.mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(
-                                          content: Text('Switched playback to ${dev.name}'),
-                                          backgroundColor: const Color(0xFF10B981),
-                                          duration: const Duration(seconds: 2),
-                                        ),
-                                      );
+                                      if (success) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: Text('Switched playback to ${dev.name}'),
+                                            backgroundColor: const Color(0xFF10B981),
+                                            duration: const Duration(seconds: 2),
+                                          ),
+                                        );
+                                      } else {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: Text('Could not reach ${dev.name}. Device is offline or not on this Wi-Fi network.'),
+                                            backgroundColor: const Color(0xFFEF4444),
+                                            action: SnackBarAction(
+                                              label: 'Settings',
+                                              textColor: Colors.white,
+                                              onPressed: () {
+                                                if (dev.protocol == ConnectionProtocol.googleCast) {
+                                                  DeviceConnectCoordinator.instance.openCastSettings();
+                                                } else {
+                                                  DeviceConnectCoordinator.instance.openBluetoothSettings();
+                                                }
+                                              },
+                                            ),
+                                            duration: const Duration(seconds: 4),
+                                          ),
+                                        );
+                                      }
                                     }
                                   },
                             child: Padding(
@@ -432,6 +453,50 @@ class _DeviceConnectSheetState extends State<DeviceConnectSheet> with SingleTick
                     }).toList(),
                   );
                 },
+              ),
+              const SizedBox(height: 12),
+
+              // System Bluetooth & Cast Quick Action Buttons
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        side: BorderSide(color: const Color(0xFF38BDF8).withValues(alpha: 0.3)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      ),
+                      icon: const Icon(Icons.bluetooth_rounded, size: 16, color: Color(0xFF38BDF8)),
+                      label: Text(
+                        'Bluetooth Settings',
+                        style: GoogleFonts.outfit(color: const Color(0xFF38BDF8), fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                      onPressed: () {
+                        HapticFeedback.lightImpact();
+                        DeviceConnectCoordinator.instance.openBluetoothSettings();
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        side: BorderSide(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      ),
+                      icon: const Icon(Icons.cast_rounded, size: 16, color: Color(0xFF10B981)),
+                      label: Text(
+                        'Cast Settings',
+                        style: GoogleFonts.outfit(color: const Color(0xFF10B981), fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                      onPressed: () {
+                        HapticFeedback.lightImpact();
+                        DeviceConnectCoordinator.instance.openCastSettings();
+                      },
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 16),
 

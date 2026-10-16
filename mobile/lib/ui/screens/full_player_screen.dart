@@ -651,6 +651,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                       onTap: () => QueueSheet.show(context),
                                       borderRadius: BorderRadius.circular(20),
                                       child: Container(
+                                        constraints: BoxConstraints(
+                                          maxWidth: MediaQuery.of(context).size.width - 32,
+                                        ),
                                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                                         decoration: BoxDecoration(
                                           color: const Color(0xFF131B2E),
@@ -684,10 +687,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                                   fontWeight: FontWeight.w600,
                                                 ),
                                               ),
-                                              ConstrainedBox(
-                                                constraints: BoxConstraints(
-                                                  maxWidth: MediaQuery.of(context).size.width * 0.44,
-                                                ),
+                                              Flexible(
                                                 child: Text(
                                                   '${nextSong.title} • ${nextSong.artist}',
                                                   maxLines: 1,

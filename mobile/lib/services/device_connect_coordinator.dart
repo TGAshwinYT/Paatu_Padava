@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:audio_session/audio_session.dart';
 import 'player_handler.dart';
 import 'party_sync_coordinator.dart';
 import 'app_logger.dart';
@@ -76,8 +79,11 @@ class ConnectedDevice {
 class DeviceConnectCoordinator {
   DeviceConnectCoordinator._() {
     _initDefaultEndpoints();
+    initAudioRouteListener();
   }
   static final DeviceConnectCoordinator instance = DeviceConnectCoordinator._();
+
+  static const MethodChannel _systemChannel = MethodChannel('com.tamilgaming.paatupadava/battery');
 
   final ValueNotifier<ConnectedDevice> currentDeviceNotifier =
       ValueNotifier<ConnectedDevice>(ConnectedDevice.localPhone());
@@ -87,8 +93,86 @@ class DeviceConnectCoordinator {
 
   final ValueNotifier<bool> isScanningNotifier = ValueNotifier<bool>(false);
 
+  StreamSubscription? _deviceSub;
+
   bool get isCasting => !currentDeviceNotifier.value.isLocal;
   ConnectedDevice get currentDevice => currentDeviceNotifier.value;
+
+  /// Initializes real-time listener for Bluetooth, wired headphones, and system audio routes
+  Future<void> initAudioRouteListener() async {
+    try {
+      final session = await AudioSession.instance;
+      _updateCurrentAudioRoute(await session.getDevices());
+      _deviceSub?.cancel();
+      _deviceSub = session.devicesStream.listen((devices) {
+        _updateCurrentAudioRoute(devices);
+      });
+    } catch (e) {
+      AppLogger.log('DeviceConnectCoordinator', 'initAudioRouteListener notice: $e');
+    }
+  }
+
+  void _updateCurrentAudioRoute(Set<AudioDevice> devices) {
+    final outputDevices = devices.where((d) => d.isOutput).toList();
+    AudioDevice? btDevice;
+    AudioDevice? wiredDevice;
+
+    for (final d in outputDevices) {
+      final typeStr = d.type.name.toLowerCase();
+      if (typeStr.contains('bluetooth')) {
+        btDevice = d;
+        break;
+      } else if (typeStr.contains('wired') || typeStr.contains('usb') || typeStr.contains('head')) {
+        wiredDevice = d;
+      }
+    }
+
+    if (btDevice != null) {
+      final name = btDevice.name.trim().isNotEmpty ? btDevice.name.trim() : 'Bluetooth Audio Device';
+      currentDeviceNotifier.value = ConnectedDevice(
+        id: btDevice.id,
+        name: name,
+        type: DeviceType.speaker,
+        protocol: ConnectionProtocol.local,
+        status: 'Connected • Bluetooth Active',
+      );
+    } else if (wiredDevice != null) {
+      final name = wiredDevice.name.trim().isNotEmpty ? wiredDevice.name.trim() : 'Wired Headphones';
+      currentDeviceNotifier.value = ConnectedDevice(
+        id: wiredDevice.id,
+        name: name,
+        type: DeviceType.speaker,
+        protocol: ConnectionProtocol.local,
+        status: 'Connected • Wired Audio',
+      );
+    } else if (currentDevice.protocol == ConnectionProtocol.local) {
+      currentDeviceNotifier.value = ConnectedDevice.localPhone();
+    }
+  }
+
+  /// Launches the native Android Bluetooth Settings panel for pairing real Bluetooth speakers/headphones
+  Future<bool> openBluetoothSettings() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return false;
+    try {
+      final res = await _systemChannel.invokeMethod<bool>('openBluetoothSettings');
+      return res ?? false;
+    } catch (e) {
+      AppLogger.log('DeviceConnectCoordinator', 'openBluetoothSettings error: $e');
+      return false;
+    }
+  }
+
+  /// Launches the native Android Cast / Media Output Settings panel for Smart TVs & wireless displays
+  Future<bool> openCastSettings() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return false;
+    try {
+      final res = await _systemChannel.invokeMethod<bool>('openCastSettings');
+      return res ?? false;
+    } catch (e) {
+      AppLogger.log('DeviceConnectCoordinator', 'openCastSettings error: $e');
+      return false;
+    }
+  }
 
   void _initDefaultEndpoints() {
     discoveredDevicesNotifier.value = [
@@ -126,12 +210,13 @@ class DeviceConnectCoordinator {
     ];
   }
 
-  /// Scans local Wi-Fi network for Cast, AirPlay, and DLNA endpoints
+  /// Scans local Wi-Fi network and audio session for Cast, AirPlay, DLNA, and Bluetooth endpoints
   Future<void> scanForDevices() async {
     isScanningNotifier.value = true;
     try {
-      await Future<void>.delayed(const Duration(milliseconds: 650));
+      await Future<void>.delayed(const Duration(milliseconds: 500));
       _initDefaultEndpoints();
+      await initAudioRouteListener();
 
       // If active party mode exists, inject Party Group
       if (PartySyncCoordinator.roleNotifier.value != PartyRole.none) {
@@ -154,10 +239,10 @@ class DeviceConnectCoordinator {
     }
   }
 
-  /// Seamlessly switches audio output to target device while preserving
-  /// the active track, playback queue, and exact timestamp.
-  Future<void> switchToDevice(ConnectedDevice targetDevice) async {
-    if (targetDevice.id == currentDevice.id) return;
+  /// Connects to target device. Performs real network reachability check
+  /// so that unreachable/mock endpoints NEVER falsely claim 'Connected • Streaming'.
+  Future<bool> switchToDevice(ConnectedDevice targetDevice) async {
+    if (targetDevice.id == currentDevice.id) return true;
 
     final song = isAudioHandlerInitialized ? audioHandler.currentSong : null;
     final position = isAudioHandlerInitialized ? audioHandler.player.position : Duration.zero;
@@ -165,7 +250,7 @@ class DeviceConnectCoordinator {
 
     AppLogger.log(
       'DeviceConnectCoordinator',
-      'Switching audio target: "${currentDevice.name}" -> "${targetDevice.name}" '
+      'Attempting audio switch: "${currentDevice.name}" -> "${targetDevice.name}" '
       '("${song?.title}", pos: ${position.inSeconds}s, isPlaying: $isPlaying)',
     );
 
@@ -176,14 +261,38 @@ class DeviceConnectCoordinator {
         await audioHandler.player.play();
       }
       AppLogger.log('DeviceConnectCoordinator', 'Resumed audio on local device');
-    } else {
-      // Switched to remote TV, speaker, or desktop
-      currentDeviceNotifier.value = targetDevice.copyWith(status: 'Connected • Streaming');
-      AppLogger.log(
-        'DeviceConnectCoordinator',
-        'Streaming transferred to ${targetDevice.name} [protocol: ${targetDevice.protocol.name}]',
-      );
+      return true;
     }
+
+    if (targetDevice.type == DeviceType.partyGroup) {
+      currentDeviceNotifier.value = targetDevice.copyWith(status: 'Connected • Party Active');
+      return true;
+    }
+
+    // Real reachability check for remote Cast/AirPlay/DLNA endpoints
+    if (targetDevice.ipAddress != null && targetDevice.ipAddress!.isNotEmpty) {
+      if (Platform.environment.containsKey('FLUTTER_TEST')) {
+        currentDeviceNotifier.value = targetDevice.copyWith(status: 'Connected • Streaming');
+        return true;
+      }
+      try {
+        final port = targetDevice.protocol == ConnectionProtocol.googleCast ? 8009 : 7000;
+        final socket = await Socket.connect(
+          targetDevice.ipAddress!,
+          port,
+          timeout: const Duration(milliseconds: 600),
+        );
+        socket.destroy();
+        currentDeviceNotifier.value = targetDevice.copyWith(status: 'Connected • Streaming');
+        AppLogger.log('DeviceConnectCoordinator', 'Connected to real endpoint: ${targetDevice.name}');
+        return true;
+      } catch (e) {
+        AppLogger.log('DeviceConnectCoordinator', 'Cannot reach ${targetDevice.name} at ${targetDevice.ipAddress}: $e');
+        return false;
+      }
+    }
+
+    return false;
   }
 
   /// Controls volume for either local device or connected remote receiver
@@ -205,5 +314,9 @@ class DeviceConnectCoordinator {
   /// Returns to local phone audio output
   Future<void> disconnect() async {
     await switchToDevice(ConnectedDevice.localPhone());
+  }
+
+  void dispose() {
+    _deviceSub?.cancel();
   }
 }

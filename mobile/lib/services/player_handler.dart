@@ -270,7 +270,14 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     FavoritesManager.favoritesNotifier.addListener(_favListener!);
 
     // Connect 5-band equalizer directly to native audio session ID
-    EqualizerService.bindToPlayerSession(_player.androidAudioSessionIdStream);
+    int? initialSessionId;
+    try {
+      initialSessionId = _player.androidAudioSessionId;
+    } catch (_) {}
+    EqualizerService.bindToPlayerSession(
+      _player.androidAudioSessionIdStream,
+      initialSessionId: initialSessionId,
+    );
 
     try {
       WidgetsBinding.instance.addObserver(this);

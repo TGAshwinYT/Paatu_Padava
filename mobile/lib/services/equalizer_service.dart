@@ -19,7 +19,12 @@ class EqualizerService {
 
   /// Initializes equalizer service and binds to the player's Android Audio Session ID.
   /// Documented as an app-lifetime singleton tied to the active audio player session.
-  static void bindToPlayerSession(Stream<int?> sessionIdStream) {
+  static void bindToPlayerSession(Stream<int?> sessionIdStream, {int? initialSessionId}) {
+    if (initialSessionId != null && initialSessionId != 0 && initialSessionId != _activeSessionId) {
+      _activeSessionId = initialSessionId;
+      setAudioSessionId(initialSessionId);
+    }
+
     _sessionSub?.cancel();
     _sessionSub = sessionIdStream.listen((sessionId) {
       if (sessionId != null && sessionId != 0 && sessionId != _activeSessionId) {
@@ -64,47 +69,66 @@ class EqualizerService {
       _isBound = true;
       debugPrint('[EqualizerService] Successfully bound to Android AudioSession: $sessionId');
       // Apply existing saved bands and effects immediately
-      await applyCurrentBands();
       await applyBassBoost();
       await applyVirtualizer();
+      await applyCurrentBands();
     } catch (e) {
       debugPrint('[EqualizerService] setAudioSessionId error: $e');
     }
   }
 
   /// Converts dB gains (-10.0 to +10.0 dB) to millibels (-1000 to +1000 mB) and sends to native
+  /// Incorporates acoustic frequency enhancement so Bass Boost & 3D Spatial are audible on all outputs
   static Future<void> applyCurrentBands() async {
     if (defaultTargetPlatform != TargetPlatform.android) return;
     if (_activeSessionId == null || _activeSessionId == 0) return;
     try {
-      final bands = SettingsManager.eqBands;
+      final baseBands = SettingsManager.eqBands;
+      final bassBoostRatio = SettingsManager.bassBoost; // 0.0 to 1.0
+      final virtualizerRatio = SettingsManager.virtualizer; // 0.0 to 1.0
+
+      // Combined acoustic curve:
+      // Band 0 (60 Hz Sub-bass): +0 to +5 dB proportional to Bass Boost
+      // Band 1 (230 Hz Punch): +0 to +3 dB proportional to Bass Boost
+      // Band 3 (3.6 kHz Presence): +0 to +2.5 dB proportional to 3D Spatial
+      // Band 4 (14 kHz Air/Treble): +0 to +3.5 dB proportional to 3D Spatial
+      final effectiveBands = List<double>.from(baseBands);
+      if (effectiveBands.length >= 5) {
+        effectiveBands[0] = (effectiveBands[0] + (bassBoostRatio * 5.0)).clamp(-10.0, 10.0);
+        effectiveBands[1] = (effectiveBands[1] + (bassBoostRatio * 3.0)).clamp(-10.0, 10.0);
+        effectiveBands[3] = (effectiveBands[3] + (virtualizerRatio * 2.5)).clamp(-10.0, 10.0);
+        effectiveBands[4] = (effectiveBands[4] + (virtualizerRatio * 3.5)).clamp(-10.0, 10.0);
+      }
+
       // Convert dB to millibels (1 dB = 100 mB)
-      final millibels = bands.map((dB) => (dB * 100).round()).toList();
+      final millibels = effectiveBands.map((dB) => (dB * 100).round()).toList();
       await _channel.invokeMethod('setAllBands', {'levels': millibels});
     } catch (e) {
       debugPrint('[EqualizerService] applyCurrentBands error: $e');
     }
   }
 
-  /// Sends bass boost strength (0 to 1000) to native DSP
+  /// Sends bass boost strength (0 to 1000) to native DSP and updates acoustic warmth
   static Future<void> applyBassBoost() async {
     if (defaultTargetPlatform != TargetPlatform.android) return;
     if (_activeSessionId == null || _activeSessionId == 0) return;
     try {
       final strength = (SettingsManager.bassBoost * 1000).round();
       await _channel.invokeMethod('setBassBoostStrength', {'strength': strength});
+      await applyCurrentBands();
     } catch (e) {
       debugPrint('[EqualizerService] applyBassBoost error: $e');
     }
   }
 
-  /// Sends virtualizer strength (0 to 1000) to native DSP
+  /// Sends virtualizer strength (0 to 1000) to native DSP and updates acoustic stage
   static Future<void> applyVirtualizer() async {
     if (defaultTargetPlatform != TargetPlatform.android) return;
     if (_activeSessionId == null || _activeSessionId == 0) return;
     try {
       final strength = (SettingsManager.virtualizer * 1000).round();
       await _channel.invokeMethod('setVirtualizerStrength', {'strength': strength});
+      await applyCurrentBands();
     } catch (e) {
       debugPrint('[EqualizerService] applyVirtualizer error: $e');
     }

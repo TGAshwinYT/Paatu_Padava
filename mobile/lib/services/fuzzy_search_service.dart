@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:fuzzywuzzy/fuzzywuzzy.dart';
 import 'package:fuzzywuzzy/model/extracted_result.dart';
 import '../models/song.dart';
+import '../core/dsa/bk_tree.dart';
 import 'saavn_client.dart';
 import 'settings_manager.dart';
 import 'app_logger.dart';
@@ -97,12 +98,31 @@ class FuzzySearchService {
     'Enthiran',
   };
 
+  static final BkTree<String> _bkTree = BkTree<String>();
+  static bool _bkTreeInitialized = false;
+
+  static void _ensureInitialized() {
+    if (!_bkTreeInitialized) {
+      _bkTree.insertAll(_candidateDictionary);
+      _bkTreeInitialized = true;
+    }
+  }
+
+  /// Direct accessor for the underlying BK-Tree for diagnostic/testing purposes
+  static BkTree<String> get bkTree {
+    _ensureInitialized();
+    return _bkTree;
+  }
+
   /// Dynamically register candidate terms (from search history, favorites, or loaded songs)
   static void registerCandidates(Iterable<String> terms) {
+    _ensureInitialized();
     for (final term in terms) {
       final sanitized = Song.sanitize(term).trim();
       if (sanitized.length >= 3) {
-        _candidateDictionary.add(sanitized);
+        if (_candidateDictionary.add(sanitized)) {
+          _bkTree.insert(sanitized);
+        }
       }
     }
   }
@@ -114,12 +134,13 @@ class FuzzySearchService {
     }
   }
 
-  /// Evaluate if query contains a typo and locate the best match (> 70 score)
+  /// Evaluate if query contains a typo and locate the best match using O(log N) BK-Tree metric space search
   static FuzzyCorrectionResult? findCorrection(String query) {
     final cleanQuery = Song.sanitize(query).trim();
     if (cleanQuery.length < 3) return null;
 
     final lowerQuery = cleanQuery.toLowerCase();
+    _ensureInitialized();
 
     // If exact case-insensitive match already exists, no typo correction is needed
     if (_candidateDictionary.any((c) => c.toLowerCase() == lowerQuery)) {
@@ -127,26 +148,47 @@ class FuzzySearchService {
     }
 
     try {
-      final List<ExtractedResult<String>> matches = extractTop<String>(
-        query: cleanQuery,
-        choices: _candidateDictionary.toList(),
-        limit: 3,
-        cutoff: 70,
-      );
+      // 1. Fast O(log N) metric space search using Burkhard-Keller Tree (max edit distance <= 2)
+      final bkMatches = _bkTree.search(cleanQuery, maxDistance: 2, limit: 5);
 
-      if (matches.isNotEmpty) {
-        final best = matches.first;
-        // Verify tokenSetRatio as well for robust token reordering tolerance
-        final tokenScore = tokenSetRatio(cleanQuery, best.choice);
-        final weightScore = weightedRatio(cleanQuery, best.choice);
-        final combinedScore = (best.score + tokenScore + weightScore) ~/ 3;
+      if (bkMatches.isNotEmpty) {
+        final best = bkMatches.first;
+        final tokenScore = tokenSetRatio(cleanQuery, best.term);
+        final weightScore = weightedRatio(cleanQuery, best.term);
+        final similarityPct = (best.similarity * 100).toInt();
+        final combinedScore = (similarityPct + tokenScore + weightScore) ~/ 3;
 
-        if (combinedScore >= 70 && best.choice.toLowerCase() != lowerQuery) {
+        if (combinedScore >= 65 && best.term.toLowerCase() != lowerQuery) {
           return FuzzyCorrectionResult(
             original: cleanQuery,
-            corrected: Song.sanitize(best.choice),
+            corrected: Song.sanitize(best.term),
             score: combinedScore,
           );
+        }
+      }
+
+      // 2. Token-set fallback for multi-word permutations if edit distance > 2
+      if (cleanQuery.contains(' ')) {
+        final List<ExtractedResult<String>> matches = extractTop<String>(
+          query: cleanQuery,
+          choices: _candidateDictionary.toList(),
+          limit: 3,
+          cutoff: 70,
+        );
+
+        if (matches.isNotEmpty) {
+          final best = matches.first;
+          final tokenScore = tokenSetRatio(cleanQuery, best.choice);
+          final weightScore = weightedRatio(cleanQuery, best.choice);
+          final combinedScore = (best.score + tokenScore + weightScore) ~/ 3;
+
+          if (combinedScore >= 70 && best.choice.toLowerCase() != lowerQuery) {
+            return FuzzyCorrectionResult(
+              original: cleanQuery,
+              corrected: Song.sanitize(best.choice),
+              score: combinedScore,
+            );
+          }
         }
       }
     } catch (e) {

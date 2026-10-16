@@ -181,6 +181,7 @@ class _SearchScreenState extends State<SearchScreen> {
         _localSearchTrie.insert(title, weight: 80 - i);
       }
     }
+    FuzzySearchService.registerCandidates(_trendingArtists);
     _updateTrieWithHistory();
   }
 
@@ -189,6 +190,7 @@ class _SearchScreenState extends State<SearchScreen> {
     for (int i = 0; i < recent.length; i++) {
       _localSearchTrie.insert(recent[i], weight: 120 - i);
     }
+    FuzzySearchService.registerCandidates(recent);
   }
 
   @override
@@ -221,6 +223,16 @@ class _SearchScreenState extends State<SearchScreen> {
     final instantMatches = _localSearchTrie.findByPrefix(clean, limit: 6).map((m) => m.term).toList();
     if (instantMatches.isNotEmpty) {
       _suggestionsNotifier.value = instantMatches;
+      _fuzzyCorrectionNotifier.value = null;
+    } else {
+      // Instant O(log N) BK-Tree Metric Fuzzy Typo Resolution
+      final correction = FuzzySearchService.findCorrection(clean);
+      if (correction != null) {
+        _fuzzyCorrectionNotifier.value = correction;
+        _suggestionsNotifier.value = [correction.corrected];
+      } else {
+        _fuzzyCorrectionNotifier.value = null;
+      }
     }
 
     // 400ms Debounce: strictly prevents API requests and rebuilds while typing

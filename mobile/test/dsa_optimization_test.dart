@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:paatu_padava_mobile/core/dsa/lru_cache.dart';
 import 'package:paatu_padava_mobile/core/dsa/prefix_trie.dart';
 import 'package:paatu_padava_mobile/core/dsa/circular_buffer.dart';
+import 'package:paatu_padava_mobile/core/dsa/bk_tree.dart';
+import 'package:paatu_padava_mobile/services/fuzzy_search_service.dart';
 
 void main() {
   group('LruCache O(1) Performance & Eviction Tests', () {
@@ -175,6 +177,107 @@ void main() {
         elements.add(item);
       }
       expect(elements, [2, 3, 4]);
+    });
+  });
+
+  group('BkTree O(log N) Metric Space Typo-Tolerant Search Tests', () {
+    test('Levenshtein distance calculation and early threshold termination', () {
+      expect(BkTree.levenshteinDistance('kitten', 'kitten'), 0);
+      expect(BkTree.levenshteinDistance('kitten', 'sitting'), 3);
+      expect(BkTree.levenshteinDistance('hukum', 'hukm'), 1);
+      expect(BkTree.levenshteinDistance('badass', 'badasss'), 1);
+      expect(BkTree.levenshteinDistance('vaseegara', 'vasegara'), 1);
+
+      // Early exit beyond maxDistance
+      expect(BkTree.levenshteinDistance('anirudh', 'completely_different', maxDistance: 2), 3);
+    });
+
+    test('BkTree insertion, contains, and size tracking', () {
+      final tree = BkTree<String>();
+      expect(tree.isEmpty, true);
+
+      tree.insert('Anirudh');
+      tree.insert('A.R. Rahman');
+      tree.insert('Harris Jayaraj');
+      tree.insert('Yuvan');
+
+      expect(tree.size, 4);
+      expect(tree.contains('anirudh'), true);
+      expect(tree.contains('A.R. Rahman'), true);
+      expect(tree.contains('Unknown Artist'), false);
+    });
+
+    test('BkTree search finds nearest matches and prunes irrelevant branches via triangle inequality', () {
+      final tree = BkTree<void>();
+      final terms = [
+        'Hukum',
+        'Badass',
+        'Vaseegara',
+        'Arabic Kuthu',
+        'Naa Ready',
+        'Kaavaalaa',
+        'Leo',
+        'Jailer',
+        'Vikram',
+        'Master',
+        'Varisu',
+        'Beast',
+        'Doctor',
+        'Petta',
+      ];
+      tree.insertAll(terms);
+      expect(tree.size, terms.length);
+
+      // Search "Hukm" (1 deletion typo from "Hukum")
+      final matchesHukum = tree.search('Hukm', maxDistance: 1);
+      expect(matchesHukum.isNotEmpty, true);
+      expect(matchesHukum.first.term, 'Hukum');
+      expect(matchesHukum.first.distance, 1);
+      expect(matchesHukum.first.similarity, closeTo(0.8, 0.05));
+
+      // Verify that triangle inequality actually pruned subtrees
+      expect(tree.lastSearchBranchesPruned, greaterThan(0));
+
+      // Search "Vasegara" (1 deletion typo from "Vaseegara")
+      final matchesVaseegara = tree.search('Vasegara', maxDistance: 2);
+      expect(matchesVaseegara.isNotEmpty, true);
+      expect(matchesVaseegara.first.term, 'Vaseegara');
+      expect(matchesVaseegara.first.distance, 1);
+
+      // Search with findBestMatch
+      final best = tree.findBestMatch('Beest', maxDistance: 1);
+      expect(best, isNotNull);
+      expect(best!.term, 'Beast');
+      expect(best.distance, 1);
+
+      // Unmatched word beyond threshold
+      final noMatch = tree.findBestMatch('Xyz12345', maxDistance: 2);
+      expect(noMatch, isNull);
+    });
+  });
+
+  group('FuzzySearchService BK-Tree Typo Correction Tests', () {
+    test('findCorrection corrects single and double typo queries', () {
+      // "Vasegara" -> "Vaseegara"
+      final vasegaraCorrection = FuzzySearchService.findCorrection('Vasegara');
+      expect(vasegaraCorrection, isNotNull);
+      expect(vasegaraCorrection!.corrected, 'Vaseegara');
+      expect(vasegaraCorrection.score, greaterThanOrEqualTo(65));
+
+      // Exact match should return null (no typo correction required)
+      final exactHukum = FuzzySearchService.findCorrection('Hukum');
+      expect(exactHukum, isNull);
+
+      // Very short queries (< 3 chars) should return null
+      expect(FuzzySearchService.findCorrection('hi'), isNull);
+    });
+
+    test('registerCandidates dynamically populates the BK-Tree for instant lookup', () {
+      FuzzySearchService.registerCandidates(['Thalapathy Kuthu Mix']);
+
+      final correction = FuzzySearchService.findCorrection('Thalapathy Kuthu Mixx');
+      expect(correction, isNotNull);
+      expect(correction!.corrected, 'Thalapathy Kuthu Mix');
     });
   });
 }

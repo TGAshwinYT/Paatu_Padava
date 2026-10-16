@@ -21,12 +21,14 @@ class SongRepository {
     required String trackId,
     required String title,
     required String artist,
+    String? album,
     int durationSeconds = 0,
   }) {
     return LyricsClient.instance.fetchLyrics(
       trackId: trackId,
       title: title,
       artist: artist,
+      album: album,
       durationSeconds: durationSeconds,
     );
   }
@@ -37,6 +39,7 @@ class SongRepository {
       trackId: song.id,
       title: song.title,
       artist: song.artist,
+      album: song.album,
       durationSeconds: song.duration,
     );
   }

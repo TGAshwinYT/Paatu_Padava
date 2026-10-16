@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:paatu_padava_mobile/domain/models/lyrics_state.dart';
 import 'package:paatu_padava_mobile/logic/lyrics/indic_romanizer.dart';
 import 'package:paatu_padava_mobile/services/lyrics_client.dart';
+import 'package:paatu_padava_mobile/services/youtube_client.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -349,6 +350,77 @@ Line four of song
 
       expect(identical(result, testState), isTrue);
       expect(result.lyrics, equals('[00:10.00] Cached lyric line'));
+    });
+  });
+
+  group('YouTube Big Title Normalization & Candidate Permutation Tests', () {
+    test('Extracts true song title from Movie - Song YouTube video titles', () {
+      final candidates = LyricsClient.generateTitleCandidates(
+        'Leo - Badass Lyric Video | Thalapathy Vijay | Anirudh Ravichander | Lokesh Kanagaraj',
+        artist: 'Anirudh Ravichander',
+        album: 'Leo',
+      );
+
+      expect(candidates.contains('Badass'), isTrue);
+      expect(candidates.first, equals('Badass'));
+    });
+
+    test('Strips trailing hyphens and video keywords from composite titles', () {
+      final candidates = LyricsClient.generateTitleCandidates(
+        'Arabic Kuthu - Video Song | Beast | Thalapathy Vijay | Pooja Hegde | Sun Pictures | Anirudh',
+        artist: 'Anirudh Ravichander',
+        album: 'Beast',
+      );
+
+      expect(candidates.contains('Arabic Kuthu'), isTrue);
+      // Ensures no dangling trailing hyphen remained
+      expect(candidates.any((c) => c.endsWith('-')), isFalse);
+    });
+
+    test('Strips prepended artist names when matching artist metadata', () {
+      final candidates1 = LyricsClient.generateTitleCandidates(
+        'Anirudh Ravichander - Hukum (Official Video)',
+        artist: 'Anirudh Ravichander',
+      );
+      expect(candidates1.first, equals('Hukum'));
+
+      final candidates2 = LyricsClient.generateTitleCandidates(
+        'Alan Walker - Faded (Official Music Video)',
+        artist: 'Alan Walker',
+      );
+      expect(candidates2.first, equals('Faded'));
+
+      final candidates3 = LyricsClient.generateTitleCandidates(
+        'Post Malone, Swae Lee - Sunflower (Spider-Man: Into the Spider-Verse)',
+        artist: 'Post Malone',
+      );
+      expect(candidates3.first, equals('Sunflower'));
+    });
+
+    test('Strips language tags, audio effect markers, and resolution tags cleanly', () {
+      expect(
+        LyricsClient.sanitizeTitle('Fear Song (Telugu) [4K UHD] (Slowed + Reverb) | Devara'),
+        equals('Fear Song'),
+      );
+      expect(
+        LyricsClient.sanitizeTitle('Katchi Sera (Tamil) (Lyrical Video) [Full Song]'),
+        equals('Katchi Sera'),
+      );
+      expect(
+        LyricsClient.sanitizeTitle('01 - Kesariya (Hindi) - Audio Song'),
+        equals('Kesariya'),
+      );
+    });
+
+    test('YouTubeClient.cleanTitle cleans trailing hyphens and bracketed tags', () {
+      expect(
+        YouTubeClient.cleanTitle('Arabic Kuthu - Video Song | Beast | Vijay'),
+        equals('Arabic Kuthu'),
+      );
+      expect(
+        YouTubeClient.cleanTitle('Leo - Badass Lyric Video | Thalapathy Vijay'),
+        equals('Leo - Badass'),
+      );
     });
   });
 }

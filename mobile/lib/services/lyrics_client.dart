@@ -10,6 +10,7 @@ import '../logic/lyrics/indic_romanizer.dart';
 import '../models/song.dart';
 import 'app_logger.dart';
 import 'saavn_client.dart';
+import 'youtube_client.dart';
 
 /// Single parsed lyric line with timestamps and optional romanized text.
 class LyricLine {
@@ -69,40 +70,176 @@ class LyricsClient {
     if (rawTitle.isEmpty) return '';
     var t = _unescape.convert(Song.sanitize(rawTitle));
 
-    // Strip leading handles like "@SaiAbhyankkar - "
+    // 1. Strip leading channel/artist handles (e.g. "@SaiAbhyankkar - ")
     t = t.replaceAll(RegExp(r'^@[a-zA-Z0-9_.]+\s*[-:|~–—]?\s*'), '');
 
-    // Strip anything after pipe '|'
+    // 2. Strip leading track numbers like "01 - ", "02. ", "1. "
+    t = t.replaceAll(RegExp(r'^\d{1,3}[\s.\-_:]+\s*'), '');
+
+    // 3. Strip web domain tags: [Masstamilan], [SongsLover], [Starmusiq], etc.
+    t = t.replaceAll(
+      RegExp(r'\[\s*(?:masstamilan|starmusiq|isaimini|senlyrics|123musiq|songslover|tamildada|mp3paw)[^\]]*\]', caseSensitive: false),
+      '',
+    );
+
+    // 4. Strip pipe '|' and anything after it
     t = t.replaceAll(RegExp(r'\|.*$'), '');
 
-    // Strip "- From ..." or " - From Movie"
+    // 5. Strip "- From ..." or " - From Movie"
     t = t.replaceAll(RegExp(r'\s*-\s*from\b.*$', caseSensitive: false), '');
 
-    // Strip parenthetical/bracketed "From ..." markers: (From "Movie"), [From Movie]
+    // 6. Strip parenthetical/bracketed "From ..." markers: (From "Movie"), [From Movie]
     t = t.replaceAll(
       RegExp(r'\s*[\(\[][Ff]rom\s+["\u201c\u201d\u2018\u2019]?[^)\u201d\]]+["\u201c\u201d\u2018\u2019]?[\)\]]'),
       '',
     );
 
-    // Strip official video, audio, lyrical, ost, soundtrack, remaster markers
+    // 7. Strip language indicators in parentheses/brackets: (Tamil), (Telugu), [Hindi], etc.
     t = t.replaceAll(
-      RegExp(r'\s*[\(\[][^)\u201d\]]*(?:official|audio|video|lyric|lyrical|soundtrack|ost|remaster|full\s*song)[^)\u201d\]]*[\)\]]', caseSensitive: false),
+      RegExp(r'\s*[\(\[](?:tamil|telugu|hindi|malayalam|kannada|bengali|marathi|punjabi|english|bhojpuri|gujarati)[\)\]]', caseSensitive: false),
       '',
     );
 
-    // Strip standalone keywords like "Lyrical", "Video Song", "4K", "HD", etc.
+    // 8. Strip audio effect tags: (Slowed + Reverb), (8D Audio), (Lofi), etc.
     t = t.replaceAll(
-      RegExp(r'\b(lyrical|video song|audio song|full song|4k|8k|hd|remastered|lyrics? video)\b', caseSensitive: false),
+      RegExp(r'\s*[\(\[](?:slowed(?:\s*[\+&]\s*reverb)?|reverb|bass\s*boosted|8d\s*audio|lo-?fi|sped\s*up|speed\s*up)[\)\]]', caseSensitive: false),
       '',
     );
 
-    // Strip any lingering square brackets content
+    // 9. Strip official video, audio, lyrical, ost, soundtrack, remaster markers
+    t = t.replaceAll(
+      RegExp(r'\s*[\(\[][^)\u201d\]]*(?:official|audio|video|lyric|lyrical|soundtrack|ost|theme|score|remaster|full\s*song|visuali[sz]er|motion\s*poster|teaser|trailer|color\s*coded)[\)\]]', caseSensitive: false),
+      '',
+    );
+
+    // 10. Strip featured artists in brackets/parentheses: (feat. Sid Sriram), [ft. Anirudh]
+    t = t.replaceAll(
+      RegExp(r'\s*[\(\[](?:feat\.?|ft\.?|featuring)\s+[^)\]]+[\)\]]', caseSensitive: false),
+      '',
+    );
+
+    // 11. Strip standalone video/audio keywords
+    t = t.replaceAll(
+      RegExp(r'\b(lyrical|video song|audio song|full song|4k|8k|hd|uhd|1080p|720p|remastered|lyrics? video|promo|visuali[sz]er)\b', caseSensitive: false),
+      '',
+    );
+
+    // 12. Strip lingering square brackets content
     t = t.replaceAll(RegExp(r'\[[^\]]*\]'), '');
 
-    // Clean stray parentheses and collapse whitespace
+    // 13. Strip trailing feat / ft clause at end of title: "Song Name ft. Artist"
+    t = t.replaceAll(RegExp(r'\s+\b(?:feat\.?|ft\.?|featuring)\b\s+.*$', caseSensitive: false), '');
+
+    // 14. Strip trailing release metadata: " - Remastered 2021", " - Radio Edit", " - Live at ..."
+    t = t.replaceAll(RegExp(r'\s*-\s*(?:remaster(?:ed)?(?:\s*\d{4})?|radio edit|deluxe(?:\s*edition)?|live(?:\s*at\b.*)?|mono|stereo)\b.*$', caseSensitive: false), '');
+
+    // 15. Clean stray parentheses
     t = t.replaceAll(RegExp(r'[\(\)]'), ' ');
+
+    // 16. Strip leading and trailing punctuation (hyphens, dashes, colons, slashes, pipes, tildes, commas)
+    t = t.replaceAll(RegExp(r'^[\s\-–—:~|/,.\+]+|[\s\-–—:~|/,.\+]+$'), '');
     t = t.replaceAll(RegExp(r'\s+'), ' ').trim();
     return t;
+  }
+
+  /// Generates a prioritized, deduplicated list of candidate title variations
+  /// to maximize hit rate on lyrics providers (LRCLIB, JioSaavn, YouTube Captions).
+  /// Correctly handles:
+  /// - YouTube "Movie - Song" or "Artist - Song" patterns (e.g. "Leo - Badass" -> "Badass", "Leo - Badass")
+  /// - Subtitles & alternate song names (e.g. "Hukum - Thalaivar Alappara" -> "Hukum", "Thalaivar Alappara")
+  /// - Artist/Album prefix de-duplication
+  static List<String> generateTitleCandidates(String rawTitle, {String? artist, String? album}) {
+    final cleanBase = sanitizeTitle(rawTitle);
+    if (cleanBase.isEmpty) return const [];
+
+    final candidates = <String>[];
+    final seen = <String>{};
+
+    void addCandidate(String s) {
+      final trimmed = s.replaceAll(RegExp(r'^[\s\-–—:~|/,.\+]+|[\s\-–—:~|/,.\+]+$'), '').trim();
+      if (trimmed.length >= 2 && seen.add(trimmed.toLowerCase())) {
+        candidates.add(trimmed);
+      }
+    }
+
+    final cleanArtist = (artist != null && artist.isNotEmpty) ? sanitizeArtist(artist).toLowerCase() : '';
+    final cleanAlbum = (album != null && album.isNotEmpty && album.toLowerCase() != 'unknown album') ? sanitizeTitle(album).toLowerCase() : '';
+
+    // Check if raw title has trailing/enclosed parenthetical or bracketed notes (e.g. "(Spider-Man: ...)", "(From Movie)")
+    // and extract the core title before the brackets
+    final preBracket = rawTitle.split(RegExp(r'[\(\[\{]')).first.trim();
+    final cleanPre = sanitizeTitle(preBracket);
+    final preSeparatorMatch = RegExp(r'\s*([-–—:~])\s*').firstMatch(cleanPre);
+    if (preSeparatorMatch != null) {
+      final pA = cleanPre.substring(0, preSeparatorMatch.start).trim();
+      final pB = cleanPre.substring(preSeparatorMatch.end).trim();
+      if (cleanArtist.isNotEmpty && (cleanArtist.contains(pA.toLowerCase()) || pA.toLowerCase().contains(cleanArtist))) {
+        addCandidate(pB);
+      } else if (cleanArtist.isNotEmpty && (cleanArtist.contains(pB.toLowerCase()) || pB.toLowerCase().contains(cleanArtist))) {
+        addCandidate(pA);
+      } else if (cleanAlbum.isNotEmpty && (cleanAlbum == pA.toLowerCase() || cleanAlbum.contains(pA.toLowerCase()))) {
+        addCandidate(pB);
+      } else {
+        addCandidate(pB);
+        addCandidate(pA);
+      }
+    } else if (cleanPre.isNotEmpty && cleanPre != cleanBase) {
+      addCandidate(cleanPre);
+    }
+
+    // Check if cleanBase has a hyphen/dash/colon separator (e.g. "Movie - Song" or "Artist - Song")
+    final separatorMatch = RegExp(r'\s*([-–—:~])\s*').firstMatch(cleanBase);
+    if (separatorMatch != null) {
+      final idx = separatorMatch.start;
+      final endIdx = separatorMatch.end;
+      final partA = cleanBase.substring(0, idx).trim();
+      final partB = cleanBase.substring(endIdx).trim();
+
+      if (partA.isNotEmpty && partB.isNotEmpty) {
+        final lowerA = partA.toLowerCase();
+        final lowerB = partB.toLowerCase();
+
+        // 1. If partA is the artist -> partB is 100% the track title (e.g. "Anirudh - Hukum")
+        if (cleanArtist.isNotEmpty && (cleanArtist.contains(lowerA) || lowerA.contains(cleanArtist))) {
+          addCandidate(partB);
+          addCandidate(cleanBase);
+        }
+        // 2. If partB is the artist -> partA is the track title (e.g. "Katchi Sera - Sai Abhyankkar")
+        else if (cleanArtist.isNotEmpty && (cleanArtist.contains(lowerB) || lowerB.contains(cleanArtist))) {
+          addCandidate(partA);
+          addCandidate(cleanBase);
+        }
+        // 3. If partA matches the album/movie -> partB is the song title (e.g. "Leo - Badass", "Jailer - Hukum")
+        else if (cleanAlbum.isNotEmpty && (cleanAlbum == lowerA || cleanAlbum.contains(lowerA))) {
+          addCandidate(partB);
+          addCandidate(cleanBase);
+        }
+        // 4. Default: Indian/YouTube tracks overwhelmingly use "Movie - Song" (e.g. "Leo - Badass"),
+        // so prioritize partB, then full cleanBase, then partA
+        else {
+          addCandidate(partB);
+          addCandidate(cleanBase);
+          addCandidate(partA);
+        }
+      }
+    }
+
+    // Always ensure cleanBase is in candidates
+    addCandidate(cleanBase);
+
+    // If title starts with the artist name, strip artist prefix
+    if (cleanArtist.isNotEmpty && cleanBase.toLowerCase().startsWith(cleanArtist)) {
+      final stripped = cleanBase.substring(cleanArtist.length).trim();
+      addCandidate(stripped);
+    }
+
+    // If title starts with album name, strip album prefix
+    if (cleanAlbum.isNotEmpty && cleanBase.toLowerCase().startsWith(cleanAlbum)) {
+      final stripped = cleanBase.substring(cleanAlbum.length).trim();
+      addCandidate(stripped);
+    }
+
+    return candidates;
   }
 
   /// Cleans artist metadata by extracting primary artist and stripping record labels & metric tags.
@@ -282,6 +419,7 @@ class LyricsClient {
     required String trackId,
     required String title,
     required String artist,
+    String? album,
     int durationSeconds = 0,
   }) async {
     // 1. In-memory LRU cache check (0ms)
@@ -310,50 +448,87 @@ class LyricsClient {
       }
     }
 
-    final cleanTitle = sanitizeTitle(title);
+    final titleCandidates = generateTitleCandidates(title, artist: artist, album: album);
     final primaryArtist = sanitizeArtist(artist);
 
-    AppLogger.log('LyricsClient', 'Fetching lyrics on-device: "$cleanTitle" by "$primaryArtist" (dur: ${durationSeconds}s)');
+    AppLogger.log(
+      'LyricsClient',
+      'Fetching lyrics on-device for "$title" (dur: ${durationSeconds}s). Candidates: $titleCandidates, Artist: "$primaryArtist"',
+    );
 
     List<Map<String, dynamic>> allCandidates = [];
 
-    // Step 1: Specific track_name and artist_name search
-    try {
-      final uri1 = Uri.parse('https://lrclib.net/api/search').replace(queryParameters: {
-        'track_name': cleanTitle,
-        'artist_name': primaryArtist,
-      });
-      final res1 = await http.get(uri1, headers: {'User-Agent': _userAgent}).timeout(const Duration(seconds: 3));
-      if (res1.statusCode == 200) {
-        final List data = json.decode(res1.body);
-        allCandidates.addAll(data.whereType<Map<String, dynamic>>());
-      }
-    } catch (e) {
-      AppLogger.log('LyricsClient', 'LRCLIB Step 1 search notice: $e');
-    }
-
-    // Step 2: Fallback query search if no synced lyrics found yet
-    final hasSynced = allCandidates.any((c) => (c['syncedLyrics'] as String?)?.trim().isNotEmpty == true);
-    if (!hasSynced) {
+    // Step 1: Specific track_name and artist_name search across generated title candidates
+    for (final cand in titleCandidates.take(3)) {
       try {
-        final uri2 = Uri.parse('https://lrclib.net/api/search').replace(queryParameters: {
-          'q': '$cleanTitle $primaryArtist'.trim(),
+        final uri1 = Uri.parse('https://lrclib.net/api/search').replace(queryParameters: {
+          'track_name': cand,
+          if (primaryArtist.isNotEmpty) 'artist_name': primaryArtist,
         });
-        final res2 = await http.get(uri2, headers: {'User-Agent': _userAgent}).timeout(const Duration(seconds: 3));
-        if (res2.statusCode == 200) {
-          final List data = json.decode(res2.body);
-          allCandidates.addAll(data.whereType<Map<String, dynamic>>());
+        final res1 = await http.get(uri1, headers: {'User-Agent': _userAgent}).timeout(const Duration(seconds: 3));
+        if (res1.statusCode == 200) {
+          final List data = json.decode(res1.body);
+          final valid = data.whereType<Map<String, dynamic>>().toList();
+          allCandidates.addAll(valid);
+
+          // Check if we immediately found a synced lyrics candidate with matching duration
+          final syncedMatches = valid.where((c) => (c['syncedLyrics'] as String?)?.trim().isNotEmpty == true).toList();
+          if (syncedMatches.isNotEmpty) {
+            if (durationSeconds > 0) {
+              syncedMatches.sort((a, b) {
+                final durA = ((a['duration'] as num?)?.toInt() ?? 0);
+                final durB = ((b['duration'] as num?)?.toInt() ?? 0);
+                return (durA - durationSeconds).abs().compareTo((durB - durationSeconds).abs());
+              });
+              final bestDiff = (((syncedMatches.first['duration'] as num?)?.toInt() ?? 0) - durationSeconds).abs();
+              // If within 10 seconds tolerance, accept immediately!
+              if (bestDiff <= 10) {
+                final best = syncedMatches.first;
+                final rawLrc = best['syncedLyrics'] as String;
+                final dual = buildDualLyrics(rawLrc);
+                final state = LyricsState.loaded(rawLrc, dualLyrics: dual);
+                _putMemoryCache(trackId, state);
+                _savePersistentCache(trackId, rawLrc, dual);
+                AppLogger.log('LyricsClient', 'Instant synced LRC hit for "$title" using candidate "$cand" (diff: ${bestDiff}s)');
+                return state;
+              }
+            } else {
+              final best = syncedMatches.first;
+              final rawLrc = best['syncedLyrics'] as String;
+              final dual = buildDualLyrics(rawLrc);
+              final state = LyricsState.loaded(rawLrc, dualLyrics: dual);
+              _putMemoryCache(trackId, state);
+              _savePersistentCache(trackId, rawLrc, dual);
+              return state;
+            }
+          }
         }
       } catch (e) {
-        AppLogger.log('LyricsClient', 'LRCLIB Step 2 query notice: $e');
+        AppLogger.log('LyricsClient', 'LRCLIB Step 1 search notice for "$cand": $e');
       }
+    }
 
-      // Step 2b: Fallback title-only query search
-      final hasSyncedAfterStep2 = allCandidates.any((c) => (c['syncedLyrics'] as String?)?.trim().isNotEmpty == true);
-      if (!hasSyncedAfterStep2 && cleanTitle.isNotEmpty) {
+    // Step 2: Fallback query search across candidates if no synced lyrics found yet
+    final hasSynced = allCandidates.any((c) => (c['syncedLyrics'] as String?)?.trim().isNotEmpty == true);
+    if (!hasSynced) {
+      for (final cand in titleCandidates.take(2)) {
+        try {
+          final uri2 = Uri.parse('https://lrclib.net/api/search').replace(queryParameters: {
+            'q': '$cand $primaryArtist'.trim(),
+          });
+          final res2 = await http.get(uri2, headers: {'User-Agent': _userAgent}).timeout(const Duration(seconds: 3));
+          if (res2.statusCode == 200) {
+            final List data = json.decode(res2.body);
+            allCandidates.addAll(data.whereType<Map<String, dynamic>>());
+          }
+        } catch (e) {
+          AppLogger.log('LyricsClient', 'LRCLIB Step 2 query notice for "$cand": $e');
+        }
+
+        // Title-only fuzzy search
         try {
           final uri3 = Uri.parse('https://lrclib.net/api/search').replace(queryParameters: {
-            'q': cleanTitle,
+            'q': cand,
           });
           final res3 = await http.get(uri3, headers: {'User-Agent': _userAgent}).timeout(const Duration(seconds: 3));
           if (res3.statusCode == 200) {
@@ -367,7 +542,7 @@ class LyricsClient {
     // Cache candidates for duration re-selection
     _candidatesCache[trackId] = allCandidates;
 
-    // DURATION-SCORED CANDIDATE SELECTION
+    // DURATION-SCORED CANDIDATE SELECTION FROM ACCUMULATED LRCLIB POOL
     final syncedCandidates = allCandidates
         .where((c) => (c['syncedLyrics'] as String?)?.trim().isNotEmpty == true)
         .toList();
@@ -390,7 +565,70 @@ class LyricsClient {
       return state;
     }
 
-    // If only plain text lyrics available from LRCLIB
+    // Step 3: Direct JioSaavn Fallback for regional tracks (Tamil, Telugu, Hindi, etc.)
+    for (final cand in titleCandidates.take(2)) {
+      try {
+        String? saavnId = (trackId.isNotEmpty && trackId.length != 11) ? trackId : null;
+        if (saavnId == null) {
+          final searchSongs = await SaavnClient.search('$cand $primaryArtist', limit: 2);
+          if (searchSongs.isNotEmpty) {
+            saavnId = searchSongs.first.id;
+          }
+        }
+
+        if (saavnId != null && saavnId.isNotEmpty) {
+          final saavnUri = Uri.parse('https://www.jiosaavn.com/api.php').replace(queryParameters: {
+            '__call': 'lyrics.getLyrics',
+            '_format': 'json',
+            '_marker': '0',
+            'api_version': '4',
+            'ctx': 'web6dot0',
+            'lyrics_id': saavnId,
+          });
+
+          final saavnRes = await http.get(saavnUri).timeout(const Duration(seconds: 3));
+          if (saavnRes.statusCode == 200) {
+            final data = json.decode(saavnRes.body);
+            final lyrics = data['lyrics']?.toString();
+            if (lyrics != null && lyrics.trim().isNotEmpty) {
+              final cleanPlain = _unescape
+                  .convert(lyrics.replaceAll('<br>', '\n').replaceAll('<br/>', '\n'))
+                  .trim();
+              final autoTimedLrc = isLrc(cleanPlain)
+                  ? cleanPlain
+                  : plainLyricsToAutoTimedLrc(cleanPlain, durationSeconds);
+              final dual = buildDualLyrics(autoTimedLrc);
+              final state = LyricsState.loaded(autoTimedLrc, dualLyrics: dual);
+              _putMemoryCache(trackId, state);
+              _savePersistentCache(trackId, autoTimedLrc, dual);
+              AppLogger.log('LyricsClient', 'Resolved JioSaavn plain lyrics for "$title" using candidate "$cand" into auto-timed LRC');
+              return state;
+            }
+          }
+        }
+      } catch (e) {
+        AppLogger.log('LyricsClient', 'JioSaavn lyrics fallback notice for "$cand": $e');
+      }
+    }
+
+    // Step 4: YouTube Closed Captions / Timed Subtitles Fallback
+    if (trackId.length == 11) {
+      try {
+        final ytCaptionsLrc = await YouTubeClient.fetchVideoCaptions(trackId);
+        if (ytCaptionsLrc != null && ytCaptionsLrc.trim().isNotEmpty) {
+          final dual = buildDualLyrics(ytCaptionsLrc);
+          final state = LyricsState.loaded(ytCaptionsLrc, dualLyrics: dual);
+          _putMemoryCache(trackId, state);
+          _savePersistentCache(trackId, ytCaptionsLrc, dual);
+          AppLogger.log('LyricsClient', 'Resolved native YouTube closed captions for "$title"');
+          return state;
+        }
+      } catch (e) {
+        AppLogger.log('LyricsClient', 'YouTube captions fallback notice: $e');
+      }
+    }
+
+    // Step 5: If only plain text lyrics available from LRCLIB
     final plainCandidates = allCandidates
         .where((c) => (c['plainLyrics'] as String?)?.trim().isNotEmpty == true)
         .toList();
@@ -411,50 +649,6 @@ class LyricsClient {
       _savePersistentCache(trackId, autoTimedLrc, dual);
       AppLogger.log('LyricsClient', 'Resolved plain lyrics for "$title" into auto-timed LRC');
       return state;
-    }
-
-    // Step 3: Direct JioSaavn Fallback for regional tracks
-    try {
-      String? saavnId = (trackId.isNotEmpty && trackId.length != 11) ? trackId : null;
-      if (saavnId == null) {
-        final searchSongs = await SaavnClient.search('$cleanTitle $primaryArtist', limit: 1);
-        if (searchSongs.isNotEmpty) {
-          saavnId = searchSongs.first.id;
-        }
-      }
-
-      if (saavnId != null && saavnId.isNotEmpty) {
-        final saavnUri = Uri.parse('https://www.jiosaavn.com/api.php').replace(queryParameters: {
-          '__call': 'lyrics.getLyrics',
-          '_format': 'json',
-          '_marker': '0',
-          'api_version': '4',
-          'ctx': 'web6dot0',
-          'lyrics_id': saavnId,
-        });
-
-        final saavnRes = await http.get(saavnUri).timeout(const Duration(seconds: 3));
-        if (saavnRes.statusCode == 200) {
-          final data = json.decode(saavnRes.body);
-          final lyrics = data['lyrics']?.toString();
-          if (lyrics != null && lyrics.trim().isNotEmpty) {
-            final cleanPlain = _unescape
-                .convert(lyrics.replaceAll('<br>', '\n').replaceAll('<br/>', '\n'))
-                .trim();
-            final autoTimedLrc = isLrc(cleanPlain)
-                ? cleanPlain
-                : plainLyricsToAutoTimedLrc(cleanPlain, durationSeconds);
-            final dual = buildDualLyrics(autoTimedLrc);
-            final state = LyricsState.loaded(autoTimedLrc, dualLyrics: dual);
-            _putMemoryCache(trackId, state);
-            _savePersistentCache(trackId, autoTimedLrc, dual);
-            AppLogger.log('LyricsClient', 'Resolved JioSaavn plain lyrics for "$title" into auto-timed LRC');
-            return state;
-          }
-        }
-      }
-    } catch (e) {
-      AppLogger.log('LyricsClient', 'JioSaavn lyrics fallback notice: $e');
     }
 
     const notFoundState = LyricsState.notFound();

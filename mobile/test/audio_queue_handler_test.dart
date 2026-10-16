@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:paatu_padava_mobile/logic/audio_queue_handler.dart';
@@ -17,6 +18,9 @@ class MockAudioPlayer extends Fake implements AudioPlayer {
   AudioSource? _audioSource;
   int? _sourceIndex;
   LoopMode _loopMode = LoopMode.off;
+
+  @override
+  int? get currentIndex => _sourceIndex;
 
   @override
   LoopMode get loopMode => _loopMode;
@@ -341,6 +345,39 @@ void main() {
         source: 'saavn',
       );
       expect(AudioQueueHandler.getNormalizedVolumeForSong(fallbackSong), equals(1.0));
+    });
+
+    test('11. Aborted playback error is ignored and does not increment consecutive errors or trip breaker', () async {
+      final song1 = createSampleSong('song_aborted_1', 'Playing Track');
+      await queueHandler.loadQueue([song1], initialIndex: 0, autoPlay: true);
+
+      // Simulate PlatformException(abort, Connection aborted)
+      final abortErr = PlatformException(code: 'abort', message: 'Connection aborted');
+      await queueHandler.handlePlaybackError(abortErr, null, context: 'test');
+
+      // Error notifier should not have been set to halt error
+      expect(queueHandler.errorNotifier.value, isNull);
+    });
+
+    test('12. Error carrying {index: 1} drops preload slot only without blaming healthy playing track', () async {
+      final song1 = createSampleSong('playing_healthy_1', 'Playing Track');
+      final song2 = createSampleSong('preloaded_error_2', 'Next Track');
+      await queueHandler.loadQueue([song1, song2], initialIndex: 0, autoPlay: true);
+
+      // Current playing track is song1
+      expect(queueHandler.currentSong?.id, equals('playing_healthy_1'));
+
+      // Error on preloaded slot 1
+      final preloadErr = PlatformException(
+        code: '0',
+        message: 'Source error',
+        details: {'index': 1},
+      );
+      await queueHandler.handlePlaybackError(preloadErr, null, context: 'test');
+
+      // The playing song must NOT be invalidated or stopped
+      expect(queueHandler.currentSong?.id, equals('playing_healthy_1'));
+      expect(queueHandler.errorNotifier.value, isNull);
     });
   });
 }

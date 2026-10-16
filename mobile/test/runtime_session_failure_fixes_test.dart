@@ -91,5 +91,32 @@ void main() {
       expect(() => YouTubeClient.invalidateStream('test_video_123'), returnsNormally);
       expect(() => YouTubeClient.invalidateStream(''), returnsNormally);
     });
+
+    test('Fix: StreamResolver shares single in-flight resolution across concurrent requests', () async {
+      DefaultStreamResolver.clearCache();
+      final song = Song(
+        id: 'test_concurrent_id_999',
+        title: 'Concurrent Test Song',
+        artist: 'Tester',
+        album: 'Test Album',
+        coverUrl: '',
+        duration: 200,
+        source: 'audius',
+        streamUrl: 'https://audius.co/stream/test_999',
+      );
+
+      // Concurrent calls to resolve
+      final resolver = DefaultStreamResolver();
+      final futures = [
+        resolver.resolveStreamUrl(song),
+        resolver.resolveStreamUrl(song),
+        resolver.resolve(song),
+      ];
+
+      final results = await Future.wait(futures);
+      expect(results[0], equals('https://audius.co/stream/test_999'));
+      expect(results[1], equals('https://audius.co/stream/test_999'));
+      expect(results[2], equals('https://audius.co/stream/test_999'));
+    });
   });
 }

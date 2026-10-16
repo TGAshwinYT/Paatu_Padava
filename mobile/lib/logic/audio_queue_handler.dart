@@ -423,9 +423,23 @@ class AudioQueueHandler {
 
     // Gapless track advance in ConcatenatingAudioSource sliding window
     _currentIndexSub = player.currentIndexStream.listen((index) {
-      if (index != null && index > 0) {
-        // Player advanced naturally to the upcoming primed track
-        _advanceToNextTrackFromPlayerStream();
+      if (index == null || _isDisposed || _isTransitioning) return;
+      if (index > 0) {
+        String? playingId;
+        if (index < _playlistSource.length) {
+          final playingTag = _playlistSource.sequence[index].tag;
+          playingId = (playingTag is MediaItem)
+              ? playingTag.id
+              : (playingTag is Song ? playingTag.id : null);
+        }
+        // Advance only if playing source differs from currently playing track
+        if (playingId != null) {
+          if (playingId != _currentTrack?.id) {
+            _advanceToNextTrackFromPlayerStream(playingId);
+          }
+        } else {
+          _advanceToNextTrackFromPlayerStream();
+        }
       }
     });
 
@@ -584,12 +598,17 @@ class AudioQueueHandler {
         final downscaledSource = await _buildAudioSource(current, allowNetworkResolve: false);
         if (downscaledSource != null && !_isDisposed) {
           try {
-            await player.setAudioSource(downscaledSource, initialPosition: currentPos);
+            _playlistSource = ConcatenatingAudioSource(
+              children: [downscaledSource],
+              useLazyPreparation: true,
+            );
+            await player.setAudioSource(_playlistSource, initialPosition: currentPos);
             await _ensureAudioSessionActive();
             await player.play();
             final targetNorm = getEffectiveVolumeForSong(current);
             await player.setVolume(targetNorm);
             _startVolumeWatchdog(current);
+            preloadUpcomingTracks();
             AppLogger.log('AudioQueueHandler', 'Buffer stall dynamic rescue succeeded for "${current.title}"');
           } catch (e) {
             AppLogger.log('AudioQueueHandler', 'Buffer stall dynamic rescue notice: $e');
@@ -677,11 +696,74 @@ class AudioQueueHandler {
       AppLogger.log('AudioQueueHandler', '[$context] Recovery already in progress for "${current.title}", ignoring duplicate error');
       return;
     }
+
+    // 1. Ignore abort / connection aborted errors (superseded by newer load or seek)
+    final errorStr = error.toString().toLowerCase();
+    final isAbort = errorStr.contains('abort') ||
+        (error is PlatformException &&
+            (error.code.toLowerCase() == 'abort' ||
+                (error.message != null && error.message!.toLowerCase().contains('abort'))));
+    if (isAbort) {
+      AppLogger.log('AudioQueueHandler', '[$context] Ignoring aborted load (superseded by newer load): $error');
+      return;
+    }
+
+    // 2. Attribute errors by playlist slot index:
+    // If the error carries {index: 1} or non-playing index, drop the failing preloaded source ONLY.
+    // Never blame, reload, or disrupt the healthy playing track!
+    int? errorIndex;
+    if (error is PlatformException && error.details is Map) {
+      final idx = (error.details as Map)['index'];
+      if (idx is int) {
+        errorIndex = idx;
+      }
+    }
+    if (errorIndex == null) {
+      final match = RegExp(r'\{index:\s*(\d+)\}').firstMatch(error.toString());
+      if (match != null) {
+        errorIndex = int.tryParse(match.group(1)!);
+      }
+    }
+
+    int? getSafeCurrentIndex() {
+      try {
+        return player.currentIndex;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final currentPlayingIndex = getSafeCurrentIndex() ?? 0;
+    if (errorIndex != null && errorIndex != currentPlayingIndex) {
+      AppLogger.log(
+        'AudioQueueHandler',
+        '[$context] Playback error on non-playing preloaded slot $errorIndex (active playing index is $currentPlayingIndex). Dropping preloaded source without disrupting active playback.',
+      );
+      if (errorIndex < _playlistSource.length) {
+        try {
+          await _playlistSource.removeAt(errorIndex);
+        } catch (e) {
+          AppLogger.log('AudioQueueHandler', 'Safe catch removing preloaded error source: $e');
+        }
+      }
+      final next = nextTrack;
+      if (next != null) {
+        streamResolver.invalidate(next.id);
+        _updateTrackStreamUrl(next.id, '');
+      }
+      return;
+    }
+
+    final token = _sessionToken;
     _isRecovering = true;
 
     try {
       // 1. Capture and log the real underlying error
       final diagnostic = await diagnosePlaybackError(current, error, stackTrace);
+      if (token != _sessionToken || _isDisposed) {
+        AppLogger.log('AudioQueueHandler', '[$context] Stale error: session token changed during diagnosis, aborting recovery');
+        return;
+      }
       AppLogger.log('ExoPlayerDiagnostic', '[$context] Real Error for "${current.title}" (${current.id}) [${current.source}]: $diagnostic');
 
       final failingUrl = current.streamUrl;
@@ -694,26 +776,35 @@ class AudioQueueHandler {
       current.streamUrl = null;
 
       // 2. Retry handling with Bitrate Fallback + Cross-Provider Fallback
-      if (!_hasRetriedCurrentTrack && !_isDisposed) {
+      if (!_hasRetriedCurrentTrack && !_isDisposed && token == _sessionToken) {
         _hasRetriedCurrentTrack = true;
 
         // STEP 2A: If a Saavn stream failed (e.g. 320kbps 404/403 on CDN), try Bitrate Fallback (160kbps, then 96kbps)
         if (isSaavnCdn && failingUrl != null) {
           final fallbackUrl = SaavnBitrateHelper.getNextFallbackUrl(failingUrl);
-          if (fallbackUrl != null && !_isDisposed) {
+          if (fallbackUrl != null && !_isDisposed && token == _sessionToken) {
             AppLogger.log('AudioQueueHandler', 'Saavn bitrate fallback for "${current.title}": switching to lower bitrate $fallbackUrl');
             current.streamUrl = fallbackUrl;
             _updateTrackStreamUrl(current.id, fallbackUrl, source: 'saavn');
             final fallbackSource = await _buildAudioSource(current, allowNetworkResolve: false);
-            if (fallbackSource != null && !_isDisposed) {
+            if (token != _sessionToken || _isDisposed) return;
+            if (fallbackSource != null) {
               try {
-                await player.setAudioSource(fallbackSource);
+                _playlistSource = ConcatenatingAudioSource(
+                  children: [fallbackSource],
+                  useLazyPreparation: true,
+                );
+                await player.setAudioSource(_playlistSource);
+                if (token != _sessionToken || _isDisposed) return;
                 await _ensureAudioSessionActive();
+                if (token != _sessionToken || _isDisposed) return;
                 await player.play();
+                if (token != _sessionToken || _isDisposed) return;
                 final targetNorm = getEffectiveVolumeForSong(current);
                 await player.setVolume(targetNorm);
                 _startVolumeWatchdog(current);
                 _consecutivePlaybackErrors = 0;
+                preloadUpcomingTracks();
                 AppLogger.log('AudioQueueHandler', 'Saavn bitrate fallback successful: "${current.title}" playing at reduced bitrate');
                 return;
               } catch (bitrateErr, bitrateStack) {
@@ -724,28 +815,40 @@ class AudioQueueHandler {
           }
         }
 
+        if (token != _sessionToken || _isDisposed) return;
+
         // STEP 2B: Cross-source resolution fallback
         AppLogger.log('AudioQueueHandler', 'Single-pass fallback: resolving fallback stream for "${current.title}"');
         final freshUrl = await streamResolver.resolve(
           current,
           forceSaavnFallback: !isSaavnCdn,
         );
-        if (freshUrl != null && freshUrl.isNotEmpty && !_isDisposed) {
+        if (token != _sessionToken || _isDisposed) return;
+        if (freshUrl != null && freshUrl.isNotEmpty) {
           final resolvedSource = freshUrl.contains('saavncdn.com') ? 'saavn' : 'youtube';
           current.streamUrl = freshUrl;
           current.source = resolvedSource;
           _updateTrackStreamUrl(current.id, freshUrl, source: resolvedSource);
 
           final freshSource = await _buildAudioSource(current, allowNetworkResolve: false);
-          if (freshSource != null && !_isDisposed) {
+          if (token != _sessionToken || _isDisposed) return;
+          if (freshSource != null) {
             try {
-              await player.setAudioSource(freshSource);
+              _playlistSource = ConcatenatingAudioSource(
+                children: [freshSource],
+                useLazyPreparation: true,
+              );
+              await player.setAudioSource(_playlistSource);
+              if (token != _sessionToken || _isDisposed) return;
               await _ensureAudioSessionActive();
+              if (token != _sessionToken || _isDisposed) return;
               await player.play();
+              if (token != _sessionToken || _isDisposed) return;
               final targetNorm = getEffectiveVolumeForSong(current);
               await player.setVolume(targetNorm);
               _startVolumeWatchdog(current);
               _consecutivePlaybackErrors = 0;
+              preloadUpcomingTracks();
               AppLogger.log('AudioQueueHandler', 'Fallback recovery successful: "${current.title}" now playing via $resolvedSource');
               return;
             } catch (recoveryErr, recoveryStack) {
@@ -754,6 +857,11 @@ class AudioQueueHandler {
             }
           }
         }
+      }
+
+      if (token != _sessionToken || _isDisposed) {
+        AppLogger.log('AudioQueueHandler', '[$context] Stale error: user transitioned or token expired, bypassing circuit breaker increment');
+        return;
       }
 
       // 3. If fallback failed or track was already retried once:
@@ -792,10 +900,10 @@ class AudioQueueHandler {
         audioHandler.playbackErrorNotifier.value = appErr;
       }
 
-      if (hasNext && !_isDisposed) {
+      if (hasNext && !_isDisposed && token == _sessionToken) {
         AppLogger.log('AudioQueueHandler', 'Advancing to next track after failure on "${current.title}"');
         Future.delayed(const Duration(milliseconds: 600), () {
-          if (!_isDisposed && queue.isNotEmpty) skipToNext(isUserInitiated: false);
+          if (!_isDisposed && queue.isNotEmpty && _sessionToken == token) skipToNext(isUserInitiated: false);
         });
       }
     } finally {
@@ -831,12 +939,17 @@ class AudioQueueHandler {
         final freshSource = await _buildAudioSource(current, allowNetworkResolve: false);
         if (freshSource != null && !_isDisposed) {
           try {
-            await player.setAudioSource(freshSource, initialPosition: resumeOffset);
+            _playlistSource = ConcatenatingAudioSource(
+              children: [freshSource],
+              useLazyPreparation: true,
+            );
+            await player.setAudioSource(_playlistSource, initialPosition: resumeOffset);
             await _ensureAudioSessionActive();
             await player.play();
             final targetNorm = getEffectiveVolumeForSong(current);
             await player.setVolume(targetNorm);
             _startVolumeWatchdog(current);
+            preloadUpcomingTracks();
             AppLogger.log('AudioQueueHandler', 'Zero-touch network recovery succeeded for "${current.title}"');
           } catch (e) {
             AppLogger.log('AudioQueueHandler', 'Zero-touch network recovery resume notice: $e');
@@ -1491,8 +1604,9 @@ class AudioQueueHandler {
   }
 
   /// Handles gapless advance when just_audio ConcatenatingAudioSource fires index 1
-  void _advanceToNextTrackFromPlayerStream() {
+  void _advanceToNextTrackFromPlayerStream([String? expectedId]) {
     if (_isTransitioning || _isDisposed) return;
+    if (expectedId != null && _currentTrack?.id == expectedId) return;
     _isTransitioning = true;
     _lastTransitionTime = DateTime.now();
 
@@ -1731,8 +1845,26 @@ class AudioQueueHandler {
   // ================= Preloading & Sliding Window ================= //
 
   Future<void> preloadUpcomingTracks([int? fromIndex]) async {
+    int? getSafeCurrentIndex() {
+      try {
+        return player.currentIndex;
+      } catch (_) {
+        return null;
+      }
+    }
+
     final next = nextTrack;
-    if (next == null || _isDisposed) return;
+    if (next == null || _isDisposed) {
+      final currentPlayingIdx = getSafeCurrentIndex() ?? 0;
+      while (_playlistSource.length > currentPlayingIdx + 1) {
+        try {
+          await _playlistSource.removeAt(_playlistSource.length - 1);
+        } catch (_) {
+          break;
+        }
+      }
+      return;
+    }
     final token = _sessionToken;
 
     AppLogger.log('AudioQueueHandler', 'Preloading upcoming track: "${next.title}" [id=${next.id}]');
@@ -1740,7 +1872,7 @@ class AudioQueueHandler {
     final wasMissingOrExpired = next.streamUrl == null || next.streamUrl!.isEmpty || streamResolver.isExpired(next.id);
     if (wasMissingOrExpired) {
       final url = await _resolveStreamUrl(next.toSong());
-      if (token != _sessionToken) return;
+      if (token != _sessionToken || _isDisposed) return;
       if (url != null && url.isNotEmpty) {
         _updateTrackStreamUrl(next.id, url);
       } else {
@@ -1755,8 +1887,26 @@ class AudioQueueHandler {
     final source = await _buildAudioSource(song, allowNetworkResolve: false);
     if (source == null || token != _sessionToken || _isDisposed) return;
 
+    // 1. Trim played sources prior to currently playing index so window is always [playing, next]
+    final currentPlaying = getSafeCurrentIndex() ?? 0;
+    if (currentPlaying > 0 && _playlistSource.length > 1) {
+      try {
+        for (int i = 0; i < currentPlaying; i++) {
+          if (_playlistSource.length > 1) {
+            await _playlistSource.removeAt(0);
+          }
+        }
+      } catch (e) {
+        AppLogger.log('AudioQueueHandler', 'Safe catch during trimming played sources: $e');
+      }
+    }
+
+    if (token != _sessionToken || _isDisposed) return;
+
+    // 2. Target slot is always the slot strictly after the active playing one
+    final activePlayingIndex = getSafeCurrentIndex() ?? 0;
+    final targetPlayerIndex = activePlayingIndex + 1;
     _playlistBaseIndex = currentIndex;
-    const targetPlayerIndex = 1;
 
     if (targetPlayerIndex < _playlistSource.length) {
       try {
@@ -1774,6 +1924,15 @@ class AudioQueueHandler {
         await _playlistSource.add(source);
       } catch (e) {
         AppLogger.log('AudioQueueHandler', 'Safe catch during playlist source add: $e');
+      }
+    }
+
+    // Trim any trailing sources beyond the 2-track window [playing, next]
+    while (_playlistSource.length > targetPlayerIndex + 1) {
+      try {
+        await _playlistSource.removeAt(_playlistSource.length - 1);
+      } catch (_) {
+        break;
       }
     }
 

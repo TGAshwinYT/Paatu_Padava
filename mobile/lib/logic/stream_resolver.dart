@@ -61,6 +61,7 @@ class DefaultStreamResolver implements StreamResolver {
   // In-memory stream cache enforcing 3-hour TTL to prevent HTTP 403 CDN expirations
   static final Map<String, StreamCacheEntry> _streamCache = {};
   static final Set<String> _invalidatedSongIds = {};
+  static final Map<String, Future<String?>> _inFlightResolutions = {};
 
   /// Caches a resolved stream URL with a 3-hour TTL
   static void cacheStream(String songId, String url, {Duration ttl = cacheTtl, String source = 'unknown'}) {
@@ -88,6 +89,7 @@ class DefaultStreamResolver implements StreamResolver {
   /// Invalidates cached stream URL for a given song (e.g. on playback error / HTTP 403)
   static void invalidateStream(String songId) {
     _streamCache.remove(songId);
+    _inFlightResolutions.remove(songId);
     _invalidatedSongIds.add(songId);
     YouTubeClient.invalidateStream(songId);
   }
@@ -95,6 +97,7 @@ class DefaultStreamResolver implements StreamResolver {
   /// Clears entire stream cache
   static void clearCache() {
     _streamCache.clear();
+    _inFlightResolutions.clear();
     _invalidatedSongIds.clear();
   }
 
@@ -186,32 +189,60 @@ class DefaultStreamResolver implements StreamResolver {
         song.streamUrl = cached;
         return cached;
       }
+
+      // If an identical request is already in-flight, share it instead of firing duplicate network requests
+      final inFlight = _inFlightResolutions[song.id];
+      if (inFlight != null) {
+        AppLogger.log(
+          'StreamResolver',
+          'Sharing in-flight stream resolution for "${song.title}" [id=${song.id}]',
+        );
+        final sharedUrl = await inFlight;
+        if (sharedUrl != null && sharedUrl.isNotEmpty) {
+          song.streamUrl = sharedUrl;
+        }
+        return sharedUrl;
+      }
     }
 
-    final sw = Stopwatch()..start();
-    AppLogger.log(
-      'StreamResolver',
-      'Resolving fresh stream for: "${song.title}" (${song.artist}) [source=${song.source}, id=${song.id}, forceSaavn=$forceSaavnFallback]',
-    );
+    final future = () async {
+      final sw = Stopwatch()..start();
+      AppLogger.log(
+        'StreamResolver',
+        'Resolving fresh stream for: "${song.title}" (${song.artist}) [source=${song.source}, id=${song.id}, forceSaavn=$forceSaavnFallback]',
+      );
+
+      try {
+        final url = await _resolveStreamUrlInternal(song, forceSaavnFallback: forceSaavnFallback).timeout(_overallTimeout);
+        sw.stop();
+        if (url != null && url.isNotEmpty) {
+          if (url.contains('saavncdn.com')) {
+            song.source = 'saavn';
+          }
+          cacheStream(song.id, url, source: song.source);
+          song.streamUrl = url;
+          AppLogger.log('StreamResolver', 'Resolved and cached stream for "${song.title}" in ${sw.elapsedMilliseconds}ms');
+        } else {
+          AppLogger.log('StreamResolver', 'Stream resolution returned empty for "${song.title}" after ${sw.elapsedMilliseconds}ms');
+        }
+        return url;
+      } catch (e, stack) {
+        sw.stop();
+        AppLogger.recordError(e, stack, context: 'StreamResolver.resolveStreamUrl for "${song.title}" (${sw.elapsedMilliseconds}ms)');
+        return null;
+      }
+    }();
+
+    if (!forceSaavnFallback) {
+      _inFlightResolutions[song.id] = future;
+    }
 
     try {
-      final url = await _resolveStreamUrlInternal(song, forceSaavnFallback: forceSaavnFallback).timeout(_overallTimeout);
-      sw.stop();
-      if (url != null && url.isNotEmpty) {
-        if (url.contains('saavncdn.com')) {
-          song.source = 'saavn';
-        }
-        cacheStream(song.id, url, source: song.source);
-        song.streamUrl = url;
-        AppLogger.log('StreamResolver', 'Resolved and cached stream for "${song.title}" in ${sw.elapsedMilliseconds}ms');
-      } else {
-        AppLogger.log('StreamResolver', 'Stream resolution returned empty for "${song.title}" after ${sw.elapsedMilliseconds}ms');
+      return await future;
+    } finally {
+      if (!forceSaavnFallback) {
+        _inFlightResolutions.remove(song.id);
       }
-      return url;
-    } catch (e, stack) {
-      sw.stop();
-      AppLogger.recordError(e, stack, context: 'StreamResolver.resolveStreamUrl for "${song.title}" (${sw.elapsedMilliseconds}ms)');
-      return null;
     }
   }
 

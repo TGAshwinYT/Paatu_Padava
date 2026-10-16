@@ -1,13 +1,16 @@
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import '../models/song.dart';
 
 class SearchHistoryManager {
   static const String boxName = 'search_history';
   static final ValueNotifier<List<String>> historyNotifier = ValueNotifier<List<String>>([]);
+  static final ValueNotifier<List<Song>> recentSongsNotifier = ValueNotifier<List<Song>>([]);
 
   static Future<void> init() async {
     await Hive.openBox(boxName);
     _refreshList();
+    _refreshSongsList();
   }
 
   static Box get _box => Hive.box(boxName);
@@ -32,6 +35,31 @@ class SearchHistoryManager {
     historyNotifier.value = list;
   }
 
+  static void _refreshSongsList() {
+    final List<dynamic> raw = _box.get('recent_searched_songs', defaultValue: []) as List<dynamic>;
+    final List<Song> list = [];
+    final Set<String> seenIds = {};
+
+    for (final item in raw) {
+      try {
+        if (item is Map) {
+          final song = Song.fromMap(item);
+          if (song.id.isNotEmpty && !seenIds.contains(song.id)) {
+            seenIds.add(song.id);
+            list.add(song);
+          }
+        }
+      } catch (e) {
+        // Skip corrupted entries safely
+      }
+    }
+
+    if (list.length > 20) {
+      list.removeRange(20, list.length);
+    }
+    recentSongsNotifier.value = list;
+  }
+
   /// Adds a search term to history with strict deduplication, case-insensitivity,
   /// and a maximum cap of 12 recent searches.
   static Future<void> addQuery(String query) async {
@@ -52,6 +80,32 @@ class SearchHistoryManager {
     historyNotifier.value = current;
   }
 
+  /// Adds a clicked song to search history with strict deduplication by ID,
+  /// moving it to the top and enforcing a 20-song cap (like Spotify & Apple Music).
+  static Future<void> addSong(Song song) async {
+    if (song.id.isEmpty) return;
+
+    final current = List<Song>.from(recentSongsNotifier.value);
+    current.removeWhere((s) => s.id == song.id);
+    current.insert(0, song);
+
+    if (current.length > 20) {
+      current.removeRange(20, current.length);
+    }
+
+    recentSongsNotifier.value = current;
+    final serialized = current.map((s) => s.toMap()).toList();
+    await _box.put('recent_searched_songs', serialized);
+  }
+
+  static Future<void> removeSong(String songId) async {
+    final current = List<Song>.from(recentSongsNotifier.value);
+    current.removeWhere((s) => s.id == songId);
+    recentSongsNotifier.value = current;
+    final serialized = current.map((s) => s.toMap()).toList();
+    await _box.put('recent_searched_songs', serialized);
+  }
+
   static Future<void> removeQuery(String query) async {
     final clean = query.trim().toLowerCase();
     final current = List<String>.from(historyNotifier.value);
@@ -60,8 +114,15 @@ class SearchHistoryManager {
     historyNotifier.value = current;
   }
 
+  static Future<void> clearSongs() async {
+    recentSongsNotifier.value = [];
+    await _box.put('recent_searched_songs', <Map<String, dynamic>>[]);
+  }
+
   static Future<void> clearAll() async {
     await _box.put('recent_searches', <String>[]);
+    await _box.put('recent_searched_songs', <Map<String, dynamic>>[]);
     historyNotifier.value = [];
+    recentSongsNotifier.value = [];
   }
 }

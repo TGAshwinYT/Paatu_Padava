@@ -74,6 +74,8 @@ class SearchScreen extends StatefulWidget {
 class _SearchScreenState extends State<SearchScreen> {
   static final HtmlUnescape _unescape = HtmlUnescape();
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  final ValueNotifier<bool> _isSearchActiveNotifier = ValueNotifier<bool>(false);
   Timer? _debounceTimer;
   int _searchRequestId = 0;
 
@@ -169,6 +171,13 @@ class _SearchScreenState extends State<SearchScreen> {
     super.initState();
     _populateLocalSearchTrie();
     SearchHistoryManager.historyNotifier.addListener(_updateTrieWithHistory);
+    _searchFocusNode.addListener(_onSearchFocusChanged);
+  }
+
+  void _onSearchFocusChanged() {
+    if (_searchFocusNode.hasFocus && !_isSearchActiveNotifier.value) {
+      _isSearchActiveNotifier.value = true;
+    }
   }
 
   void _populateLocalSearchTrie() {
@@ -195,6 +204,9 @@ class _SearchScreenState extends State<SearchScreen> {
 
   @override
   void dispose() {
+    _searchFocusNode.removeListener(_onSearchFocusChanged);
+    _searchFocusNode.dispose();
+    _isSearchActiveNotifier.dispose();
     SearchHistoryManager.historyNotifier.removeListener(_updateTrieWithHistory);
     _searchController.dispose();
     _debounceTimer?.cancel();
@@ -207,7 +219,29 @@ class _SearchScreenState extends State<SearchScreen> {
     super.dispose();
   }
 
+  void _enterActiveSearch() {
+    if (!_isSearchActiveNotifier.value) {
+      _isSearchActiveNotifier.value = true;
+    }
+    _searchFocusNode.requestFocus();
+  }
+
+  void _exitActiveSearch() {
+    _debounceTimer?.cancel();
+    _searchFocusNode.unfocus();
+    _searchController.clear();
+    _isSearchActiveNotifier.value = false;
+    _hasSearchedNotifier.value = false;
+    _isSearchingNotifier.value = false;
+    _suggestionsNotifier.value = [];
+    _fuzzyCorrectionNotifier.value = null;
+    _resultsNotifier.value = const SearchResultsState();
+  }
+
   void _onQueryChanged(String query) {
+    if (!_isSearchActiveNotifier.value) {
+      _isSearchActiveNotifier.value = true;
+    }
     _debounceTimer?.cancel();
     final clean = query.trim();
     if (clean.isEmpty) {
@@ -251,6 +285,10 @@ class _SearchScreenState extends State<SearchScreen> {
   Future<void> _executeSearch(String query, {bool saveHistory = false}) async {
     final clean = query.trim();
     if (clean.isEmpty) return;
+
+    if (!_isSearchActiveNotifier.value) {
+      _isSearchActiveNotifier.value = true;
+    }
 
     final currentRequestId = ++_searchRequestId;
 
@@ -518,6 +556,9 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _triggerCategorySearch(String query) {
+    if (!_isSearchActiveNotifier.value) {
+      _isSearchActiveNotifier.value = true;
+    }
     final prefLang = SettingsManager.preferredLanguages.isNotEmpty
         ? SettingsManager.preferredLanguages.first
         : 'Tamil';
@@ -536,6 +577,7 @@ class _SearchScreenState extends State<SearchScreen> {
       SearchHistoryManager.addQuery(clean);
     }
     if (song != null) {
+      SearchHistoryManager.addSong(song);
       ApiClient.recordSearchClick(song);
     }
   }
@@ -546,203 +588,278 @@ class _SearchScreenState extends State<SearchScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bgDark,
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Search Input Field
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceElevated,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.surfaceBorder),
-                ),
-                child: TextField(
-                  controller: _searchController,
-                  onChanged: _onQueryChanged,
-                  onSubmitted: (query) => _executeSearch(query, saveHistory: true),
-                  style: GoogleFonts.outfit(color: Colors.white, fontSize: 15),
-                  decoration: InputDecoration(
-                    hintText: 'Search songs, artists, albums, or YouTube...',
-                    hintStyle: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 14),
-                    prefixIcon: const Icon(Icons.search_rounded, color: AppColors.neonViolet, size: 22),
-                    suffixIcon: _searchController.text.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear_rounded, color: Colors.white70, size: 20),
-                            onPressed: () {
-                              _searchController.clear();
-                              _onQueryChanged('');
-                            },
-                          )
-                        : null,
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  ),
-                ),
-              ),
-            ),
-
-            // Live Search Suggestions dropdown (isolated with ValueListenableBuilder)
-            ValueListenableBuilder<bool>(
-              valueListenable: _hasSearchedNotifier,
-              builder: (context, hasSearched, _) {
-                if (hasSearched) return const SizedBox.shrink();
-                return ValueListenableBuilder<List<String>>(
-                  valueListenable: _suggestionsNotifier,
-                  builder: (context, suggestions, _) {
-                    if (suggestions.isEmpty) return const SizedBox.shrink();
-                    return Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: AppColors.surfaceElevated,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppColors.surfaceBorderHighlight),
+    return PopScope(
+      canPop: !_isSearchActiveNotifier.value && _searchController.text.isEmpty,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (_isSearchActiveNotifier.value || _searchController.text.isNotEmpty) {
+          _exitActiveSearch();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.bgDark,
+        body: SafeArea(
+          child: ValueListenableBuilder<bool>(
+            valueListenable: _isSearchActiveNotifier,
+            builder: (context, isSearchActive, _) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (!isSearchActive && _searchController.text.isEmpty) ...[
+                    // Landing View Header
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
+                      child: Text(
+                        'Search',
+                        style: GoogleFonts.outfit(
+                          color: Colors.white,
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: -0.5,
+                        ),
                       ),
-                      child: Column(
-                        children: suggestions.take(4).map((sug) {
-                          return ListTile(
-                            dense: true,
-                            leading: const Icon(Icons.search, color: AppColors.electricCyan, size: 18),
-                            title: Text(
-                              _unescape.convert(Song.sanitize(sug)),
-                              style: GoogleFonts.outfit(color: Colors.white, fontSize: 13),
-                            ),
-                            trailing: const Icon(Icons.north_west, color: Colors.white38, size: 16),
-                            onTap: () {
-                              _searchController.text = sug;
-                              _executeSearch(sug, saveHistory: true);
-                            },
-                          );
-                        }).toList(),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
-
-            // Typo-Tolerant "Did you mean?" Suggestion Banner
-            ValueListenableBuilder<FuzzyCorrectionResult?>(
-              valueListenable: _fuzzyCorrectionNotifier,
-              builder: (context, correction, _) {
-                if (correction == null) return const SizedBox.shrink();
-                return Container(
-                  margin: const EdgeInsets.fromLTRB(20, 2, 20, 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: AppColors.neonViolet.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.neonViolet.withValues(alpha: 0.3)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.auto_fix_high_rounded, color: AppColors.neonViolet, size: 18),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: RichText(
-                          text: TextSpan(
-                            style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 13),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                      child: GestureDetector(
+                        onTap: _enterActiveSearch,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceElevated,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: AppColors.surfaceBorder),
+                          ),
+                          child: Row(
                             children: [
-                              const TextSpan(text: 'Did you mean: '),
-                              TextSpan(
-                                text: _unescape.convert(Song.sanitize(correction.corrected)),
-                                style: GoogleFonts.outfit(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  decoration: TextDecoration.underline,
+                              const Icon(Icons.search_rounded, color: AppColors.neonViolet, size: 22),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'What do you want to play?',
+                                  style: GoogleFonts.outfit(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 15,
+                                  ),
                                 ),
                               ),
                             ],
                           ),
                         ),
                       ),
-                      TextButton(
-                        onPressed: () {
-                          _searchController.text = correction.corrected;
-                          _fuzzyCorrectionNotifier.value = null;
-                          _executeSearch(correction.corrected, saveHistory: true);
-                        },
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        child: Text(
-                          'Search',
-                          style: GoogleFonts.outfit(
-                            color: AppColors.electricCyan,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
+                    ),
+                  ] else ...[
+                    // Active Search View Header with Back button
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 12, 20, 8),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 24),
+                            tooltip: 'Back to Search',
+                            onPressed: _exitActiveSearch,
                           ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-
-            // Search Multi-Entity Category Tabs (isolated with ValueListenableBuilder)
-            SizedBox(
-              height: 40,
-              child: ValueListenableBuilder<String>(
-                valueListenable: _currentTabNotifier,
-                builder: (context, currentTab, _) {
-                  return ListView(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    scrollDirection: Axis.horizontal,
-                    children: ['All', 'YT Music', 'Saavn', 'Audius', 'Albums', 'Artists'].map((tab) {
-                      final isSelected = currentTab == tab;
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8.0),
-                        child: ChoiceChip(
-                          label: Text(tab),
-                          selected: isSelected,
-                          selectedColor: AppColors.neonViolet,
-                          backgroundColor: AppColors.surfaceElevated,
-                          labelStyle: GoogleFonts.outfit(
-                            color: isSelected ? Colors.white : AppColors.textSecondary,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                            fontSize: 13,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            side: BorderSide(
-                              color: isSelected ? AppColors.neonViolet : AppColors.surfaceBorder,
+                          Expanded(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: AppColors.surfaceElevated,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: AppColors.surfaceBorderHighlight),
+                              ),
+                              child: TextField(
+                                controller: _searchController,
+                                focusNode: _searchFocusNode,
+                                onChanged: _onQueryChanged,
+                                onSubmitted: (query) => _executeSearch(query, saveHistory: true),
+                                style: GoogleFonts.outfit(color: Colors.white, fontSize: 15),
+                                textInputAction: TextInputAction.search,
+                                autofocus: true,
+                                decoration: InputDecoration(
+                                  hintText: 'Search songs, artists, albums...',
+                                  hintStyle: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 14),
+                                  prefixIcon: const Icon(Icons.search_rounded, color: AppColors.neonViolet, size: 22),
+                                  suffixIcon: _searchController.text.isNotEmpty
+                                      ? IconButton(
+                                          icon: const Icon(Icons.clear_rounded, color: Colors.white70, size: 20),
+                                          onPressed: () {
+                                            _searchController.clear();
+                                            _onQueryChanged('');
+                                          },
+                                        )
+                                      : null,
+                                  border: InputBorder.none,
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                ),
+                              ),
                             ),
                           ),
-                          onSelected: (_) => _onTabChanged(tab),
-                        ),
+                        ],
+                      ),
+                    ),
+
+                    // Live Search Suggestions dropdown (isolated with ValueListenableBuilder)
+                    ValueListenableBuilder<bool>(
+                      valueListenable: _hasSearchedNotifier,
+                      builder: (context, hasSearched, _) {
+                        if (hasSearched) return const SizedBox.shrink();
+                        return ValueListenableBuilder<List<String>>(
+                          valueListenable: _suggestionsNotifier,
+                          builder: (context, suggestions, _) {
+                            if (suggestions.isEmpty) return const SizedBox.shrink();
+                            return Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: AppColors.surfaceElevated,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: AppColors.surfaceBorderHighlight),
+                              ),
+                              child: Column(
+                                children: suggestions.take(4).map((sug) {
+                                  return ListTile(
+                                    dense: true,
+                                    leading: const Icon(Icons.search, color: AppColors.electricCyan, size: 18),
+                                    title: Text(
+                                      _unescape.convert(Song.sanitize(sug)),
+                                      style: GoogleFonts.outfit(color: Colors.white, fontSize: 13),
+                                    ),
+                                    trailing: const Icon(Icons.north_west, color: Colors.white38, size: 16),
+                                    onTap: () {
+                                      _searchController.text = sug;
+                                      _executeSearch(sug, saveHistory: true);
+                                    },
+                                  );
+                                }).toList(),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+
+                    // Typo-Tolerant "Did you mean?" Suggestion Banner
+                    ValueListenableBuilder<FuzzyCorrectionResult?>(
+                      valueListenable: _fuzzyCorrectionNotifier,
+                      builder: (context, correction, _) {
+                        if (correction == null) return const SizedBox.shrink();
+                        return Container(
+                          margin: const EdgeInsets.fromLTRB(20, 2, 20, 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: AppColors.neonViolet.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.neonViolet.withValues(alpha: 0.3)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.auto_fix_high_rounded, color: AppColors.neonViolet, size: 18),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: RichText(
+                                  text: TextSpan(
+                                    style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 13),
+                                    children: [
+                                      const TextSpan(text: 'Did you mean: '),
+                                      TextSpan(
+                                        text: _unescape.convert(Song.sanitize(correction.corrected)),
+                                        style: GoogleFonts.outfit(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                          decoration: TextDecoration.underline,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: () {
+                                  _searchController.text = correction.corrected;
+                                  _fuzzyCorrectionNotifier.value = null;
+                                  _executeSearch(correction.corrected, saveHistory: true);
+                                },
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                child: Text(
+                                  'Search',
+                                  style: GoogleFonts.outfit(
+                                    color: AppColors.electricCyan,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+
+                    // Search Multi-Entity Category Tabs (active mode only)
+                    SizedBox(
+                      height: 38,
+                      child: ValueListenableBuilder<String>(
+                        valueListenable: _currentTabNotifier,
+                        builder: (context, currentTab, _) {
+                          return ListView(
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            scrollDirection: Axis.horizontal,
+                            children: ['All', 'YT Music', 'Saavn', 'Audius', 'Albums', 'Artists'].map((tab) {
+                              final isSelected = currentTab == tab;
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 8.0),
+                                child: ChoiceChip(
+                                  label: Text(tab),
+                                  selected: isSelected,
+                                  selectedColor: AppColors.neonViolet,
+                                  backgroundColor: AppColors.surfaceElevated,
+                                  labelStyle: GoogleFonts.outfit(
+                                    color: isSelected ? Colors.white : AppColors.textSecondary,
+                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                    fontSize: 13,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                    side: BorderSide(
+                                      color: isSelected ? AppColors.neonViolet : AppColors.surfaceBorder,
+                                    ),
+                                  ),
+                                  onSelected: (_) => _onTabChanged(tab),
+                                ),
+                              );
+                            }).toList(),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                  ],
+
+                  // Non-blocking progress indicator: guarantees UI never locks or hides content during refreshes
+                  ValueListenableBuilder<bool>(
+                    valueListenable: _isSearchingNotifier,
+                    builder: (context, isSearching, _) {
+                      if (!isSearching) return const SizedBox(height: 2);
+                      return const LinearProgressIndicator(
+                        minHeight: 2,
+                        color: AppColors.electricCyan,
+                        backgroundColor: Colors.transparent,
                       );
-                    }).toList(),
-                  );
-                },
-              ),
-            ),
+                    },
+                  ),
 
-            // Non-blocking progress indicator: guarantees UI never locks or hides content during refreshes
-            ValueListenableBuilder<bool>(
-              valueListenable: _isSearchingNotifier,
-              builder: (context, isSearching, _) {
-                if (!isSearching) return const SizedBox(height: 2);
-                return const LinearProgressIndicator(
-                  minHeight: 2,
-                  color: AppColors.electricCyan,
-                  backgroundColor: Colors.transparent,
-                );
-              },
-            ),
+                  const SizedBox(height: 4),
 
-            const SizedBox(height: 4),
-
-            // Search Body
-            Expanded(
-              child: _buildBody(),
-            ),
-          ],
+                  // Search Body
+                  Expanded(
+                    child: _buildBody(),
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );
@@ -757,6 +874,10 @@ class _SearchScreenState extends State<SearchScreen> {
             trendingArtists: _trendingArtists,
             browseCategories: _browseCategories,
             onSelectQuery: _triggerCategorySearch,
+            onPlaySong: (song) {
+              SearchHistoryManager.addSong(song);
+              audioHandler.playSong(song);
+            },
           );
         }
 
@@ -812,7 +933,10 @@ class _SearchScreenState extends State<SearchScreen> {
                         },
                         onArtistRecordClick: () => _recordSearchResultClick(),
                         onRecordClick: ([song]) => _recordSearchResultClick(song),
-                        onSongTap: (song) => audioHandler.playSong(song, queue: state.songs),
+                        onSongTap: (song) {
+                          _recordSearchResultClick(song);
+                          audioHandler.playSong(song, queue: state.songs);
+                        },
                         onShowOptions: _showSongOptions,
                         onShowVersions: _showVersionsSheet,
                       );

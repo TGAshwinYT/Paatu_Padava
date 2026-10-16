@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -21,8 +22,10 @@ import '../services/queue_cooldown_manager.dart';
 import '../services/des_decrypt.dart';
 import '../services/connectivity_service.dart';
 import '../services/smart_cache_service.dart';
+import '../services/smart_gapless_precacher.dart';
 import 'stream_resolver.dart';
 import 'next_track_strategy.dart';
+import 'crossfade_engine.dart';
 
 /// AudioQueueHandler: Two-Tier Decoupled Queue Engine matching Spotify and YouTube Music.
 /// 
@@ -340,14 +343,15 @@ class AudioQueueHandler {
     final remaining = duration - pos;
     if (remaining.inSeconds <= crossfadeSec && remaining.inMilliseconds > 250) {
       final now = DateTime.now().millisecondsSinceEpoch;
-      if (now - _lastCrossfadeTimeMs < 100) return;
+      if (now - _lastCrossfadeTimeMs < 80) return;
       _lastCrossfadeTimeMs = now;
 
       final targetNorm = getEffectiveVolumeForSong(currentSong);
-      final ratio = (remaining.inMilliseconds / (crossfadeSec * 1000)).clamp(0.0, 1.0);
-      final fadedVolume = targetNorm * ratio;
+      final progress = 1.0 - (remaining.inMilliseconds / (crossfadeSec * 1000)).clamp(0.0, 1.0);
+      final (outgoingVolRatio, _) = EqualPowerCurve.calculate(progress);
+      final fadedVolume = (targetNorm * outgoingVolRatio).clamp(0.0, 1.0);
       try {
-        player.setVolume(fadedVolume.clamp(0.0, 1.0));
+        player.setVolume(fadedVolume);
       } catch (_) {}
     }
   }
@@ -1285,7 +1289,14 @@ class AudioQueueHandler {
       for (int i = 0; i < _contextQueue.length; i++) {
         if (i != activeRawIdx) remainder.add(i);
       }
-      remainder.shuffle();
+      // Knuth / Fisher-Yates O(N) Uniform Shuffle
+      final rng = Random();
+      for (int i = remainder.length - 1; i > 0; i--) {
+        final j = rng.nextInt(i + 1);
+        final temp = remainder[i];
+        remainder[i] = remainder[j];
+        remainder[j] = temp;
+      }
 
       _contextShuffleIndices.clear();
       _contextShuffleIndices.add(activeRawIdx);
@@ -1693,7 +1704,14 @@ class AudioQueueHandler {
 
     if (_isShuffleEnabled) {
       _contextShuffleIndices.clear();
-      final indices = List<int>.generate(_contextQueue.length, (i) => i)..shuffle();
+      final indices = List<int>.generate(_contextQueue.length, (i) => i);
+      final rng = Random();
+      for (int i = indices.length - 1; i > 0; i--) {
+        final j = rng.nextInt(i + 1);
+        final temp = indices[i];
+        indices[i] = indices[j];
+        indices[j] = temp;
+      }
       _contextShuffleIndices.addAll(indices);
       _contextIndex = 0;
       final next = _contextQueue[_contextShuffleIndices[0]];
@@ -1866,6 +1884,7 @@ class AudioQueueHandler {
     if (token != _sessionToken || _isDisposed) return;
 
     final song = next.toSong();
+    SmartGaplessPrecacher.instance.precacheTrackHeader(song, resolver: streamResolver);
     final source = await _buildAudioSource(song, allowNetworkResolve: false);
     if (source == null || token != _sessionToken || _isDisposed) return;
 

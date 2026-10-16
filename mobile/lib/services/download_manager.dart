@@ -10,6 +10,7 @@ import 'saavn_client.dart';
 import 'settings_manager.dart';
 import 'youtube_client.dart';
 import 'error_handler.dart';
+import '../core/dsa/bloom_filter.dart';
 import 'app_logger.dart';
 import 'des_decrypt.dart';
 
@@ -44,17 +45,40 @@ class DownloadManager {
   static final Set<String> _activeDownloadSongIds = {};
   static final Map<String, CancelToken> _cancelTokens = {};
 
+  // Space-efficient O(1) Bloom Filter gate (p < 0.005) for zero-cost membership checking
+  static final BloomFilter _downloadBloomFilter = BloomFilter(
+    expectedElements: 5000,
+    falsePositiveProbability: 0.005,
+  );
+
+  static void _rebuildBloomFilter() {
+    _downloadBloomFilter.clear();
+    if (Hive.isBoxOpen(boxName)) {
+      for (final key in _box.keys) {
+        _downloadBloomFilter.add(key.toString());
+      }
+    }
+  }
+
   static Future<void> init() async {
     if (!Hive.isBoxOpen(boxName)) {
       await Hive.openBox(boxName);
     }
+    _rebuildBloomFilter();
     downloadedSongsNotifier.value = getDownloadedSongs();
   }
 
   static Box get _box => Hive.box(boxName);
 
+  /// Checks if song is downloaded using O(1) Bloom Filter gate.
+  /// If Bloom Filter returns false, the song is 100% guaranteed not downloaded,
+  /// avoiding unnecessary Hive and storage lookups.
   static bool isDownloaded(String songId) {
     if (!Hive.isBoxOpen(boxName)) return false;
+    if (_downloadBloomFilter.insertedCount != _box.length) {
+      _rebuildBloomFilter();
+    }
+    if (!_downloadBloomFilter.contains(songId)) return false;
     return _box.containsKey(songId);
   }
 
@@ -329,6 +353,7 @@ class DownloadManager {
       );
 
       await _box.put(song.id, downloadedSong.toMap());
+      _downloadBloomFilter.add(song.id);
       _clearDownloadError(song.id);
       downloadedSongsNotifier.value = getDownloadedSongs();
 
@@ -365,6 +390,7 @@ class DownloadManager {
         }
       }
       await _box.delete(songId);
+      _rebuildBloomFilter();
     }
 
     downloadedSongsNotifier.value = getDownloadedSongs();
@@ -401,6 +427,7 @@ class DownloadManager {
 
     if (Hive.isBoxOpen(boxName)) {
       await _box.clear();
+      _downloadBloomFilter.clear();
     }
 
     downloadedSongsNotifier.value = [];

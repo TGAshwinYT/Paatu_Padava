@@ -11,6 +11,7 @@ import '../services/download_manager.dart';
 import '../services/favorites_manager.dart';
 import '../services/history_manager.dart';
 import '../services/app_logger.dart';
+import 'markov_cosine_radio_strategy.dart';
 
 abstract class NextTrackStrategy {
   String get id;
@@ -626,6 +627,7 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
 class NextTrackStrategyFactory {
   static final SpotifyStyleStrategy _spotifyStrategy = SpotifyStyleStrategy();
   static final YtMusicStyleStrategy _ytMusicStrategy = YtMusicStyleStrategy();
+  static final MarkovCosineRadioStrategy _markovCosineStrategy = MarkovCosineRadioStrategy();
 
   static NextTrackStrategy getStrategy(NextTrackStrategyMode mode) {
     switch (mode) {
@@ -633,6 +635,8 @@ class NextTrackStrategyFactory {
         return _spotifyStrategy;
       case NextTrackStrategyMode.ytMusicStyle:
         return _ytMusicStrategy;
+      case NextTrackStrategyMode.markovCosineRadio:
+        return _markovCosineStrategy;
     }
   }
 
@@ -640,11 +644,13 @@ class NextTrackStrategyFactory {
   static void recordSkip(Song skippedSong, {required int listenedSeconds}) {
     _spotifyStrategy.recordSkip(skippedSong, listenedSeconds: listenedSeconds);
     _ytMusicStrategy.recordSkip(skippedSong, listenedSeconds: listenedSeconds);
+    _markovCosineStrategy.recordSkip(skippedSong, listenedSeconds: listenedSeconds);
   }
 
   /// Convenience coordinator to reset session anchor across strategy instances
   static void resetSession({Song? initialAnchor}) {
     _spotifyStrategy.resetSession(initialAnchor: initialAnchor);
     _ytMusicStrategy.resetSession(initialAnchor: initialAnchor);
+    _markovCosineStrategy.resetSession(initialAnchor: initialAnchor);
   }
 }

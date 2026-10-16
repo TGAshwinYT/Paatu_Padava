@@ -6,6 +6,7 @@ import 'connectivity_service.dart';
 enum NextTrackStrategyMode {
   spotifyStyle,
   ytMusicStyle,
+  markovCosineRadio,
 }
 
 class SettingsManager {

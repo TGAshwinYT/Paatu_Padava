@@ -3,6 +3,11 @@ import 'package:paatu_padava_mobile/core/dsa/lru_cache.dart';
 import 'package:paatu_padava_mobile/core/dsa/prefix_trie.dart';
 import 'package:paatu_padava_mobile/core/dsa/circular_buffer.dart';
 import 'package:paatu_padava_mobile/core/dsa/bk_tree.dart';
+import 'package:paatu_padava_mobile/core/dsa/bloom_filter.dart';
+import 'package:paatu_padava_mobile/core/dsa/reversible_shuffle.dart';
+import 'package:paatu_padava_mobile/logic/crossfade_engine.dart';
+import 'package:paatu_padava_mobile/logic/markov_cosine_radio_strategy.dart';
+import 'package:paatu_padava_mobile/models/song.dart';
 import 'package:paatu_padava_mobile/services/fuzzy_search_service.dart';
 
 void main() {
@@ -278,6 +283,178 @@ void main() {
       final correction = FuzzySearchService.findCorrection('Thalapathy Kuthu Mixx');
       expect(correction, isNotNull);
       expect(correction!.corrected, 'Thalapathy Kuthu Mix');
+    });
+  });
+
+  group('BloomFilter O(1) Probabilistic Set Tests', () {
+    test('Zero false negatives: all added items must return true', () {
+      final filter = BloomFilter(expectedElements: 50, falsePositiveProbability: 0.01);
+      final songIds = List.generate(50, (i) => 'song_track_$i');
+
+      filter.addAll(songIds);
+
+      for (final id in songIds) {
+        expect(filter.contains(id), isTrue, reason: 'False negative for $id');
+      }
+      expect(filter.insertedCount, 50);
+    });
+
+    test('Definite absence: items not added return false', () {
+      final filter = BloomFilter(expectedElements: 100, falsePositiveProbability: 0.01);
+      filter.addAll(['hukum_123', 'badass_456', 'arabic_789']);
+
+      expect(filter.contains('hukum_123'), true);
+      expect(filter.contains('unadded_song_999'), false);
+      expect(filter.contains('another_missing_track'), false);
+    });
+
+    test('Clear resets the bit array', () {
+      final filter = BloomFilter(expectedElements: 10);
+      filter.add('song_xyz');
+      expect(filter.contains('song_xyz'), true);
+
+      filter.clear();
+      expect(filter.insertedCount, 0);
+      expect(filter.contains('song_xyz'), false);
+    });
+  });
+
+  group('ReversibleShuffleManager O(N) Fisher-Yates Tests', () {
+    test('Knuth Fisher-Yates shuffle preserves anchor at index 0 and contains all items', () {
+      final manager = ReversibleShuffleManager<String>();
+      final tracks = ['Track A', 'Track B', 'Track C', 'Track D', 'Track E'];
+
+      manager.setSequence(tracks, initialIndex: 2); // 'Track C' active
+      expect(manager.currentItem, 'Track C');
+
+      // Enable shuffle: Track C (index 2) must be pinned as anchor at position 0
+      manager.setShuffleEnabled(true, activeOriginalIndex: 2);
+      expect(manager.isShuffleActive, true);
+      expect(manager.currentItem, 'Track C');
+      expect(manager.currentShuffledIndex, 0);
+      expect(manager.shuffledIndices.first, 2);
+
+      // Shuffled indices must contain all original indices [0..4] without duplicates
+      final set = manager.shuffledIndices.toSet();
+      expect(set.length, tracks.length);
+      expect(set.containsAll([0, 1, 2, 3, 4]), true);
+    });
+
+    test('Bidirectional history navigation traverses played sequence correctly', () {
+      final manager = ReversibleShuffleManager<String>();
+      manager.setSequence(['A', 'B', 'C', 'D'], initialIndex: 0);
+      manager.setShuffleEnabled(true, activeOriginalIndex: 0);
+
+      final firstTrack = manager.currentItem;
+      final secondTrack = manager.next();
+      final thirdTrack = manager.next();
+
+      expect(manager.currentItem, thirdTrack);
+
+      // Rewind backwards
+      final rewoundSecond = manager.previous();
+      expect(rewoundSecond, secondTrack);
+
+      final rewoundFirst = manager.previous();
+      expect(rewoundFirst, firstTrack);
+    });
+
+    test('Disabling shuffle restores active track to exact un-shuffled index', () {
+      final manager = ReversibleShuffleManager<String>();
+      manager.setSequence(['Track 0', 'Track 1', 'Track 2', 'Track 3'], initialIndex: 0);
+
+      manager.setShuffleEnabled(true);
+      manager.next(); // Move to next shuffled track
+      final activeShuffledTrack = manager.currentItem;
+
+      // Disable shuffle
+      manager.setShuffleEnabled(false);
+      expect(manager.isShuffleActive, false);
+      expect(manager.currentItem, activeShuffledTrack);
+    });
+  });
+
+  group('EqualPowerCurve & Crossfade Calculations', () {
+    test('EqualPowerCurve maintains constant acoustic power V_out^2 + V_in^2 == 1.0', () {
+      for (double t = 0.0; t <= 1.0; t += 0.1) {
+        final (outVol, inVol) = EqualPowerCurve.calculate(t);
+        final acousticPower = (outVol * outVol) + (inVol * inVol);
+        expect(acousticPower, closeTo(1.0, 0.001));
+      }
+
+      // At start (t = 0.0): out = 1.0, in = 0.0
+      final (out0, in0) = EqualPowerCurve.calculate(0.0);
+      expect(out0, closeTo(1.0, 0.001));
+      expect(in0, closeTo(0.0, 0.001));
+
+      // At midpoint (t = 0.5): out = ~0.7071, in = ~0.7071 (0 dB acoustic drop!)
+      final (outMid, inMid) = EqualPowerCurve.calculate(0.5);
+      expect(outMid, closeTo(0.7071, 0.01));
+      expect(inMid, closeTo(0.7071, 0.01));
+
+      // At end (t = 1.0): out = 0.0, in = 1.0
+      final (out1, in1) = EqualPowerCurve.calculate(1.0);
+      expect(out1, closeTo(0.0, 0.001));
+      expect(in1, closeTo(1.0, 0.001));
+    });
+  });
+
+  group('Markov-Cosine Radio Vector & Transition Tests', () {
+    test('MarkovTransitionMatrix tracks positive and negative transitions', () {
+      final matrix = MarkovTransitionMatrix();
+      final songA = Song(id: '1', title: 'Hukum', artist: 'Anirudh', album: 'Jailer', coverUrl: 'https://example.com/cover.jpg');
+      final songB = Song(id: '2', title: 'Badass', artist: 'Anirudh', album: 'Leo', coverUrl: 'https://example.com/cover.jpg');
+      final songC = Song(id: '3', title: 'Vaseegara', artist: 'Harris Jayaraj', album: 'Minnale', coverUrl: 'https://example.com/cover.jpg');
+
+      // Record positive transitions from A -> B
+      matrix.recordTransition(songA, songB, isPositive: true);
+      matrix.recordTransition(songA, songB, isPositive: true);
+
+      // Transition to C has no recorded history
+      final probB = matrix.getProbability(songA, songB);
+      final probC = matrix.getProbability(songA, songC);
+
+      expect(probB, greaterThan(probC));
+    });
+
+    test('SongFeatureVector cosine similarity scores similar tracks higher', () {
+      final seed = Song(
+        id: '10',
+        title: 'Hukum',
+        artist: 'Anirudh Ravichander',
+        album: 'Jailer (2023)',
+        coverUrl: 'https://example.com/cover.jpg',
+        language: 'Tamil',
+        duration: 210,
+      );
+
+      final similar = Song(
+        id: '11',
+        title: 'Badass',
+        artist: 'Anirudh Ravichander',
+        album: 'Leo (2023)',
+        coverUrl: 'https://example.com/cover.jpg',
+        language: 'Tamil',
+        duration: 220,
+      );
+
+      final distant = Song(
+        id: '12',
+        title: 'Shape of You',
+        artist: 'Ed Sheeran',
+        album: 'Divide (2017)',
+        coverUrl: 'https://example.com/cover.jpg',
+        language: 'English',
+        duration: 235,
+      );
+
+      final vecSimilar = SongFeatureVector.extractRelative(seed, similar);
+      final vecDistant = SongFeatureVector.extractRelative(seed, distant);
+
+      final simScoreSimilar = vecSimilar.cosineSimilarityTo(SongFeatureVector.ideal);
+      final simScoreDistant = vecDistant.cosineSimilarityTo(SongFeatureVector.ideal);
+
+      expect(simScoreSimilar, greaterThan(simScoreDistant));
     });
   });
 }

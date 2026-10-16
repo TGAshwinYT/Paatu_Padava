@@ -745,10 +745,46 @@ class PartySyncCoordinator {
           await audioHandler.seek(Duration(milliseconds: targetPosMs));
         }
         await audioHandler.play();
+
+        // Immediate 300ms verification to eliminate any local hardware seek buffer latency
+        Future.delayed(const Duration(milliseconds: 300), () {
+          _verifyImmediateSync(startAtEpochMs, positionMs);
+        });
       }
       syncStatusDescription.value = 'In Sync';
     } catch (e) {
       debugPrint('[PartySyncCoordinator] handleRemotePlay error: $e');
+    }
+  }
+
+  /// Verifies lockstep immediately after late joiner starts playing without waiting for next heartbeat
+  static void _verifyImmediateSync(int startAtEpochMs, int initialPositionMs) {
+    if (role != PartyRole.joiner || !isAudioHandlerInitialized) return;
+    final nowLocal = DateTime.now().millisecondsSinceEpoch;
+    final expectedPos = ScheduledPlaybackCalculator.calculateElapsedPositionMs(
+      startAtEpochMs: startAtEpochMs,
+      positionMs: initialPositionMs,
+      currentLocalEpochMs: nowLocal,
+      clockOffsetMs: clockOffsetMs,
+      bluetoothDelayMs: SettingsManager.bluetoothDelayMs,
+      hardwareLatencyMs: SettingsManager.hardwareAudioLatencyMs,
+    );
+    final currentPos = audioHandler.playbackState.value.position.inMilliseconds;
+    final drift = currentPos - expectedPos;
+    currentDriftMsNotifier.value = drift;
+
+    final action = DriftReconciler.reconcileDrift(
+      currentPositionMs: currentPos,
+      expectedPositionMs: expectedPos,
+      deadbandMs: 8,
+      microAdjustMaxMs: 250,
+    );
+    if (action.isMicroAdjusting) {
+      audioHandler.setSpeed(action.playbackSpeed);
+      syncStatusDescription.value = action.playbackSpeed > 1.0 ? 'Catching up (+2%)' : 'Slowing down (-2%)';
+    } else {
+      audioHandler.setSpeed(1.0);
+      syncStatusDescription.value = 'In Sync (|drift| < 8ms)';
     }
   }
 

@@ -1068,7 +1068,6 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
         listenedSeconds: pos.inSeconds,
         totalSeconds: dur.inSeconds,
       );
-      NextTrackStrategyFactory.recordSkip(current, listenedSeconds: pos.inSeconds);
     }
     await _queueHandler.skipToNext();
   }

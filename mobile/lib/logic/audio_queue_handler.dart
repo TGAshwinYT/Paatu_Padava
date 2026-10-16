@@ -868,6 +868,7 @@ class AudioQueueHandler {
 
         // STEP 2B: Cross-source resolution fallback
         AppLogger.log('AudioQueueHandler', 'Single-pass fallback: resolving fallback stream for "${current.title}"');
+        current.streamUrl = null;
         final freshUrl = await streamResolver.resolve(
           current,
           forceSaavnFallback: !isSaavnCdn,

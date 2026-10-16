@@ -443,6 +443,9 @@ class DefaultStreamResolver implements StreamResolver {
               if (song.duration > 0 && match.duration > 0 && (song.duration - match.duration).abs() > 60) {
                 continue;
               }
+              if (!verifyMatch(match, song)) {
+                continue;
+              }
               AppLogger.log('StreamResolver', 'Stage A matched for "${song.title}": "${match.title}" -> ${match.streamUrl}');
               song.source = 'saavn';
               song.streamUrl = match.streamUrl;
@@ -465,6 +468,9 @@ class DefaultStreamResolver implements StreamResolver {
           for (final match in saavnMatchesB) {
             if (match.streamUrl != null && match.streamUrl!.contains('saavncdn.com')) {
               if (song.duration > 0 && match.duration > 0 && (song.duration - match.duration).abs() > 60) {
+                continue;
+              }
+              if (!verifyMatch(match, song)) {
                 continue;
               }
               AppLogger.log('StreamResolver', 'Stage B matched for "${song.title}": "${match.title}" -> ${match.streamUrl}');
@@ -535,6 +541,13 @@ class DefaultStreamResolver implements StreamResolver {
     final normCandTitle = normalizeForComparison(candidate.title);
     if (normTargetTitle.isEmpty || normCandTitle.isEmpty) return false;
 
+    // Cross-script protection: If target has Tamil characters, candidate must not be Hindi script (Devanagari)
+    if (RegExp(r'[\u0B80-\u0BFF]').hasMatch(target.title) &&
+        RegExp(r'[\u0900-\u097F]').hasMatch(candidate.title) &&
+        !RegExp(r'[\u0B80-\u0BFF]').hasMatch(candidate.title)) {
+      return false;
+    }
+
     final bool isDirectTitleMatch = (normTargetTitle == normCandTitle ||
         normTargetTitle.contains(normCandTitle) ||
         normCandTitle.contains(normTargetTitle));
@@ -556,13 +569,14 @@ class DefaultStreamResolver implements StreamResolver {
       return true;
     }
 
-    // Token overlap: Check if at least 70% of candidate words exist in target
+    // Token overlap: Check if at least 50% of target words exist in candidate or vice-versa
     final candWords = normCandTitle.split(' ').where((w) => w.length > 2).toSet();
     final targetWords = normTargetTitle.split(' ').where((w) => w.length > 2).toSet();
     if (candWords.isNotEmpty && targetWords.isNotEmpty) {
       final intersection = candWords.intersection(targetWords);
-      final overlapRatio = intersection.length / candWords.length;
-      if (overlapRatio >= 0.70) {
+      final overlapCand = intersection.length / candWords.length;
+      final overlapTarget = intersection.length / targetWords.length;
+      if (overlapCand >= 0.50 || overlapTarget >= 0.50) {
         return true;
       }
     }
@@ -576,7 +590,7 @@ class DefaultStreamResolver implements StreamResolver {
         .replaceAll(RegExp(r'^@[a-z0-9_.]+\s*[-:|~–—]?\s*'), ' ')
         .replaceAll(RegExp(r'\([^)]*\)'), ' ')
         .replaceAll(RegExp(r'\[[^\]]*\]'), ' ')
-        .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
+        .replaceAll(RegExp(r'[^\p{L}\p{N}\s]', unicode: true), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
   }

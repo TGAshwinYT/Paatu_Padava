@@ -142,6 +142,15 @@ class ArtistSanitizer {
     'tamil songs',
     'tamil hits',
     'tamil music',
+    'music insights',
+    'insights',
+    'sleep ambience',
+    'sleep meditations',
+    'soothing music',
+    'relaxing music',
+    'chill beats',
+    'transcendence music',
+    'transcendence music group',
   };
 
   /// Non-Musician Actors / Comedians / Film Stars (Pure cast members who should not override composers/singers)

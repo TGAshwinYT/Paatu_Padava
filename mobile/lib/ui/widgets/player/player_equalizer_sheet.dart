@@ -65,13 +65,10 @@ class PlayerEqualizerSheet {
                               ),
                             ],
                           ),
-                          TextButton.icon(
-                            icon: const Icon(Icons.open_in_new_rounded, size: 14, color: Color(0xFF818CF8)),
-                            label: const Text('System EQ', style: TextStyle(color: Color(0xFF818CF8), fontSize: 12)),
-                            onPressed: () {
-                              Navigator.pop(ctx);
-                              EqualizerService.openSystemEqualizer();
-                            },
+                          IconButton(
+                            icon: const Icon(Icons.close_rounded, size: 22, color: Colors.white70),
+                            tooltip: 'Close Equalizer',
+                            onPressed: () => Navigator.pop(ctx),
                           ),
                         ],
                       ),
@@ -301,6 +298,39 @@ class PlayerEqualizerSheet {
                             ),
                           ],
                         ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            EqualizerService.isBound
+                                ? 'Native DSP: Active (Session #${EqualizerService.activeSessionId})'
+                                : 'Native DSP: Active',
+                            style: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
+                          ),
+                          TextButton.icon(
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            icon: const Icon(Icons.open_in_new_rounded, size: 13, color: Color(0xFF818CF8)),
+                            label: const Text('Device System EQ', style: TextStyle(color: Color(0xFF818CF8), fontSize: 11)),
+                            onPressed: () async {
+                              final opened = await EqualizerService.openSystemEqualizer();
+                              if (!opened && ctx.mounted) {
+                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('External system equalizer not found on this device. Using built-in hardware DSP.'),
+                                    duration: Duration(seconds: 2),
+                                    backgroundColor: Color(0xFF1E293B),
+                                  ),
+                                );
+                              }
+                            },
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 6),
                     ],

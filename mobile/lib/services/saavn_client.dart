@@ -277,10 +277,15 @@ class SaavnClient {
           }
         }
 
+        final artistName = Song.sanitize(more['music'] ?? item['subtitle'], fallback: 'Various Artists');
+        if (!ArtistSanitizer.isGenuineArtist(artistName) && artistName != 'Various Artists') {
+          continue;
+        }
+
         validAlbums.add({
           'id': item['id']?.toString() ?? '',
           'title': Song.sanitize(item['title'], fallback: 'Unknown Album'),
-          'artist': Song.sanitize(more['music'] ?? item['subtitle'], fallback: 'Various Artists'),
+          'artist': artistName,
           'image': _extractHighResImage(item['image']?.toString()),
           'year': item['year']?.toString() ?? more['year']?.toString() ?? '',
           'song_count': songCount,

@@ -138,7 +138,7 @@ class YouTubeClient {
     return null;
   }
 
-  /// Resolves the 11-character YouTube video ID for any track
+  /// Resolves the 11-character YouTube video ID for any track using InnerTube + Explode search with title verification
   static Future<String?> resolveVideoIdForSong(Song song) async {
     if (song.source == 'youtube' && !song.id.startsWith('saavn_')) {
       final clean = extractVideoId(song.id);
@@ -152,16 +152,82 @@ class YouTubeClient {
         if (v.id.length == 11) return v.id;
       }
     }
-    try {
-      final query = '${song.title} ${song.artist} official music video';
-      final searchList = await _yt.search.search(query);
-      if (searchList.isNotEmpty) {
-        return searchList.first.id.value;
+
+    final cleanTitleStr = cleanTitle(song.title);
+    final rawArtist = song.artist.trim();
+    final firstArtist = rawArtist.split(RegExp(r'[,&/]')).first.trim();
+    final queries = [
+      if (firstArtist.isNotEmpty && firstArtist != 'Various Artists')
+        '$cleanTitleStr $firstArtist',
+      cleanTitleStr,
+      '${song.title} audio',
+    ];
+
+    for (final q in queries) {
+      try {
+        final tracks = await searchTracks(q, limit: 5).timeout(const Duration(seconds: 4), onTimeout: () => []);
+        for (final t in tracks) {
+          final candSong = t.toSong();
+          if (verifyCandidateMatch(candSong, song)) {
+            return t.id;
+          }
+        }
+      } catch (e) {
+        AppLogger.log('YouTubeClient', 'searchTracks notice for "$q": $e');
       }
-    } catch (e) {
-      AppLogger.log('YouTubeClient', 'resolveVideoIdForSong error: $e');
+
+      try {
+        final searchList = await _yt.search.search(q).timeout(const Duration(seconds: 4));
+        for (final video in searchList.take(5)) {
+          final candSong = Song(
+            id: video.id.value,
+            title: video.title,
+            artist: video.author,
+            album: 'YouTube Music',
+            coverUrl: '',
+            duration: video.duration?.inSeconds ?? 0,
+            source: 'youtube',
+          );
+          if (verifyCandidateMatch(candSong, song)) {
+            return video.id.value;
+          }
+        }
+      } catch (e) {
+        AppLogger.log('YouTubeClient', 'ytExplode search notice for "$q": $e');
+      }
     }
+
     return null;
+  }
+
+  /// Verifies candidate YouTube track matches the target song before playback
+  static bool verifyCandidateMatch(Song candidate, Song target) {
+    final normTarget = cleanTitle(target.title).toLowerCase().replaceAll(RegExp(r'[^\p{L}\p{N}\s]', unicode: true), ' ').trim();
+    final normCand = cleanTitle(candidate.title).toLowerCase().replaceAll(RegExp(r'[^\p{L}\p{N}\s]', unicode: true), ' ').trim();
+    if (normTarget.isEmpty || normCand.isEmpty) return false;
+
+    // Check duration tolerance (up to 60s for YouTube music videos)
+    if (target.duration > 0 && candidate.duration > 0) {
+      final diff = (candidate.duration - target.duration).abs();
+      if (diff > 60) return false;
+    }
+
+    // Direct containment
+    if (normCand.contains(normTarget) || normTarget.contains(normCand)) {
+      return true;
+    }
+
+    // Token overlap: at least 50% of target words in candidate
+    final targetWords = normTarget.split(' ').where((w) => w.length > 2).toSet();
+    final candWords = normCand.split(' ').where((w) => w.length > 2).toSet();
+    if (targetWords.isNotEmpty && candWords.isNotEmpty) {
+      final intersection = targetWords.intersection(candWords);
+      if ((intersection.length / targetWords.length) >= 0.50) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /// Exposes a bounded byte stream for chunked streaming via YoutubeExplode or HTTP Range

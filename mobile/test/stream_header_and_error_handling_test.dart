@@ -7,6 +7,7 @@ import 'package:paatu_padava_mobile/domain/models/track_entity.dart';
 import 'package:paatu_padava_mobile/services/error_handler.dart';
 import 'package:paatu_padava_mobile/services/youtube_client.dart';
 import 'package:paatu_padava_mobile/services/des_decrypt.dart';
+import 'package:paatu_padava_mobile/data/repositories/song_repository.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -213,6 +214,77 @@ void main() {
 
       final stepDown96 = SaavnBitrateHelper.getNextFallbackUrl(fallbackUrl160);
       expect(stepDown96, equals('https://aac.saavncdn.com/091/test_96.mp4'));
+    });
+
+    test('verifyMatch strictly protects Tamil tracks from Hindi script and title mismatch', () {
+      final targetTamil = Song(
+        id: '1',
+        title: 'என் பாதை என் வரலாறு',
+        artist: 'Composer',
+        album: 'Album',
+        coverUrl: '',
+        duration: 180,
+      );
+      final candHindi = Song(
+        id: '2',
+        title: 'मेरी राह मेरी दास्तान',
+        artist: 'Hindi Singer',
+        album: 'Album',
+        coverUrl: '',
+        duration: 180,
+      );
+      final candEnglish = Song(
+        id: '3',
+        title: 'Midnight Drive City Lights',
+        artist: 'Music Insights',
+        album: 'Album',
+        coverUrl: '',
+        duration: 180,
+      );
+      expect(DefaultStreamResolver.verifyMatch(candHindi, targetTamil), isFalse);
+      expect(DefaultStreamResolver.verifyMatch(candEnglish, targetTamil), isFalse);
+    });
+
+    test('verifyMatch recognizes directional overlap for Sakkarakatti in full YouTube titles', () {
+      final target = Song(
+        id: 'DKd-GcAs',
+        title: 'Sakkarakatti',
+        artist: 'Hiphop Tamizha',
+        album: 'Meesaya Murukku',
+        coverUrl: '',
+        duration: 200,
+      );
+      final candYt = Song(
+        id: '8YJdRIf9sd0',
+        title: 'Meesaya Murukku Songs | Sakkarakatti Video Song | Hiphop Tamizha',
+        artist: 'Hiphop Tamizha',
+        album: 'YouTube Music',
+        coverUrl: '',
+        duration: 215,
+        source: 'youtube',
+      );
+      expect(DefaultStreamResolver.verifyMatch(candYt, target), isTrue);
+    });
+
+    test('SongRepository.isLanguageMismatch purges spam channels and English compilation fillers for Tamil', () {
+      final spamSong = Song(
+        id: 'sp1',
+        title: 'Midnight Drive City Lights',
+        artist: 'Music Insights',
+        album: 'என் பாதை என் வரலாறு',
+        coverUrl: '',
+      );
+      expect(SongRepository.isLanguageMismatch(spamSong, 'tamil'), isTrue);
+
+      final fillerSong = Song(
+        id: 'f1',
+        title: 'Fallen In Love',
+        artist: 'B. Ganesh Kumar',
+        album: 'Naan Unnai Ninaithen - Tamil Romantic Music Vol. 2',
+        language: 'english',
+        coverUrl: '',
+      );
+      expect(SongRepository.isLanguageMismatch(fillerSong, 'tamil'), isTrue);
     });
   });
 }

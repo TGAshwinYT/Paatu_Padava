@@ -126,11 +126,20 @@ class SongRepository {
       if (RegExp(r'[\u0900-\u097F\u0C00-\u0C7F\u0D00-\u0D7F\u0C80-\u0CFF]').hasMatch(combined)) {
         return true;
       }
-      // Must not contain explicit keywords of other major languages unless explicitly labeled as Tamil
-      if (RegExp(r'\b(hindi|bollywood|bhojpuri|punjabi|telugu|malayalam|kannada)\b').hasMatch(combined)) {
-        if (!combined.contains('tamil')) {
+      // Must not contain explicit keywords of other major languages in title or artist
+      final titleAndArtist = '${song.title} ${song.artist}'.toLowerCase();
+      if (RegExp(r'\b(hindi|bollywood|bhojpuri|punjabi|telugu|malayalam|kannada)\b').hasMatch(titleAndArtist)) {
+        if (!titleAndArtist.contains('tamil')) {
           return true;
         }
+      }
+      // Purge non-genuine / spam channels masquerading as musicians
+      if (!ArtistSanitizer.isGenuineArtist(song.artist)) {
+        return true;
+      }
+      // Reject explicitly non-Tamil language tracks leaking into Tamil feeds/albums
+      if (song.language == 'english' || song.language == 'hindi') {
+        return true;
       }
     } else if (target == 'telugu') {
       if (RegExp(r'[\u0900-\u097F\u0B80-\u0BFF\u0D00-\u0D7F\u0C80-\u0CFF]').hasMatch(combined)) {

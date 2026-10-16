@@ -7,6 +7,8 @@ import '../widgets/mini_player.dart';
 import '../widgets/batch_download_button.dart';
 import '../widgets/swipeable_song_tile.dart';
 import '../../logic/stream_resolver.dart';
+import '../../services/settings_manager.dart';
+import '../../data/repositories/song_repository.dart';
 
 class AlbumScreen extends StatefulWidget {
   final String albumId;
@@ -86,6 +88,15 @@ class _AlbumScreenState extends State<AlbumScreen> {
       if (songs.isEmpty) {
         songs = searchResults;
       }
+    }
+
+    final prefLang = SettingsManager.preferredLanguages.isNotEmpty
+        ? SettingsManager.preferredLanguages.first.toLowerCase().trim()
+        : 'tamil';
+    final isTamilAlbum = widget.albumTitle.toLowerCase().contains('tamil') ||
+        (details != null && (details['title'] ?? '').toString().toLowerCase().contains('tamil'));
+    if (prefLang == 'tamil' || isTamilAlbum) {
+      songs = SongRepository.filterByLanguage(songs, 'tamil');
     }
 
     if (mounted) {

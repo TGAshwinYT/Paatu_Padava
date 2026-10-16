@@ -809,6 +809,8 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       preserveUserQueue: isNewSingleQueue || preserveUserQueue,
     );
 
+    await applyVolumeNormalization(song);
+
     // If starting a fresh queue containing only this song, auto-fill Up Next using the recommendation algorithm
     if (isNewSingleQueue) {
       _smartShuffleController.populateUpNextForNewQueue(song);
@@ -976,6 +978,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     _isForegroundDowngraded = false;
     _queueHandler.cancelIdleTimer();
     await _player.play();
+    await applyVolumeNormalization();
     _broadcastState();
     if (PartySyncCoordinator.isHost) {
       PartySyncCoordinator.notifyHostResume();

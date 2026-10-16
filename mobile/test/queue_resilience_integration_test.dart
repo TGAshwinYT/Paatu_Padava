@@ -23,6 +23,7 @@ class _IntegrationMockPlayer extends Fake implements AudioPlayer {
   final Duration _dur = const Duration(minutes: 3);
   AudioSource? _audioSource;
   int? _sourceIndex;
+  ProcessingState _processingState = ProcessingState.idle;
 
   @override Stream<int?> get currentIndexStream => _indexCtrl.stream;
   @override Stream<PlayerState> get playerStateStream => _stateCtrl.stream;
@@ -33,6 +34,7 @@ class _IntegrationMockPlayer extends Fake implements AudioPlayer {
   @override Duration get position => _position;
   @override Duration? get duration => _dur;
   @override AudioSource? get audioSource => _audioSource;
+  @override ProcessingState get processingState => _processingState;
 
   @override
   Future<void> setVolume(double v) async => _volume = v;
@@ -40,18 +42,21 @@ class _IntegrationMockPlayer extends Fake implements AudioPlayer {
   @override
   Future<void> play() async {
     _playing = true;
+    _processingState = ProcessingState.ready;
     _stateCtrl.add(PlayerState(true, ProcessingState.ready));
   }
 
   @override
   Future<void> pause() async {
     _playing = false;
+    _processingState = ProcessingState.ready;
     _stateCtrl.add(PlayerState(false, ProcessingState.ready));
   }
 
   @override
   Future<void> stop() async {
     _playing = false;
+    _processingState = ProcessingState.idle;
     _stateCtrl.add(PlayerState(false, ProcessingState.idle));
   }
 

@@ -125,6 +125,8 @@ class AudioQueueHandler {
   bool _hasRetriedCurrentTrack = false;
   bool _hasDownscaledCurrentTrack = false;
   Timer? _bufferStallTimer;
+  Timer? _volumeWatchdogTimer;
+  bool _hasEnforcedInitialVolume = false;
   bool _isRecovering = false;
   bool _isLookaheadTriggered = false;
   bool _wasStalledByNetwork = false;
@@ -287,15 +289,38 @@ class AudioQueueHandler {
   }
 
   void _startVolumeWatchdog(Song? song) {
-    if (song == null) return;
-    Future.delayed(const Duration(milliseconds: 380), () {
-      if (!_isDisposed && player.playing) {
+    if (song == null || _isDisposed) return;
+    _volumeWatchdogTimer?.cancel();
+    int ticks = 0;
+    _volumeWatchdogTimer = Timer.periodic(const Duration(milliseconds: 250), (timer) async {
+      ticks++;
+      if (_isDisposed || ticks > 16) {
+        timer.cancel();
+        return;
+      }
+      if (player.playing) {
         final targetNorm = getEffectiveVolumeForSong(song);
-        if (player.volume < 0.1 && targetNorm >= 0.2) {
-          AppLogger.log('AudioQueueHandler', 'Volume watchdog: Restoring stuck volume (${player.volume} -> $targetNorm)');
+        bool isReady = false;
+        try {
+          isReady = player.processingState == ProcessingState.ready;
+        } catch (_) {}
+
+        if (isReady) {
           try {
-            player.setVolume(targetNorm);
+            await player.setVolume(targetNorm);
           } catch (_) {}
+          timer.cancel();
+        } else {
+          double vol = 1.0;
+          try {
+            vol = player.volume;
+          } catch (_) {}
+          if (vol < 0.1 && targetNorm >= 0.2) {
+            AppLogger.log('AudioQueueHandler', 'Volume watchdog: Restoring stuck volume ($vol -> $targetNorm)');
+            try {
+              await player.setVolume(targetNorm);
+            } catch (_) {}
+          }
         }
       }
     });
@@ -449,6 +474,15 @@ class AudioQueueHandler {
     _positionSub = player.positionStream.listen((pos) {
       if (pos > Duration.zero && player.playing) {
         _lastCompletedTrackId = null;
+
+        // Ensure the very first audio frame rendered to hardware AudioSink is audible
+        if (!_hasEnforcedInitialVolume) {
+          _hasEnforcedInitialVolume = true;
+          final targetNorm = getEffectiveVolumeForSong(currentSong);
+          try {
+            player.setVolume(targetNorm);
+          } catch (_) {}
+        }
       }
 
       if (SettingsManager.crossfadeSeconds > 0) {
@@ -497,6 +531,14 @@ class AudioQueueHandler {
         _consecutivePlaybackErrors = 0;
         _hasRetriedCurrentTrack = false;
         cancelIdleTimer();
+
+        // Enforce volume as soon as ExoPlayer is READY and actively playing
+        if (state.processingState == ProcessingState.ready) {
+          final targetNorm = getEffectiveVolumeForSong(currentSong);
+          try {
+            player.setVolume(targetNorm);
+          } catch (_) {}
+        }
       } else if (state.processingState != ProcessingState.loading &&
           state.processingState != ProcessingState.buffering &&
           !_isPreparing &&
@@ -1046,6 +1088,7 @@ class AudioQueueHandler {
       _lastCompletedTrackId = null;
       _isAdvancing = false;
       _hasRetriedCurrentTrack = false;
+      _hasEnforcedInitialVolume = false;
 
       _contextIndex = 0;
       _currentTrack = orderedTracks[0];
@@ -1133,16 +1176,9 @@ class AudioQueueHandler {
       );
 
       final targetNorm = getEffectiveVolumeForSong(activeSong);
-      final crossfadeSec = SettingsManager.crossfadeSeconds;
-      if (crossfadeSec > 0) {
-        try {
-          await player.setVolume(0.0);
-        } catch (_) {}
-      } else {
-        try {
-          await player.setVolume(targetNorm);
-        } catch (_) {}
-      }
+      try {
+        await player.setVolume(targetNorm);
+      } catch (_) {}
 
       try {
         await player.setAudioSource(
@@ -1156,11 +1192,9 @@ class AudioQueueHandler {
         if (autoPlay) {
           await _ensureAudioSessionActive();
           await player.play();
-          if (crossfadeSec > 0) {
-            _fadeVolumeTo(targetNorm, durationMs: (crossfadeSec * 600).clamp(250, 2000));
-          } else {
+          try {
             await player.setVolume(targetNorm);
-          }
+          } catch (_) {}
           _startVolumeWatchdog(activeSong);
         }
 
@@ -1663,6 +1697,7 @@ class AudioQueueHandler {
     _sessionToken++;
     _playlistBaseIndex = currentIndex;
     _hasRetriedCurrentTrack = false;
+    _hasEnforcedInitialVolume = false;
     _isLookaheadTriggered = false;
     _syncState();
 
@@ -1821,6 +1856,7 @@ class AudioQueueHandler {
         _consecutivePlaybackErrors = 0; // Playback began successfully
         _hasRetriedCurrentTrack = false;
         _hasDownscaledCurrentTrack = false;
+        _hasEnforcedInitialVolume = false;
         _cancelBufferStallWatchdog();
         if (crossfadeSec > 0) {
           _fadeVolumeTo(targetNorm, durationMs: (crossfadeSec * 600).clamp(250, 2000));
@@ -2357,6 +2393,7 @@ class AudioQueueHandler {
     SettingsManager.volumeNormalizationNotifier.removeListener(_onNormalizationChanged);
     _playbackEventSub?.cancel();
     _positionSub?.cancel();
+    _volumeWatchdogTimer?.cancel();
     cancelIdleTimer();
     _cancelBufferStallWatchdog();
     _sequenceStateSub?.cancel();

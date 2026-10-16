@@ -9,6 +9,7 @@ import 'player_handler.dart';
 import 'settings_manager.dart';
 import 'supabase_service.dart';
 import 'app_logger.dart';
+import 'party_lan_accelerator.dart';
 
 enum PartyRole { none, host, joiner }
 
@@ -99,6 +100,7 @@ class PartySyncCoordinator {
   static bool get isHost => role == PartyRole.host;
   static bool get isJoiner => role == PartyRole.joiner;
   static bool get isActive => role != PartyRole.none;
+  static ValueNotifier<bool> get isLanActiveNotifier => PartyLanAccelerator.isLanActiveNotifier;
 
   static RealtimeChannel? _partyChannel;
   static Timer? _hostHeartbeatTimer;
@@ -248,12 +250,68 @@ class PartySyncCoordinator {
 
     _partyChannel = channel;
 
+    // Start direct Local Wi-Fi (LAN) UDP acceleration on host
+    PartyLanAccelerator.startHost(code);
+
     // Start periodic 2-second heartbeat broadcast
     _hostHeartbeatTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       _broadcastCurrentState();
     });
 
     return code;
+  }
+
+  static final Set<String> _processedEventKeys = {};
+
+  static bool _shouldProcessEvent(String event, Map<String, dynamic> payload) {
+    final key = '${event}_${payload['startAtEpochMs']}_${payload['positionMs']}_${payload['songId']}';
+    if (_processedEventKeys.contains(key)) return false;
+    _processedEventKeys.add(key);
+    if (_processedEventKeys.length > 50) {
+      _processedEventKeys.remove(_processedEventKeys.first);
+    }
+    return true;
+  }
+
+  static void _handleNtpPong(Map<String, dynamic> payload, RealtimeChannel? channel, PeerDeviceInfo selfPeer) {
+    final recipientId = payload['recipientId']?.toString();
+    if (recipientId == _clientId) {
+      final t3 = DateTime.now().millisecondsSinceEpoch;
+      final t0 = (payload['t0'] as num?)?.toInt();
+      final t1 = (payload['t1'] as num?)?.toInt();
+      final t2 = (payload['t2'] as num?)?.toInt();
+      final isRolling = payload['isRolling'] == true;
+      if (t0 != null && t1 != null && t2 != null) {
+        final sample = NtpSample(t0: t0, t1: t1, t2: t2, t3: t3);
+        if (isRolling) {
+          // Continuous background NTP: smooth offset via Exponential Moving Average (EWMA)
+          final curOffset = clockOffsetMsNotifier.value;
+          final smoothedOffset = (curOffset * 0.8 + sample.offset * 0.2).round();
+          clockOffsetMsNotifier.value = smoothedOffset;
+          measuredRttMsNotifier.value = (measuredRttMsNotifier.value * 0.7 + sample.rtt * 0.3).round();
+        } else {
+          // Initial handshake: gather 8 samples and calculate low-RTT median
+          _ntpSamples.add(sample);
+          measuredRttMsNotifier.value = sample.rtt;
+          final offset = NtpCalculator.calculateOffset(_ntpSamples);
+          clockOffsetMsNotifier.value = offset;
+          syncStatusDescription.value = 'In Sync (RTT: ${sample.rtt}ms, Offset: ${offset}ms)';
+        }
+
+        // Update self peer RTT in local state and notify channel
+        _knownPeers[_clientId] = selfPeer.copyWith(rttMs: sample.rtt);
+        connectedPeersNotifier.value = _knownPeers.values.toList();
+        channel?.sendBroadcastMessage(
+          event: 'peer_presence',
+          payload: {
+            'id': _clientId,
+            'deviceName': localDeviceName,
+            'role': 'Speaker',
+            'rttMs': sample.rtt,
+          },
+        );
+      }
+    }
   }
 
   /// Joiner: Joins an active party using code and performs clock handshake
@@ -288,53 +346,51 @@ class PartySyncCoordinator {
 
     final channel = client.channel('party:$cleanCode');
 
+    // Hook direct local Wi-Fi UDP acceleration
+    PartyLanAccelerator.onNtpPongReceived = (payload) {
+      _handleNtpPong(payload, channel, selfPeer);
+    };
+
+    PartyLanAccelerator.onSyncEventReceived = (event, payload) async {
+      if (!_shouldProcessEvent(event, payload)) return;
+      switch (event) {
+        case 'sync_play':
+          await _handleRemotePlay(payload);
+          break;
+        case 'sync_pause':
+          final posMs = (payload['positionMs'] as num?)?.toInt();
+          audioHandler.pause();
+          if (posMs != null && posMs > 0) {
+            audioHandler.seek(Duration(milliseconds: posMs));
+          }
+          syncStatusDescription.value = 'Host Paused';
+          break;
+        case 'sync_seek':
+          final posMs = payload['positionMs'] as int? ?? 0;
+          await audioHandler.seek(Duration(milliseconds: posMs));
+          break;
+        case 'sync_queue':
+          await _handleRemoteQueue(payload);
+          break;
+        case 'sync_heartbeat':
+          _handleHeartbeatReconciliation(payload);
+          break;
+      }
+    };
+
+    PartyLanAccelerator.startJoiner(cleanCode);
+
     channel.onBroadcast(
       event: 'ntp_pong',
       callback: (payload) {
-        final recipientId = payload['recipientId']?.toString();
-        if (recipientId == _clientId) {
-          final t3 = DateTime.now().millisecondsSinceEpoch;
-          final t0 = payload['t0'] as int?;
-          final t1 = payload['t1'] as int?;
-          final t2 = payload['t2'] as int?;
-          final isRolling = payload['isRolling'] == true;
-          if (t0 != null && t1 != null && t2 != null) {
-            final sample = NtpSample(t0: t0, t1: t1, t2: t2, t3: t3);
-            if (isRolling) {
-              // Continuous background NTP: smooth offset via Exponential Moving Average (EWMA)
-              final curOffset = clockOffsetMsNotifier.value;
-              final smoothedOffset = (curOffset * 0.8 + sample.offset * 0.2).round();
-              clockOffsetMsNotifier.value = smoothedOffset;
-              measuredRttMsNotifier.value = (measuredRttMsNotifier.value * 0.7 + sample.rtt * 0.3).round();
-            } else {
-              // Initial handshake: gather 8 samples and calculate low-RTT median
-              _ntpSamples.add(sample);
-              measuredRttMsNotifier.value = sample.rtt;
-              final offset = NtpCalculator.calculateOffset(_ntpSamples);
-              clockOffsetMsNotifier.value = offset;
-              syncStatusDescription.value = 'In Sync (RTT: ${sample.rtt}ms, Offset: ${offset}ms)';
-            }
-
-            // Update self peer RTT in local state and notify channel
-            _knownPeers[_clientId] = selfPeer.copyWith(rttMs: sample.rtt);
-            connectedPeersNotifier.value = _knownPeers.values.toList();
-            channel.sendBroadcastMessage(
-              event: 'peer_presence',
-              payload: {
-                'id': _clientId,
-                'deviceName': localDeviceName,
-                'role': 'Speaker',
-                'rttMs': sample.rtt,
-              },
-            );
-          }
-        }
+        _handleNtpPong(payload, channel, selfPeer);
       },
     );
 
     channel.onBroadcast(
       event: 'sync_queue',
       callback: (payload) async {
+        if (!_shouldProcessEvent('sync_queue', payload)) return;
         await _handleRemoteQueue(payload);
       },
     );
@@ -342,6 +398,7 @@ class PartySyncCoordinator {
     channel.onBroadcast(
       event: 'sync_play',
       callback: (payload) async {
+        if (!_shouldProcessEvent('sync_play', payload)) return;
         await _handleRemotePlay(payload);
       },
     );
@@ -349,6 +406,7 @@ class PartySyncCoordinator {
     channel.onBroadcast(
       event: 'sync_pause',
       callback: (payload) {
+        if (!_shouldProcessEvent('sync_pause', payload)) return;
         audioHandler.pause();
         syncStatusDescription.value = 'Host Paused';
       },
@@ -357,6 +415,7 @@ class PartySyncCoordinator {
     channel.onBroadcast(
       event: 'sync_seek',
       callback: (payload) async {
+        if (!_shouldProcessEvent('sync_seek', payload)) return;
         final posMs = payload['positionMs'] as int? ?? 0;
         final startAtEpochMs = payload['startAtEpochMs'] as int?;
         if (startAtEpochMs != null) {
@@ -382,6 +441,7 @@ class PartySyncCoordinator {
     channel.onBroadcast(
       event: 'sync_heartbeat',
       callback: (payload) {
+        if (!_shouldProcessEvent('sync_heartbeat', payload)) return;
         _handleHeartbeatReconciliation(payload);
       },
     );
@@ -441,6 +501,7 @@ class PartySyncCoordinator {
           'senderId': _clientId,
         },
       );
+      PartyLanAccelerator.sendLanNtpPing(t0, _clientId);
 
       pingsSent++;
       if (pingsSent >= 8) {
@@ -481,6 +542,7 @@ class PartySyncCoordinator {
           'isRolling': true,
         },
       );
+      PartyLanAccelerator.sendLanNtpPing(t0, _clientId, isRolling: true);
       pingsSent++;
     });
   }
@@ -494,22 +556,25 @@ class PartySyncCoordinator {
     final curSong = audioHandler.currentSong;
     final currentQueue = audioHandler.playlist;
 
+    final payload = {
+      'songId': mediaItem?.id ?? curSong?.id,
+      'title': mediaItem?.title ?? curSong?.title,
+      'artist': mediaItem?.artist ?? curSong?.artist,
+      'artworkUrl': mediaItem?.artUri?.toString() ?? curSong?.coverUrl,
+      'song': curSong?.toMap(),
+      'referenceHostEpochMs': DateTime.now().millisecondsSinceEpoch,
+      'referencePositionMs': currentPosMs,
+      'isPlaying': isPlaying,
+      'peerCount': _knownPeers.length,
+      'peers': _knownPeers.values.map((p) => p.toMap()).toList(),
+      'queue': currentQueue.take(20).map((s) => s.toMap()).toList(),
+    };
+
     _partyChannel?.sendBroadcastMessage(
       event: 'sync_heartbeat',
-      payload: {
-        'songId': mediaItem?.id ?? curSong?.id,
-        'title': mediaItem?.title ?? curSong?.title,
-        'artist': mediaItem?.artist ?? curSong?.artist,
-        'artworkUrl': mediaItem?.artUri?.toString() ?? curSong?.coverUrl,
-        'song': curSong?.toMap(),
-        'referenceHostEpochMs': DateTime.now().millisecondsSinceEpoch,
-        'referencePositionMs': currentPosMs,
-        'isPlaying': isPlaying,
-        'peerCount': _knownPeers.length,
-        'peers': _knownPeers.values.map((p) => p.toMap()).toList(),
-        'queue': currentQueue.take(20).map((s) => s.toMap()).toList(),
-      },
+      payload: payload,
     );
+    PartyLanAccelerator.sendBroadcast('sync_heartbeat', payload);
   }
 
   /// Host: Notifies connected speakers when a new track starts playing
@@ -524,17 +589,20 @@ class PartySyncCoordinator {
     final now = DateTime.now().millisecondsSinceEpoch;
     final startAtEpochMs = now + leadTimeMs;
 
+    final payload = {
+      'song': song.toMap(),
+      'songId': song.id,
+      'positionMs': positionMs,
+      'startAtEpochMs': startAtEpochMs,
+      'currentIndex': currentIndex ?? 0,
+      'queue': queue?.take(30).map((s) => s.toMap()).toList(),
+    };
+
     _partyChannel?.sendBroadcastMessage(
       event: 'sync_play',
-      payload: {
-        'song': song.toMap(),
-        'songId': song.id,
-        'positionMs': positionMs,
-        'startAtEpochMs': startAtEpochMs,
-        'currentIndex': currentIndex ?? 0,
-        'queue': queue?.take(30).map((s) => s.toMap()).toList(),
-      },
+      payload: payload,
     );
+    PartyLanAccelerator.sendBroadcast('sync_play', payload);
   }
 
   /// Host: Notifies connected speakers when active track transitions automatically or via skip
@@ -548,17 +616,20 @@ class PartySyncCoordinator {
     final now = DateTime.now().millisecondsSinceEpoch;
     final startAtEpochMs = now + leadTimeMs;
 
+    final payload = {
+      'song': song.toMap(),
+      'songId': song.id,
+      'positionMs': 0,
+      'startAtEpochMs': startAtEpochMs,
+      'currentIndex': currentIndex ?? 0,
+      'queue': queue?.take(30).map((s) => s.toMap()).toList(),
+    };
+
     _partyChannel?.sendBroadcastMessage(
       event: 'sync_play',
-      payload: {
-        'song': song.toMap(),
-        'songId': song.id,
-        'positionMs': 0,
-        'startAtEpochMs': startAtEpochMs,
-        'currentIndex': currentIndex ?? 0,
-        'queue': queue?.take(30).map((s) => s.toMap()).toList(),
-      },
+      payload: payload,
     );
+    PartyLanAccelerator.sendBroadcast('sync_play', payload);
   }
 
   /// Host: Notifies connected speakers when playback queue is updated or modified
@@ -567,25 +638,31 @@ class PartySyncCoordinator {
     final curSong = audioHandler.currentSong;
     final isPlaying = audioHandler.playbackState.value.playing;
 
+    final payload = {
+      'queue': queue.take(30).map((s) => s.toMap()).toList(),
+      'currentIndex': currentIndex,
+      'activeSongId': curSong?.id,
+      'isPlaying': isPlaying,
+    };
+
     _partyChannel?.sendBroadcastMessage(
       event: 'sync_queue',
-      payload: {
-        'queue': queue.take(30).map((s) => s.toMap()).toList(),
-        'currentIndex': currentIndex,
-        'activeSongId': curSong?.id,
-        'isPlaying': isPlaying,
-      },
+      payload: payload,
     );
+    PartyLanAccelerator.sendBroadcast('sync_queue', payload);
   }
 
   /// Host: Notifies connected speakers when playback pauses
   static Future<void> notifyHostPause() async {
     if (!isHost || _partyChannel == null) return;
     final pos = audioHandler.playbackState.value.position.inMilliseconds;
+    final payload = {'positionMs': pos};
+
     _partyChannel?.sendBroadcastMessage(
       event: 'sync_pause',
-      payload: {'positionMs': pos},
+      payload: payload,
     );
+    PartyLanAccelerator.sendBroadcast('sync_pause', payload);
   }
 
   /// Host: Notifies connected speakers when user seeks
@@ -595,13 +672,16 @@ class PartySyncCoordinator {
     final now = DateTime.now().millisecondsSinceEpoch;
     final startAtEpochMs = now + leadTimeMs;
 
+    final payload = {
+      'positionMs': position.inMilliseconds,
+      'startAtEpochMs': startAtEpochMs,
+    };
+
     _partyChannel?.sendBroadcastMessage(
       event: 'sync_seek',
-      payload: {
-        'positionMs': position.inMilliseconds,
-        'startAtEpochMs': startAtEpochMs,
-      },
+      payload: payload,
     );
+    PartyLanAccelerator.sendBroadcast('sync_seek', payload);
   }
 
   /// Host: Notifies connected speakers when playback resumes
@@ -613,15 +693,18 @@ class PartySyncCoordinator {
     final startAtEpochMs = now + leadTimeMs;
     final curSong = audioHandler.currentSong;
 
+    final payload = {
+      'song': curSong?.toMap(),
+      'songId': curSong?.id,
+      'positionMs': pos,
+      'startAtEpochMs': startAtEpochMs,
+    };
+
     _partyChannel?.sendBroadcastMessage(
       event: 'sync_play',
-      payload: {
-        'song': curSong?.toMap(),
-        'songId': curSong?.id,
-        'positionMs': pos,
-        'startAtEpochMs': startAtEpochMs,
-      },
+      payload: payload,
     );
+    PartyLanAccelerator.sendBroadcast('sync_play', payload);
   }
 
   /// Host: Scheduled Play trigger (broadcasting start at now + 1200ms future epoch)
@@ -995,6 +1078,7 @@ class PartySyncCoordinator {
     _ntpHandshakeTimer = null;
     _rollingNtpTimer?.cancel();
     _rollingNtpTimer = null;
+    await PartyLanAccelerator.stop();
 
     if (_partyChannel != null) {
       try {

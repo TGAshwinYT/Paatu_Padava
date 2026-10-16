@@ -290,23 +290,63 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF10B981).withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.sensors_rounded, color: Color(0xFF34D399), size: 14),
-                    const SizedBox(width: 6),
-                    Text(
-                      role == PartyRole.host ? 'HOSTING SESSION' : 'CONNECTED JOINER',
-                      style: const TextStyle(color: Color(0xFF34D399), fontSize: 11, fontWeight: FontWeight.bold),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
                     ),
-                  ],
-                ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.sensors_rounded, color: Color(0xFF34D399), size: 14),
+                        const SizedBox(width: 6),
+                        Text(
+                          role == PartyRole.host ? 'HOSTING SESSION' : 'CONNECTED JOINER',
+                          style: const TextStyle(color: Color(0xFF34D399), fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: PartySyncCoordinator.isLanActiveNotifier,
+                    builder: (context, isLan, _) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: isLan ? const Color(0xFF6366F1).withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.05),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: isLan ? const Color(0xFF818CF8).withValues(alpha: 0.5) : Colors.white12,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              isLan ? Icons.bolt_rounded : Icons.cloud_done_rounded,
+                              color: isLan ? const Color(0xFFA5B4FC) : const Color(0xFF94A3B8),
+                              size: 13,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              isLan ? 'LAN (<2ms)' : 'Cloud',
+                              style: TextStyle(
+                                color: isLan ? const Color(0xFFA5B4FC) : const Color(0xFF94A3B8),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ],
               ),
               OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(

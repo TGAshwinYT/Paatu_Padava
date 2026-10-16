@@ -52,7 +52,7 @@ class DefaultStreamResolver implements StreamResolver {
     SaavnClient? saavnClient,
   })  : _youtubeClient = youtubeClient ?? YoutubeClient();
 
-  static const Duration _overallTimeout = Duration(seconds: 14);
+  static const Duration _overallTimeout = Duration(seconds: 22);
   static const Duration _stageTimeout = Duration(seconds: 4);
   static const Duration cacheTtl = Duration(hours: 3);
 
@@ -505,7 +505,7 @@ class DefaultStreamResolver implements StreamResolver {
       if (ytVideoId != null && ytVideoId.isNotEmpty) {
         final ytUrl = await _youtubeClient
             .getStreamUrl(ytVideoId, title: song.title, artist: song.artist)
-            .timeout(const Duration(seconds: 6), onTimeout: () => null);
+            .timeout(const Duration(seconds: 18), onTimeout: () => null);
         if (ytUrl != null && ytUrl.isNotEmpty) {
           song.source = 'youtube';
           song.streamUrl = ytUrl;
@@ -552,9 +552,10 @@ class DefaultStreamResolver implements StreamResolver {
       return false;
     }
 
-    final bool isDirectTitleMatch = (normTargetTitle == normCandTitle ||
+    final bool isExactTitleMatch = (normTargetTitle == normCandTitle);
+    final bool isDirectTitleMatch = isExactTitleMatch ||
         normTargetTitle.contains(normCandTitle) ||
-        normCandTitle.contains(normTargetTitle));
+        normCandTitle.contains(normTargetTitle);
 
     // 1. Duration check:
     // If titles match directly or tracks are from YouTube, allow up to 60 seconds tolerance
@@ -591,11 +592,25 @@ class DefaultStreamResolver implements StreamResolver {
       // Also check if candidate artist is in target title or target artist in candidate title
       final bool artistInCrossTitle = normTargetTitle.contains(normCandArtist) || normCandTitle.contains(normTargetArtist);
 
-      final bool isArtistMatch = artistsDirectlyMatch || artistTokenOverlap || artistInCrossTitle;
+      // Check if candidate artist appears anywhere in raw target title or vice-versa
+      final rawTargetLower = target.title.toLowerCase();
+      final rawCandLower = candidate.title.toLowerCase();
+      final bool artistInRawTarget = rawTargetLower.contains(normCandArtist) || rawCandLower.contains(normTargetArtist);
 
-      // If artists are explicitly different and completely non-overlapping, reject candidate
+      final bool isArtistMatch = artistsDirectlyMatch || artistTokenOverlap || artistInCrossTitle || artistInRawTarget;
+
+      // If artists are explicitly different and completely non-overlapping, reject candidate UNLESS:
+      // 1. Titles match exactly (e.g. "Kannumuzhi" == "Kannumuzhi", "Ooroda Oththa Don" == "Ooroda Oththa Don")
+      // 2. AND duration delta is within tight tolerance (<= 45s) or target is from YouTube (where uploader is director/label)
       if (!isArtistMatch) {
-        return false;
+        final int durDiff = (target.duration > 0 && candidate.duration > 0)
+            ? (target.duration - candidate.duration).abs()
+            : 0;
+        final bool isTargetFromYouTube = target.source == 'youtube' || ArtistSanitizer.isRecordLabelOrChannel(target.artist);
+        final bool canBypassArtist = isExactTitleMatch && (durDiff <= 45 || (isTargetFromYouTube && durDiff <= 60));
+        if (!canBypassArtist) {
+          return false;
+        }
       }
     }
 

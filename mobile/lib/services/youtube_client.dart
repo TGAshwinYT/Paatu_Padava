@@ -101,7 +101,7 @@ class YouTubeClient {
     final cleanId = extractVideoId(videoId) ?? videoId.trim();
     if (cleanId.isEmpty) return null;
     try {
-      final manifest = await _yt.videos.streamsClient.getManifest(cleanId);
+      final manifest = await _yt.videos.streamsClient.getManifest(cleanId).timeout(const Duration(seconds: 16));
       final audioStreams = manifest.audioOnly;
       if (audioStreams.isEmpty) return null;
 
@@ -993,8 +993,12 @@ class YouTubeClient {
 
   /// Tier 1 Fast Path: Queries YouTube InnerTube clients (Method A - HLS) and direct streams (Method B).
   /// InnerTube client configs are dynamically supplied by [InnerTubeConfigService] with remote JSON updates and built-in defaults.
+  /// Queries configs concurrently with a 2.5-second total timeout to avoid delaying Tier 2 YouTubeExplode.
   static Future<String?> _resolveDirectInnertubeStream(String cleanId) async {
-    for (final config in InnerTubeConfigService.clientConfigs) {
+    final configs = InnerTubeConfigService.clientConfigs;
+    if (configs.isEmpty) return null;
+
+    final futures = configs.map((config) async {
       try {
         final uri = Uri.parse('https://www.youtube.com/youtubei/v1/player?prettyPrint=false');
         final payload = jsonEncode({
@@ -1006,12 +1010,12 @@ class YouTubeClient {
           uri,
           headers: Map<String, String>.from(config['headers']),
           body: payload,
-        ).timeout(const Duration(seconds: 4));
+        ).timeout(const Duration(seconds: 3));
 
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body) as Map<String, dynamic>?;
           final streamingData = data?['streamingData'] as Map<String, dynamic>?;
-          if (streamingData == null) continue;
+          if (streamingData == null) return null;
 
           // Method A: HLS Manifest URL. If present, return .m3u8 immediately!
           final hlsUrl = streamingData['hlsManifestUrl']?.toString();
@@ -1028,15 +1032,11 @@ class YouTubeClient {
           }).toList();
 
           final candidateUrls = <String>[];
-
-          String prepareStreamUrl(Map<dynamic, dynamic> f) {
-            return f['url']?.toString() ?? '';
-          }
+          String prepareStreamUrl(Map<dynamic, dynamic> f) => f['url']?.toString() ?? '';
 
           if (audioFormats.isNotEmpty) {
             final quality = SettingsManager.effectiveStreamingQuality;
 
-            // 1. Data saver (96kbps)
             if (quality == '96kbps') {
               for (final f in audioFormats) {
                 final bitrate = (f['bitrate'] as num?)?.toInt() ?? 0;
@@ -1047,7 +1047,6 @@ class YouTubeClient {
               }
             }
 
-            // 2. AAC 140 (128kbps audio/mp4)
             for (final f in audioFormats) {
               if (f['itag'] == 140) {
                 final url = prepareStreamUrl(f);
@@ -1055,7 +1054,6 @@ class YouTubeClient {
               }
             }
 
-            // 3. Opus 251 (audio/webm ~160kbps)
             for (final f in audioFormats) {
               if (f['itag'] == 251) {
                 final url = prepareStreamUrl(f);
@@ -1063,7 +1061,6 @@ class YouTubeClient {
               }
             }
 
-            // 4. Bitrate fallback: lower Opus bitrates (itag 250 ~70k, 249 ~50k)
             for (final f in audioFormats) {
               if (f['itag'] == 250 || f['itag'] == 249) {
                 final url = prepareStreamUrl(f);
@@ -1071,7 +1068,6 @@ class YouTubeClient {
               }
             }
 
-            // 5. Remaining direct audio URLs sorted by highest bitrate
             final sorted = List.from(audioFormats)
               ..sort((a, b) => ((b['bitrate'] as num?) ?? 0).compareTo((a['bitrate'] as num?) ?? 0));
             for (final f in sorted) {
@@ -1080,21 +1076,27 @@ class YouTubeClient {
             }
           }
 
-          // Probe candidates: return the first candidate that passes HTTP 200/206 probe
-          for (final candidate in candidateUrls) {
+          // Probe candidates: return first verified candidate
+          for (final candidate in candidateUrls.take(2)) {
             final isPlayable = await probeStreamUrl(candidate);
             if (isPlayable) {
               AppLogger.log('YouTubeClient', 'InnerTube ${config['name']} direct stream verified and active for $cleanId');
               return candidate;
-            } else {
-              AppLogger.log('YouTubeClient', 'InnerTube ${config['name']} stream candidate rejected by probe (403/Forbidden), trying bitrate fallback...');
             }
           }
         }
       } catch (e) {
         AppLogger.log('YouTubeClient', 'InnerTube ${config['name']} direct resolution notice for $cleanId: $e');
       }
-    }
+      return null;
+    });
+
+    try {
+      final results = await Future.wait(futures).timeout(const Duration(milliseconds: 2500));
+      for (final r in results) {
+        if (r != null && r.isNotEmpty) return r;
+      }
+    } catch (_) {}
     return null;
   }
 
@@ -1103,17 +1105,19 @@ class YouTubeClient {
   /// Returns null if Google CDN returns 403 or times out so Smart Replace is triggered.
   static Future<String?> _resolveAndVerifyStream(String cleanId) async {
     // ── Tier 1: Direct InnerTube (IOS / ANDROID_VR / WEB_REMIX) + HLS ─────────────
-    final directUrl = await _resolveDirectInnertubeStream(cleanId);
-    if (directUrl != null && directUrl.isNotEmpty) {
-      return directUrl;
-    }
+    try {
+      final directUrl = await _resolveDirectInnertubeStream(cleanId).timeout(const Duration(milliseconds: 2500), onTimeout: () => null);
+      if (directUrl != null && directUrl.isNotEmpty) {
+        return directUrl;
+      }
+    } catch (_) {}
 
     // ── Tier 2: Client-Side YouTubeExplode Dart (Full Manifest + Bitrate Fallback) ──
     for (int attempt = 1; attempt <= 2; attempt++) {
       try {
         final manifest = await _yt.videos.streamsClient.getManifest(
           cleanId,
-        ).timeout(const Duration(seconds: 12));
+        ).timeout(const Duration(seconds: 16));
 
         final audioStreams = manifest.audioOnly;
         if (audioStreams.isNotEmpty) {
@@ -1230,7 +1234,7 @@ class YouTubeClient {
   static Future<String?> fetchVideoCaptions(String videoId) async {
     if (videoId.length != 11) return null;
     try {
-      final manifest = await _yt.videos.closedCaptions.getManifest(VideoId(videoId)).timeout(const Duration(seconds: 4));
+      final manifest = await _yt.videos.closedCaptions.getManifest(VideoId(videoId)).timeout(const Duration(seconds: 8));
       if (manifest.tracks.isEmpty) return null;
 
       // Prefer tracks in non-auto-generated English, Tamil, Hindi, or first available track

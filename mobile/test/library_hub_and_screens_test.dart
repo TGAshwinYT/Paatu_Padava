@@ -3,10 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:paatu_padava_mobile/ui/screens/library_screen.dart';
 import 'package:paatu_padava_mobile/ui/screens/playlists_screen.dart';
 import 'package:paatu_padava_mobile/ui/screens/offline_screen.dart';
-import 'package:paatu_padava_mobile/services/playlist_manager.dart';
-import 'package:paatu_padava_mobile/services/favorites_manager.dart';
-import 'package:paatu_padava_mobile/services/download_manager.dart';
-import 'package:paatu_padava_mobile/services/history_manager.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

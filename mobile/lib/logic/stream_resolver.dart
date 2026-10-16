@@ -564,7 +564,38 @@ class DefaultStreamResolver implements StreamResolver {
       }
     }
 
-    // 2. Title similarity check
+    // 2. Artist verification:
+    final normTargetArtist = normalizeForComparison(target.artist);
+    final normCandArtist = normalizeForComparison(candidate.artist);
+    const genericArtists = {'various artists', 'various', 'unknown', 'unknown artist', 'topic', 'vevo', 'official', 'channel'};
+
+    final bool hasTargetArtist = normTargetArtist.isNotEmpty && !genericArtists.contains(normTargetArtist);
+    final bool hasCandArtist = normCandArtist.isNotEmpty && !genericArtists.contains(normCandArtist);
+
+    if (hasTargetArtist && hasCandArtist) {
+      final targetArtistWords = normTargetArtist.split(' ').where((w) => w.length > 2).toSet();
+      final candArtistWords = normCandArtist.split(' ').where((w) => w.length > 2).toSet();
+
+      final bool artistsDirectlyMatch = normTargetArtist == normCandArtist ||
+          normTargetArtist.contains(normCandArtist) ||
+          normCandArtist.contains(normTargetArtist);
+
+      final bool artistTokenOverlap = targetArtistWords.isNotEmpty &&
+          candArtistWords.isNotEmpty &&
+          targetArtistWords.intersection(candArtistWords).isNotEmpty;
+
+      // Also check if candidate artist is in target title or target artist in candidate title
+      final bool artistInCrossTitle = normTargetTitle.contains(normCandArtist) || normCandTitle.contains(normTargetArtist);
+
+      final bool isArtistMatch = artistsDirectlyMatch || artistTokenOverlap || artistInCrossTitle;
+
+      // If artists are explicitly different and completely non-overlapping, reject candidate
+      if (!isArtistMatch) {
+        return false;
+      }
+    }
+
+    // 3. Title similarity check
     if (isDirectTitleMatch) {
       return true;
     }

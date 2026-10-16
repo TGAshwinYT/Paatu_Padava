@@ -12,12 +12,24 @@ import '../data/repositories/song_repository.dart';
 
 class YouTubeClient {
   static YoutubeExplode? _ytInstance;
-  static YoutubeExplode get _yt => _ytInstance ??= YoutubeExplode();
+  static YoutubeExplode get _yt {
+    _ytInstance ??= YoutubeExplode();
+    return _ytInstance!;
+  }
 
-  /// Closes any idle YouTube HTTP sockets and resets client instance
+  /// Closes any idle YouTube HTTP sockets and resets client instance safely
   static void closeIdleClient() {
-    _ytInstance?.close();
+    try {
+      _ytInstance?.close();
+    } catch (_) {}
     _ytInstance = null;
+  }
+
+  /// Refreshes YoutubeExplode instance if previously closed
+  static YoutubeExplode refreshClient() {
+    closeIdleClient();
+    _ytInstance = YoutubeExplode();
+    return _ytInstance!;
   }
 
   static const String vrUserAgent =
@@ -946,14 +958,15 @@ class YouTubeClient {
       final isHls = url.contains('.m3u8') || url.contains('hls_variant');
       final Map<String, String> headers;
       if (isGoogleVideo) {
+        final ua = userAgentForUrl(url);
         headers = isHls
             ? {
-                'User-Agent': 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)',
+                'User-Agent': ua,
                 'Accept': '*/*',
               }
             : {
                 'Range': 'bytes=0-1024',
-                'User-Agent': vrUserAgent,
+                'User-Agent': ua,
                 'Accept': '*/*',
               };
       } else {
@@ -965,7 +978,7 @@ class YouTubeClient {
       final response = await http.get(
         uri,
         headers: headers,
-      ).timeout(const Duration(seconds: 2));
+      ).timeout(const Duration(seconds: 4));
 
       final isValid = response.statusCode == 200 || response.statusCode == 206;
       if (!isValid) {
@@ -1163,11 +1176,18 @@ class YouTubeClient {
               }
             }
           }
+
+          // 6. Safe candidate fallback if probe had network hiccups but valid audio candidates exist
+          if (candidates.isNotEmpty) {
+            final fallbackUrl = candidates.first.url.toString();
+            AppLogger.log('YouTubeClient', 'Probe timed out or blocked; using candidate fallback for $cleanId (itag ${candidates.first.tag})');
+            return fallbackUrl;
+          }
         }
       } catch (e) {
         AppLogger.log('YouTubeClient', 'YouTubeExplode attempt $attempt notice for $cleanId: $e');
-        if (attempt == 1) {
-          closeIdleClient();
+        if (e.toString().contains('HttpClientClosedException')) {
+          refreshClient();
         }
       }
     }

@@ -52,7 +52,7 @@ class DefaultStreamResolver implements StreamResolver {
     SaavnClient? saavnClient,
   })  : _youtubeClient = youtubeClient ?? YoutubeClient();
 
-  static const Duration _overallTimeout = Duration(seconds: 8);
+  static const Duration _overallTimeout = Duration(seconds: 14);
   static const Duration _stageTimeout = Duration(seconds: 4);
   static const Duration cacheTtl = Duration(hours: 3);
 
@@ -234,6 +234,10 @@ class DefaultStreamResolver implements StreamResolver {
           AppLogger.log('StreamResolver', 'Stream resolution returned empty for "${song.title}" after ${sw.elapsedMilliseconds}ms');
         }
         return url;
+      } on TimeoutException {
+        sw.stop();
+        AppLogger.log('StreamResolver', 'Stream resolution timed out for "${song.title}" after ${sw.elapsedMilliseconds}ms');
+        return null;
       } catch (e, stack) {
         sw.stop();
         AppLogger.recordError(e, stack, context: 'StreamResolver.resolveStreamUrl for "${song.title}" (${sw.elapsedMilliseconds}ms)');
@@ -501,7 +505,7 @@ class DefaultStreamResolver implements StreamResolver {
       if (ytVideoId != null && ytVideoId.isNotEmpty) {
         final ytUrl = await _youtubeClient
             .getStreamUrl(ytVideoId, title: song.title, artist: song.artist)
-            .timeout(_stageTimeout, onTimeout: () => null);
+            .timeout(const Duration(seconds: 6), onTimeout: () => null);
         if (ytUrl != null && ytUrl.isNotEmpty) {
           song.source = 'youtube';
           song.streamUrl = ytUrl;

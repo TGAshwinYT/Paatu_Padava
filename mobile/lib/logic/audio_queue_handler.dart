@@ -64,7 +64,6 @@ class AudioQueueHandler {
   String? _lastCompletedTrackId;
   bool _isAdvancing = false;
   bool _isTransitioning = false;
-  DateTime _lastTransitionTime = DateTime.fromMillisecondsSinceEpoch(0);
 
   // Active track state
   TrackEntity? _currentTrack;
@@ -1328,7 +1327,6 @@ class AudioQueueHandler {
       return;
     }
     _isTransitioning = true;
-    _lastTransitionTime = DateTime.now();
 
     try {
       if (isUserInitiated) {
@@ -1424,7 +1422,6 @@ class AudioQueueHandler {
       return;
     }
     _isTransitioning = true;
-    _lastTransitionTime = DateTime.now();
 
     try {
       if (_playbackHistory.isNotEmpty) {
@@ -1608,7 +1605,6 @@ class AudioQueueHandler {
     if (_isTransitioning || _isDisposed) return;
     if (expectedId != null && _currentTrack?.id == expectedId) return;
     _isTransitioning = true;
-    _lastTransitionTime = DateTime.now();
 
     try {
       _lastCompletedTrackId = _currentTrack?.id;

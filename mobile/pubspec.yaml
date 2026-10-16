@@ -52,7 +52,6 @@ dependencies:
   uuid: ^4.6.0
   palette_generator: ^0.3.3+7
   firebase_core: ^4.15.0
-  video_player: ^2.14.1
 
 dev_dependencies:
   flutter_test:

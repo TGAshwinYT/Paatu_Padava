@@ -321,6 +321,35 @@ class DefaultStreamResolver implements StreamResolver {
     return cleaned;
   }
 
+  /// Checks if track is a long-form jukebox, compilation, or full album mix (> 10 minutes or keyword match).
+  /// These must bypass Saavn single-track fuzzy matching and stream directly from YouTube InnerTube.
+  static bool isLongFormOrCompilation(Song song) {
+    if (song.duration > 600) return true; // > 10 minutes
+    final titleLower = song.title.toLowerCase();
+    const compilationKeywords = [
+      'jukebox',
+      'playlist',
+      'all songs',
+      'hit songs',
+      'hits songs',
+      'non stop',
+      'non-stop',
+      'full album',
+      'audio songs',
+      'top trending',
+      'songs tamil',
+      'best of',
+      'mashup',
+      'mega hit',
+      'audio jukebox',
+      'jukebox songs',
+    ];
+    for (final kw in compilationKeywords) {
+      if (titleLower.contains(kw)) return true;
+    }
+    return false;
+  }
+
   Future<String?> _resolveStreamUrlInternal(Song song, {bool forceSaavnFallback = false}) async {
     if (song.source == 'audius') {
       final audiusUrl = (song.streamUrl != null && song.streamUrl!.isNotEmpty)
@@ -340,50 +369,64 @@ class DefaultStreamResolver implements StreamResolver {
       return song.streamUrl;
     }
 
-    // ── STAGE A (Exact Clean Title + Primary Artist on Saavn) ──
-    // Strip parentheticals (From ...), [Official ...], quotes, and featured artists.
-    // Take song title before '-' or '(' and first artist name (e.g. "Hukum Anirudh").
-    final cleanBase = extractCleanBaseTitle(song.title);
-    final firstArtist = extractFirstArtist(song.artist);
-    final queryA = '$cleanBase $firstArtist'.trim();
-    if (queryA.isNotEmpty) {
-      try {
-        AppLogger.log('StreamResolver', 'Stage A search on Saavn: "$queryA"');
-        final saavnMatchesA = await SaavnClient.search(queryA, limit: 5)
-            .timeout(_stageTimeout, onTimeout: () => <Song>[]);
-        for (final match in saavnMatchesA) {
-          if (match.streamUrl != null && match.streamUrl!.contains('saavncdn.com')) {
-            AppLogger.log('StreamResolver', 'Stage A matched for "${song.title}": "${match.title}" -> ${match.streamUrl}');
-            song.source = 'saavn';
-            song.streamUrl = match.streamUrl;
-            cacheStream(song.id, match.streamUrl!, source: 'saavn');
-            return match.streamUrl;
-          }
-        }
-      } catch (e) {
-        AppLogger.log('StreamResolver', 'Stage A notice: $e');
-      }
-    }
-
-    // ── STAGE B (Title-Only Search on Saavn) ──
-    // If Stage A returns empty, search Saavn with cleanTitleOnly (e.g. "Hukum Thalaivar Alappara").
     final cleanTitleOnly = extractCleanTitleOnly(song.title);
-    if (cleanTitleOnly.isNotEmpty) {
-      try {
-        AppLogger.log('StreamResolver', 'Stage B search on Saavn: "$cleanTitleOnly"');
-        final saavnMatchesB = await SaavnClient.search(cleanTitleOnly, limit: 5)
-            .timeout(_stageTimeout, onTimeout: () => <Song>[]);
-        for (final match in saavnMatchesB) {
-          if (match.streamUrl != null && match.streamUrl!.contains('saavncdn.com')) {
-            AppLogger.log('StreamResolver', 'Stage B matched for "${song.title}": "${match.title}" -> ${match.streamUrl}');
-            song.source = 'saavn';
-            song.streamUrl = match.streamUrl;
-            cacheStream(song.id, match.streamUrl!, source: 'saavn');
-            return match.streamUrl;
+    final bool isCompilation = isLongFormOrCompilation(song);
+    final bool shouldBypassSaavnMatching = isCompilation && (song.source == 'youtube' || song.duration > 600);
+
+    if (shouldBypassSaavnMatching) {
+      AppLogger.log('StreamResolver', 'Bypassing Saavn Stage A/B search: "${song.title}" is a long-form compilation (${song.duration}s). Direct YouTube extraction prioritized.');
+    } else {
+      // ── STAGE A (Exact Clean Title + Primary Artist on Saavn) ──
+      // Strip parentheticals (From ...), [Official ...], quotes, and featured artists.
+      // Take song title before '-' or '(' and first artist name (e.g. "Hukum Anirudh").
+      final cleanBase = extractCleanBaseTitle(song.title);
+      final firstArtist = extractFirstArtist(song.artist);
+      final queryA = '$cleanBase $firstArtist'.trim();
+      if (queryA.isNotEmpty) {
+        try {
+          AppLogger.log('StreamResolver', 'Stage A search on Saavn: "$queryA"');
+          final saavnMatchesA = await SaavnClient.search(queryA, limit: 5)
+              .timeout(_stageTimeout, onTimeout: () => <Song>[]);
+          for (final match in saavnMatchesA) {
+            if (match.streamUrl != null && match.streamUrl!.contains('saavncdn.com')) {
+              // Ensure match doesn't have an extreme duration mismatch with target song (>60s)
+              if (song.duration > 0 && match.duration > 0 && (song.duration - match.duration).abs() > 60) {
+                continue;
+              }
+              AppLogger.log('StreamResolver', 'Stage A matched for "${song.title}": "${match.title}" -> ${match.streamUrl}');
+              song.source = 'saavn';
+              song.streamUrl = match.streamUrl;
+              cacheStream(song.id, match.streamUrl!, source: 'saavn');
+              return match.streamUrl;
+            }
           }
+        } catch (e) {
+          AppLogger.log('StreamResolver', 'Stage A notice: $e');
         }
-      } catch (e) {
-        AppLogger.log('StreamResolver', 'Stage B notice: $e');
+      }
+
+      // ── STAGE B (Title-Only Search on Saavn) ──
+      // If Stage A returns empty, search Saavn with cleanTitleOnly (e.g. "Hukum Thalaivar Alappara").
+      if (cleanTitleOnly.isNotEmpty) {
+        try {
+          AppLogger.log('StreamResolver', 'Stage B search on Saavn: "$cleanTitleOnly"');
+          final saavnMatchesB = await SaavnClient.search(cleanTitleOnly, limit: 5)
+              .timeout(_stageTimeout, onTimeout: () => <Song>[]);
+          for (final match in saavnMatchesB) {
+            if (match.streamUrl != null && match.streamUrl!.contains('saavncdn.com')) {
+              if (song.duration > 0 && match.duration > 0 && (song.duration - match.duration).abs() > 60) {
+                continue;
+              }
+              AppLogger.log('StreamResolver', 'Stage B matched for "${song.title}": "${match.title}" -> ${match.streamUrl}');
+              song.source = 'saavn';
+              song.streamUrl = match.streamUrl;
+              cacheStream(song.id, match.streamUrl!, source: 'saavn');
+              return match.streamUrl;
+            }
+          }
+        } catch (e) {
+          AppLogger.log('StreamResolver', 'Stage B notice: $e');
+        }
       }
     }
 

@@ -95,6 +95,12 @@ class SmartCacheService {
     return file != null && file.existsSync() && file.lengthSync() >= minValidAudioSizeBytes;
   }
 
+  /// Returns true if a background download is currently in flight for [songId]
+  bool isDownloading(String songId) {
+    final sanitized = songId.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+    return _activeDownloadingSongIds.contains(sanitized);
+  }
+
   /// Returns the cached audio File if available, otherwise null
   File? getCachedAudioFile(String songId) {
     final sanitized = songId.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');

@@ -854,8 +854,10 @@ class YouTubeClient {
   static void invalidateStream(String videoId) {
     final cleanId = videoId.trim();
     if (cleanId.isNotEmpty) {
-      _streamCache.remove(cleanId);
-      AppLogger.log('YouTubeClient', 'Invalidated stream cache for $cleanId');
+      final removed = _streamCache.remove(cleanId);
+      if (removed != null) {
+        AppLogger.log('YouTubeClient', 'Invalidated stream cache for $cleanId');
+      }
     }
   }
 

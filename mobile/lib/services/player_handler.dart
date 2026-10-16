@@ -113,6 +113,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   VoidCallback? _favListener;
   VoidCallback? _smartShuffleListener;
   Stream<Duration>? _throttledPositionStream;
+  Timer? _lyricsDebounceTimer;
 
   // Cached favorite state to eliminate per-event lookups
   bool _cachedIsFav = false;
@@ -368,19 +369,16 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     _hasRecordedListen = false;
     lyricsOffsetMsNotifier.value = 0;
 
-    // Pre-fetch lyrics directly in background on-device (0ms latency for user)
-    unawaited(LyricsClient.instance.fetchLyrics(
-      trackId: song.id,
-      title: song.title,
-      artist: song.artist,
-      durationSeconds: song.duration,
-    ));
+    // Debounce lyrics resolution by 300ms so rapid track transitions / skips do not trigger duplicate LRCLIB calls
+    _lyricsDebounceTimer?.cancel();
+    _lyricsDebounceTimer = Timer(const Duration(milliseconds: 300), () {
+      if (currentSong?.id == song.id) {
+        reloadLyrics(targetSong: song);
+      }
+    });
 
     // Predictive Smart Caching for upcoming queue and radio tracks
     SmartCacheService.instance.onQueueUpdated(song, _queueHandler.queue);
-
-    // Load lyrics with distinct state tracking
-    reloadLyrics(targetSong: song);
 
     _broadcastState();
   }
@@ -1014,6 +1012,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   }
 
   Future<void> dispose() async {
+    _lyricsDebounceTimer?.cancel();
     _becomingNoisySub?.cancel();
     _interruptionSub?.cancel();
     _playerStateSub?.cancel();

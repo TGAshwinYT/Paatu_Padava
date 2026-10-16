@@ -152,8 +152,27 @@ class DecryptedStreamAudioSource extends StreamAudioSource {
   DecryptedStreamAudioSource(
     this.file, {
     dynamic tag,
-    this.contentType = 'audio/mpeg',
-  }) : super(tag: tag);
+    String? contentType,
+  })  : contentType = contentType ?? _resolveContentType(file.path),
+        super(tag: tag);
+
+  static String _resolveContentType(String path) {
+    final lower = path.toLowerCase();
+    if (lower.endsWith('.mp4') || lower.endsWith('.m4a')) {
+      return 'audio/mp4';
+    } else if (lower.endsWith('.ogg') || lower.endsWith('.opus')) {
+      return 'audio/ogg';
+    } else if (lower.endsWith('.webm')) {
+      return 'audio/webm';
+    } else if (lower.endsWith('.wav')) {
+      return 'audio/wav';
+    } else if (lower.endsWith('.flac')) {
+      return 'audio/flac';
+    } else if (lower.endsWith('.aac')) {
+      return 'audio/aac';
+    }
+    return 'audio/mpeg';
+  }
 
   @override
   Future<StreamAudioResponse> request([int? start, int? end]) async {

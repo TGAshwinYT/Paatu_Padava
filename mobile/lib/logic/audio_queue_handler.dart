@@ -63,6 +63,8 @@ class AudioQueueHandler {
   // Anti-double-skip lock and advancement mutex
   String? _lastCompletedTrackId;
   bool _isAdvancing = false;
+  bool _isTransitioning = false;
+  DateTime _lastTransitionTime = DateTime.fromMillisecondsSinceEpoch(0);
 
   // Active track state
   TrackEntity? _currentTrack;
@@ -498,8 +500,8 @@ class AudioQueueHandler {
       }
 
       if (state.processingState == ProcessingState.completed) {
-        if (_isAdvancing || (_currentTrack != null && _lastCompletedTrackId == _currentTrack!.id)) {
-          AppLogger.log('AudioQueueHandler', 'ProcessingState.completed ignored: already advancing or track ${_currentTrack?.id} already completed');
+        if (_isAdvancing || _isTransitioning || (_currentTrack != null && _lastCompletedTrackId == _currentTrack!.id)) {
+          AppLogger.log('AudioQueueHandler', 'ProcessingState.completed ignored: already advancing/transitioning or track ${_currentTrack?.id} already completed');
           return;
         }
         _lastCompletedTrackId = _currentTrack?.id;
@@ -689,8 +691,6 @@ class AudioQueueHandler {
 
       // Invalidate stream cache so stale/expired/403 URL is never reused
       streamResolver.invalidate(current.id);
-      DefaultStreamResolver.invalidateStream(current.id);
-      YouTubeClient.invalidateStream(current.id);
       current.streamUrl = null;
 
       // 2. Retry handling with Bitrate Fallback + Cross-Provider Fallback
@@ -1210,81 +1210,92 @@ class AudioQueueHandler {
 
   /// Skip to next track: consumes _userQueue first, then advances _contextQueue
   Future<void> skipToNext({bool isUserInitiated = true}) async {
-    if (isUserInitiated) {
-      _lastCompletedTrackId = null;
+    if (_isTransitioning) {
+      AppLogger.log('AudioQueueHandler', 'skipToNext ignored: transition currently in progress');
+      return;
     }
+    _isTransitioning = true;
+    _lastTransitionTime = DateTime.now();
 
-    if (_currentTrack != null && isUserInitiated) {
-      final listenedSec = player.position.inSeconds;
-      NextTrackStrategyFactory.recordSkip(_currentTrack!.toSong(), listenedSeconds: listenedSec);
-    }
+    try {
+      if (isUserInitiated) {
+        _lastCompletedTrackId = null;
+      }
 
-    if (_effectiveLoopMode == LoopMode.one) {
-      if (_currentTrack != null) {
-        _isAdvancing = false;
-        await player.seek(Duration.zero);
-        await player.play();
+      if (_currentTrack != null && isUserInitiated) {
+        final listenedSec = player.position.inSeconds;
+        NextTrackStrategyFactory.recordSkip(_currentTrack!.toSong(), listenedSeconds: listenedSec);
+      }
+
+      if (_effectiveLoopMode == LoopMode.one) {
+        if (_currentTrack != null) {
+          _isAdvancing = false;
+          await player.seek(Duration.zero);
+          await player.play();
+          return;
+        }
+      }
+
+      // 1. If currently playing track was from user queue and is still at index 0, pop it
+      if (_currentTrack != null && _currentTrackIsFromUserQueue && _userQueue.isNotEmpty && _userQueue.first.id == _currentTrack!.id) {
+        _userQueue.removeAt(0);
+      }
+
+      // 2. If _userQueue still has items, play _userQueue.first (popping it)
+      if (_userQueue.isNotEmpty) {
+        final next = _userQueue.removeAt(0);
+        if (_currentTrack != null) {
+          _playbackHistory.add(_currentTrack!);
+          if (!_actuallyPlayedInSession.any((t) => t.id == _currentTrack!.id)) {
+            _actuallyPlayedInSession.add(_currentTrack!);
+          }
+        }
+        _currentTrack = next;
+        _currentTrackIsFromUserQueue = true;
+        await _playTrackEntity(next);
         return;
       }
-    }
 
-    // 1. If currently playing track was from user queue and is still at index 0, pop it
-    if (_currentTrack != null && _currentTrackIsFromUserQueue && _userQueue.isNotEmpty && _userQueue.first.id == _currentTrack!.id) {
-      _userQueue.removeAt(0);
-    }
+      // 3. _userQueue is empty:
+      // When transitioning from a user-queued track, user tracks do NOT exist in _contextQueue.
+      // Do NOT call _contextQueue.indexOf(currentTrack).
+      // Instead, cleanly RESUME _contextQueue at _contextIndex + 1.
+      // DO NOT call next_track_strategy unless _contextIndex + 1 >= _contextQueue.length.
+      final hasNextContext = _isShuffleEnabled
+          ? (_contextIndex + 1 < _contextShuffleIndices.length)
+          : (_contextIndex + 1 < _contextQueue.length);
 
-    // 2. If _userQueue still has items, play _userQueue.first (popping it)
-    if (_userQueue.isNotEmpty) {
-      final next = _userQueue.removeAt(0);
-      if (_currentTrack != null) {
-        _playbackHistory.add(_currentTrack!);
-        if (!_actuallyPlayedInSession.any((t) => t.id == _currentTrack!.id)) {
-          _actuallyPlayedInSession.add(_currentTrack!);
+      if (hasNextContext) {
+        _contextIndex++;
+        final next = _isShuffleEnabled
+            ? _contextQueue[_contextShuffleIndices[_contextIndex]]
+            : _contextQueue[_contextIndex];
+        if (_currentTrack != null) {
+          _playbackHistory.add(_currentTrack!);
+          if (!_actuallyPlayedInSession.any((t) => t.id == _currentTrack!.id)) {
+            _actuallyPlayedInSession.add(_currentTrack!);
+          }
         }
+        _currentTrack = next;
+        _currentTrackIsFromUserQueue = false;
+        await _playTrackEntity(next);
+        return;
       }
-      _currentTrack = next;
-      _currentTrackIsFromUserQueue = true;
-      await _playTrackEntity(next);
-      return;
-    }
 
-    // 3. _userQueue is empty:
-    // When transitioning from a user-queued track, user tracks do NOT exist in _contextQueue.
-    // Do NOT call _contextQueue.indexOf(currentTrack).
-    // Instead, cleanly RESUME _contextQueue at _contextIndex + 1.
-    // DO NOT call next_track_strategy unless _contextIndex + 1 >= _contextQueue.length.
-    final hasNextContext = _isShuffleEnabled
-        ? (_contextIndex + 1 < _contextShuffleIndices.length)
-        : (_contextIndex + 1 < _contextQueue.length);
-
-    if (hasNextContext) {
-      _contextIndex++;
-      final next = _isShuffleEnabled
-          ? _contextQueue[_contextShuffleIndices[_contextIndex]]
-          : _contextQueue[_contextIndex];
-      if (_currentTrack != null) {
-        _playbackHistory.add(_currentTrack!);
-        if (!_actuallyPlayedInSession.any((t) => t.id == _currentTrack!.id)) {
-          _actuallyPlayedInSession.add(_currentTrack!);
-        }
+      // 4. End of context queue reached (_contextIndex + 1 >= _contextQueue.length): Check LoopMode.all
+      if (_effectiveLoopMode == LoopMode.all && _contextQueue.isNotEmpty) {
+        await handleRepeatAllLoop();
+        return;
       }
-      _currentTrack = next;
-      _currentTrackIsFromUserQueue = false;
-      await _playTrackEntity(next);
-      return;
-    }
 
-    // 4. End of context queue reached (_contextIndex + 1 >= _contextQueue.length): Check LoopMode.all
-    if (_effectiveLoopMode == LoopMode.all && _contextQueue.isNotEmpty) {
-      await handleRepeatAllLoop();
-      return;
-    }
+      _isAdvancing = false;
 
-    _isAdvancing = false;
-
-    // 5. Autoplay replenishment ONLY when at EOF (_contextIndex + 1 >= _contextQueue.length)
-    if (SettingsManager.isAutoplayEnabled && _currentTrack != null && isAudioHandlerInitialized) {
-      await audioHandler.handleAutoplayQueueEnd(_currentTrack!.toSong());
+      // 5. Autoplay replenishment ONLY when at EOF (_contextIndex + 1 >= _contextQueue.length)
+      if (SettingsManager.isAutoplayEnabled && _currentTrack != null && isAudioHandlerInitialized) {
+        await audioHandler.handleAutoplayQueueEnd(_currentTrack!.toSong());
+      }
+    } finally {
+      _isTransitioning = false;
     }
   }
 
@@ -1295,39 +1306,50 @@ class AudioQueueHandler {
       return;
     }
 
-    if (_playbackHistory.isNotEmpty) {
-      final prev = _playbackHistory.removeLast();
-      _currentTrack = prev;
-      _currentTrackIsFromUserQueue = prev.isUserEnqueued;
-      if (!prev.isUserEnqueued) {
-        final matchIdx = _isShuffleEnabled
-            ? _contextShuffleIndices.indexWhere((i) => _contextQueue[i].id == prev.id)
-            : _contextQueue.indexWhere((t) => t.id == prev.id);
-        if (matchIdx != -1) _contextIndex = matchIdx;
+    if (_isTransitioning) {
+      AppLogger.log('AudioQueueHandler', 'skipToPrevious ignored: transition currently in progress');
+      return;
+    }
+    _isTransitioning = true;
+    _lastTransitionTime = DateTime.now();
+
+    try {
+      if (_playbackHistory.isNotEmpty) {
+        final prev = _playbackHistory.removeLast();
+        _currentTrack = prev;
+        _currentTrackIsFromUserQueue = prev.isUserEnqueued;
+        if (!prev.isUserEnqueued) {
+          final matchIdx = _isShuffleEnabled
+              ? _contextShuffleIndices.indexWhere((i) => _contextQueue[i].id == prev.id)
+              : _contextQueue.indexWhere((t) => t.id == prev.id);
+          if (matchIdx != -1) _contextIndex = matchIdx;
+        }
+        await _playTrackEntity(prev);
+        return;
       }
-      await _playTrackEntity(prev);
-      return;
-    }
 
-    if (_contextIndex > 0) {
-      _contextIndex--;
-      final prev = _isShuffleEnabled
-          ? _contextQueue[_contextShuffleIndices[_contextIndex]]
-          : _contextQueue[_contextIndex];
-      _currentTrack = prev;
-      _currentTrackIsFromUserQueue = false;
-      await _playTrackEntity(prev);
-      return;
-    }
+      if (_contextIndex > 0) {
+        _contextIndex--;
+        final prev = _isShuffleEnabled
+            ? _contextQueue[_contextShuffleIndices[_contextIndex]]
+            : _contextQueue[_contextIndex];
+        _currentTrack = prev;
+        _currentTrackIsFromUserQueue = false;
+        await _playTrackEntity(prev);
+        return;
+      }
 
-    if (_effectiveLoopMode == LoopMode.all && _contextQueue.isNotEmpty) {
-      _contextIndex = _isShuffleEnabled ? _contextShuffleIndices.length - 1 : _contextQueue.length - 1;
-      final prev = _isShuffleEnabled
-          ? _contextQueue[_contextShuffleIndices[_contextIndex]]
-          : _contextQueue[_contextIndex];
-      _currentTrack = prev;
-      _currentTrackIsFromUserQueue = false;
-      await _playTrackEntity(prev);
+      if (_effectiveLoopMode == LoopMode.all && _contextQueue.isNotEmpty) {
+        _contextIndex = _isShuffleEnabled ? _contextShuffleIndices.length - 1 : _contextQueue.length - 1;
+        final prev = _isShuffleEnabled
+            ? _contextQueue[_contextShuffleIndices[_contextIndex]]
+            : _contextQueue[_contextIndex];
+        _currentTrack = prev;
+        _currentTrackIsFromUserQueue = false;
+        await _playTrackEntity(prev);
+      }
+    } finally {
+      _isTransitioning = false;
     }
   }
 
@@ -1470,9 +1492,16 @@ class AudioQueueHandler {
 
   /// Handles gapless advance when just_audio ConcatenatingAudioSource fires index 1
   void _advanceToNextTrackFromPlayerStream() {
-    if (_currentTrack != null && _currentTrackIsFromUserQueue && _userQueue.isNotEmpty && _userQueue.first.id == _currentTrack!.id) {
-      _userQueue.removeAt(0);
-    }
+    if (_isTransitioning || _isDisposed) return;
+    _isTransitioning = true;
+    _lastTransitionTime = DateTime.now();
+
+    try {
+      _lastCompletedTrackId = _currentTrack?.id;
+
+      if (_currentTrack != null && _currentTrackIsFromUserQueue && _userQueue.isNotEmpty && _userQueue.first.id == _currentTrack!.id) {
+        _userQueue.removeAt(0);
+      }
 
     if (_userQueue.isNotEmpty) {
       final next = _userQueue.removeAt(0);
@@ -1531,7 +1560,10 @@ class AudioQueueHandler {
       _startVolumeWatchdog(song);
       preloadUpcomingTracks();
     }
+  } finally {
+    _isTransitioning = false;
   }
+}
 
   /// Handles seamless looping when RepeatMode.all / LoopMode.all reaches EOF.
   /// Loops ONLY _contextQueue; user-enqueued tracks are transient and never repeat.
@@ -2076,9 +2108,11 @@ class AudioQueueHandler {
         return DecryptedStreamAudioSource(File(match.localFilePath!), tag: song.toMediaItem());
       }
     }
-    final smartCacheFile = SmartCacheService.instance.getCachedAudioFile(song.id);
-    if (smartCacheFile != null && smartCacheFile.existsSync()) {
-      return DecryptedStreamAudioSource(smartCacheFile, tag: song.toMediaItem());
+    if (!SmartCacheService.instance.isDownloading(song.id)) {
+      final smartCacheFile = SmartCacheService.instance.getCachedAudioFile(song.id);
+      if (smartCacheFile != null && smartCacheFile.existsSync()) {
+        return DecryptedStreamAudioSource(smartCacheFile, tag: song.toMediaItem());
+      }
     }
 
     String? streamUrl = song.streamUrl;

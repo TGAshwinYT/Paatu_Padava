@@ -32,6 +32,7 @@ class _MusicVideoPlayerViewState extends State<MusicVideoPlayerView> {
   StreamSubscription<bool>? _playSub;
   bool _showControls = false;
   Timer? _controlsDismissTimer;
+  int _initToken = 0;
 
   @override
   void initState() {
@@ -49,6 +50,7 @@ class _MusicVideoPlayerViewState extends State<MusicVideoPlayerView> {
   }
 
   Future<void> _initVideo() async {
+    final token = ++_initToken;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -56,7 +58,8 @@ class _MusicVideoPlayerViewState extends State<MusicVideoPlayerView> {
 
     try {
       final videoId = await YouTubeClient.resolveVideoIdForSong(widget.song);
-      if (videoId == null || !mounted) {
+      if (token != _initToken || !mounted) return;
+      if (videoId == null) {
         setState(() {
           _isLoading = false;
           _errorMessage = 'No official music video found for this song';
@@ -65,7 +68,8 @@ class _MusicVideoPlayerViewState extends State<MusicVideoPlayerView> {
       }
 
       final streamUrl = await YouTubeClient.getBestVideoStreamUrl(videoId);
-      if (streamUrl == null || !mounted) {
+      if (token != _initToken || !mounted) return;
+      if (streamUrl == null) {
         setState(() {
           _isLoading = false;
           _errorMessage = 'Video stream could not be extracted';
@@ -79,7 +83,7 @@ class _MusicVideoPlayerViewState extends State<MusicVideoPlayerView> {
       );
 
       await controller.initialize();
-      if (!mounted) {
+      if (token != _initToken || !mounted) {
         await controller.dispose();
         return;
       }
@@ -88,47 +92,58 @@ class _MusicVideoPlayerViewState extends State<MusicVideoPlayerView> {
       await controller.setVolume(0.0);
       await controller.setLooping(false);
 
-      // Seek video to active player position
-      final currentPos = audioHandler.player.position;
-      await controller.seekTo(currentPos);
+      if (isAudioHandlerInitialized) {
+        // Seek video to active player position
+        final currentPos = audioHandler.player.position;
+        await controller.seekTo(currentPos);
 
-      if (audioHandler.player.playing) {
-        await controller.play();
+        if (audioHandler.player.playing) {
+          await controller.play();
+        }
+      }
+
+      if (token != _initToken || !mounted) {
+        await controller.dispose();
+        return;
       }
 
       _controller = controller;
 
       // Listen to position to keep video synchronized with audio scrubber
       _posSub?.cancel();
-      _posSub = audioHandler.throttledPositionStream.listen((pos) {
-        if (_controller != null && _controller!.value.isInitialized) {
-          final vidPos = _controller!.value.position;
-          final driftMs = (vidPos.inMilliseconds - pos.inMilliseconds).abs();
-          // If scrubber moved or drift exceeds 400ms, resync video
-          if (driftMs > 400) {
-            _controller!.seekTo(pos);
+      if (isAudioHandlerInitialized) {
+        _posSub = audioHandler.throttledPositionStream.listen((pos) {
+          final ctrl = _controller;
+          if (ctrl != null && ctrl.value.isInitialized && mounted) {
+            final vidPos = ctrl.value.position;
+            final driftMs = (vidPos.inMilliseconds - pos.inMilliseconds).abs();
+            // If scrubber moved or drift exceeds 400ms, resync video
+            if (driftMs > 400) {
+              ctrl.seekTo(pos);
+            }
           }
-        }
-      });
+        });
 
-      // Listen to audio player state changes (play/pause)
-      _playSub?.cancel();
-      _playSub = audioHandler.player.playingStream.listen((playing) {
-        if (_controller != null && _controller!.value.isInitialized) {
-          if (playing && !_controller!.value.isPlaying) {
-            _controller!.play();
-          } else if (!playing && _controller!.value.isPlaying) {
-            _controller!.pause();
+        // Listen to audio player state changes (play/pause)
+        _playSub?.cancel();
+        _playSub = audioHandler.player.playingStream.listen((playing) {
+          final ctrl = _controller;
+          if (ctrl != null && ctrl.value.isInitialized && mounted) {
+            if (playing && !ctrl.value.isPlaying) {
+              ctrl.play();
+            } else if (!playing && ctrl.value.isPlaying) {
+              ctrl.pause();
+            }
           }
-        }
-      });
+        });
+      }
 
       setState(() {
         _isLoading = false;
       });
     } catch (e) {
       AppLogger.log('MusicVideoPlayerView', 'Video initialization error: $e');
-      if (mounted) {
+      if (token == _initToken && mounted) {
         setState(() {
           _isLoading = false;
           _errorMessage = 'Error loading music video: $e';
@@ -138,6 +153,7 @@ class _MusicVideoPlayerViewState extends State<MusicVideoPlayerView> {
   }
 
   void _disposeController() {
+    _initToken++;
     _posSub?.cancel();
     _posSub = null;
     _playSub?.cancel();
@@ -202,18 +218,24 @@ class _MusicVideoPlayerViewState extends State<MusicVideoPlayerView> {
           children: [
             // Video or placeholder/loading
             if (_controller != null && _controller!.value.isInitialized)
-              GestureDetector(
-                onTap: _toggleControls,
-                child: SizedBox.expand(
-                  child: FittedBox(
-                    fit: BoxFit.cover,
-                    child: SizedBox(
-                      width: _controller!.value.size.width,
-                      height: _controller!.value.size.height,
-                      child: VideoPlayer(_controller!),
+              Builder(
+                builder: (context) {
+                  final ctrl = _controller;
+                  if (ctrl == null || !ctrl.value.isInitialized) return const SizedBox.shrink();
+                  return GestureDetector(
+                    onTap: _toggleControls,
+                    child: SizedBox.expand(
+                      child: FittedBox(
+                        fit: BoxFit.cover,
+                        child: SizedBox(
+                          width: ctrl.value.size.width,
+                          height: ctrl.value.size.height,
+                          child: VideoPlayer(ctrl),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
               )
             else if (_isLoading)
               Column(
@@ -275,15 +297,19 @@ class _MusicVideoPlayerViewState extends State<MusicVideoPlayerView> {
                         IconButton(
                           iconSize: 42,
                           icon: Icon(
-                            audioHandler.player.playing ? Icons.pause_circle_filled_rounded : Icons.play_circle_filled_rounded,
+                            (isAudioHandlerInitialized && audioHandler.player.playing)
+                                ? Icons.pause_circle_filled_rounded
+                                : Icons.play_circle_filled_rounded,
                             color: Colors.white,
                           ),
                           onPressed: () {
                             HapticFeedback.lightImpact();
-                            if (audioHandler.player.playing) {
-                              audioHandler.pause();
-                            } else {
-                              audioHandler.play();
+                            if (isAudioHandlerInitialized) {
+                              if (audioHandler.player.playing) {
+                                audioHandler.pause();
+                              } else {
+                                audioHandler.play();
+                              }
                             }
                           },
                         ),

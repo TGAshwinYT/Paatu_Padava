@@ -19,7 +19,7 @@ pinned: false
 [![Build APK](https://github.com/TGAshwinYT/Paatu_Padava/actions/workflows/build-apk.yml/badge.svg)](https://github.com/TGAshwinYT/Paatu_Padava/actions/workflows/build-apk.yml)
 [![Tests: 100% Green](https://img.shields.io/badge/Tests-371%20Flutter%20%7C%2036%20Backend%20Passing-brightgreen.svg)](#-engineering-metrics)
 
-> **Your Infinite Music Universe** — Studio-quality 320kbps audio streaming, Adaptive Bitrate (ABR) streaming with buffer-stall dynamic downscale rescue, multi-format progressive fallback ($320 \to 160 \to 96$ kbps), equal-power acoustic crossfading ($V_{\text{out}}^2 + V_{\text{in}}^2 \equiv 1.0$), smart gapless HTTP Range pre-caching (<10ms skip latency), $O(1)$ space-efficient Bloom Filter existence gates, $O(\log N)$ BK-Tree typo-tolerant search ("Did you mean?"), $O(K)$ Prefix Trie keystroke autocomplete, Reversible Fisher-Yates uniform shuffle with bidirectional history stack, hybrid Markov-Cosine similarity radio generator, triple-engine hybrid audio resolution (JioSaavn CDN, YouTube Explode, Audius decentralized MP3), sub-200ms synced LRC lyrics via direct LRCLIB with auto-stretching, secure Spotify Developer playlist importer with server-side OAuth proxy, Spotify/Echo-Music-inspired 3-tier queue management, continuous endless autoplay, Android Auto dashboard media browsing, Google Firebase telemetry, Supabase cloud sync, and 100% offline downloads.
+> **Your Infinite Music Universe** — Studio-quality 320kbps audio streaming, Adaptive Bitrate (ABR) streaming with buffer-stall dynamic downscale rescue, multi-format progressive fallback (320 → 160 → 96 kbps), equal-power acoustic crossfading (V_out² + V_in² ≡ 1.0), smart gapless HTTP Range pre-caching (<10ms skip latency), O(1) space-efficient Bloom Filter existence gates, O(log N) BK-Tree typo-tolerant search ("Did you mean?"), O(K) Prefix Trie keystroke autocomplete, Reversible Fisher-Yates uniform shuffle with bidirectional history stack, hybrid Markov-Cosine similarity radio generator, triple-engine hybrid audio resolution (JioSaavn CDN, YouTube Explode, Audius decentralized MP3), sub-200ms synced LRC lyrics via direct LRCLIB with auto-stretching, secure Spotify Developer playlist importer with server-side OAuth proxy, Spotify/Echo-Music-inspired 3-tier queue management, continuous endless autoplay, Android Auto dashboard media browsing, Google Firebase telemetry, Supabase cloud sync, and 100% offline downloads.
 
 ---
 
@@ -95,13 +95,13 @@ pinned: false
 ## ✨ Key Features & Capabilities (v2.3.0+4)
 
 ### 🔊 Equal-Power Audio Crossfade Engine
-- **Elimination of the Center 3dB Volume Drop**: Traditional linear crossfaders exhibit an undesirable acoustic dip of $\approx -3\text{ dB}$ at the midpoint ($t = 0.5$) because acoustic energy is proportional to the square of signal amplitude:
-  $$V_{\text{linear\_out}}(0.5)^2 + V_{\text{linear\_in}}(0.5)^2 = 0.5^2 + 0.5^2 = 0.50 \implies 10 \log_{10}(0.5) \approx -3.01\text{ dB}$$
+- **Elimination of the Center 3dB Volume Drop**: Traditional linear crossfaders exhibit an undesirable acoustic dip of ~ -3 dB at the midpoint (`t = 0.5`) because acoustic energy is proportional to the square of signal amplitude:
+  - Linear midpoint drop: `V_out(0.5)² + V_in(0.5)² = 0.5² + 0.5² = 0.50` ➔ `10 · log10(0.5) ≈ -3.01 dB`
 - **Trigonometric Constant Acoustic Energy Law**: Paatu Padava applies an equal-power trigonometric transfer function (`CrossfadeEngine`):
-  $$V_{\text{out}}(t) = \cos\left(\frac{\pi}{2} t\right), \quad V_{\text{in}}(t) = \sin\left(\frac{\pi}{2} t\right)$$
-  Yielding invariant total acoustic power across the entire transition duration ($t \in [0, 1]$):
-  $$V_{\text{out}}(t)^2 + V_{\text{in}}(t)^2 = \cos^2\left(\frac{\pi}{2} t\right) + \sin^2\left(\frac{\pi}{2} t\right) \equiv 1.0 \implies 0.0\text{ dB Gain Variation}$$
-- **Dual-Player Overlapping Architecture**: Orchestrates outgoing and incoming audio streams via independent player instances with microsecond step intervals ($50\text{ ms}$ tick rate) for silky-smooth studio mixing.
+  - `V_out(t) = cos(π/2 · t)`
+  - `V_in(t)  = sin(π/2 · t)`
+  - Total Power: `V_out(t)² + V_in(t)² = cos²(π/2 · t) + sin²(π/2 · t) ≡ 1.0` ➔ **0.0 dB Gain Variation** across all `t ∈ [0, 1]`.
+- **Dual-Player Overlapping Architecture**: Orchestrates outgoing and incoming audio streams via independent player instances with 50ms tick rate for silky-smooth studio mixing.
 - **Configurable Crossfade Duration**: Customizable in *Settings > Audio & Playback Settings* (`SettingsManager.crossfadeDurationNotifier`) from 0s (gapless) up to 12s, seamlessly persisted in local storage.
 
 ---
@@ -114,39 +114,39 @@ pinned: false
 
 ---
 
-### 🔍 $O(\log N)$ BK-Tree Typo-Tolerant Engine & $O(K)$ Prefix Trie
+### 🔍 O(log N) BK-Tree Typo-Tolerant Engine & O(K) Prefix Trie
 - **Levenshtein Metric Space Indexing (`bk_tree.dart`)**: Indexes titles and artist tokens into a Burkhard-Keller tree satisfying the triangle inequality:
-  $$d(u, v) \le d(u, w) + d(w, v)$$
-- **Sub-Millisecond "Did You Mean?" Suggestions**: For any query string $q$ with maximum allowed edit distance $n$, tree traversal prunes all subtrees where:
-  $$|d(u, q) - d(u, v)| > n$$
-  Reducing search complexity from brute-force $O(N \cdot M)$ down to an average of $O(\log N)$, delivering instant typo suggestions (e.g. typing `"anirudh"` matches `"anirudh ravichander"` even with 2 typos).
-- **$O(K)$ Keystroke Autocomplete Prefix Trie (`prefix_trie.dart`)**: Provides instant keystroke autocomplete in $O(K)$ time (where $K$ is query length) with localized frequency-weighted suggestion ranking.
+  - Metric space condition: `d(u, v) ≤ d(u, w) + d(w, v)`
+- **Sub-Millisecond "Did You Mean?" Suggestions**: For any query string `q` with maximum allowed edit distance `n`, tree traversal prunes all subtrees where:
+  - Pruning rule: `|d(u, q) - d(u, v)| > n`
+  - Reduces search complexity from brute-force `O(N · M)` down to an average of **`O(log N)`**, delivering instant typo suggestions (e.g. typing `"anirudh"` matches `"anirudh ravichander"` even with 2 typos).
+- **O(K) Keystroke Autocomplete Prefix Trie (`prefix_trie.dart`)**: Provides instant keystroke autocomplete in **`O(K)`** time (where `K` is query length) with localized frequency-weighted suggestion ranking.
 
 ---
 
-### 🛡️ $O(1)$ Space-Efficient Bloom Filter Track Existence Gate
+### 🛡️ O(1) Space-Efficient Bloom Filter Track Existence Gate
 - **Zero-Cost Offline Existence Checking (`bloom_filter.dart`)**: Protects device storage and Hive key-value stores from redundant disk reads during high-frequency list rendering.
-- **Kirsch-Mitzenmacher Double-Hashing**: Derives $k$ independent hash values from just two 64-bit hash primitives (FNV-1a and DJB2):
-  $$g_i(x) = \left(h_1(x) + i \cdot h_2(x)\right) \pmod M, \quad i \in \{0, \dots, k-1\}$$
-- **Theoretical Optimization**: Configured with optimal bit vector length $M$ and hash count $k$:
-  $$M = -\frac{N \ln(p)}{(\ln 2)^2}, \quad k = \frac{M}{N} \ln 2$$
-  Yielding a false positive probability $p < 0.01$ (1%) while using fewer than 10 bits per track.
-- **Zero False Negatives with Self-Syncing Rebuild**: Negative lookups (`isDownloaded(id) == false`) return in $O(1)$ without touching disk storage. If dynamic deletions or out-of-band updates occur, the gate detects count discrepancy and lazily resynchronizes in the background.
+- **Kirsch-Mitzenmacher Double-Hashing**: Derives `k` independent hash values from just two 64-bit hash primitives (FNV-1a and DJB2):
+  - Hash function: `g_i(x) = (h1(x) + i · h2(x)) mod M,  i ∈ {0, ..., k-1}`
+- **Theoretical Optimization**: Configured with optimal bit vector length `M` and hash count `k`:
+  - Formula: `M = -(N · ln(p)) / (ln 2)²,  k = (M / N) · ln 2`
+  - Yields a false positive probability `p < 0.01` (1%) while using fewer than 10 bits per track.
+- **Zero False Negatives with Self-Syncing Rebuild**: Negative lookups (`isDownloaded(id) == false`) return in **`O(1)`** without touching disk storage. If dynamic deletions or out-of-band updates occur, the gate detects count discrepancy and lazily resynchronizes in the background.
 
 ---
 
 ### 🎲 Reversible Fisher-Yates Uniform Shuffle with History Stack
-- **Unbiased $1/N!$ Permutation Sampling (`reversible_shuffle.dart`)**: Replaces naive or biased random sorts with the classic Knuth Fisher-Yates shuffle operating in $O(N)$ time and $O(1)$ auxiliary memory:
-  $$\forall j \in \{0, \dots, i\}, \quad \text{swap}(A[i], A[j])$$
+- **Unbiased 1/N! Permutation Sampling (`reversible_shuffle.dart`)**: Replaces naive or biased random sorts with the classic Knuth Fisher-Yates shuffle operating in `O(N)` time and `O(1)` auxiliary memory:
+  - Uniform swap: `for i from N-1 down to 1: swap(A[i], A[random(0, i)])`
 - **Active Track Zero-Pinning**: Automatically pins the currently playing song to index 0, preventing disorienting jumps or playback restarts.
 - **Bidirectional History Navigation Stack**: Push-down stack architecture remembers exact forward and backward traversal history through shuffled tracks. Pressing "Previous" faithfully retraces the exact sequence without re-shuffling.
-- **Zero-Loss Inverse Restoration**: When shuffle mode is toggled off, `AudioQueueHandler` restores the original canonical album/playlist queue order in $O(1)$ time with zero loss of state.
+- **Zero-Loss Inverse Restoration**: When shuffle mode is toggled off, `AudioQueueHandler` restores the original canonical album/playlist queue order in **`O(1)`** time with zero loss of state.
 
 ---
 
 ### 🧠 Hybrid Markov Chain & Cosine Similarity Radio Strategy
-- **Dual-Model Recommendation Engine (`markov_cosine_radio_strategy.dart`)**: Blends dynamic user transition probabilities $P(S_j \mid S_i)$ with high-dimensional acoustic cosine similarity:
-  $$\text{Score}(S_j \mid S_i) = \alpha \cdot P(S_j \mid S_i) + (1 - \alpha) \cdot \cos\left(\vec{V}_{S_i}, \vec{V}_{S_j}\right), \quad \alpha \in [0, 1]$$
+- **Dual-Model Recommendation Engine (`markov_cosine_radio_strategy.dart`)**: Blends dynamic user transition probabilities `P(S_j | S_i)` with high-dimensional acoustic cosine similarity:
+  - Scoring formula: `Score(S_j | S_i) = α · P(S_j | S_i) + (1 - α) · cosine_similarity(V_Si, V_Sj)` (where `α ∈ [0, 1]`)
 - **Dynamic Feature Vectors**: Encodes normalized acoustic dimensions including tempo, valence/mood, artist affinity, language prior, and genre tags.
 - **Exploration vs. Exploitation Balancing**: Balances familiar crowd favorites with serendipitous musical discoveries while enforcing strict artist diversity throttles (at most 1 track per artist within 5 consecutive items).
 - **Pluggable Architecture**: Seamlessly registered in `NextTrackStrategyMode.markovCosineRadio` and instantiated via `NextTrackStrategyFactory`.
@@ -160,7 +160,7 @@ pinned: false
   - **Weak Networks / High latency (> 400ms)**: Streams at **96 kbps Data Saver** to guarantee immediate start and zero stutter.
 - **Buffer-Stall Dynamic Rescue (Zero-Loading Protection)**:
   - When network dips in an elevator, moving vehicle, or weak signal area, a stall watchdog monitors playback.
-  - If ExoPlayer remains stalled in `buffering` for **> 3.5 seconds**, the app captures the exact current playback timestamp (`player.position`), seamlessly steps down the bitrate ($320 \to 160$ or $160 \to 96$), re-attaches the audio source with `initialPosition: currentPos`, and resumes playing immediately.
+  - If ExoPlayer remains stalled in `buffering` for **> 3.5 seconds**, the app captures the exact current playback timestamp (`player.position`), seamlessly steps down the bitrate (320 → 160 or 160 → 96 kbps), re-attaches the audio source with `initialPosition: currentPos`, and resumes playing immediately.
 - **Dynamic Quality Badge**: The player header displays the actual live streaming quality badge (`320 KBPS`, `160 KBPS`, `96 KBPS`, `YOUTUBE`, `LOSSLESS`) next to the song title in real time.
 
 ---
@@ -168,9 +168,9 @@ pinned: false
 ### 🛡️ Progressive Bitrate Step-Down & Forced-320 Fix
 - **Elimination of the Forced-320 Bug**: Older or regional JioSaavn songs often only exist on the CDN at 160kbps or 96kbps. The decrypted media URL preserves its genuine bitrate, eliminating HTTP 404 Not Found errors on Saavn CDNs.
 - **Saavn Progressive Step-Down (`SaavnBitrateHelper`)**: If a 320kbps stream encounters an HTTP 403/404, it automatically cascades through candidate bitrates:
-  $$\text{320 kbps} \longrightarrow \text{160 kbps} \longrightarrow \text{96 kbps} \longrightarrow \text{YouTube Fallback}$$
+  **320 kbps** ➔ **160 kbps** ➔ **96 kbps** ➔ **YouTube Fallback**
 - **YouTube Stream Candidate Priority Chain**: Dual-tier extractor sorts candidate formats in strict order of playback reliability and hardware decoding efficiency:
-  $$\text{itag 140 (128k AAC)} \longrightarrow \text{itag 251 (160k Opus)} \longrightarrow \text{itag 250 (70k Opus)} \longrightarrow \text{itag 249 (50k Opus)} \longrightarrow \text{Muxed 18/22}$$
+  **itag 140 (128k AAC)** ➔ **itag 251 (160k Opus)** ➔ **itag 250 (70k Opus)** ➔ **itag 249 (50k Opus)** ➔ **Muxed 18/22**
   Every stream candidate is validated with a live non-blocking HTTP probe before being passed to ExoPlayer.
 
 ---
@@ -263,7 +263,7 @@ pinned: false
 ### 🔐 Secure Spotify Importer & 4-Tier Zero-Auth Pipeline
 - **Server-Side Token Proxy**: Mobile client fetches short-lived 1-hour Bearer tokens from backend proxy (`/api/music/spotify-token`). Sensitive developer secrets (`SPOTIFY_CLIENT_SECRET`) reside exclusively on the server and are never bundled into the APK binary.
 - **Zero-Auth Direct Embed Scraper**: If official Spotify Web API access is restricted (e.g., Spotify's 2024 Developer 403 Premium policy), the importer automatically falls back to scraping `open.spotify.com/embed/...`, parsing `__NEXT_DATA__` JSON to extract tracks, artists, and artwork in ~200ms without requiring user credentials.
-- **Multi-Tier Robustness**: Cascades through Tier 1 (Official Web API) $\rightarrow$ Tier 2 (Direct Embed JSON Scraper) $\rightarrow$ Tier 3 (oEmbed API) $\rightarrow$ Tier 4 (Jina Reader fallback).
+- **Multi-Tier Robustness**: Cascades through Tier 1 (Official Web API) → Tier 2 (Direct Embed JSON Scraper) → Tier 3 (oEmbed API) → Tier 4 (Jina Reader fallback).
 
 ---
 
@@ -322,20 +322,20 @@ Paatu Padava incorporates high-performance custom data structures and algorithms
 
 | Component | Underlying Data Structure | Time Complexity (Query) | Time Complexity (Insert) | Space Complexity | Real-World SLA / Guarantee |
 |---|---|---|---|---|---|
-| **Keystroke Autocomplete** | **Prefix Trie** (`PrefixTrie`) | $O(K)$ where $K = \|\text{query}\|$ | $O(K)$ | $O(K \cdot \|\Sigma\|)$ | Sub-millisecond keystroke autocomplete directly in-memory |
-| **Typo-Tolerant Search** | **Burkhard-Keller Tree** (`BkTree`) | $O(\log N)$ average | $O(\log N)$ average | $O(N)$ | Triangle inequality pruning ($\|d(u,q) - d(u,v)\| \le n$) for "Did you mean?" |
-| **Download Existence Gate** | **Bloom Filter** (`BloomFilter`) | $O(1)$ | $O(1)$ | $O(M)$ bits | Zero disk/Hive I/O on negative check; FPP $p < 0.01$ |
-| **In-Memory Cache Pool** | **LRU Cache** (`LruCache`) | $O(1)$ | $O(1)$ | $O(\text{Capacity})$ | Bound memory footprint with $O(1)$ doubly-linked list eviction |
-| **Audio Telemetry Buffer** | **Circular Ring Buffer** (`CircularBuffer`) | $O(1)$ | $O(1)$ | $O(\text{Capacity})$ | Zero array reallocation for real-time sliding window stats |
-| **Fair Track Shuffler** | **Reversible Fisher-Yates** (`ReversibleShuffle`) | $O(1)$ navigation | $O(N)$ permutation | $O(N)$ | Unbiased $1/N!$ random permutation with $O(1)$ reversible un-shuffle |
+| **Keystroke Autocomplete** | **Prefix Trie** (`PrefixTrie`) | `O(K)` (where K = query length) | `O(K)` | `O(K · \|Σ\|)` | Sub-millisecond keystroke autocomplete directly in-memory |
+| **Typo-Tolerant Search** | **Burkhard-Keller Tree** (`BkTree`) | `O(log N)` average | `O(log N)` average | `O(N)` | Triangle inequality pruning (`\|d(u,q) - d(u,v)\| ≤ n`) for "Did you mean?" |
+| **Download Existence Gate** | **Bloom Filter** (`BloomFilter`) | `O(1)` | `O(1)` | `O(M)` bits | Zero disk/Hive I/O on negative check; FPP `p < 0.01` |
+| **In-Memory Cache Pool** | **LRU Cache** (`LruCache`) | `O(1)` | `O(1)` | `O(Capacity)` | Bound memory footprint with `O(1)` doubly-linked list eviction |
+| **Audio Telemetry Buffer** | **Circular Ring Buffer** (`CircularBuffer`) | `O(1)` | `O(1)` | `O(Capacity)` | Zero array reallocation for real-time sliding window stats |
+| **Fair Track Shuffler** | **Reversible Fisher-Yates** (`ReversibleShuffle`) | `O(1)` navigation | `O(N)` permutation | `O(N)` | Unbiased `1/N!` random permutation with `O(1)` reversible un-shuffle |
 
 ### Algorithmic Highlights:
-1. **Kirsch-Mitzenmacher Double-Hashing**: Derives $k$ independent hash probes using only two primitive 64-bit hashing functions (FNV-1a and DJB2):
-   $$g_i(x) = \left(h_1(x) + i \cdot h_2(x)\right) \pmod M$$
-   This eliminates the computational overhead of computing $k$ separate cryptographic hashes while maintaining a mathematically provable uniform bit distribution.
-2. **Metric Space Branch Pruning**: In the BK-Tree, nodes represent track tokens and edges represent discrete Levenshtein edit distances. When querying with radius $n$, any child node with edge distance $d$ falling outside $[d(u, q) - n, d(u, q) + n]$ is pruned entirely from traversal, reducing search time from linear $O(N)$ to logarithmic $O(\log N)$.
-3. **Equal-Power Acoustic Crossfade Law**: Unlike linear crossfading which causes an acoustic drop of $-3.01\text{ dB}$ at the midpoint, the trigonometric curve guarantees constant total acoustic power:
-   $$P_{\text{total}}(t) = V_{\text{out}}(t)^2 + V_{\text{in}}(t)^2 = \cos^2\left(\frac{\pi}{2} t\right) + \sin^2\left(\frac{\pi}{2} t\right) \equiv 1.0 \quad (\Delta\text{Gain} = 0.0\text{ dB})$$
+1. **Kirsch-Mitzenmacher Double-Hashing**: Derives `k` independent hash probes using only two primitive 64-bit hashing functions (FNV-1a and DJB2):
+   - Formula: `g_i(x) = (h1(x) + i · h2(x)) mod M`
+   - This eliminates the computational overhead of computing `k` separate cryptographic hashes while maintaining a mathematically provable uniform bit distribution.
+2. **Metric Space Branch Pruning**: In the BK-Tree, nodes represent track tokens and edges represent discrete Levenshtein edit distances. When querying with radius `n`, any child node with edge distance `d` falling outside `[d(u, q) - n, d(u, q) + n]` is pruned entirely from traversal, reducing search time from linear `O(N)` to logarithmic **`O(log N)`**.
+3. **Equal-Power Acoustic Crossfade Law**: Unlike linear crossfading which causes an acoustic drop of `-3.01 dB` at the midpoint, the trigonometric curve guarantees constant total acoustic power:
+   - Invariance rule: `P_total(t) = V_out(t)² + V_in(t)² = cos²(π/2 · t) + sin²(π/2 · t) ≡ 1.0` (**ΔGain = 0.0 dB**)
 4. **Range-Chunked Pre-caching**: Uses standard HTTP Range requests (`bytes=0-524287`) to pre-warm the incoming track's audio parser and ExoPlayer extractor without triggering full-file cellular data consumption.
 
 ---
@@ -344,14 +344,14 @@ Paatu Padava incorporates high-performance custom data structures and algorithms
 
 | Dimension | Benchmark / SLA | Implementation Details |
 |---|---|---|
-| **Audio Crossfade Curve** | **0.0 dB Gain Variation** | Equal-power trigonometric curve ($V_{\text{out}}^2 + V_{\text{in}}^2 \equiv 1.0$) eliminating center dip |
+| **Audio Crossfade Curve** | **0.0 dB Gain Variation** | Equal-power trigonometric curve (`V_out² + V_in² ≡ 1.0`) eliminating center dip |
 | **Track Pre-Cache Latency** | **< 10 ms Track Skip** | Smart 512KB HTTP Range chunk pre-fetch saving 90% mobile data |
-| **Typo-Tolerant Search** | **$O(\log N)$ Average** | Burkhard-Keller metric tree with Levenshtein triangle inequality pruning |
-| **Download Gate Lookup** | **$O(1)$ Zero Disk I/O** | Space-efficient Bloom Filter with Kirsch-Mitzenmacher double-hashing |
-| **Shuffle Uniformity** | **Exact $1/N!$ Unbiased** | Reversible Fisher-Yates with active track pinning & history stack |
+| **Typo-Tolerant Search** | **O(log N) Average** | Burkhard-Keller metric tree with Levenshtein triangle inequality pruning |
+| **Download Gate Lookup** | **O(1) Zero Disk I/O** | Space-efficient Bloom Filter with Kirsch-Mitzenmacher double-hashing |
+| **Shuffle Uniformity** | **Exact 1/N! Unbiased** | Reversible Fisher-Yates with active track pinning & history stack |
 | **Audio Bitrate** | **320 kbps Studio Fidelity** | Decrypted JioSaavn CDN direct AAC streams via DES cipher |
-| **Adaptive Streaming (ABR)** | **Sub-Second Downscale** | Buffer stall rescue ($320 \to 160 \to 96$) at `initialPosition` if buffering > 3.5s |
-| **Bitrate Fallback Chain** | **Zero HTTP 404s** | Progressive $320 \to 160 \to 96$ on Saavn; 140 $\to$ 251 $\to$ 250 $\to$ 249 $\to$ muxed 18/22 on YouTube |
+| **Adaptive Streaming (ABR)** | **Sub-Second Downscale** | Buffer stall rescue (320 → 160 → 96 kbps) at `initialPosition` if buffering > 3.5s |
+| **Bitrate Fallback Chain** | **Zero HTTP 404s** | Progressive 320 → 160 → 96 on Saavn; 140 → 251 → 250 → 249 → muxed 18/22 on YouTube |
 | **Remote InnerTube Sync** | **Zero-App-Update Rotation** | `innertube_clients.json` remote raw GitHub sync with 6 client fallbacks |
 | **Mobile Memory Footprint** | **Lazy Buffer Allocation** | `ConcatenatingAudioSource(useLazyPreparation: true)` & bounded `LruCache` |
 | **Battery Life Protection** | **5-Minute Wakelock Guard** | Automatic `AudioSession.setActive(false)` and foreground service teardown |

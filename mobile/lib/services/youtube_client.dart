@@ -1117,7 +1117,7 @@ class YouTubeClient {
       try {
         final manifest = await _yt.videos.streamsClient.getManifest(
           cleanId,
-        ).timeout(const Duration(seconds: 16));
+        ).timeout(const Duration(seconds: 22));
 
         final audioStreams = manifest.audioOnly;
         if (audioStreams.isNotEmpty) {

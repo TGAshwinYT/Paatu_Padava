@@ -107,6 +107,19 @@ void main() {
       final url2 = await resolver.resolveStreamUrl(song2);
       expect(url2, isNotNull);
       expect(url2!.contains('saavncdn.com'), isTrue);
-    }, timeout: const Timeout(Duration(seconds: 30)));
+
+      final bleachers = Song(
+        id: 'aBpYk9vuneE',
+        title: 'Bleachers - Merry Christmas, Please Don\'t Call',
+        artist: 'bleachers',
+        album: 'YouTube Music',
+        coverUrl: '',
+        duration: 199,
+        source: 'youtube',
+      );
+      final urlBleachers = await resolver.resolveStreamUrl(bleachers);
+      expect(urlBleachers, isNotNull);
+      expect(urlBleachers!.contains('saavncdn.com'), isTrue);
+    }, timeout: const Timeout(Duration(seconds: 35)));
   });
 }

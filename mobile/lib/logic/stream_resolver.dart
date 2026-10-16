@@ -52,8 +52,8 @@ class DefaultStreamResolver implements StreamResolver {
     SaavnClient? saavnClient,
   })  : _youtubeClient = youtubeClient ?? YoutubeClient();
 
-  static const Duration _overallTimeout = Duration(seconds: 22);
-  static const Duration _stageTimeout = Duration(seconds: 4);
+  static const Duration _overallTimeout = Duration(seconds: 30);
+  static const Duration _stageTimeout = Duration(seconds: 5);
   static const Duration cacheTtl = Duration(hours: 3);
 
   /// High-integrity HTTP headers for Googlevideo CDN streams (Range + modern User-Agent)
@@ -258,13 +258,29 @@ class DefaultStreamResolver implements StreamResolver {
     }
   }
 
-  /// Extracts the base title before delimiters (-, |, /, (, [) and strips parentheticals/noise
-  static String extractCleanBaseTitle(String title) {
+  /// Extracts the base title before delimiters (-, |, /, (, [) and strips parentheticals/noise.
+  /// If the title starts with the artist name (e.g. "Bleachers - Merry Christmas..."), the song title after '-' is extracted.
+  static String extractCleanBaseTitle(String title, [String? artist]) {
     var cleaned = Song.sanitize(title);
     cleaned = cleaned.replaceAll(RegExp(r'["'']'), '');
     cleaned = cleaned.replaceAll(RegExp(r'[\(\[\{].*?[\)\]\}]'), ' ');
     final splitParts = cleaned.split(RegExp(r'[-–—|/]|(?:\b(feat|ft)\b)', caseSensitive: false));
-    if (splitParts.isNotEmpty && splitParts.first.trim().isNotEmpty) {
+    if (splitParts.length > 1) {
+      final part0 = splitParts[0].trim();
+      final part1 = splitParts[1].trim();
+      // If part0 matches the artist (e.g. "Bleachers - Merry Christmas..."), the actual song title is part1
+      if (artist != null && artist.isNotEmpty) {
+        final normArtist = artist.toLowerCase().trim();
+        final normPart0 = part0.toLowerCase();
+        if (normPart0 == normArtist || normArtist.contains(normPart0) || normPart0.contains(normArtist)) {
+          cleaned = part1;
+        } else {
+          cleaned = part0;
+        }
+      } else {
+        cleaned = part0;
+      }
+    } else if (splitParts.isNotEmpty && splitParts.first.trim().isNotEmpty) {
       cleaned = splitParts.first.trim();
     }
     cleaned = cleaned.replaceAll(
@@ -433,13 +449,13 @@ class DefaultStreamResolver implements StreamResolver {
       // ── STAGE A (Exact Clean Title + Primary Artist on Saavn) ──
       // Strip parentheticals (From ...), [Official ...], quotes, and featured artists.
       // Take song title before '-' or '(' and first artist name (e.g. "Hukum Anirudh").
-      final cleanBase = extractCleanBaseTitle(song.title);
+      final cleanBase = extractCleanBaseTitle(song.title, song.artist);
       final firstArtist = extractFirstArtist(song.artist);
       final queryA = '$cleanBase $firstArtist'.trim();
       if (queryA.isNotEmpty) {
         try {
           AppLogger.log('StreamResolver', 'Stage A search on Saavn: "$queryA"');
-          final saavnMatchesA = await SaavnClient.search(queryA, limit: 5)
+          final saavnMatchesA = await SaavnClient.search(queryA, limit: 5, language: 'all')
               .timeout(_stageTimeout, onTimeout: () => <Song>[]);
           for (final match in saavnMatchesA) {
             if (match.streamUrl != null && match.streamUrl!.contains('saavncdn.com')) {
@@ -467,7 +483,7 @@ class DefaultStreamResolver implements StreamResolver {
       if (cleanTitleOnly.isNotEmpty) {
         try {
           AppLogger.log('StreamResolver', 'Stage B search on Saavn: "$cleanTitleOnly"');
-          final saavnMatchesB = await SaavnClient.search(cleanTitleOnly, limit: 5)
+          final saavnMatchesB = await SaavnClient.search(cleanTitleOnly, limit: 5, language: 'all')
               .timeout(_stageTimeout, onTimeout: () => <Song>[]);
           for (final match in saavnMatchesB) {
             if (match.streamUrl != null && match.streamUrl!.contains('saavncdn.com')) {
@@ -505,7 +521,7 @@ class DefaultStreamResolver implements StreamResolver {
       if (ytVideoId != null && ytVideoId.isNotEmpty) {
         final ytUrl = await _youtubeClient
             .getStreamUrl(ytVideoId, title: song.title, artist: song.artist)
-            .timeout(const Duration(seconds: 18), onTimeout: () => null);
+            .timeout(const Duration(seconds: 24), onTimeout: () => null);
         if (ytUrl != null && ytUrl.isNotEmpty) {
           song.source = 'youtube';
           song.streamUrl = ytUrl;

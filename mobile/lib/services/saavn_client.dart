@@ -133,7 +133,7 @@ class SaavnClient {
         'User-Agent': 'Mozilla/5.0',
         'Cookie': 'L=tamil%2Cenglish; gdpr_acceptance=true',
         'Accept': 'application/json, text/plain, */*',
-      }).timeout(const Duration(seconds: 3));
+      }).timeout(const Duration(seconds: 5));
       if (response.statusCode != 200) return [];
 
       final dynamic data = (response.body.isNotEmpty) ? json.decode(response.body) : null;
@@ -156,12 +156,16 @@ class SaavnClient {
               ? SettingsManager.preferredLanguages.first.toLowerCase().trim()
               : 'tamil');
 
-      // Strictly filter out Hindi tracks when active language is Tamil
-      if (activeLang == 'tamil' && !clean.toLowerCase().contains('hindi')) {
-        return songs.where((s) {
-          if (s.language == 'hindi') return false;
-          return !SongRepository.isLanguageMismatch(s, 'tamil');
-        }).toList();
+      // Strictly filter out Hindi tracks when active language is Tamil, but never filter when language is all/any
+      if (activeLang != 'all' && activeLang != 'any') {
+        if (activeLang == 'tamil' && !clean.toLowerCase().contains('hindi')) {
+          return songs.where((s) {
+            if (s.language == 'hindi') return false;
+            // Retain English songs if query is English or candidate is English
+            if (s.language == 'english') return true;
+            return !SongRepository.isLanguageMismatch(s, 'tamil');
+          }).toList();
+        }
       }
 
       return songs;

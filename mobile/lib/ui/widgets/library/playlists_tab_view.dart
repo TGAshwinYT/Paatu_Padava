@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import '../../../models/song.dart';
 import '../../../services/playlist_manager.dart';
-import '../../../services/favorites_manager.dart';
 import '../../../services/player_handler.dart';
 import '../join_playlist_dialog.dart';
 import 'create_blend_sheet.dart';
 import '../../screens/playlist_screen.dart';
-import '../../screens/liked_songs_screen.dart';
 
 class PlaylistsTabView extends StatelessWidget {
   final VoidCallback onCreatePlaylist;
@@ -184,58 +181,6 @@ class PlaylistsTabView extends StatelessWidget {
               ),
             ),
 
-            // Pinned Spotify-style "Liked Songs" Playlist Row
-            SliverToBoxAdapter(
-              child: ValueListenableBuilder<List<Song>>(
-                valueListenable: FavoritesManager.favoritesNotifier,
-                builder: (context, favs, _) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                    child: ListTile(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const LikedSongsScreen()),
-                        );
-                      },
-                      contentPadding: EdgeInsets.zero,
-                      leading: Container(
-                        width: 52,
-                        height: 52,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(Icons.favorite_rounded, color: Colors.white, size: 26),
-                      ),
-                      title: Text(
-                        'Liked Songs',
-                        style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-                      ),
-                      subtitle: Text(
-                        '${favs.length} ${favs.length == 1 ? "song" : "songs"} • Auto playlist',
-                        style: GoogleFonts.outfit(color: const Color(0xFF94A3B8), fontSize: 12),
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (favs.isNotEmpty)
-                            IconButton(
-                              icon: const Icon(Icons.play_circle_filled_rounded, color: Color(0xFF1DB954), size: 28),
-                              onPressed: () => audioHandler.playSong(favs.first, queue: favs),
-                            ),
-                          const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white30, size: 14),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
 
             if (playlists.isEmpty)
               SliverToBoxAdapter(

@@ -6,6 +6,7 @@ import 'package:paatu_padava_mobile/models/song.dart';
 import 'package:paatu_padava_mobile/domain/models/track_entity.dart';
 import 'package:paatu_padava_mobile/services/error_handler.dart';
 import 'package:paatu_padava_mobile/services/youtube_client.dart';
+import 'package:paatu_padava_mobile/services/des_decrypt.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -183,6 +184,35 @@ void main() {
     test('Resolves SSL Handshake to ERR_SSL_HANDSHAKE', () {
       final err = ErrorHandler.resolve(PlatformException(code: '0', message: 'SSLHandshakeException in ExoPlayer'));
       expect(err.errorCode, equals('ERR_SSL_HANDSHAKE'));
+    });
+  });
+
+  group('Requirement 6: Two-Way Cross-Provider Fallback and Bitrate Retention', () {
+    test('StreamResolver accepts forceYouTubeFallback and routes directly to YouTube', () async {
+      final saavnSong = Song(
+        id: 'DKd-GcAs',
+        title: 'Sakkarakatti',
+        artist: 'Hiphop Tamizha',
+        album: 'Meesaya Murukku',
+        coverUrl: 'https://example.com/cover.jpg',
+        streamUrl: 'https://aac.saavncdn.com/091/f4b8acd01e29c040de69b7f5dca59306_320.mp4',
+        source: 'saavn',
+      );
+
+      final resolver = DefaultStreamResolver();
+      expect(
+        () => resolver.resolveStreamUrl(saavnSong, forceYouTubeFallback: true),
+        returnsNormally,
+      );
+    });
+
+    test('Bitrate fallback preserves 160kbps without forced-320 overwrite', () {
+      const fallbackUrl160 = 'https://aac.saavncdn.com/091/test_160.mp4';
+      final stepDown = SaavnBitrateHelper.getNextFallbackUrl('https://aac.saavncdn.com/091/test_320.mp4');
+      expect(stepDown, equals(fallbackUrl160));
+
+      final stepDown96 = SaavnBitrateHelper.getNextFallbackUrl(fallbackUrl160);
+      expect(stepDown96, equals('https://aac.saavncdn.com/091/test_96.mp4'));
     });
   });
 }

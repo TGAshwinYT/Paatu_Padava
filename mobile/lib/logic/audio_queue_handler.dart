@@ -359,7 +359,7 @@ class AudioQueueHandler {
 
   void startIdleTimer({Duration timeout = const Duration(seconds: 45)}) {
     cancelIdleTimer();
-    if (player.playing || _isLoading) return;
+    if (player.playing || _isLoading || _isPreparing || _isAdvancing) return;
     _idleTimeoutTimer = Timer(timeout, () {
       handleIdleRelease();
     });
@@ -493,7 +493,11 @@ class AudioQueueHandler {
         _consecutivePlaybackErrors = 0;
         _hasRetriedCurrentTrack = false;
         cancelIdleTimer();
-      } else {
+      } else if (state.processingState != ProcessingState.loading &&
+          state.processingState != ProcessingState.buffering &&
+          !_isPreparing &&
+          !_isAdvancing &&
+          !_isLoading) {
         startIdleTimer();
       }
 
@@ -594,7 +598,7 @@ class AudioQueueHandler {
         current.streamUrl = fallbackUrl;
         _updateTrackStreamUrl(current.id, fallbackUrl);
 
-        final downscaledSource = await _buildAudioSource(current, allowNetworkResolve: false);
+        final downscaledSource = await _buildAudioSource(current, allowNetworkResolve: false, preserveBitrate: true);
         if (downscaledSource != null && !_isDisposed) {
           try {
             _playlistSource = ConcatenatingAudioSource(
@@ -785,7 +789,7 @@ class AudioQueueHandler {
             AppLogger.log('AudioQueueHandler', 'Saavn bitrate fallback for "${current.title}": switching to lower bitrate $fallbackUrl');
             current.streamUrl = fallbackUrl;
             _updateTrackStreamUrl(current.id, fallbackUrl, source: 'saavn');
-            final fallbackSource = await _buildAudioSource(current, allowNetworkResolve: false);
+            final fallbackSource = await _buildAudioSource(current, allowNetworkResolve: false, preserveBitrate: true);
             if (token != _sessionToken || _isDisposed) return;
             if (fallbackSource != null) {
               try {
@@ -821,6 +825,7 @@ class AudioQueueHandler {
         final freshUrl = await streamResolver.resolve(
           current,
           forceSaavnFallback: !isSaavnCdn,
+          forceYouTubeFallback: isSaavnCdn,
         );
         if (token != _sessionToken || _isDisposed) return;
         if (freshUrl != null && freshUrl.isNotEmpty) {
@@ -829,7 +834,7 @@ class AudioQueueHandler {
           current.source = resolvedSource;
           _updateTrackStreamUrl(current.id, freshUrl, source: resolvedSource);
 
-          final freshSource = await _buildAudioSource(current, allowNetworkResolve: false);
+          final freshSource = await _buildAudioSource(current, allowNetworkResolve: false, preserveBitrate: true);
           if (token != _sessionToken || _isDisposed) return;
           if (freshSource != null) {
             try {
@@ -1809,26 +1814,7 @@ class AudioQueueHandler {
         onQueueProgress?.call(currentIndex, queue.length);
       } catch (e, stack) {
         AppLogger.recordError(e, stack, context: 'AudioQueueHandler._playTrackEntity');
-        debugPrint('[AudioQueueHandler] Play track error: $e');
-        _consecutivePlaybackErrors++;
-        if (_consecutivePlaybackErrors >= _maxConsecutivePlaybackErrors) {
-          _consecutivePlaybackErrors = 0;
-          await player.stop();
-          final err = ErrorHandler.resolve(e, stackTrace: stack, context: 'AudioQueueHandler._playTrackEntity');
-          errorNotifier.value = err;
-          onError?.call(err);
-          if (isAudioHandlerInitialized) {
-            audioHandler.playbackErrorNotifier.value = err;
-          }
-          return;
-        }
-        if (hasNext && !_isDisposed) {
-          Future.delayed(const Duration(milliseconds: 600), () {
-            if (!_isDisposed && queue.isNotEmpty && _sessionToken == token) {
-              skipToNext(isUserInitiated: false);
-            }
-          });
-        }
+        await handlePlaybackError(e, stack, context: '_playTrackEntity');
       }
     } finally {
       _isAdvancing = false;
@@ -2252,21 +2238,25 @@ class AudioQueueHandler {
     return result;
   }
 
-  Future<AudioSource?> _buildAudioSource(Song song, {bool allowNetworkResolve = true}) async {
+  Future<AudioSource?> _buildAudioSource(
+    Song song, {
+    bool allowNetworkResolve = true,
+    bool preserveBitrate = false,
+  }) async {
     if (song.localFilePath != null && File(song.localFilePath!).existsSync()) {
-      return DecryptedStreamAudioSource(File(song.localFilePath!), tag: song.toMediaItem());
+      return AudioSource.file(song.localFilePath!, tag: song.toMediaItem());
     }
     if (DownloadManager.isDownloaded(song.id)) {
       final downloadedSongs = DownloadManager.getDownloadedSongs();
       final match = downloadedSongs.firstWhere((s) => s.id == song.id, orElse: () => song);
       if (match.localFilePath != null && File(match.localFilePath!).existsSync()) {
-        return DecryptedStreamAudioSource(File(match.localFilePath!), tag: song.toMediaItem());
+        return AudioSource.file(match.localFilePath!, tag: song.toMediaItem());
       }
     }
     if (!SmartCacheService.instance.isDownloading(song.id)) {
       final smartCacheFile = SmartCacheService.instance.getCachedAudioFile(song.id);
       if (smartCacheFile != null && smartCacheFile.existsSync()) {
-        return DecryptedStreamAudioSource(smartCacheFile, tag: song.toMediaItem());
+        return AudioSource.file(smartCacheFile.path, tag: song.toMediaItem());
       }
     }
 
@@ -2279,7 +2269,13 @@ class AudioQueueHandler {
       return null;
     }
 
-    if (song.source == 'saavn' || song.source == 'jiosaavn' || streamUrl.contains('jiosaavn') || streamUrl.contains('saavncdn.com')) {
+    if (!preserveBitrate &&
+        !_hasRetriedCurrentTrack &&
+        !_hasDownscaledCurrentTrack &&
+        (song.source == 'saavn' ||
+            song.source == 'jiosaavn' ||
+            streamUrl.contains('jiosaavn') ||
+            streamUrl.contains('saavncdn.com'))) {
       final q = SettingsManager.effectiveStreamingQuality;
       streamUrl = SaavnBitrateHelper.toBitrate(streamUrl, q);
     }
@@ -2308,7 +2304,7 @@ class AudioQueueHandler {
       final sanitizedId = song.id.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
       final cacheFile = File('${tempDir.path}/audio_$sanitizedId.mp4');
       if (cacheFile.existsSync() && cacheFile.lengthSync() > 100000) {
-        return DecryptedStreamAudioSource(cacheFile, tag: song.toMediaItem());
+        return AudioSource.file(cacheFile.path, tag: song.toMediaItem());
       }
       return AudioSource.uri(
         Uri.parse(streamUrl),

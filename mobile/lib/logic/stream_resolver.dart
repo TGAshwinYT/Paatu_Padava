@@ -31,8 +31,8 @@ abstract class StreamResolver {
     SaavnClient? saavnClient,
   }) = DefaultStreamResolver;
 
-  Future<String?> resolve(dynamic track, {bool forceSaavnFallback = false});
-  Future<String?> resolveStreamUrl(Song song, {bool forceSaavnFallback = false});
+  Future<String?> resolve(dynamic track, {bool forceSaavnFallback = false, bool forceYouTubeFallback = false});
+  Future<String?> resolveStreamUrl(Song song, {bool forceSaavnFallback = false, bool forceYouTubeFallback = false});
   bool verifyAudioMatch(Song candidate, Song target);
   void invalidate(String songId);
   bool isExpired(String songId);
@@ -146,14 +146,16 @@ class DefaultStreamResolver implements StreamResolver {
   }
 
   @override
-  Future<String?> resolve(dynamic track, {bool forceSaavnFallback = false}) async {
+  Future<String?> resolve(dynamic track, {bool forceSaavnFallback = false, bool forceYouTubeFallback = false}) async {
     if (track is Song) {
-      return resolveStreamUrl(track, forceSaavnFallback: forceSaavnFallback);
+      return resolveStreamUrl(track, forceSaavnFallback: forceSaavnFallback, forceYouTubeFallback: forceYouTubeFallback);
     } else if (track is TrackEntity) {
       final s = track.toSong();
-      final u = await resolveStreamUrl(s, forceSaavnFallback: forceSaavnFallback);
+      final u = await resolveStreamUrl(s, forceSaavnFallback: forceSaavnFallback, forceYouTubeFallback: forceYouTubeFallback);
       if (s.source == 'saavn') {
         track.source = 'saavn';
+      } else if (s.source == 'youtube') {
+        track.source = 'youtube';
       }
       return u;
     }
@@ -161,7 +163,7 @@ class DefaultStreamResolver implements StreamResolver {
   }
 
   @override
-  Future<String?> resolveStreamUrl(Song song, {bool forceSaavnFallback = false}) async {
+  Future<String?> resolveStreamUrl(Song song, {bool forceSaavnFallback = false, bool forceYouTubeFallback = false}) async {
     // 0. Check DownloadManager local file path first for offline playback
     if (song.localFilePath != null && File(song.localFilePath!).existsSync()) {
       return song.localFilePath;
@@ -178,8 +180,8 @@ class DefaultStreamResolver implements StreamResolver {
       return song.streamUrl;
     }
 
-    // Check in-memory stream cache (3-hour TTL) unless forceSaavnFallback is true
-    if (!forceSaavnFallback) {
+    // Check in-memory stream cache (3-hour TTL) unless forceSaavnFallback or forceYouTubeFallback is true
+    if (!forceSaavnFallback && !forceYouTubeFallback) {
       final cached = getCachedStream(song.id);
       if (cached != null && cached.isNotEmpty) {
         AppLogger.log(
@@ -209,11 +211,15 @@ class DefaultStreamResolver implements StreamResolver {
       final sw = Stopwatch()..start();
       AppLogger.log(
         'StreamResolver',
-        'Resolving fresh stream for: "${song.title}" (${song.artist}) [source=${song.source}, id=${song.id}, forceSaavn=$forceSaavnFallback]',
+        'Resolving fresh stream for: "${song.title}" (${song.artist}) [source=${song.source}, id=${song.id}, forceSaavn=$forceSaavnFallback, forceYouTube=$forceYouTubeFallback]',
       );
 
       try {
-        final url = await _resolveStreamUrlInternal(song, forceSaavnFallback: forceSaavnFallback).timeout(_overallTimeout);
+        final url = await _resolveStreamUrlInternal(
+          song,
+          forceSaavnFallback: forceSaavnFallback,
+          forceYouTubeFallback: forceYouTubeFallback,
+        ).timeout(_overallTimeout);
         sw.stop();
         if (url != null && url.isNotEmpty) {
           if (url.contains('saavncdn.com')) {
@@ -233,14 +239,14 @@ class DefaultStreamResolver implements StreamResolver {
       }
     }();
 
-    if (!forceSaavnFallback) {
+    if (!forceSaavnFallback && !forceYouTubeFallback) {
       _inFlightResolutions[song.id] = future;
     }
 
     try {
       return await future;
     } finally {
-      if (!forceSaavnFallback) {
+      if (!forceSaavnFallback && !forceYouTubeFallback) {
         _inFlightResolutions.remove(song.id);
       }
     }
@@ -381,7 +387,11 @@ class DefaultStreamResolver implements StreamResolver {
     return false;
   }
 
-  Future<String?> _resolveStreamUrlInternal(Song song, {bool forceSaavnFallback = false}) async {
+  Future<String?> _resolveStreamUrlInternal(
+    Song song, {
+    bool forceSaavnFallback = false,
+    bool forceYouTubeFallback = false,
+  }) async {
     if (song.source == 'audius') {
       final audiusUrl = (song.streamUrl != null && song.streamUrl!.isNotEmpty)
           ? song.streamUrl!
@@ -392,6 +402,7 @@ class DefaultStreamResolver implements StreamResolver {
 
     // Direct Saavn stream if already decrypted and valid
     if (!forceSaavnFallback &&
+        !forceYouTubeFallback &&
         song.streamUrl != null &&
         song.streamUrl!.contains('saavncdn.com') &&
         !_invalidatedSongIds.contains(song.id) &&
@@ -402,10 +413,16 @@ class DefaultStreamResolver implements StreamResolver {
 
     final cleanTitleOnly = extractCleanTitleOnly(song.title);
     final bool isCompilation = isLongFormOrCompilation(song);
-    final bool shouldBypassSaavnMatching = isCompilation && (song.source == 'youtube' || song.duration > 600);
+    final bool shouldBypassSaavnMatching = forceYouTubeFallback ||
+        (isCompilation && (song.source == 'youtube' || song.duration > 600));
 
     if (shouldBypassSaavnMatching) {
-      AppLogger.log('StreamResolver', 'Bypassing Saavn Stage A/B search: "${song.title}" is a long-form compilation (${song.duration}s). Direct YouTube extraction prioritized.');
+      AppLogger.log(
+        'StreamResolver',
+        forceYouTubeFallback
+            ? 'Bypassing Saavn search: forceYouTubeFallback is true for "${song.title}". Direct YouTube extraction prioritized.'
+            : 'Bypassing Saavn Stage A/B search: "${song.title}" is a long-form compilation (${song.duration}s). Direct YouTube extraction prioritized.',
+      );
     } else {
       // ── STAGE A (Exact Clean Title + Primary Artist on Saavn) ──
       // Strip parentheticals (From ...), [Official ...], quotes, and featured artists.
@@ -471,13 +488,18 @@ class DefaultStreamResolver implements StreamResolver {
     // If Stages A & B find nothing on Saavn, call YoutubeClient().getStreamUrl(track.id)
     try {
       AppLogger.log('StreamResolver', 'Stage C direct YouTube stream for: ${song.id}');
-      final ytUrl = await _youtubeClient
-          .getStreamUrl(song.id, title: song.title, artist: song.artist)
-          .timeout(_stageTimeout, onTimeout: () => null);
-      if (ytUrl != null && ytUrl.isNotEmpty) {
-        song.streamUrl = ytUrl;
-        cacheStream(song.id, ytUrl, source: 'youtube');
-        return ytUrl;
+      String? ytVideoId = (song.source == 'youtube' && song.id.length == 11) ? song.id : null;
+      ytVideoId ??= await YouTubeClient.resolveVideoIdForSong(song);
+      if (ytVideoId != null && ytVideoId.isNotEmpty) {
+        final ytUrl = await _youtubeClient
+            .getStreamUrl(ytVideoId, title: song.title, artist: song.artist)
+            .timeout(_stageTimeout, onTimeout: () => null);
+        if (ytUrl != null && ytUrl.isNotEmpty) {
+          song.source = 'youtube';
+          song.streamUrl = ytUrl;
+          cacheStream(song.id, ytUrl, source: 'youtube');
+          return ytUrl;
+        }
       }
     } catch (e) {
       AppLogger.log('StreamResolver', 'Stage C direct YouTube notice: $e');

@@ -2,34 +2,42 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../domain/models/history_entry.dart';
+import '../domain/models/listening_session.dart';
 import '../domain/models/track_entity.dart';
 import '../models/song.dart';
 import 'api_client.dart';
 import 'auth_manager.dart';
+import 'playlist_manager.dart';
 import 'supabase_service.dart';
 import 'app_logger.dart';
 
 /// Unified Listening History Manager for Paatu Paadava matching Spotify and YouTube Music specifications.
 /// Manages timestamped [HistoryEntry] storage, 24-hour deduplication hoisting,
-/// LRU capacity limits (capped at 200 items), and bi-directional Supabase cloud synchronization.
+/// LRU capacity limits (capped at 200 items), continuous [ListeningSession] clustering,
+/// and bi-directional Supabase cloud synchronization.
 class HistoryManager {
   static const String boxName = 'history_box';
   static const String pendingBoxName = 'pending_history_box';
+  static const String sessionsBoxName = 'history_sessions_box';
   static const int maxHistoryLimit = 100;
 
   /// Reactive notifiers for UI binding
   static final ValueNotifier<List<HistoryEntry>> historyEntriesNotifier = ValueNotifier<List<HistoryEntry>>([]);
   static final ValueNotifier<List<Song>> historyNotifier = ValueNotifier<List<Song>>([]);
+  static final ValueNotifier<List<ListeningSession>> historySessionsNotifier = ValueNotifier<List<ListeningSession>>([]);
   static bool _isSyncing = false;
 
   static Box get _box => Hive.box(boxName);
   static Box? get _pendingBox => Hive.isBoxOpen(pendingBoxName) ? Hive.box(pendingBoxName) : null;
+  static Box get _sessionsBox => Hive.box(sessionsBoxName);
 
   /// Initializes local Hive storage and refreshes in-memory history
   static Future<void> init() async {
     await Hive.openBox(boxName);
     await Hive.openBox(pendingBoxName);
+    await Hive.openBox(sessionsBoxName);
     _refreshList();
+    _refreshSessions();
 
     // Background sync with cloud history if authenticated
     if (AuthManager.isLoggedIn) {
@@ -74,10 +82,106 @@ class HistoryManager {
     historyNotifier.value = List.unmodifiable(deduped.map((e) => e.track.toSong()).toList());
   }
 
+  /// Internal session reload and automatic continuous session grouping
+  static void _refreshSessions() {
+    if (!Hive.isBoxOpen(sessionsBoxName)) return;
+    final List<ListeningSession> sessions = [];
+    for (final key in _sessionsBox.keys) {
+      final data = _sessionsBox.get(key);
+      if (data != null && data is Map) {
+        try {
+          final session = ListeningSession.fromJson(Map<String, dynamic>.from(data));
+          if (session.tracks.isNotEmpty) {
+            sessions.add(session);
+          }
+        } catch (e) {
+          AppLogger.log('HistoryManager', 'Corrupt session ignored: $e');
+        }
+      }
+    }
+
+    // If no explicit sessions saved yet but we have history entries, backfill/cluster from history!
+    if (sessions.isEmpty && historyEntriesNotifier.value.isNotEmpty) {
+      final clustered = clusterEntriesIntoSessions(historyEntriesNotifier.value);
+      for (final s in clustered) {
+        _sessionsBox.put(s.id, s.toJson());
+        sessions.add(s);
+      }
+    }
+
+    sessions.sort((a, b) => b.startedAt.compareTo(a.startedAt));
+    historySessionsNotifier.value = List.unmodifiable(sessions);
+  }
+
+  /// Clusters a list of [HistoryEntry] items into continuous [ListeningSession] objects
+  /// using a 35-minute temporal proximity window between sequential plays.
+  static List<ListeningSession> clusterEntriesIntoSessions(List<HistoryEntry> entries) {
+    if (entries.isEmpty) return [];
+
+    // Chronological sort: oldest plays to newest plays
+    final sorted = List<HistoryEntry>.from(entries)
+      ..sort((a, b) => a.playedAt.compareTo(b.playedAt));
+
+    final List<ListeningSession> sessions = [];
+    List<TrackEntity> currentCluster = [sorted.first.track];
+    DateTime sessionStart = sorted.first.playedAt;
+    DateTime lastPlayTime = sorted.first.playedAt;
+
+    for (int i = 1; i < sorted.length; i++) {
+      final current = sorted[i];
+      final gapMinutes = current.playedAt.difference(lastPlayTime).inMinutes.abs();
+
+      // If gap is within 35 minutes, it is part of the continuous playback session
+      if (gapMinutes <= 35) {
+        currentCluster.add(current.track);
+        lastPlayTime = current.playedAt;
+      } else {
+        sessions.add(ListeningSession.fromTracks(
+          id: 'session_${sessionStart.millisecondsSinceEpoch}',
+          tracks: List.from(currentCluster),
+          startedAt: sessionStart,
+          endedAt: lastPlayTime,
+        ));
+        currentCluster = [current.track];
+        sessionStart = current.playedAt;
+        lastPlayTime = current.playedAt;
+      }
+    }
+
+    if (currentCluster.isNotEmpty) {
+      sessions.add(ListeningSession.fromTracks(
+        id: 'session_${sessionStart.millisecondsSinceEpoch}',
+        tracks: List.from(currentCluster),
+        startedAt: sessionStart,
+        endedAt: lastPlayTime,
+      ));
+    }
+
+    // Newest sessions first
+    sessions.sort((a, b) => b.startedAt.compareTo(a.startedAt));
+    return sessions;
+  }
+
   /// Accessors for history
   static List<HistoryEntry> getHistoryEntries() => historyEntriesNotifier.value;
   static List<Song> getHistory() => historyNotifier.value;
   static List<Song> getRecentSongs() => historyNotifier.value;
+  static List<ListeningSession> getListeningSessions() => historySessionsNotifier.value;
+
+  /// Retrieves a specific continuous listening session by its unique ID
+  static ListeningSession? getSessionById(String id) {
+    try {
+      return historySessionsNotifier.value.firstWhere((s) => s.id == id);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Converts a continuous [ListeningSession] into a user-owned custom playlist
+  static Future<UserPlaylist> saveSessionAsPlaylist(ListeningSession session, {String? customTitle}) async {
+    final title = (customTitle != null && customTitle.trim().isNotEmpty) ? customTitle.trim() : session.title;
+    return await PlaylistManager.createPlaylist(title, initialTracks: session.songs);
+  }
 
   static Future<void> clear() => clearHistory();
 
@@ -159,6 +263,39 @@ class HistoryManager {
 
         final key = 'h_${nowMs}_${track.id}';
         await _box.put(key, entryMap);
+
+        // Update continuous playback sessions in _sessionsBox
+        if (Hive.isBoxOpen(sessionsBoxName)) {
+          ListeningSession? activeSession;
+          if (historySessionsNotifier.value.isNotEmpty) {
+            final latest = historySessionsNotifier.value.first;
+            // If song played within 35 minutes of latest session's last song
+            if (now.difference(latest.endedAt).inMinutes.abs() <= 35) {
+              activeSession = latest;
+            }
+          }
+
+          if (activeSession != null) {
+            final updatedTracks = List<TrackEntity>.from(activeSession.tracks)..add(track);
+            final updatedSession = ListeningSession(
+              id: activeSession.id,
+              title: ListeningSession.generateTitle(updatedTracks, activeSession.startedAt),
+              startedAt: activeSession.startedAt,
+              endedAt: now,
+              tracks: updatedTracks,
+            );
+            await _sessionsBox.put(updatedSession.id, updatedSession.toJson());
+          } else {
+            final newSession = ListeningSession.fromTracks(
+              id: 'session_${now.millisecondsSinceEpoch}',
+              tracks: [track],
+              startedAt: now,
+              endedAt: now,
+            );
+            await _sessionsBox.put(newSession.id, newSession.toJson());
+          }
+          _refreshSessions();
+        }
       }
 
       // Coordinated Cloud Persistence Path
@@ -319,17 +456,45 @@ class HistoryManager {
       for (final k in keysToDelete) {
         await _box.delete(k);
       }
+
+      // Also clean up from continuous sessions
+      if (Hive.isBoxOpen(sessionsBoxName)) {
+        for (final key in _sessionsBox.keys) {
+          final data = _sessionsBox.get(key);
+          if (data != null && data is Map) {
+            final session = ListeningSession.fromJson(Map<String, dynamic>.from(data));
+            final updatedTracks = session.tracks.where((t) => t.id != songId).toList();
+            if (updatedTracks.isEmpty) {
+              await _sessionsBox.delete(key);
+            } else if (updatedTracks.length != session.tracks.length) {
+              final updatedSession = ListeningSession(
+                id: session.id,
+                title: ListeningSession.generateTitle(updatedTracks, session.startedAt),
+                startedAt: session.startedAt,
+                endedAt: session.endedAt,
+                tracks: updatedTracks,
+              );
+              await _sessionsBox.put(key, updatedSession.toJson());
+            }
+          }
+        }
+        _refreshSessions();
+      }
     } catch (e, stack) {
       AppLogger.recordError(e, stack, context: 'HistoryManager.removeSong');
     }
   }
 
-  /// Clears all history entries
+  /// Clears all history entries and continuous listening sessions
   static Future<void> clearHistory() async {
     try {
       await _box.clear();
+      if (Hive.isBoxOpen(sessionsBoxName)) {
+        await _sessionsBox.clear();
+      }
       historyEntriesNotifier.value = [];
       historyNotifier.value = [];
+      historySessionsNotifier.value = [];
     } catch (e, stack) {
       AppLogger.recordError(e, stack, context: 'HistoryManager.clearHistory');
     }

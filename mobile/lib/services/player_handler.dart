@@ -811,11 +811,6 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
 
     await applyVolumeNormalization(song);
 
-    // If starting a fresh queue containing only this song, auto-fill Up Next using the recommendation algorithm
-    if (isNewSingleQueue) {
-      _smartShuffleController.populateUpNextForNewQueue(song);
-    }
-
     if (PartySyncCoordinator.isHost) {
       PartySyncCoordinator.notifyHostPlay(song);
     }

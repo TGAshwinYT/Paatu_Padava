@@ -373,6 +373,8 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
           trendingCandidates.add(s.copyWith(isSmartRecommended: true, language: targetLang));
         }
 
+        trendingCandidates.shuffle();
+
         final remainingCount = targetBatch - shapedTracks.length;
         final lastPlacedArtist = shapedTracks.isNotEmpty ? shapedTracks.last.primaryArtist : seedSong.primaryArtist;
         final shapedTrending = enforceArtistDispersionAndNoBackToBack(

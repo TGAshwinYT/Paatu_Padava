@@ -125,8 +125,6 @@ class SmartShuffleController {
       if (queueHandler == null || _isIngesting) return;
       if (isSmartActive && queueHandler!.upcomingCount < 3) {
         ingestSmartRecommendations();
-      } else if (SettingsManager.isAutoplayEnabled && queueHandler!.upcomingCount < 2 && queueHandler!.queue.isNotEmpty) {
-        autoRefillUpcoming();
       }
     });
   }

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paatu_padava_mobile/logic/stream_resolver.dart';
 import 'package:paatu_padava_mobile/models/song.dart';
@@ -120,6 +121,11 @@ void main() {
       final urlBleachers = await resolver.resolveStreamUrl(bleachers);
       expect(urlBleachers, isNotNull);
       expect(urlBleachers!.contains('saavncdn.com'), isTrue);
-    }, timeout: const Timeout(Duration(seconds: 35)));
+    },
+    timeout: const Timeout(Duration(seconds: 35)),
+    skip: (Platform.environment['CI'] == 'true' ||
+            Platform.environment['GITHUB_ACTIONS'] == 'true')
+        ? 'Skipping live network stream resolution test on CI runners (datacenter IPs blocked)'
+        : null);
   });
 }

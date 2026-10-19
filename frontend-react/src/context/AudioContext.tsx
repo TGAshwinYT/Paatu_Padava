@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import type { Song, SpotifyTrack, PlaybackEngine } from '../types';
 import api, { 
   addListenHistory, 
@@ -16,6 +16,13 @@ import AudioPlayer from '../components/AudioPlayer';
 import { useEqualizer } from '../hooks/useEqualizer';
 import type { EqPreset, EqBand } from '../hooks/useEqualizer';
 import { isOfflineTrack, getOfflineTrackObjectUrl } from '../utils/offlineStorage';
+import { PlaybackProgressProvider, usePlaybackProgress } from './PlaybackProgressContext';
+import { QueueProvider } from './QueueContext';
+
+export { usePlaybackProgress } from './PlaybackProgressContext';
+export type { PlaybackProgressContextType } from './PlaybackProgressContext';
+export { useQueue, QueueProvider } from './QueueContext';
+export type { QueueContextType } from './QueueContext';
 
 const shuffleArray = (array: any[]) => {
   const shuffled = [...array];
@@ -26,15 +33,9 @@ const shuffleArray = (array: any[]) => {
   return shuffled;
 };
 
-interface AudioContextType {
+export interface AudioContextType {
   currentTrack: Song | null;
   isPlaying: boolean;
-  currentTime: number;
-  setCurrentTime: React.Dispatch<React.SetStateAction<number>>;
-  duration: number;
-  isSeeking: boolean;
-  setIsSeeking: (seeking: boolean) => void;
-  progress: number; 
   volume: number;
   isShuffle: boolean;
   repeatMode: 'none' | 'all' | 'one';
@@ -158,15 +159,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   });
   const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [isSeeking, setIsSeekingState] = useState(false);
-  const isSeekingRef = useRef(false);
-
-  const setIsSeeking = useCallback((seeking: boolean) => {
-    isSeekingRef.current = seeking;
-    setIsSeekingState(seeking);
-  }, []);
+  const currentTimeRef = useRef(0);
 
 
   const [volume, setVolumeState] = useState<number>(() => {
@@ -210,7 +203,6 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   });
   const [isBuffering, setIsBuffering] = useState(false);
-  const [seekToTime, setSeekToTime] = useState<number | null>(null);
 
   const [queue, setQueueState] = useState<Song[]>(() => {
     try {
@@ -292,20 +284,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     } catch {}
 
-    if (currentTrack) {
-      const dur = typeof currentTrack.duration === 'number'
-        ? currentTrack.duration
-        : Number(currentTrack.duration);
-      if (dur && isFinite(dur) && dur > 0) {
-        setDuration(Math.round(dur));
-      } else {
-        setDuration(0);
-      }
-      setCurrentTime(0);
-    } else {
-      setDuration(0);
-      setCurrentTime(0);
-    }
+    currentTimeRef.current = 0;
   }, [currentTrack?.id]);
 
   useEffect(() => {
@@ -703,7 +682,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const playPrevious = useCallback(() => {
     if (isActionLocked.current) return;
 
-    if (currentTime > 3) {
+    if (currentTimeRef.current > 3) {
       if (youtubePlayer.current) {
         youtubePlayer.current.seekTo(0);
       }
@@ -727,7 +706,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     
     setCurrentTrack(prevTrack);
     setTimeout(() => { isActionLocked.current = false; }, 500);
-  }, [history, currentTrack, currentTime]);
+  }, [history, currentTrack, setQueue]);
 
   const togglePlay = useCallback(() => {
     if (isPlaying) {
@@ -1032,19 +1011,16 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     reorderQueue(result.source.index, result.destination.index);
   }, [reorderQueue]);
 
-  const seekTo = (value: number) => {
+  const seekTo = useCallback((value: number) => {
     const validValue = Math.max(0, value);
-    isSeekingRef.current = false;
-    setIsSeekingState(false);
-    setCurrentTime(validValue);
-    setSeekToTime(validValue);
+    currentTimeRef.current = validValue;
     if (youtubePlayer.current?.seekTo) {
       try {
-        youtubePlayer.current.seekTo(validValue);
+        youtubePlayer.current.seekTo(validValue, true);
       } catch (e) {}
     }
-    setTimeout(() => setSeekToTime(null), 50);
-  };
+    window.dispatchEvent(new CustomEvent('paatu:seek-to', { detail: validValue }));
+  }, []);
 
   const setVolume = (value: number) => {
     const vol = Math.max(0, Math.min(1, value));
@@ -1212,8 +1188,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     // ── Resets for Track Switch ──
-    setCurrentTime(0);
-    setDuration(0);
+    currentTimeRef.current = 0;
 
     if (isPlaying) {
       addListenHistory(currentTrack);
@@ -1278,50 +1253,125 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     await downloadSongFile(currentTrack);
   }, [currentTrack]);
 
+  const audioContextValue = useMemo(() => ({
+    currentTrack, isPlaying, volume, isShuffle, repeatMode,
+    remainingSleepTime, queue, history, userPlaylists,
+    togglePlay, seekTo, setVolume, toggleRepeat,
+    toggleShuffle,
+    playNext, playPrevious,
+    setSleepTimer, addToQueue, removeFromQueue, reorderQueue, handleOnDragEnd, refreshPlaylists, setQueue, clearHistory, playContext, playFromSearch,
+    onEnded, isBuffering,
+    // Silent Bridge
+    playbackEngine, nativeAudioUrl, youtubeVideoId, playHybridTrack, isResolvingStream,
+    // Crossfade & Equalizer
+    crossfadeDuration, setCrossfadeDuration,
+    eqBands, eqPreset, isEqAvailable, setEqBandGain, applyEqPreset,
+    // Autoplay & Song Radio
+    isAutoplay, toggleAutoplay, setIsAutoplay, startSongRadio, downloadCurrentTrack,
+  }), [
+    currentTrack, isPlaying, volume, isShuffle, repeatMode,
+    remainingSleepTime, queue, history, userPlaylists,
+    togglePlay, seekTo, setVolume, toggleRepeat,
+    toggleShuffle,
+    playNext, playPrevious,
+    setSleepTimer, addToQueue, removeFromQueue, reorderQueue, handleOnDragEnd, refreshPlaylists, setQueue, clearHistory, playContext, playFromSearch,
+    onEnded, isBuffering,
+    playbackEngine, nativeAudioUrl, youtubeVideoId, playHybridTrack, isResolvingStream,
+    crossfadeDuration, setCrossfadeDuration,
+    eqBands, eqPreset, isEqAvailable, setEqBandGain, applyEqPreset,
+    isAutoplay, toggleAutoplay, setIsAutoplay, startSongRadio, downloadCurrentTrack,
+  ]);
+
   return (
-    <AudioContext.Provider value={{ 
-      currentTrack, isPlaying, currentTime, setCurrentTime, duration, isSeeking, setIsSeeking, volume, isShuffle, repeatMode,
-      remainingSleepTime, queue, history, userPlaylists,
-      togglePlay, seekTo, setVolume, toggleRepeat,
-      toggleShuffle,
-      playNext, playPrevious,
-      setSleepTimer, addToQueue, removeFromQueue, reorderQueue, handleOnDragEnd, refreshPlaylists, setQueue, clearHistory, playContext, playFromSearch,
-      onEnded, progress: currentTime, isBuffering,
-      // Silent Bridge
-      playbackEngine, nativeAudioUrl, youtubeVideoId, playHybridTrack, isResolvingStream,
-      // Crossfade & Equalizer
-      crossfadeDuration, setCrossfadeDuration,
-      eqBands, eqPreset, isEqAvailable, setEqBandGain, applyEqPreset,
-      // Autoplay & Song Radio
-      isAutoplay, toggleAutoplay, setIsAutoplay, startSongRadio, downloadCurrentTrack,
-    }}>
-      {children}
-        <AudioPlayer 
-          currentTrack={currentTrack}
-          isPlaying={isPlaying}
-          volume={volume}
-          seekToTime={seekToTime}
-          playbackEngine={playbackEngine}
-          nativeAudioUrl={nativeAudioUrl}
-          youtubeVideoId={youtubeVideoId}
-          crossfadeDuration={crossfadeDuration}
-          connectEqualizer={connectEqSource}
-          onTimeUpdate={setCurrentTime}
-          onDurationChange={setDuration}
-          onReady={(player) => {
-             youtubePlayer.current = player;
-          }}
-          onEnd={onEnded}
-          playNext={playNext}
-          playPrevious={playPrevious}
-          onStateChange={() => {
-             // We keep the contextual callback for any side-effects, 
-             // but the primary state sync now happens inside AudioPlayer.
-          }}
-          setIsPlaying={setIsPlaying}
-          setIsBuffering={setIsBuffering}
-        />
+    <AudioContext.Provider value={audioContextValue}>
+      <QueueProvider initialQueue={queue}>
+        <PlaybackProgressProvider youtubePlayerRef={youtubePlayer}>
+          {children}
+          <AudioPlayerBridge
+            currentTrack={currentTrack}
+            isPlaying={isPlaying}
+            volume={volume}
+            playbackEngine={playbackEngine}
+            nativeAudioUrl={nativeAudioUrl}
+            youtubeVideoId={youtubeVideoId}
+            crossfadeDuration={crossfadeDuration}
+            connectEqualizer={connectEqSource}
+            onReady={(player) => {
+              youtubePlayer.current = player;
+            }}
+            onEnd={onEnded}
+            playNext={playNext}
+            playPrevious={playPrevious}
+            setIsPlaying={setIsPlaying}
+            setIsBuffering={setIsBuffering}
+            currentTimeRef={currentTimeRef}
+          />
+        </PlaybackProgressProvider>
+      </QueueProvider>
     </AudioContext.Provider>
+  );
+};
+
+interface AudioPlayerBridgeProps {
+  currentTrack: Song | null;
+  isPlaying: boolean;
+  volume: number;
+  playbackEngine: PlaybackEngine;
+  nativeAudioUrl: string | null;
+  youtubeVideoId: string | null;
+  crossfadeDuration: number;
+  connectEqualizer: (audioElement: HTMLAudioElement | null) => void;
+  onReady: (player: any) => void;
+  onEnd: () => void;
+  playNext: () => void;
+  playPrevious: () => void;
+  setIsPlaying: (playing: boolean) => void;
+  setIsBuffering: (buffering: boolean) => void;
+  currentTimeRef: React.MutableRefObject<number>;
+}
+
+const AudioPlayerBridge: React.FC<AudioPlayerBridgeProps> = ({
+  currentTimeRef,
+  ...props
+}) => {
+  const { setCurrentTime, setDuration, seekToTime, resetProgress, seekTo } = usePlaybackProgress();
+
+  useEffect(() => {
+    const handleExternalSeek = (e: Event) => {
+      const customEvent = e as CustomEvent<number>;
+      if (typeof customEvent.detail === 'number') {
+        seekTo(customEvent.detail);
+      }
+    };
+    window.addEventListener('paatu:seek-to', handleExternalSeek);
+    return () => window.removeEventListener('paatu:seek-to', handleExternalSeek);
+  }, [seekTo]);
+
+  useEffect(() => {
+    if (props.currentTrack) {
+      const dur = typeof props.currentTrack.duration === 'number'
+        ? props.currentTrack.duration
+        : Number(props.currentTrack.duration);
+      resetProgress(dur && isFinite(dur) && dur > 0 ? dur : 0);
+      currentTimeRef.current = 0;
+    } else {
+      resetProgress(0);
+      currentTimeRef.current = 0;
+    }
+  }, [props.currentTrack?.id, resetProgress, currentTimeRef]);
+
+  const handleTimeUpdate = useCallback((time: number) => {
+    currentTimeRef.current = time;
+    setCurrentTime(time);
+  }, [setCurrentTime, currentTimeRef]);
+
+  return (
+    <AudioPlayer
+      {...props}
+      seekToTime={seekToTime}
+      onTimeUpdate={handleTimeUpdate}
+      onDurationChange={setDuration}
+    />
   );
 };
 
@@ -1330,3 +1380,4 @@ export const useAudio = () => {
   if (context === undefined) throw new Error('useAudio must be used within an AudioProvider');
   return context;
 };
+

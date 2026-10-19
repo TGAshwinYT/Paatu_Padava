@@ -625,7 +625,7 @@ const MobileSearch: React.FC = () => {
             ) : activeFilter !== 'spotify' && (
               <div className="flex flex-col items-center justify-center py-32 text-neutral-500">
                 <SearchIcon size={56} className="mb-6 opacity-20" />
-                <p className="font-bold text-xl">Search Paaatu_Padava</p>
+                <p className="font-bold text-xl">Search Paatu Padava</p>
                 <p className="text-sm mt-2 max-w-[240px] text-center px-4">Find your favorite music, albums, and artists in one place.</p>
               </div>
             )}

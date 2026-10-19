@@ -48,7 +48,7 @@ Structure mobile modules into strict layers:
 - Enforce periodic cache pruning: evict temporary audio chunks older than 7 days or when total cache exceeds 400MB.
 
 ## 5. Synchronized LRC Lyrics
-- Implement sub-second synchronized lyrics highlighting using `flutter_lyric`.
+- Implement sub-second synchronized lyrics highlighting using custom LRC parser and renderer (`lyrics_client.dart` + `indic_romanizer.dart`).
 - Support user-adjustable millisecond offset sliders (range: -5000ms to +5000ms) with instant reactive rerendering.
 
 ## 6. Testing & Quality Verification

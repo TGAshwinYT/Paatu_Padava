@@ -23,7 +23,7 @@ import {
   Check
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useAudio } from '../context/AudioContext';
+import { useAudio, usePlaybackProgress } from '../context/AudioContext';
 import { usePlaylistModal } from '../context/PlaylistModalContext';
 import { useAuth } from '../context/AuthContext';
 import { likeSong, unlikeSong } from '../services/api';
@@ -39,10 +39,6 @@ const PlayerBar = () => {
     currentTrack, 
     isPlaying, 
     togglePlay, 
-    currentTime, 
-    setCurrentTime,
-    duration, 
-    setIsSeeking,
     volume,
     setVolume,
     repeatMode,
@@ -54,7 +50,6 @@ const PlayerBar = () => {
     remainingSleepTime,
     history,
     isBuffering,
-    seekTo,
     // Equalizer
     eqBands,
     eqPreset,
@@ -65,6 +60,14 @@ const PlayerBar = () => {
     startSongRadio,
     downloadCurrentTrack,
   } = useAudio();
+
+  const {
+    currentTime,
+    setCurrentTime,
+    duration,
+    setIsSeeking,
+    seekTo,
+  } = usePlaybackProgress();
 
   const navigate = useNavigate();
   const location = useLocation();

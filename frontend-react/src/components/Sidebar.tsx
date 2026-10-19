@@ -85,7 +85,7 @@ const Sidebar: React.FC<SidebarProps> = () => {
           <div className="w-8 h-8 rounded-lg flex-shrink-0 overflow-hidden shadow-lg border border-white/10 group-hover:scale-110 transition-transform duration-300">
             <img src="/logo.png" className="w-full h-full object-cover" alt="Logo" />
           </div>
-          {!isCollapsed && <span className="font-bold text-xl truncate animate-in fade-in duration-500">Paaatu_Padava</span>}
+          {!isCollapsed && <span className="font-bold text-xl truncate animate-in fade-in duration-500">Paatu Padava</span>}
         </div>
 
         <nav className="flex flex-col gap-4">

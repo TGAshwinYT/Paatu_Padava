@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Music } from 'lucide-react';
 import { useAudio } from '../../context/AudioContext';
+import { useQueue } from '../../context/QueueContext';
 
 interface QueueDrawerProps {
   isOpen: boolean;
@@ -8,7 +9,8 @@ interface QueueDrawerProps {
 }
 
 const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => {
-  const { queue, removeFromQueue, currentTrack } = useAudio();
+  const { queue, removeFromQueue } = useQueue();
+  const { currentTrack } = useAudio();
 
   if (!isOpen) return null;
 

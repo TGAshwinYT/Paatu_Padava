@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, ChevronDown, Share2, MoreHorizontal, Clock, Speaker, ListMusic, Heart, PlusCircle, Mic2 } from 'lucide-react';
-import { useAudio } from '../../context/AudioContext';
+import { useAudio, usePlaybackProgress } from '../../context/AudioContext';
 import SleepTimerModal from '../SleepTimerModal';
 import QueueDrawer from './QueueDrawer';
 import LyricsOverlay from '../LyricsOverlay';
@@ -14,18 +14,21 @@ const MobilePlayerOverlay: React.FC = () => {
     togglePlay, 
     playNext, 
     playPrevious, 
-    currentTime, 
-    setCurrentTime,
-    duration, 
-    setIsSeeking,
     isShuffle, 
     repeatMode, 
     toggleShuffle,
     toggleRepeat, 
     remainingSleepTime,
     isBuffering,
-    seekTo
   } = useAudio();
+
+  const {
+    currentTime,
+    setCurrentTime,
+    duration,
+    setIsSeeking,
+    seekTo
+  } = usePlaybackProgress();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showSleepTimer, setShowSleepTimer] = useState(false);
   const [isQueueOpen, setIsQueueOpen] = useState(false);
@@ -101,7 +104,7 @@ const MobilePlayerOverlay: React.FC = () => {
         </button>
         <div className="text-center">
           <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">Playing from</p>
-          <p className="text-sm font-bold"> Paaatu_Padava</p>
+          <p className="text-sm font-bold">Paatu Padava</p>
         </div>
         <button className="p-2 -mr-2">
           <MoreHorizontal size={24} />

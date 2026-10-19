@@ -102,7 +102,7 @@ const Settings = () => {
       const dataStr = JSON.stringify(response.data, null, 2);
       const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
       
-      const exportFileDefaultName = `paaatu_padava_data_${user?.username}.json`;
+      const exportFileDefaultName = `paatu_padava_data_${user?.username}.json`;
       
       const linkElement = document.createElement('a');
       linkElement.setAttribute('href', dataUri);

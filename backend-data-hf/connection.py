@@ -88,8 +88,8 @@ if not DB_URL or DB_URL == "postgresql+asyncpg://":
 engine = create_async_engine(
     DB_URL,
     echo=False,
-    pool_size=10,
-    max_overflow=20,         # Bounded overflow prevents connection leaks during rapid track skipping
+    pool_size=5,
+    max_overflow=10,         # Bounded overflow prevents connection leaks during rapid track skipping
     pool_timeout=30,         # Bound queue wait time
     pool_pre_ping=True,      # Verify connection health before use
     pool_recycle=300,        # Recycle connections every 5 mins to prevent remote drops

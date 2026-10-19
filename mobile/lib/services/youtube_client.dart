@@ -8,6 +8,8 @@ import 'settings_manager.dart';
 import 'app_logger.dart';
 import 'artist_sanitizer.dart';
 import 'innertube_config_service.dart';
+import 'youtube/youtube_header_utils.dart';
+import 'youtube/youtube_title_cleaner.dart';
 import '../data/repositories/song_repository.dart';
 
 class YouTubeClient {
@@ -32,69 +34,23 @@ class YouTubeClient {
     return _ytInstance!;
   }
 
-  static const String vrUserAgent =
-      'com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12; en_US; Quest 2; Build/SQ3A.220605.009.A1) gzip';
-  static const String androidUserAgent =
-      'com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US; Pixel 8 Pro; Build/UQ1A.240205.004) gzip';
+  static const String vrUserAgent = YouTubeHeaderUtils.vrUserAgent;
+  static const String androidUserAgent = YouTubeHeaderUtils.androidUserAgent;
 
   /// High-integrity HTTP headers for Googlevideo CDN streams.
-  /// Enforces ANDROID_VR User-Agent and keep-alive to avoid connection drops and 403 Forbidden errors.
-  static Map<String, String> get streamingHeaders => const {
-    'Range': 'bytes=0-',
-    'User-Agent': vrUserAgent,
-    'Accept': '*/*',
-    'Connection': 'keep-alive',
-  };
+  static Map<String, String> get streamingHeaders => YouTubeHeaderUtils.streamingHeaders;
 
   /// True for URLs served by YouTube's media CDN / manifest endpoints.
-  static bool isYouTubeStreamUrl(String url) =>
-      url.contains('googlevideo.com') || url.contains('youtube.com/api/manifest');
+  static bool isYouTubeStreamUrl(String url) => YouTubeHeaderUtils.isYouTubeStreamUrl(url);
 
   /// Returns the User-Agent that matches the client which issued [url].
-  static String userAgentForUrl(String url) {
-    try {
-      final uri = Uri.tryParse(url);
-      final c = uri?.queryParameters['c']?.toUpperCase();
-      if (c == 'ANDROID_VR') return vrUserAgent;
-      if (c == 'IOS' || url.contains('.m3u8')) {
-        return 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)';
-      }
-      if (c == 'ANDROID') {
-        return 'com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US; Pixel 8 Pro; Build/UQ1A.240205.004) gzip';
-      }
-      if (c == 'WEB_REMIX' || url.contains('music.youtube.com')) {
-        return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
-      }
-    } catch (_) {}
-    return vrUserAgent;
-  }
+  static String userAgentForUrl(String url) => YouTubeHeaderUtils.userAgentForUrl(url);
 
   /// HTTP headers the PLAYER or download manager must send for a YouTube stream [url].
-  /// IMPORTANT: Omits Range header if the URL already contains &range= or is HLS to prevent 403 Forbidden.
-  static Map<String, String> headersForUrl(String url) {
-    return {
-      'User-Agent': userAgentForUrl(url),
-      'Accept': '*/*',
-      'Connection': 'keep-alive',
-    };
-  }
+  static Map<String, String> headersForUrl(String url) => YouTubeHeaderUtils.headersForUrl(url);
 
   /// Returns true if a Googlevideo stream URL's expire parameter is within 60 seconds of expiring or already expired.
-  static bool isLinkExpired(String? url) {
-    if (url == null || url.isEmpty) return true;
-    try {
-      final uri = Uri.tryParse(url);
-      if (uri == null) return true;
-      final expireStr = uri.queryParameters['expire'];
-      if (expireStr == null) return false;
-      final expireSec = int.tryParse(expireStr);
-      if (expireSec == null) return false;
-      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      return nowSec >= (expireSec - 60);
-    } catch (_) {
-      return false;
-    }
-  }
+  static bool isLinkExpired(String? url) => YouTubeHeaderUtils.isLinkExpired(url);
 
   /// Fetches the highest quality audio StreamInfo from YoutubeExplode
   static Future<AudioStreamInfo?> getBestAudioStreamInfo(String videoId) async {
@@ -270,51 +226,13 @@ class YouTubeClient {
     }
   }
 
-  static String cleanTitle(String title) {
-    var cleaned = Song.sanitize(title);
-    // Remove leading @handle mentions (e.g. "@SaiAbhyankkar - Pavazha Malli" -> "Pavazha Malli")
-    cleaned = cleaned.replaceAll(RegExp(r'^@[a-zA-Z0-9_.]+\s*[-:|~–—]?\s*'), '');
-    // Strip anything after pipe '|'
-    cleaned = cleaned.replaceAll(RegExp(r'\|.*$'), ' ');
-    // Remove bracketed info like [Official Video], (4K), | Lyrical, (Tamil), etc.
-    cleaned = cleaned.replaceAll(RegExp(r'[\(\[\{].*?[\)\]\}]'), ' ');
-    // Strip multi-word video/song markers first, then single words
-    cleaned = cleaned.replaceAll(
-      RegExp(r'\b(full\s*video(?:\s*song)?|video\s*song|audio\s*song|lyric(?:al)?\s*video(?:\s*song)?|official\s*(?:video|audio|music\s*video)|full\s*song|teaser|trailer|promo|visuali[sz]er|4k|8k|hd|uhd|1080p|720p)\b', caseSensitive: false),
-      ' ',
-    );
-    cleaned = cleaned.replaceAll(RegExp(r'\b(official|video|audio|lyric|lyrical)\b', caseSensitive: false), ' ');
-    cleaned = cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
-    // Strip leading or trailing hyphens, colons, slashes, or tildes
-    cleaned = cleaned.replaceAll(RegExp(r'^[\s\-–—:~|/,.\+]+|[\s\-–—:~|/,.\+]+$'), '').trim();
-    return cleaned.isNotEmpty ? cleaned : Song.sanitize(title);
-  }
+  static String cleanTitle(String title) => YouTubeTitleCleaner.cleanTitle(title);
 
   /// Extracts 11-character video ID from YouTube, YouTube Music, or youtu.be URLs
-  static String? extractVideoId(String input) {
-    final clean = input.trim();
-    if (clean.isEmpty) return null;
-    if (RegExp(r'^[a-zA-Z0-9_-]{11}$').hasMatch(clean)) return clean;
-    final regExp = RegExp(
-      r'(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/|music\.youtube\.com\/(?:watch\?v=|shorts\/))([a-zA-Z0-9_-]{11})',
-      caseSensitive: false,
-    );
-    final match = regExp.firstMatch(clean);
-    return match?.group(1);
-  }
+  static String? extractVideoId(String input) => YouTubeTitleCleaner.extractVideoId(input);
 
   /// Extracts playlist ID (e.g. PL..., RD..., etc.) from a YouTube playlist URL
-  static String? extractPlaylistId(String input) {
-    final clean = input.trim();
-    if (clean.isEmpty) return null;
-    final regExp = RegExp(r'[?&]list=([a-zA-Z0-9_-]+)', caseSensitive: false);
-    final match = regExp.firstMatch(clean);
-    if (match != null) return match.group(1);
-    if (clean.startsWith('PL') || clean.startsWith('RD') || clean.startsWith('OLAK5uy_')) {
-      return clean;
-    }
-    return null;
-  }
+  static String? extractPlaylistId(String input) => YouTubeTitleCleaner.extractPlaylistId(input);
 
   /// Direct client-side search autocomplete / suggestions via Google Suggest endpoint.
   /// Zero-server dependency, works with sub-40ms latency directly on device.

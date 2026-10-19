@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useAudio } from '../context/AudioContext';
+import { useAudio, usePlaybackProgress } from '../context/AudioContext';
 
 interface UseKeyboardShortcutsOptions {
   enabled?: boolean;
@@ -15,9 +15,6 @@ export const useKeyboardShortcuts = ({
     togglePlay,
     playNext,
     playPrevious,
-    currentTime,
-    duration,
-    seekTo,
     volume,
     setVolume,
     toggleShuffle,
@@ -25,6 +22,12 @@ export const useKeyboardShortcuts = ({
     currentTrack,
     queue
   } = useAudio();
+
+  const {
+    currentTime,
+    duration,
+    seekTo
+  } = usePlaybackProgress();
 
   // Keep stable refs to avoid listener churn on audio time updates
   const isPlayingRef = useRef(isPlaying);

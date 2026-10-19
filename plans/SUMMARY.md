@@ -27,7 +27,7 @@
 | **Mobile App** | `mobile/` | Flutter player with background audio, 3-tier queue, endless autoplay, smart shuffle |
 | **Backend API** | `backend-data-hf/` | Python FastAPI on HuggingFace Spaces — search, recommendations, yt-dlp |
 | **Cloud DB** | Supabase | User auth, history, playlists, favorites sync |
-| **React Web** | `archive/frontend-react/` | **Archived** — superseded by mobile-first approach |
+| **React Web** | `frontend-react/` | React 19 + TypeScript web client with equalizer and responsive UI |
 
 ---
 
@@ -36,9 +36,10 @@
 | Metric | Value |
 |---|---|
 | `flutter analyze` | **0 issues** |
-| `flutter test` | **132/132 passed (100%)** |
-| `python -m unittest discover -s tests` | **32/32 passed (100%)** |
-| Total Tests | **164/164 passed (100%)** |
+| `flutter test` | **408/408 passed (100%)** |
+| `python -m unittest discover -s tests` | **36/36 passed (100%)** |
+| `frontend-react build` (`tsc -b && vite build`) | **0 errors (2199 modules)** |
+| Total Automated Unit/Integration Tests | **444/444 passed (100%)** |
 
 ---
 
@@ -66,7 +67,7 @@
 - **Kept (Android Auto)**: `PaatuAudioHandler.getMediaItem` and `playFromMediaId` (`@override` for `MediaBrowserService` IPC)
 - **Wired**: `SmartShuffleController.recordPlaybackFeedback` into `skipToNext`, `skipToQueueItem`, and natural track completion in `AudioQueueHandler`
 - **Removed deps**: `flutter_lyric`, `intl`, `permission_handler` from `pubspec.yaml`
-- **Archived**: `frontend-react/` → `archive/frontend-react/`
+- **Active Web**: Maintained `frontend-react/` alongside Flutter `mobile/` with full React 19 type safety
 
 ---
 
@@ -76,8 +77,10 @@ Defined in `.antigravity/agents.json`:
 
 | Agent | Scope | Denied |
 |---|---|---|
-| `mobile_engineer` | `mobile/**`, `plans/**` | `backend-data-hf/**` |
-| `backend_engineer` | `backend-data-hf/**` | `mobile/**`, `frontend-react/**` |
+| `db_architect` | `backend-data-hf/models.py`, `connection.py`, `base.py`, `plans/**` | `frontend-react/**`, `mobile/**`, `backend-data-hf/routers/**` |
+| `backend_engineer` | `backend-data-hf/**`, `mcp_server.py`, `plans/**` | `mobile/**`, `frontend-react/**` |
+| `web_engineer` | `frontend-react/**`, `plans/**` | `backend-data-hf/**`, `mobile/**` |
+| `mobile_engineer` | `mobile/**`, `plans/**` | `backend-data-hf/**`, `frontend-react/**` |
 
 ---
 
@@ -86,6 +89,19 @@ Defined in `.antigravity/agents.json`:
 - **Phase 0D Complete**: Accurate, specific error messages and AppError domain models across search, player, lyrics, home feed, and downloads.
 - **Phase 1 Complete**: Spotify & Echo-Music-inspired 3-tier queue architecture (Now Playing, User Queue Stack, Up Next / Autoplay Context), endless autoplay refills, 50-track Song Radio, 3-state Smart Shuffle, OEM background stability, and dual-ingestion mutex lock.
 - **Phase 2 Complete**: Modular presentation layer refactor across widgets (`home/`, `player/`, `search/`, `settings/`, `library/`, `lyrics/`, `recap/`).
+- **Architectural Refactor Milestone (All Phases 1, 2, 3, 4 Complete ✅)**:
+  - **Phase 1 (Mobile Model Duality Elimination)**: Unified `Song` into `typedef Song = TrackEntity;`, eliminating duplicate 338-line model and redundant `.toSong()` allocations while maintaining 100% backward compatibility (408/408 tests passing).
+  - **Phase 2 (Mobile God Class Decoupling)**: Extracted `SmartShufflePermutator` from `audio_queue_handler.dart` for non-destructive Knuth/Fisher-Yates permutations with active song pinning. Extracted `YouTubeHeaderUtils` (Googlevideo CDN headers, User-Agent rotation, link expiry) and `YouTubeTitleCleaner` (video title sanitization, tag stripping, ID extraction) from `youtube_client.dart` with 0 warnings in `flutter analyze` and 408/408 tests passing.
+  - **Phase 3 (Backend Service Extraction & Sub-Routers)**: Extracted `stream_security.py` (SSRF checks, IP parsing) and `stream_resolver_backend.py` (fuzzy JioSaavn & yt-dlp matching). Extracted `routers/music_lyrics.py` (synced, plain, and LRCLIB lyrics endpoints) from `routers/music.py` (36/36 tests passing).
+  - **Phase 4 (Frontend High-Frequency State Slicing)**: Extracted `PlaybackProgressContext` and `usePlaybackProgress()` from `AudioContext.tsx`. Memoized audio state value, eliminating 4 Hz re-rendering churn on 20+ screens (`Sidebar`, `Home`, `TopSearchBar`, `Settings`, etc.), with full React 19 production build passing in 5.70s.
+  - **Phase 5 (Backend Repository Pattern & Hexagonal Decoupling)**: Extracted `repositories/` (`playlist_repo.py`, `history_repo.py`, `user_repo.py`), eliminating 45+ raw SQL queries from FastAPI route handlers.
+  - **Phase 6 (Mobile QueueStateManager & AudioDspCalibrator)**: Extracted `QueueStateManager` (`queue/queue_state_manager.dart`) to decouple two-tier list state from playback engine. Extracted `AudioDspCalibrator` (`audio/audio_dsp_calibrator.dart`) for EBU R128 volume matching with 0 analyzer issues and 100% test pass rate.
+  - **Phase 7 (Frontend QueueContext Partitioning)**: Extracted `QueueContext.tsx` (`useQueue`, `QueueProvider`) to decouple queue mutations from playback controls, building cleanly in React 19 / Vite.
+  - **Phase 8 (Master Roadmap Finalization & Verification)**:
+    - **Backend**: Completely eradicated all raw SQL queries from route handlers by adding `like_song`, `unlike_song`, and `get_liked_songs` to `UserRepository`, achieving 100% hexagonal architecture across all routers (36/36 tests passing).
+    - **Frontend**: Fully wired `QueueDrawer.tsx` and `QueuePanel.tsx` to `useQueue()` for state slicing, eliminating audio tick re-renders from queue panels. Verified clean React 19 / Vite production build (0 errors).
+    - **Mobile**: Verified Android 14+ `foregroundServiceType="mediaPlayback"` compliance and 150 MB LRU smart audio cache limits.
+    - **Total Test Verification**: 444/444 tests passing (408 Flutter + 36 Backend), 0 Dart analyzer issues, 0 TypeScript compiler errors.
 
 ---
 

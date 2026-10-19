@@ -6,6 +6,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'download_manager.dart';
 import 'settings_manager.dart';
+import 'smart_cache_service.dart';
 import 'app_logger.dart';
 
 class StorageBreakdown {
@@ -288,9 +289,12 @@ class CacheManager {
     }
   }
 
-  /// Manually clears all temporary cache and image files
+  /// Manually clears all temporary cache, predictive smart cache, and image files
   static Future<void> clearAllCache() async {
     await clearImageCache();
+    try {
+      await SmartCacheService.instance.clearCache();
+    } catch (_) {}
     try {
       final tempDir = await getTemporaryDirectory();
       if (tempDir.existsSync()) {

@@ -1,5 +1,6 @@
 import React from 'react';
 import { useAudio } from '../context/AudioContext';
+import { useQueue } from '../context/QueueContext';
 import { X, Menu, Trash2, Radio } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 
@@ -9,7 +10,8 @@ interface QueuePanelProps {
 }
 
 const QueuePanel: React.FC<QueuePanelProps> = ({ isOpen, onClose }) => {
-  const { queue, removeFromQueue, handleOnDragEnd, currentTrack, isAutoplay, toggleAutoplay } = useAudio();
+  const { currentTrack, isAutoplay, toggleAutoplay } = useAudio();
+  const { queue, removeFromQueue, handleOnDragEnd } = useQueue();
 
   if (!isOpen) return null;
 

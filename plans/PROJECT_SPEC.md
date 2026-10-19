@@ -386,8 +386,8 @@ gantt
 
 ### Milestone Checklist:
 - [x] **Phase 1 (Discovery):** System architecture audited, dependencies validated, `PROJECT_SPEC.md` compiled.
-- [ ] **Phase 2 (Self-Provisioning):** Multi-agent directory `.antigravity/` with `agents.json` and 3 specialized skills created.
-- [ ] **Phase 3 (DB Verification):** Database schema integrity, async connection pools, and migration scripts validated.
-- [ ] **Phase 4 (Backend Tests):** Core server routes, auth security, and recommender engine tests passing 100%.
-- [ ] **Phase 5 (Client Verification):** Web client typecheck passes (`tsc --noEmit`), mobile Flutter tests pass.
-- [ ] **Phase 6 (Master Summary):** Deliverables and verification logs documented in `./plans/SUMMARY.md`.
+- [x] **Phase 2 (Self-Provisioning):** Multi-agent directory `.antigravity/` with `agents.json` and specialized skills created.
+- [x] **Phase 3 (DB Verification):** Database schema integrity, async connection pools, and migration scripts validated.
+- [x] **Phase 4 (Backend Tests):** Core server routes, auth security, and recommender engine tests passing 100% (36/36 tests).
+- [x] **Phase 5 (Client Verification):** Web client typecheck passes (`tsc --noEmit`), mobile Flutter tests pass.
+- [x] **Phase 6 (Master Summary):** Deliverables and verification logs documented in `./plans/SUMMARY.md`.

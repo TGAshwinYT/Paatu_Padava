@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, Sparkles, Activity, Waves, EyeOff } from 'lucide-react';
 import { getRelatedSongs, getLyrics } from '../services/api';
 import type { Song } from '../types';
-import { useAudio } from '../context/AudioContext';
+import { useAudio, usePlaybackProgress } from '../context/AudioContext';
 import { parseLRC } from '../utils/LyricsParser';
 import type { LyricsLine } from '../utils/LyricsParser';
 import AudioVisualizer from './AudioVisualizer';
@@ -54,7 +54,8 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
     }
   });
   
-  const { playContext, currentTime, seekTo, isPlaying } = useAudio();
+  const { playContext, isPlaying } = useAudio();
+  const { currentTime, seekTo } = usePlaybackProgress();
   const lineRefs = useRef<(HTMLParagraphElement | null)[]>([]);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const cachedLyricsRef = useRef<{ id: string; synced: LyricsLine[]; plain: string } | null>(null);

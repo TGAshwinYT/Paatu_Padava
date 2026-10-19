@@ -162,7 +162,7 @@ void main() {
           }
         } catch (_) {}
       },
-      timeout: const Timeout(Duration(seconds: 30)),
+      timeout: const Timeout(Duration(seconds: 60)),
       skip: (Platform.environment['CI'] == 'true' ||
               Platform.environment['GITHUB_ACTIONS'] == 'true')
           ? 'Skipping live network YouTube test on CI runners (datacenter IPs are blocked by YouTube with HTTP 400)'

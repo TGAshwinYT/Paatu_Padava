@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:audio_service/audio_service.dart';
 import 'package:html_unescape/html_unescape.dart';
-import '../../models/song.dart';
 
 /// Unified Clean Architecture Domain Entity for all audio tracks in Paatu Paadava.
 /// Guarantees centralized string sanitization, deduplication across multi-source catalogs,
@@ -31,18 +30,19 @@ class TrackEntity {
   final String coverUrl;
   /// Ephemeral runtime stream URL. Never treated as permanent data.
   /// Signed CDN URLs expire in 2-6 hours and must be resolved Just-In-Time (JIT) via StreamResolver.
-  final String? streamUrl;
+  String? streamUrl;
   int duration;
   int get durationMs => duration * 1000;
   set durationMs(int ms) => duration = ms ~/ 1000;
-  final bool isDownloaded;
-  final String? localFilePath;
-  final int? downloadedAt;
+  bool isDownloaded;
+  String? localFilePath;
+  int? downloadedAt;
   String source; // 'saavn', 'youtube', 'offline'
-  final String? lyrics;
+  String? lyrics;
   final String? language;
   final bool isSmartRecommended;
   final bool isUserEnqueued;
+  final String? addedBy;
 
   TrackEntity({
     required this.id,
@@ -62,6 +62,7 @@ class TrackEntity {
     this.language,
     this.isSmartRecommended = false,
     this.isUserEnqueued = false,
+    this.addedBy,
     this.versions = const [],
   })  : title = sanitize(title, fallback: 'Unknown Title'),
         artist = sanitize(artist, fallback: 'Unknown Artist'),
@@ -108,6 +109,17 @@ class TrackEntity {
       ' ',
     );
     return text
+        .replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  /// Normalized album: strips brackets and punctuation
+  String get normalizedAlbum {
+    return album
+        .toLowerCase()
+        .replaceAll(RegExp(r'\([^)]*\)'), ' ')
+        .replaceAll(RegExp(r'\[[^\]]*\]'), ' ')
         .replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), '')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
@@ -213,53 +225,65 @@ class TrackEntity {
     return result;
   }
 
-  /// Converts this domain entity to legacy Song model for seamless framework compatibility
-  Song toSong() {
-    return Song(
-      id: id,
-      title: title,
-      artist: artist,
-      album: album,
-      albumId: albumId,
-      artistId: artistId,
-      coverUrl: coverUrl,
-      streamUrl: streamUrl,
-      duration: duration,
-      isDownloaded: isDownloaded,
-      localFilePath: localFilePath,
-      downloadedAt: downloadedAt,
-      source: source,
-      lyrics: lyrics,
-      language: language,
-      isSmartRecommended: isSmartRecommended,
-      isUserEnqueued: isUserEnqueued,
-      versions: versions.map((v) => v.toSong()).toList(),
-    );
+  /// Checks whether this track is the same musical recording, cover, or cross-language dub of another track
+  bool isSameSongOrDub(TrackEntity other) {
+    if (id.isNotEmpty && id == other.id) return true;
+    if (canonicalBaseKey == other.canonicalBaseKey) return true;
+    if (canonicalSongKey == other.canonicalSongKey) return true;
+
+    // 1. Cross-Artist Clean Title Match
+    final bool sameTitle = cleanTitleKey.isNotEmpty &&
+        other.cleanTitleKey.isNotEmpty &&
+        cleanTitleKey == other.cleanTitleKey;
+
+    final bool durationMatch = duration > 0 &&
+        other.duration > 0 &&
+        (duration - other.duration).abs() <= 8;
+
+    final bool sameAlbum = normalizedAlbum.isNotEmpty &&
+        normalizedAlbum != 'unknown album' &&
+        normalizedAlbum == other.normalizedAlbum;
+
+    if (sameTitle && (durationMatch || sameAlbum || source == 'youtube' || other.source == 'youtube')) {
+      return true;
+    }
+
+    // 2. Cross-language dub matching
+    final bool sameArtist = primaryArtist.isNotEmpty &&
+        other.primaryArtist.isNotEmpty &&
+        primaryArtist == other.primaryArtist;
+
+    final lowerTitle = cleanTitleKey;
+    final otherLower = other.cleanTitleKey;
+    final dubRegex = RegExp(r'\b(telugu|tamil|hindi|kannada|malayalam|dubbed|dub|version)\b');
+    final bool hasDubKeyword = dubRegex.hasMatch(title.toLowerCase()) ||
+        dubRegex.hasMatch(other.title.toLowerCase()) ||
+        dubRegex.hasMatch(album.toLowerCase()) ||
+        dubRegex.hasMatch(other.album.toLowerCase());
+
+    final bool substringTitleMatch = (lowerTitle.isNotEmpty && otherLower.isNotEmpty) &&
+        (lowerTitle.contains(otherLower) || otherLower.contains(lowerTitle));
+
+    final bool tightDuration = duration > 0 &&
+        other.duration > 0 &&
+        (duration - other.duration).abs() <= 4;
+
+    if (sameArtist && (durationMatch || tightDuration)) {
+      if (substringTitleMatch || hasDubKeyword || sameAlbum) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
-  /// Creates a domain TrackEntity from a Song model
-  factory TrackEntity.fromSong(Song song) {
-    return TrackEntity(
-      id: song.id,
-      title: song.title,
-      artist: song.artist,
-      album: song.album,
-      albumId: song.albumId,
-      artistId: song.artistId,
-      coverUrl: song.coverUrl,
-      streamUrl: song.streamUrl,
-      duration: song.duration,
-      isDownloaded: song.isDownloaded,
-      localFilePath: song.localFilePath,
-      downloadedAt: song.downloadedAt,
-      source: song.source,
-      lyrics: song.lyrics,
-      language: song.language,
-      isSmartRecommended: song.isSmartRecommended,
-      isUserEnqueued: song.isUserEnqueued,
-      versions: song.versions.map((v) => TrackEntity.fromSong(v)).toList(),
-    );
-  }
+  /// Seamless unified model bridge (identity no-op)
+  TrackEntity toSong() => this;
+  TrackEntity toTrackEntity() => this;
+
+  /// Seamless factory conversion bridge (identity no-op)
+  static TrackEntity fromSong(TrackEntity song) => song;
+  static TrackEntity fromTrackEntity(TrackEntity track) => track;
 
   /// Converts to audio_service MediaItem for lock screen and system notification
   MediaItem toMediaItem() {
@@ -278,6 +302,7 @@ class TrackEntity {
         'language': language,
         'isSmartRecommended': isSmartRecommended,
         'isUserEnqueued': isUserEnqueued,
+        'addedBy': addedBy,
         'deduplicationKey': deduplicationKey,
       },
     );
@@ -299,6 +324,7 @@ class TrackEntity {
       language: item.extras?['language']?.toString(),
       isSmartRecommended: item.extras?['isSmartRecommended'] == true,
       isUserEnqueued: item.extras?['isUserEnqueued'] == true,
+      addedBy: item.extras?['addedBy']?.toString(),
     );
   }
 
@@ -321,6 +347,7 @@ class TrackEntity {
       'language': language,
       'isSmartRecommended': isSmartRecommended,
       'isUserEnqueued': isUserEnqueued,
+      'addedBy': addedBy,
       'deduplicationKey': deduplicationKey,
     };
   }
@@ -344,6 +371,7 @@ class TrackEntity {
       language: map['language']?.toString(),
       isSmartRecommended: map['isSmartRecommended'] == true || map['is_smart_recommended'] == true,
       isUserEnqueued: map['isUserEnqueued'] == true || map['is_user_enqueued'] == true,
+      addedBy: map['addedBy']?.toString() ?? map['added_by']?.toString(),
     );
   }
 
@@ -369,6 +397,8 @@ class TrackEntity {
     String? language,
     bool? isSmartRecommended,
     bool? isUserEnqueued,
+    String? addedBy,
+    List<TrackEntity>? versions,
   }) {
     return TrackEntity(
       id: id ?? this.id,
@@ -388,6 +418,8 @@ class TrackEntity {
       language: language ?? this.language,
       isSmartRecommended: isSmartRecommended ?? this.isSmartRecommended,
       isUserEnqueued: isUserEnqueued ?? this.isUserEnqueued,
+      addedBy: addedBy ?? this.addedBy,
+      versions: versions ?? this.versions,
     );
   }
 

@@ -182,7 +182,7 @@ async def recommender_background_worker():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic
-    print("[INIT] Starting PaaatuPadava Backend Lifespan...")
+    print("[INIT] Starting Paatu Padava Backend Lifespan...")
     
     # 0. Diagnostic DNS Check (Derived dynamically from DATABASE_URL / DB_HOST)
     db_raw = os.getenv("DATABASE_URL", "")
@@ -222,19 +222,23 @@ async def lifespan(app: FastAPI):
     await check_redis_connection()
     
     # 2. Redis Cache Initialization (fastapi-cache2)
-    # Use REDIS_URL from .env with fallback to localhost
-    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-    print(f"[INIT] Initializing Redis Cache with URL: {redis_url.split('@')[-1]}") # Hide credentials in logs
-    
-    try:
-        redis = aioredis.from_url(redis_url)
-        FastAPICache.init(RedisBackend(redis), prefix="paatu-cache")
-        print("[SUCCESS] FastAPICache initialized!")
-    except Exception as e:
-        print(f"[ERROR] Redis Cache initialization failed: {e}")
+    redis_url = os.getenv("REDIS_URL", "")
+    if redis_url:
+        print(f"[INIT] Testing Redis Cache URL: {redis_url.split('@')[-1]}")
+        try:
+            redis = aioredis.from_url(redis_url, socket_connect_timeout=2)
+            await redis.ping()
+            FastAPICache.init(RedisBackend(redis), prefix="paatu-cache")
+            print("[SUCCESS] FastAPICache initialized with Redis!")
+        except Exception as e:
+            print(f"[WARNING] Redis connection test failed ({e}), falling back to InMemoryBackend...")
+            from fastapi_cache.backends.inmemory import InMemoryBackend
+            FastAPICache.init(InMemoryBackend(), prefix="paatu-cache")
+            print("[FALLBACK] FastAPICache initialized with InMemoryBackend!")
+    else:
         from fastapi_cache.backends.inmemory import InMemoryBackend
         FastAPICache.init(InMemoryBackend(), prefix="paatu-cache")
-        print("[FALLBACK] FastAPICache initialized with InMemoryBackend!")
+        print("[INIT] FastAPICache initialized with InMemoryBackend (REDIS_URL not configured).")
     
     # 3. Populate Autocomplete Trie (curated regional artists + database history)
     await populate_artist_trie()
@@ -247,9 +251,9 @@ async def lifespan(app: FastAPI):
     
     yield
     # Shutdown logic
-    print("[INIT] Shutting down PaaatuPadava Backend...")
+    print("[INIT] Shutting down Paatu Padava Backend...")
 
-app = FastAPI(title="Paaatu_Padava Backend", lifespan=lifespan)
+app = FastAPI(title="Paatu Padava Backend", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 

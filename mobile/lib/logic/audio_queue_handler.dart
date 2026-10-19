@@ -26,6 +26,8 @@ import '../services/smart_gapless_precacher.dart';
 import 'stream_resolver.dart';
 import 'next_track_strategy.dart';
 import 'crossfade_engine.dart';
+import 'queue/smart_shuffle_permutator.dart';
+import 'audio/audio_dsp_calibrator.dart';
 
 /// AudioQueueHandler: Two-Tier Decoupled Queue Engine matching Spotify and YouTube Music.
 /// 
@@ -39,6 +41,7 @@ import 'crossfade_engine.dart';
 class AudioQueueHandler {
   final AudioPlayer player;
   final StreamResolver streamResolver;
+  final SmartShufflePermutator _shufflePermutator = SmartShufflePermutator();
 
   // Persistent ConcatenatingAudioSource for Spotify-grade gapless playback
   ConcatenatingAudioSource _playlistSource = ConcatenatingAudioSource(
@@ -249,35 +252,12 @@ class AudioQueueHandler {
   }
 
   /// Calculates target normalized volume (0.0 to 1.0)
-  static double getNormalizedVolumeForSong(Song? song) {
-    if (!SettingsManager.isVolumeNormalizationEnabled) {
-      return 1.0;
-    }
-    if (song == null) return 1.0;
-
-    if (song.source == 'youtube' ||
-        (song.streamUrl != null &&
-            (song.streamUrl!.contains('googlevideo.com') ||
-                song.streamUrl!.contains('webm') ||
-                song.streamUrl!.contains('youtube')))) {
-      return 1.0;
-    }
-
-    final isHotStudioMaster = song.source == 'saavn' ||
-        song.source == 'jiosaavn' ||
-        (song.streamUrl != null &&
-            (song.streamUrl!.contains('jiosaavn') || song.streamUrl!.contains('.mp4')));
-
-    if (isHotStudioMaster) {
-      return 0.80; // ~ -2.0 dB calibration to match YouTube -14 LUFS reference
-    }
-    return 1.0;
-  }
+  static double getNormalizedVolumeForSong(Song? song) =>
+      AudioDspCalibrator.getNormalizedVolumeForSong(song);
 
   /// Calculates effective volume taking both master volume and song calibration into account
-  double getEffectiveVolumeForSong(Song? song) {
-    return (_userVolume * getNormalizedVolumeForSong(song)).clamp(0.0, 1.0);
-  }
+  double getEffectiveVolumeForSong(Song? song) =>
+      AudioDspCalibrator.getEffectiveVolumeForSong(song, _userVolume);
 
   Future<void> _ensureAudioSessionActive() async {
     try {
@@ -1320,22 +1300,11 @@ class AudioQueueHandler {
         activeRawIdx = _contextIndex;
       }
 
-      final List<int> remainder = [];
-      for (int i = 0; i < _contextQueue.length; i++) {
-        if (i != activeRawIdx) remainder.add(i);
-      }
-      // Knuth / Fisher-Yates O(N) Uniform Shuffle
-      final rng = Random();
-      for (int i = remainder.length - 1; i > 0; i--) {
-        final j = rng.nextInt(i + 1);
-        final temp = remainder[i];
-        remainder[i] = remainder[j];
-        remainder[j] = temp;
-      }
-
       _contextShuffleIndices.clear();
-      _contextShuffleIndices.add(activeRawIdx);
-      _contextShuffleIndices.addAll(remainder);
+      _contextShuffleIndices.addAll(_shufflePermutator.generateShuffleTable(
+        totalLength: _contextQueue.length,
+        activeRawIndex: activeRawIdx,
+      ));
       _contextIndex = 0;
       _playlistBaseIndex = currentIndex;
 
@@ -1350,8 +1319,11 @@ class AudioQueueHandler {
       if (_currentTrack != null) {
         final match = _contextQueue.indexWhere((t) => t.id == _currentTrack!.id);
         if (match != -1) restoredRawIdx = match;
-      } else if (_contextIndex >= 0 && _contextIndex < _contextShuffleIndices.length) {
-        restoredRawIdx = _contextShuffleIndices[_contextIndex];
+      } else {
+        restoredRawIdx = _shufflePermutator.restoreRawIndex(
+          permutationTable: _contextShuffleIndices,
+          currentPermutedIndex: _contextIndex,
+        );
       }
 
       _contextIndex = restoredRawIdx;

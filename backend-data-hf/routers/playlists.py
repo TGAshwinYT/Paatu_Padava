@@ -2,12 +2,11 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, func
-from sqlalchemy.orm import selectinload
 import uuid
 import models
 from connection import get_db
 from auth_utils import get_current_user, get_current_user_optional
+from repositories.playlist_repo import PlaylistRepository
 from services.spotify_import import (
     parse_spotify_playlist_id,
     fetch_spotify_playlist_metadata,
@@ -50,14 +49,7 @@ async def get_user_playlists(
     user: models.User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    stmt = (
-        select(models.Playlist)
-        .where(models.Playlist.user_id == user.id)
-        .options(selectinload(models.Playlist.tracks))
-        .order_by(models.Playlist.created_at.desc())
-    )
-    result = await db.execute(stmt)
-    playlists = result.scalars().all()
+    playlists = await PlaylistRepository.get_user_playlists(db, user.id)
     return [
         {
             "id": str(p.id),
@@ -96,12 +88,7 @@ async def create_user_playlist(
         clean_title = "My Playlist"
 
     # Idempotency check: reuse existing playlist with same title if present
-    stmt = select(models.Playlist).where(
-        models.Playlist.user_id == user.id,
-        func.lower(func.trim(models.Playlist.title)) == clean_title.lower()
-    ).options(selectinload(models.Playlist.tracks))
-    result = await db.execute(stmt)
-    existing = result.scalar_one_or_none()
+    existing = await PlaylistRepository.find_by_title(db, user.id, clean_title)
 
     if existing:
         return {
@@ -114,16 +101,14 @@ async def create_user_playlist(
             "reused": True,
         }
 
-    playlist = models.Playlist(
+    playlist = await PlaylistRepository.create_playlist(
+        db=db,
         user_id=user.id,
         title=clean_title,
         description=data.description or "",
         cover_url=data.cover_url or "",
         is_public=data.is_public or False,
     )
-    db.add(playlist)
-    await db.commit()
-    await db.refresh(playlist)
 
     return {
         "id": str(playlist.id),
@@ -146,9 +131,7 @@ async def get_playlist_by_id(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid playlist UUID format")
 
-    stmt = select(models.Playlist).where(models.Playlist.id == pl_uuid).options(selectinload(models.Playlist.tracks))
-    result = await db.execute(stmt)
-    playlist = result.scalar_one_or_none()
+    playlist = await PlaylistRepository.get_by_id(db, pl_uuid, load_tracks=True)
 
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
@@ -191,25 +174,20 @@ async def update_playlist(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid playlist UUID format")
 
-    stmt = select(models.Playlist).where(models.Playlist.id == pl_uuid, models.Playlist.user_id == user.id)
-    result = await db.execute(stmt)
-    playlist = result.scalar_one_or_none()
+    playlist = await PlaylistRepository.get_by_id(db, pl_uuid, load_tracks=False, user_id=user.id)
 
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
 
-    if data.title is not None and data.title.strip():
-        playlist.title = data.title.strip()
-    if data.description is not None:
-        playlist.description = data.description
-    if data.cover_url is not None:
-        playlist.cover_url = data.cover_url
-    if data.is_public is not None:
-        playlist.is_public = data.is_public
-
-    await db.commit()
-    await db.refresh(playlist)
-    return {"success": True, "id": str(playlist.id), "title": playlist.title}
+    updated = await PlaylistRepository.update_playlist(
+        db=db,
+        playlist=playlist,
+        title=data.title,
+        description=data.description,
+        cover_url=data.cover_url,
+        is_public=data.is_public,
+    )
+    return {"success": True, "id": str(updated.id), "title": updated.title}
 
 @router.delete("/{playlist_id}")
 async def delete_playlist(
@@ -222,15 +200,12 @@ async def delete_playlist(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid playlist UUID format")
 
-    stmt = select(models.Playlist).where(models.Playlist.id == pl_uuid, models.Playlist.user_id == user.id)
-    result = await db.execute(stmt)
-    playlist = result.scalar_one_or_none()
+    playlist = await PlaylistRepository.get_by_id(db, pl_uuid, load_tracks=False, user_id=user.id)
 
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
 
-    await db.delete(playlist)
-    await db.commit()
+    await PlaylistRepository.delete_playlist(db, playlist)
     return {"success": True, "message": "Playlist deleted successfully"}
 
 @router.post("/{playlist_id}/songs")
@@ -245,36 +220,27 @@ async def add_song_to_playlist(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid playlist UUID format")
 
-    stmt = select(models.Playlist).where(models.Playlist.id == pl_uuid, models.Playlist.user_id == user.id).options(selectinload(models.Playlist.tracks))
-    result = await db.execute(stmt)
-    playlist = result.scalar_one_or_none()
+    playlist = await PlaylistRepository.get_by_id(db, pl_uuid, load_tracks=True, user_id=user.id)
 
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
 
-    # Prevent duplicates within playlist
-    if any(t.track_id == data.id for t in playlist.tracks):
-        return {"success": False, "message": "Song already exists in playlist"}
-
-    position = len(playlist.tracks)
-    track = models.PlaylistTrack(
-        playlist_id=playlist.id,
+    added = await PlaylistRepository.add_track(
+        db=db,
+        playlist=playlist,
         track_id=data.id,
         title=data.title,
         artist=data.artist,
         album=data.album or "",
-        artwork_url=data.coverUrl or "",
+        cover_url=data.coverUrl or "",
         stream_url=data.streamUrl or "",
-        source_type=data.source or "saavn",
+        source=data.source or "saavn",
         duration=data.duration or 0,
-        position=position,
     )
-    db.add(track)
 
-    if not playlist.cover_url and data.coverUrl:
-        playlist.cover_url = data.coverUrl
+    if not added:
+        return {"success": False, "message": "Song already exists in playlist"}
 
-    await db.commit()
     return {"success": True, "message": "Song added to playlist"}
 
 @router.delete("/{playlist_id}/songs/{song_id}")
@@ -289,19 +255,12 @@ async def remove_song_from_playlist(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid playlist UUID format")
 
-    stmt = select(models.Playlist).where(models.Playlist.id == pl_uuid, models.Playlist.user_id == user.id)
-    result = await db.execute(stmt)
-    playlist = result.scalar_one_or_none()
+    playlist = await PlaylistRepository.get_by_id(db, pl_uuid, load_tracks=False, user_id=user.id)
 
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
 
-    del_stmt = delete(models.PlaylistTrack).where(
-        models.PlaylistTrack.playlist_id == playlist.id,
-        models.PlaylistTrack.track_id == song_id
-    )
-    await db.execute(del_stmt)
-    await db.commit()
+    await PlaylistRepository.remove_track(db, playlist.id, song_id)
     return {"success": True, "message": "Song removed from playlist"}
 
 @router.post("/preview-spotify")

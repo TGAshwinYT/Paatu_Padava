@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
@@ -65,6 +66,12 @@ class _LyricsScreenState extends State<LyricsScreen> {
 
     // Subscribe to position stream with effective offset calculation
     _subscribePosition();
+
+    // Ensure immediate synchronized jump to the active playing line when opening
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _updateActiveIndexForPosition(audioHandler.player.position, immediate: true);
+    });
   }
 
   @override
@@ -82,6 +89,10 @@ class _LyricsScreenState extends State<LyricsScreen> {
     if (mounted) {
       setState(() {
         _parseLyrics(audioHandler.currentLyricsNotifier.value);
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _updateActiveIndexForPosition(audioHandler.player.position, immediate: true);
       });
     }
   }
@@ -159,21 +170,28 @@ class _LyricsScreenState extends State<LyricsScreen> {
 
   /// Calculates the active lyric index using binary search:
   /// exact LRC timestamp + 180ms vocal-lead lookahead to eliminate lag.
-  void _updateActiveIndexForPosition(Duration currentPosition) {
+  void _updateActiveIndexForPosition(Duration currentPosition, {bool immediate = false}) {
     if (!_isLrc || _lines.isEmpty) return;
 
     final effectivePosition = currentPosition + const Duration(milliseconds: 180);
     final idx = _findActiveLineIndex(effectivePosition);
 
-    if (idx != _activeIndex) {
-      setState(() => _activeIndex = idx);
-      _scrollToActive(idx);
+    if (idx != _activeIndex || immediate) {
+      if (mounted) {
+        setState(() => _activeIndex = idx);
+      } else {
+        _activeIndex = idx;
+      }
+      _scrollToActive(idx, immediate: immediate);
     }
   }
 
-  /// Smoothly center-scrolls the active lyric line using Scrollable / ScrollController
-  void _scrollToActive(int idx) {
-    if (_isUserScrolling) return;
+  /// Two-phase center-scrolling for active lyric line:
+  /// 1. If key is already mounted, Scrollable.ensureVisible centers at 45% eye-level.
+  /// 2. If item is off-screen (unrendered in lazy ListView), jump/animate to estimated
+  ///    offset to mount it, then refine with exact ensureVisible on the following frame.
+  void _scrollToActive(int idx, {bool immediate = false}) {
+    if (_isUserScrolling && !immediate) return;
     if (idx < 0 || idx >= _lineKeys.length) return;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -183,9 +201,52 @@ class _LyricsScreenState extends State<LyricsScreen> {
         Scrollable.ensureVisible(
           keyContext,
           alignment: 0.45, // Centers active line smoothly at 45% eye-level
-          duration: const Duration(milliseconds: 350),
+          duration: immediate ? Duration.zero : const Duration(milliseconds: 350),
           curve: Curves.easeOutCubic,
         );
+      } else if (_scrollController.hasClients && _scrollController.position.hasContentDimensions) {
+        final viewportHeight = _scrollController.position.viewportDimension;
+        final topPadding = viewportHeight * 0.38;
+        const estimatedLineHeight = 58.0;
+        final estimatedOffset = (topPadding + (idx * estimatedLineHeight)) - (viewportHeight * 0.45);
+        final maxExtent = _scrollController.position.maxScrollExtent;
+        final targetOffset = maxExtent > 0
+            ? estimatedOffset.clamp(0.0, maxExtent)
+            : math.max(0.0, estimatedOffset);
+
+        if (immediate) {
+          _scrollController.jumpTo(targetOffset);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            final mountedContext = _lineKeys[idx].currentContext;
+            if (mountedContext != null) {
+              Scrollable.ensureVisible(
+                mountedContext,
+                alignment: 0.45,
+                duration: Duration.zero,
+              );
+            }
+          });
+        } else {
+          _scrollController
+              .animateTo(
+            targetOffset,
+            duration: const Duration(milliseconds: 350),
+            curve: Curves.easeOutCubic,
+          )
+              .then((_) {
+            if (!mounted) return;
+            final mountedContext = _lineKeys[idx].currentContext;
+            if (mountedContext != null) {
+              Scrollable.ensureVisible(
+                mountedContext,
+                alignment: 0.45,
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOutCubic,
+              );
+            }
+          });
+        }
       }
     });
   }
@@ -196,8 +257,9 @@ class _LyricsScreenState extends State<LyricsScreen> {
   }
 
   void _onUserScrollEnd() {
+    if (!_isUserScrolling) return;
     _userScrollResumeTimer?.cancel();
-    _userScrollResumeTimer = Timer(const Duration(seconds: 4), () {
+    _userScrollResumeTimer = Timer(const Duration(seconds: 10), () {
       if (mounted) {
         setState(() => _isUserScrolling = false);
         _scrollToActive(_activeIndex);
@@ -212,6 +274,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
 
     audioHandler.seek(clampedSeek);
     _isUserScrolling = false;
+    _userScrollResumeTimer?.cancel();
     _scrollToActive(idx);
   }
 

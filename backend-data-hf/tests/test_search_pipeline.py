@@ -140,6 +140,50 @@ class TestSearchPipelineAndTrust(unittest.IsolatedAsyncioTestCase):
         fresh_payload = jwt.decode(refreshed_token, SECRET_KEY, algorithms=[ALGORITHM])
         self.assertEqual(fresh_payload.get("sub"), "listener@paatupaadava.com")
 
+    def test_multilingual_saavn_cookie_headers(self):
+        """Verify get_saavn_cookie_header encodes all Indian languages and doesn't trap users in Tamil-only."""
+        from services.saavn import get_saavn_cookie_header, ALL_INDIAN_LANGUAGES_COOKIE
+
+        # When language is None or 'all', all 16 Indian languages are included
+        default_cookie = get_saavn_cookie_header(None)
+        self.assertIn("hindi", default_cookie)
+        self.assertIn("telugu", default_cookie)
+        self.assertIn("tamil", default_cookie)
+        self.assertIn("malayalam", default_cookie)
+        self.assertIn("kannada", default_cookie)
+        self.assertIn("punjabi", default_cookie)
+
+        all_cookie = get_saavn_cookie_header("all")
+        self.assertEqual(all_cookie, f"L={ALL_INDIAN_LANGUAGES_COOKIE}; gdpr_acceptance=true; DL=english")
+
+        # Multi-language user preference
+        multi_cookie = get_saavn_cookie_header("hindi,tamil,telugu")
+        self.assertIn("hindi%2Ctamil%2Ctelugu", multi_cookie)
+        self.assertIn("english", multi_cookie)
+
+    def test_multilingual_score_track_relevance(self):
+        """Verify track scoring succeeds across Hindi, Telugu, English, Malayalam, and Tamil catalogs."""
+        test_cases = [
+            {"title": "Kesariya", "artist": "Arijit Singh", "lang": "hindi", "query": "kesariya"},
+            {"title": "Samajavaragamana", "artist": "Sid Sriram", "lang": "telugu", "query": "samajavaragamana"},
+            {"title": "Shape of You", "artist": "Ed Sheeran", "lang": "english", "query": "shape of you"},
+            {"title": "Malare", "artist": "Vijay Yesudas", "lang": "malayalam", "query": "malare"},
+            {"title": "Hukum", "artist": "Anirudh Ravichander", "lang": "tamil", "query": "hukum"},
+        ]
+
+        for tc in test_cases:
+            track = {
+                "title": tc["title"],
+                "artist": tc["artist"],
+                "duration": 220,
+                "is_studio": True,
+                "language": tc["lang"],
+            }
+            # Scores for the track's language or multi-language preference
+            score = score_track_relevance(track, tc["query"], [tc["lang"], "english"])
+            self.assertGreaterEqual(score, 70.0, f"Failed for {tc['title']} ({tc['lang']})")
+
 
 if __name__ == "__main__":
     unittest.main()
+

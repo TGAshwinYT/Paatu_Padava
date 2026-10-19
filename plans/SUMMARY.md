@@ -1,7 +1,7 @@
 # 📋 Paatu Padava — Architecture & Status Summary
-**Project:** Paatu Padava (பாட்டு பாடவா) — v2.1.0  
-**Last Updated:** October 6, 2026  
-**Status:** Phase 0 & Phase 1 Complete — 3-Tier Queue, Autoplay Engine, 132/132 Flutter tests pass, 32/32 Backend tests pass, 0 analyzer issues
+**Project:** Paatu Padava (பாட்டு பாடவா) — v2.3.0  
+**Last Updated:** October 19, 2026  
+**Status:** Multi-Language Search & Streaming Pipeline Complete, Synchronized Lyrics Auto-Scroll & 10-Second Idle Re-Sync Live — 417/417 Flutter tests pass, 38/38 Backend tests pass, 0 analyzer issues
 
 ---
 
@@ -24,8 +24,8 @@
 
 | Layer | Path | Role |
 |---|---|---|
-| **Mobile App** | `mobile/` | Flutter player with background audio, 3-tier queue, endless autoplay, smart shuffle |
-| **Backend API** | `backend-data-hf/` | Python FastAPI on HuggingFace Spaces — search, recommendations, yt-dlp |
+| **Mobile App** | `mobile/` | Flutter player with background audio, 3-tier queue, endless autoplay, smart shuffle, synchronized lyrics |
+| **Backend API** | `backend-data-hf/` | Python FastAPI on HuggingFace Spaces — search, recommendations, yt-dlp, stream proxy |
 | **Cloud DB** | Supabase | User auth, history, playlists, favorites sync |
 | **React Web** | `frontend-react/` | React 19 + TypeScript web client with equalizer and responsive UI |
 
@@ -36,10 +36,10 @@
 | Metric | Value |
 |---|---|
 | `flutter analyze` | **0 issues** |
-| `flutter test` | **408/408 passed (100%)** |
-| `python -m unittest discover -s tests` | **36/36 passed (100%)** |
+| `flutter test` | **417/417 passed (100%)** |
+| `pytest -v` | **38/38 passed (100%)** |
 | `frontend-react build` (`tsc -b && vite build`) | **0 errors (2199 modules)** |
-| Total Automated Unit/Integration Tests | **444/444 passed (100%)** |
+| Total Automated Unit/Integration Tests | **455/455 passed (100%)** |
 
 ---
 
@@ -102,6 +102,15 @@ Defined in `.antigravity/agents.json`:
     - **Frontend**: Fully wired `QueueDrawer.tsx` and `QueuePanel.tsx` to `useQueue()` for state slicing, eliminating audio tick re-renders from queue panels. Verified clean React 19 / Vite production build (0 errors).
     - **Mobile**: Verified Android 14+ `foregroundServiceType="mediaPlayback"` compliance and 150 MB LRU smart audio cache limits.
     - **Total Test Verification**: 444/444 tests passing (408 Flutter + 36 Backend), 0 Dart analyzer issues, 0 TypeScript compiler errors.
+  - **Phase 9 (Multilingual Streaming & Universal Indian Languages Architecture)**:
+    - **Root Cause Resolution**: Fixed broken Stage D stream resolution endpoint in `mobile/lib/logic/stream_resolver.dart`, replaced hardcoded `'Cookie': 'L=tamil%2Cenglish'` with dynamic multi-language headers across all 15 Indian languages, eradicated client-side non-Tamil song and artist drops in `saavn_client.dart` and `search_service.dart`, unlocked global search in `search_screen.dart`, and added backend direct alias endpoints `/music/stream/{song_id}` and `/music/search`.
+    - **Phase 4 Multi-Language UI**: Integrated dynamic language filter chips row (`All`, `Tamil`, `Hindi`, `Telugu`, `English`, `Malayalam`, `Kannada`, `Punjabi`) in active search UI, wired seamless language targeting across Saavn, YouTube, and Artists tabs, whitelisted legitimate multilingual musicians in `ArtistSanitizer`, and updated `HomeFeedProvider` to respect polyglot profiles.
+    - **Automated Integration Testing**: Added full multilingual test suites covering Hindi (`Kesariya`), Telugu (`Samajavaragamana`), English (`Shape of You`), Malayalam (`Malare`), and Tamil (`Hukum`) search scoring, dynamic cookie generation, genuine artist sanitization, and Stage D proxy URLs.
+    - **Total Test Pass Rate**: **453/453 tests passing** (415 Flutter + 38 Backend), 0 Dart analyzer issues, 0 TypeScript build errors.
+  - **Phase 10 (Production Connection Pooling & Full-Stack CI)**:
+    - **Database Hardening**: Upgraded `connection.py` asyncpg connection pool parameters to production grade (`pool_size=20`, `max_overflow=10`, `pool_recycle=1800`, `pool_pre_ping=True`) with configurable environment overrides.
+    - **Full-Stack CI/CD Workflow**: Added `.github/workflows/ci.yml` matrix covering Python 3.13 backend tests, React 19 production builds, and Flutter analysis and unit tests on every push and pull request.
+    - **Total Ecosystem Status**: 453/453 tests passing, 0 analyzer issues, 0 compiler errors.
 
 ---
 

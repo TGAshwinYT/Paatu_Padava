@@ -337,17 +337,21 @@ class HomeFeedProvider extends ChangeNotifier {
     var filtered = List<Map<String, dynamic>>.from(rawList);
 
     if (isTamil) {
-      const hindiSingers = {
-        'arijit singh', 'neha kakkar', 'badshah', 'jubin nautiyal', 'atif aslam',
-        'vishal mishra', 'darshan raval', 'armaan malik', 'yo yo honey singh',
-        'b praak', 'guru randhawa', 'tony kakkar', 'sonu nigam', 'kumar sanu',
-        'alka yagnik', 'udith narayan',
-      };
-      filtered = filtered.where((a) {
-        final name = SongRepository.normalizeArtist(a['name']?.toString() ?? '');
-        if (RegExp(r'[\u0900-\u097F]').hasMatch(a['name']?.toString() ?? '')) return false;
-        return !hindiSingers.contains(name);
-      }).toList();
+      final userLangs = SettingsManager.preferredLanguages.map((l) => l.toLowerCase().trim()).toSet();
+      final allowsHindi = userLangs.contains('hindi');
+      if (!allowsHindi) {
+        const hindiSingers = {
+          'arijit singh', 'neha kakkar', 'badshah', 'jubin nautiyal', 'atif aslam',
+          'vishal mishra', 'darshan raval', 'armaan malik', 'yo yo honey singh',
+          'b praak', 'guru randhawa', 'tony kakkar', 'sonu nigam', 'kumar sanu',
+          'alka yagnik', 'udith narayan',
+        };
+        filtered = filtered.where((a) {
+          final name = SongRepository.normalizeArtist(a['name']?.toString() ?? '');
+          if (RegExp(r'[\u0900-\u097F]').hasMatch(a['name']?.toString() ?? '')) return false;
+          return !hindiSingers.contains(name);
+        }).toList();
+      }
 
       for (final seed in SongRepository.tamilArtistSeeds.reversed) {
         final norm = SongRepository.normalizeArtist(seed);

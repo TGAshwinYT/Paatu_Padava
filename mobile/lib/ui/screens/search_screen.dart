@@ -81,6 +81,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   // State isolation via ValueNotifiers: eliminates full-page rebuilds & refresh lag
   final ValueNotifier<String> _currentTabNotifier = ValueNotifier<String>('All');
+  final ValueNotifier<String> _selectedLanguageNotifier = ValueNotifier<String>('All');
   final ValueNotifier<bool> _isSearchingNotifier = ValueNotifier<bool>(false);
   final ValueNotifier<bool> _hasSearchedNotifier = ValueNotifier<bool>(false);
   final ValueNotifier<List<String>> _suggestionsNotifier = ValueNotifier<List<String>>([]);
@@ -88,6 +89,24 @@ class _SearchScreenState extends State<SearchScreen> {
       ValueNotifier<FuzzyCorrectionResult?>(null);
   final ValueNotifier<SearchResultsState> _resultsNotifier =
       ValueNotifier<SearchResultsState>(const SearchResultsState());
+
+  List<String> get _availableLanguages {
+    final userLangs = SettingsManager.preferredLanguages;
+    final defaults = ['All', 'Tamil', 'Hindi', 'Telugu', 'English', 'Malayalam', 'Kannada', 'Punjabi'];
+    final list = <String>['All'];
+    for (final l in userLangs) {
+      final trimmed = l.trim();
+      if (trimmed.isNotEmpty && !list.contains(trimmed)) {
+        list.add(trimmed);
+      }
+    }
+    for (final d in defaults) {
+      if (!list.contains(d)) {
+        list.add(d);
+      }
+    }
+    return list;
+  }
 
   // O(K) Prefix Trie for sub-millisecond instant autocomplete on keystroke
   final PrefixTrie<String> _localSearchTrie = PrefixTrie<String>();
@@ -211,6 +230,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _searchController.dispose();
     _debounceTimer?.cancel();
     _currentTabNotifier.dispose();
+    _selectedLanguageNotifier.dispose();
     _isSearchingNotifier.dispose();
     _hasSearchedNotifier.dispose();
     _suggestionsNotifier.dispose();
@@ -233,6 +253,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _isSearchActiveNotifier.value = false;
     _hasSearchedNotifier.value = false;
     _isSearchingNotifier.value = false;
+    _selectedLanguageNotifier.value = 'All';
     _suggestionsNotifier.value = [];
     _fuzzyCorrectionNotifier.value = null;
     _resultsNotifier.value = const SearchResultsState();
@@ -307,6 +328,8 @@ class _SearchScreenState extends State<SearchScreen> {
         ? SettingsManager.preferredLanguages.first
         : 'Tamil';
     final tab = _currentTabNotifier.value;
+    final selectedLang = _selectedLanguageNotifier.value;
+    final effectiveLangFilter = (selectedLang == 'All' ? null : selectedLang);
 
     // Direct YouTube Link Detection: Instant resolution for pasted YouTube URLs or Playlist links
     final ytVideoId = YouTubeClient.extractVideoId(clean);
@@ -352,7 +375,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
     try {
       if (tab == 'All') {
-        await for (final unified in SearchService.searchProgressive(clean, language: prefLang, limit: 25)) {
+        await for (final unified in SearchService.searchProgressive(clean, language: effectiveLangFilter, limit: 25)) {
           if (!mounted || currentRequestId != _searchRequestId) return;
           _resultsNotifier.value = SearchResultsState(
             topResult: unified.topResult,
@@ -374,10 +397,10 @@ class _SearchScreenState extends State<SearchScreen> {
         }
         return;
       } else if (tab == 'Saavn' || tab == 'Songs') {
-        final saavnSongs = await SaavnClient.search(clean, limit: 25, language: prefLang)
+        final saavnSongs = await SaavnClient.search(clean, limit: 25, language: effectiveLangFilter)
             .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
         if (!mounted || currentRequestId != _searchRequestId) return;
-        final grouped = SongRepository.groupCanonicalSongs(saavnSongs, preferredLanguage: prefLang);
+        final grouped = SongRepository.groupCanonicalSongs(saavnSongs);
         final cleanSaavn = SongRepository.deduplicateSongs(grouped);
         _resultsNotifier.value = SearchResultsState(
           saavnSongs: cleanSaavn,
@@ -390,7 +413,7 @@ class _SearchScreenState extends State<SearchScreen> {
       } else if (tab == 'Albums') {
         final albumsFuture = SaavnClient.searchAlbums(clean, limit: 25)
             .timeout(const Duration(seconds: 3), onTimeout: () => <Map<String, dynamic>>[]);
-        final songsFuture = SaavnClient.search(clean, limit: 15, language: prefLang)
+        final songsFuture = SaavnClient.search(clean, limit: 15)
             .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
         final res = await Future.wait([albumsFuture, songsFuture]);
         if (!mounted || currentRequestId != _searchRequestId) return;
@@ -432,9 +455,9 @@ class _SearchScreenState extends State<SearchScreen> {
         _resultsNotifier.value = SearchResultsState(albums: genuineAlbums);
         _isSearchingNotifier.value = false;
       } else if (tab == 'Artists') {
-        final artistsFuture = SaavnClient.searchArtists(clean, limit: 25, language: prefLang)
+        final artistsFuture = SaavnClient.searchArtists(clean, limit: 25, language: effectiveLangFilter)
             .timeout(const Duration(seconds: 3), onTimeout: () => <Map<String, dynamic>>[]);
-        final songsFuture = SaavnClient.search(clean, limit: 15, language: prefLang)
+        final songsFuture = SaavnClient.search(clean, limit: 15, language: effectiveLangFilter)
             .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
         final res = await Future.wait([artistsFuture, songsFuture]);
         if (!mounted || currentRequestId != _searchRequestId) return;
@@ -490,25 +513,25 @@ class _SearchScreenState extends State<SearchScreen> {
 
         final filteredArtists = SearchService.filterArtistsByLanguage(
           correlatedArtists,
-          language: prefLang,
+          language: effectiveLangFilter,
           query: clean,
         );
         _resultsNotifier.value = SearchResultsState(artists: filteredArtists);
         _isSearchingNotifier.value = false;
       } else if (tab == 'YT Music' || tab == 'YouTube Music' || tab == 'YouTube') {
         final intent = SearchService.understandQuery(clean);
-        final targetLang = intent.explicitLanguage ?? prefLang;
-        final ytQuery = (intent.explicitLanguage != null && !clean.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
-            ? '${intent.explicitLanguage!} $clean'
+        final targetLang = intent.explicitLanguage ?? effectiveLangFilter;
+        final ytQuery = (targetLang != null && !clean.toLowerCase().contains(targetLang.toLowerCase()))
+            ? '$targetLang $clean'
             : clean;
         var yt = await YouTubeClient.search(ytQuery, limit: 25)
             .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
         if (yt.isEmpty) {
-          final saavn = await SaavnClient.search(clean, limit: 25, language: prefLang);
+          final saavn = await SaavnClient.search(clean, limit: 25, language: effectiveLangFilter);
           yt = saavn.map((s) => s.copyWith(source: 'youtube')).toList();
         }
         if (!mounted || currentRequestId != _searchRequestId) return;
-        final filteredYt = intent.explicitLanguage != null
+        final filteredYt = targetLang != null
             ? SongRepository.filterByLanguage(yt, targetLang)
             : yt;
         final groupedYt = SongRepository.groupCanonicalSongs(filteredYt, preferredLanguage: targetLang);
@@ -530,9 +553,9 @@ class _SearchScreenState extends State<SearchScreen> {
       }
 
       if (mounted && currentRequestId == _searchRequestId && _resultsNotifier.value.isEmpty && !_resultsNotifier.value.hasError && correction != null) {
-        final fallbackSongs = await FuzzySearchService.executeFallbackSearch(clean, language: prefLang);
+        final fallbackSongs = await FuzzySearchService.executeFallbackSearch(clean, language: effectiveLangFilter ?? prefLang);
         if (fallbackSongs.isNotEmpty && mounted && currentRequestId == _searchRequestId) {
-          final grouped = SongRepository.groupCanonicalSongs(fallbackSongs, preferredLanguage: prefLang);
+          final grouped = SongRepository.groupCanonicalSongs(fallbackSongs, preferredLanguage: effectiveLangFilter ?? prefLang);
           final cleanFallback = SongRepository.deduplicateSongs(grouped);
           _resultsNotifier.value = SearchResultsState(songs: cleanFallback);
           FuzzySearchService.registerSongs(cleanFallback);
@@ -550,6 +573,14 @@ class _SearchScreenState extends State<SearchScreen> {
   void _onTabChanged(String tab) {
     if (_currentTabNotifier.value == tab) return;
     _currentTabNotifier.value = tab;
+    if (_searchController.text.isNotEmpty) {
+      _executeSearch(_searchController.text, saveHistory: false);
+    }
+  }
+
+  void _onLanguageChanged(String lang) {
+    if (_selectedLanguageNotifier.value == lang) return;
+    _selectedLanguageNotifier.value = lang;
     if (_searchController.text.isNotEmpty) {
       _executeSearch(_searchController.text, saveHistory: false);
     }
@@ -827,6 +858,46 @@ class _SearchScreenState extends State<SearchScreen> {
                                     ),
                                   ),
                                   onSelected: (_) => _onTabChanged(tab),
+                                ),
+                              );
+                            }).toList(),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+
+                    // Dynamic Language Filter Chips (active mode only)
+                    SizedBox(
+                      height: 32,
+                      child: ValueListenableBuilder<String>(
+                        valueListenable: _selectedLanguageNotifier,
+                        builder: (context, selectedLang, _) {
+                          return ListView(
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            scrollDirection: Axis.horizontal,
+                            children: _availableLanguages.map((lang) {
+                              final isSelected = selectedLang == lang;
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 6.0),
+                                child: ChoiceChip(
+                                  label: Text(lang),
+                                  selected: isSelected,
+                                  selectedColor: AppColors.electricCyan.withValues(alpha: 0.25),
+                                  backgroundColor: AppColors.surfaceElevated.withValues(alpha: 0.6),
+                                  labelStyle: GoogleFonts.outfit(
+                                    color: isSelected ? AppColors.electricCyan : AppColors.textSecondary,
+                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                    fontSize: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    side: BorderSide(
+                                      color: isSelected ? AppColors.electricCyan : AppColors.surfaceBorder,
+                                    ),
+                                  ),
+                                  showCheckmark: false,
+                                  onSelected: (_) => _onLanguageChanged(lang),
                                 ),
                               );
                             }).toList(),

@@ -38,6 +38,12 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
     super.initState();
     _parseLyrics();
     _subscribePosition();
+
+    // Trigger immediate synchronized jump to the active playing line when mounted
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _updateActiveIndexForPosition(audioHandler.player.position, immediate: true);
+    });
   }
 
   int _findActiveLineIndex(Duration effectivePosition) {
@@ -59,17 +65,31 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
     return idx;
   }
 
+  void _updateActiveIndexForPosition(Duration pos, {bool immediate = false}) {
+    if (!_isLrc || _lines.isEmpty) return;
+
+    final effectivePosition = pos + const Duration(milliseconds: 180);
+    final idx = _findActiveLineIndex(effectivePosition);
+
+    if (idx != _activeIndex || immediate) {
+      if (mounted) {
+        setState(() => _activeIndex = idx);
+      } else {
+        _activeIndex = idx;
+      }
+      _scrollToActive(idx, immediate: immediate);
+    }
+  }
+
   @override
   void didUpdateWidget(covariant SyncedLyricsEmbed oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.lyrics != widget.lyrics) {
       _parseLyrics();
-      final effectivePosition = audioHandler.player.position + const Duration(milliseconds: 180);
-      final idx = _findActiveLineIndex(effectivePosition);
-      if (idx != _activeIndex) {
-        setState(() => _activeIndex = idx);
-        _scrollToActive(idx);
-      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _updateActiveIndexForPosition(audioHandler.player.position, immediate: true);
+      });
     }
   }
 
@@ -103,15 +123,8 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
   void _subscribePosition() {
     _posSub?.cancel();
     _posSub = audioHandler.lyricsPositionStream.listen((pos) {
-      if (!mounted || !_isLrc || _lines.isEmpty) return;
-
-      final effectivePosition = pos + const Duration(milliseconds: 180);
-      final idx = _findActiveLineIndex(effectivePosition);
-
-      if (idx != _activeIndex) {
-        setState(() => _activeIndex = idx);
-        _scrollToActive(idx);
-      }
+      if (!mounted) return;
+      _updateActiveIndexForPosition(pos);
     });
 
     _playingSub?.cancel();
@@ -129,8 +142,12 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
     });
   }
 
-  void _scrollToActive(int idx) {
-    if (_isUserScrolling) return;
+  /// Two-phase center-scrolling for active lyric line:
+  /// 1. If key is already mounted, Scrollable.ensureVisible centers at 45% eye-level.
+  /// 2. If item is off-screen (unrendered in lazy ListView), jump/animate to estimated
+  ///    offset to mount it, then refine with exact ensureVisible on the following frame.
+  void _scrollToActive(int idx, {bool immediate = false}) {
+    if (_isUserScrolling && !immediate) return;
     if (idx < 0 || idx >= _lineKeys.length) return;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -140,9 +157,52 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
         Scrollable.ensureVisible(
           keyContext,
           alignment: 0.45,
-          duration: const Duration(milliseconds: 500),
+          duration: immediate ? Duration.zero : const Duration(milliseconds: 400),
           curve: Curves.easeOutCubic,
         );
+      } else if (_scrollController.hasClients && _scrollController.position.hasContentDimensions) {
+        final viewportHeight = _scrollController.position.viewportDimension;
+        final topPadding = viewportHeight * 0.22;
+        const estimatedLineHeight = 48.0;
+        final estimatedOffset = (topPadding + (idx * estimatedLineHeight)) - (viewportHeight * 0.45);
+        final maxExtent = _scrollController.position.maxScrollExtent;
+        final targetOffset = maxExtent > 0
+            ? estimatedOffset.clamp(0.0, maxExtent)
+            : math.max(0.0, estimatedOffset);
+
+        if (immediate) {
+          _scrollController.jumpTo(targetOffset);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            final mountedContext = _lineKeys[idx].currentContext;
+            if (mountedContext != null) {
+              Scrollable.ensureVisible(
+                mountedContext,
+                alignment: 0.45,
+                duration: Duration.zero,
+              );
+            }
+          });
+        } else {
+          _scrollController
+              .animateTo(
+            targetOffset,
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeOutCubic,
+          )
+              .then((_) {
+            if (!mounted) return;
+            final mountedContext = _lineKeys[idx].currentContext;
+            if (mountedContext != null) {
+              Scrollable.ensureVisible(
+                mountedContext,
+                alignment: 0.45,
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOutCubic,
+              );
+            }
+          });
+        }
       }
     });
   }
@@ -153,13 +213,21 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
   }
 
   void _onUserScrollEnd() {
+    if (!_isUserScrolling) return;
     _userScrollResumeTimer?.cancel();
-    _userScrollResumeTimer = Timer(const Duration(seconds: 4), () {
+    _userScrollResumeTimer = Timer(const Duration(seconds: 10), () {
       if (mounted) {
         setState(() => _isUserScrolling = false);
         _scrollToActive(_activeIndex);
       }
     });
+  }
+
+  void _seekToLine(LyricLine line, int idx) {
+    audioHandler.seek(line.timestamp);
+    _isUserScrolling = false;
+    _userScrollResumeTimer?.cancel();
+    _scrollToActive(idx);
   }
 
   Widget _buildDualLyricsToggle() {
@@ -362,11 +430,7 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
                   key: _lineKeys[idx],
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
-                    onTap: () {
-                      audioHandler.seek(line.timestamp);
-                      _isUserScrolling = false;
-                      _scrollToActive(idx);
-                    },
+                    onTap: () => _seekToLine(line, idx),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 10.0),
                       child: line.isBgm

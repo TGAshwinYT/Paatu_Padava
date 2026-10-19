@@ -88,12 +88,12 @@ if not DB_URL or DB_URL == "postgresql+asyncpg://":
 engine = create_async_engine(
     DB_URL,
     echo=False,
-    pool_size=5,
-    max_overflow=10,         # Bounded overflow prevents connection leaks during rapid track skipping
-    pool_timeout=30,         # Bound queue wait time
-    pool_pre_ping=True,      # Verify connection health before use
-    pool_recycle=300,        # Recycle connections every 5 mins to prevent remote drops
-    pool_use_lifo=True,      # Reuse hot connections
+    pool_size=int(os.getenv("DB_POOL_SIZE", "20")),
+    max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "10")),  # Bounded overflow prevents connection leaks during rapid track skipping
+    pool_timeout=30,                                      # Bound queue wait time
+    pool_pre_ping=True,                                   # Verify connection health before use
+    pool_recycle=int(os.getenv("DB_POOL_RECYCLE", "1800")), # Recycle connections every 30 mins to prevent remote drops
+    pool_use_lifo=True,                                   # Reuse hot connections
     connect_args={
         "ssl": ctx  # This forces asyncpg to use our permissive context
     }

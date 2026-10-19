@@ -809,18 +809,23 @@ TANGLISH_TRANSLITERATION_MAP = {
 
 @router.get("/search")
 async def search_tracks(
-    query: str = Query(..., min_length=1), 
+    query: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
     user: models.User = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db)
 ):
     try:
+        raw_query = (query or q or "").strip()
+        if not raw_query:
+            return []
+
         # 1. Script detection and explicit language override extraction
-        script_lang = detect_script_language(query)
+        script_lang = detect_script_language(raw_query)
         detected_lang = script_lang
         known_languages = ["tamil", "telugu", "hindi", "malayalam", "kannada", "english", "punjabi"]
         
         # Clean query: strip explicit language keywords from upstream query
-        clean_query = query
+        clean_query = raw_query
         for kl in known_languages:
             pattern = re.compile(rf'\b{kl}\b', re.IGNORECASE)
             if pattern.search(clean_query):
@@ -851,7 +856,8 @@ async def search_tracks(
         # 2. Retrieve in parallel with timeouts: Query JioSaavn first, YouTube only when JioSaavn is weak
         saavn_songs = []
         try:
-            saavn_res = await asyncio.wait_for(search_saavn(clean_query, language=primary_lang), timeout=4.0)
+            target_saavn_lang = detected_lang if detected_lang else search_languages
+            saavn_res = await asyncio.wait_for(search_saavn(clean_query, language=target_saavn_lang), timeout=4.0)
             if isinstance(saavn_res, list):
                 saavn_songs = saavn_res
         except Exception as se:

@@ -187,53 +187,9 @@ class SearchService {
   /// English pop stars (e.g. Justin Bieber) from regional queries, and placeholder images.
   static List<Map<String, dynamic>> filterArtistsByLanguage(
     List<Map<String, dynamic>> artists, {
-    required String language,
+    String? language,
     required String query,
   }) {
-    final lowerLang = language.toLowerCase().trim();
-    final isTamil = lowerLang == 'tamil';
-    final lowerQuery = query.toLowerCase().trim();
-
-    const westernPopSingers = {
-      'justin bieber',
-      'taylor swift',
-      'ed sheeran',
-      'ariana grande',
-      'billie eilish',
-      'drake',
-      'dua lipa',
-      'the weeknd',
-      'shawn mendes',
-      'selena gomez',
-      'post malone',
-      'charlie puth',
-      'bruno mars',
-      'katy perry',
-      'rihanna',
-      'eminem',
-    };
-
-    const hindiSingers = {
-      'arijit singh',
-      'neha kakkar',
-      'badshah',
-      'jubin nautiyal',
-      'atif aslam',
-      'vishal mishra',
-      'darshan raval',
-      'armaan malik',
-      'yo yo honey singh',
-      'b praak',
-      'guru randhawa',
-      'tony kakkar',
-      'sonu nigam',
-      'kumar sanu',
-      'alka yagnik',
-      'udith narayan',
-      'mika singh',
-      'sunidhi chauhan',
-    };
-
     final filtered = <Map<String, dynamic>>[];
     for (final item in artists) {
       final name = (item['name'] ?? item['title'] ?? '').toString().trim();
@@ -249,19 +205,7 @@ class SearchService {
         continue;
       }
 
-      // If user explicitly searched for this artist by name, keep it
-      if (norm.contains(lowerQuery) || lowerQuery.contains(norm)) {
-        filtered.add(item);
-        continue;
-      }
-
-      // For regional modes (e.g. Tamil), block cross-language leaks (Justin Bieber, Bollywood artists)
-      if (isTamil) {
-        if (westernPopSingers.contains(norm)) continue;
-        if (norm != 'shreya ghoshal' && hindiSingers.contains(norm)) continue;
-        if (RegExp(r'[\u0900-\u097F]').hasMatch(name)) continue;
-      }
-
+      // If genuine artist matches criteria, keep it
       filtered.add(item);
     }
     return filtered;
@@ -389,18 +333,21 @@ class SearchService {
 
     // 3. Language Prior Boost
     // If query has explicit language override, respect it as top priority
-    final primaryLang = (intent.explicitLanguage ??
-            (preferredLanguages.isNotEmpty ? preferredLanguages.first : 'Tamil'))
-        .toLowerCase();
-    final secondaryLang = preferredLanguages.length > 1
-        ? preferredLanguages[1].toLowerCase()
-        : null;
+    final primaryLang = intent.explicitLanguage?.toLowerCase() ??
+        (preferredLanguages.isNotEmpty ? preferredLanguages.first.toLowerCase().trim() : null);
 
-    final songLang = song.language?.toLowerCase() ?? '';
-    if (songLang == primaryLang || song.title.toLowerCase().contains(primaryLang)) {
-      score += 0.35; // Strongest boost for 1st preferred language
-    } else if (secondaryLang != null && (songLang == secondaryLang || song.title.toLowerCase().contains(secondaryLang))) {
-      score += 0.15; // Weaker boost for 2nd preferred language
+    final songLang = song.language?.toLowerCase().trim() ?? '';
+    if (primaryLang != null && (songLang == primaryLang || song.title.toLowerCase().contains(primaryLang))) {
+      score += 0.25; // Gentle boost for 1st preferred language
+    } else {
+      // Check if candidate matches any other user-preferred language
+      for (final pLang in preferredLanguages) {
+        final normPLang = pLang.toLowerCase().trim();
+        if (normPLang.isNotEmpty && (songLang == normPLang || song.title.toLowerCase().contains(normPLang))) {
+          score += 0.15; // Positive boost for secondary languages
+          break;
+        }
+      }
     }
 
     // 4. Version Penalty
@@ -479,10 +426,10 @@ class SearchService {
 
     final prefLangs = SettingsManager.preferredLanguages;
     final effectiveLang = intent.explicitLanguage ??
-        (language ?? (prefLangs.isNotEmpty ? prefLangs.first : 'Tamil'));
+        (language != null && language.isNotEmpty && language.toLowerCase() != 'all' && language.toLowerCase() != 'any' ? language : null);
 
     // Check fast LRU in-memory cache first (0ms)
-    final cached = SearchCache.get(rawQuery, language: effectiveLang);
+    final cached = SearchCache.get(rawQuery, language: effectiveLang ?? 'all');
     if (cached != null) {
       yield cached;
       return;

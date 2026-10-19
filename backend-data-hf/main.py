@@ -5,7 +5,8 @@ import socket
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 load_dotenv() # Load env vars before importing routers
-from fastapi import FastAPI, Depends, HTTPException, Request
+from typing import Optional
+from fastapi import FastAPI, Depends, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +19,8 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from limiter_config import limiter
 
-from connection import check_redis_connection, check_db_connection, engine, AsyncSessionLocal, get_redis
+from connection import check_redis_connection, check_db_connection, engine, AsyncSessionLocal, get_redis, get_db
+from auth_utils import get_current_user_optional
 from base import Base
 from routers import music, auth, playlists, history, users, utils
 from services.youtube import get_trending_youtube
@@ -284,6 +286,35 @@ async def music_spotify_token_alias(
     Direct alias endpoint for /music/spotify/token proxying to music.get_spotify_token.
     """
     return await music.get_spotify_token(request, redis_client)
+
+@app.get("/music/stream/{song_id}")
+async def music_stream_alias(
+    song_id: str,
+    title: Optional[str] = Query(None),
+    artist: Optional[str] = Query(None),
+    redis_client = Depends(get_redis)
+):
+    """
+    Direct alias endpoint for /music/stream/{song_id} resolving stream URLs.
+    """
+    from services.stream_resolver_backend import resolve_single_stream
+    return await resolve_single_stream(song_id, title, artist, redis_client)
+
+@app.get("/music/search")
+async def music_search_alias(
+    query: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
+    user = Depends(get_current_user_optional),
+    db = Depends(get_db)
+):
+    """
+    Direct alias endpoint for /music/search supporting both query and q parameter formats.
+    """
+    from routers import music as music_router
+    effective_q = (query or q or "").strip()
+    if not effective_q:
+        return []
+    return await music_router.search_tracks(query=effective_q, q=effective_q, user=user, db=db)
 
 @app.get("/api/health")
 async def health_check():

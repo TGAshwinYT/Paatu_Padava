@@ -328,31 +328,60 @@ class DefaultStreamResolver implements StreamResolver {
   }
 
   /// Queries backend stream proxy endpoints if direct extraction fails
-  static Future<String?> _queryBackendStreamProxy(String trackId, String cleanTitle) async {
+  static Future<String?> _queryBackendStreamProxy(String trackId, String cleanTitle, [String? artist]) async {
     try {
       final base = AppConfig.backendUrl.replaceAll(RegExp(r'/+$'), '');
       if (base.isEmpty) return null;
 
-      final streamUri = Uri.parse('$base/music/stream/$trackId');
-      final res = await http.get(streamUri, headers: {'Accept': 'application/json'}).timeout(const Duration(seconds: 3));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        if (data is Map && data['url'] != null && data['url'].toString().isNotEmpty) {
-          return data['url'].toString();
-        }
+      final titleParam = cleanTitle.isNotEmpty ? 'title=${Uri.encodeComponent(cleanTitle)}' : '';
+      final artistParam = (artist != null && artist.isNotEmpty) ? '&artist=${Uri.encodeComponent(artist)}' : '';
+      final queryParams = titleParam.isNotEmpty ? '?$titleParam$artistParam' : (artistParam.isNotEmpty ? '?$artistParam' : '');
+
+      final streamUris = [
+        Uri.parse('$base/api/music/stream/$trackId$queryParams'),
+        Uri.parse('$base/music/stream/$trackId$queryParams'),
+      ];
+
+      for (final streamUri in streamUris) {
+        try {
+          final res = await http.get(streamUri, headers: {'Accept': 'application/json'}).timeout(const Duration(seconds: 4));
+          if (res.statusCode == 200) {
+            final data = jsonDecode(res.body);
+            if (data is Map) {
+              final u = data['url'] ?? data['audio_url'] ?? data['stream_url'];
+              if (u != null && u.toString().isNotEmpty) {
+                return u.toString();
+              }
+            }
+          }
+        } catch (_) {}
       }
 
-      final searchUri = Uri.parse('$base/music/search?q=${Uri.encodeComponent(cleanTitle)}');
-      final sRes = await http.get(searchUri, headers: {'Accept': 'application/json'}).timeout(const Duration(seconds: 3));
-      if (sRes.statusCode == 200) {
-        final data = jsonDecode(sRes.body);
-        if (data is Map && data['results'] is List && (data['results'] as List).isNotEmpty) {
-          final first = (data['results'] as List).first;
-          final u = first['stream_url'] ?? first['audio_url'] ?? first['url'];
-          if (u != null && u.toString().isNotEmpty) {
-            return u.toString();
+      final searchUris = [
+        Uri.parse('$base/api/music/search?query=${Uri.encodeComponent(cleanTitle)}'),
+        Uri.parse('$base/api/music/search?q=${Uri.encodeComponent(cleanTitle)}'),
+        Uri.parse('$base/music/search?query=${Uri.encodeComponent(cleanTitle)}'),
+      ];
+
+      for (final searchUri in searchUris) {
+        try {
+          final sRes = await http.get(searchUri, headers: {'Accept': 'application/json'}).timeout(const Duration(seconds: 4));
+          if (sRes.statusCode == 200) {
+            final data = jsonDecode(sRes.body);
+            final List items = (data is Map && data['results'] is List)
+                ? (data['results'] as List)
+                : (data is List ? data : []);
+            if (items.isNotEmpty) {
+              final first = items.first;
+              if (first is Map) {
+                final u = first['stream_url'] ?? first['audio_url'] ?? first['url'];
+                if (u != null && u.toString().isNotEmpty) {
+                  return u.toString();
+                }
+              }
+            }
           }
-        }
+        } catch (_) {}
       }
     } catch (_) {}
     return null;
@@ -536,7 +565,7 @@ class DefaultStreamResolver implements StreamResolver {
     // ── STAGE D (Backend Stream Proxy fallback) ──
     try {
       AppLogger.log('StreamResolver', 'Stage D backend stream proxy for: ${song.id}');
-      final proxyUrl = await _queryBackendStreamProxy(song.id, cleanTitleOnly)
+      final proxyUrl = await _queryBackendStreamProxy(song.id, cleanTitleOnly, song.artist)
           .timeout(_stageTimeout, onTimeout: () => null);
       if (proxyUrl != null && proxyUrl.isNotEmpty) {
         song.streamUrl = proxyUrl;

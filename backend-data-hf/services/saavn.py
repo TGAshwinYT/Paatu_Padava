@@ -167,14 +167,20 @@ def decrypt_saavn_media_url(encrypted_url: str) -> str:
     except Exception:
         return ""
 
+ALL_INDIAN_LANGUAGES_COOKIE = "hindi%2Cenglish%2Ctamil%2Ctelugu%2Cpunjabi%2Cmarathi%2Cgujarati%2Cbengali%2Ckannada%2Cbhojpuri%2Cmalayalam%2Curdu%2Charyanvi%2Crajasthani%2Codia%2Cassamese"
+
 def get_saavn_cookie_header(language: Optional[str] = None) -> str:
-    lang = (language or "tamil").lower().strip()
-    if "tamil" in lang:
-        cookie_val = "tamil%2Cenglish"
-    elif lang:
-        cookie_val = lang.replace(",", "%2C")
+    lang = (language or "").lower().strip()
+    if not lang or lang in ["all", "any"]:
+        cookie_val = ALL_INDIAN_LANGUAGES_COOKIE
     else:
-        cookie_val = "tamil%2Cenglish"
+        parts = [p.strip() for p in lang.split(",") if p.strip()]
+        if not parts:
+            cookie_val = ALL_INDIAN_LANGUAGES_COOKIE
+        else:
+            cookie_val = "%2C".join(parts)
+            if "english" not in parts:
+                cookie_val += "%2Cenglish"
     return f"L={cookie_val}; gdpr_acceptance=true; DL=english"
 
 def get_saavn_headers(language: Optional[str] = None) -> Dict[str, str]:
@@ -344,7 +350,7 @@ async def search_saavn_direct(query: str, limit: int = 15, language: str = None)
         "n": str(limit),
         "q": clean_query
     }
-    if language:
+    if language and language.lower().strip() not in ["all", "any"]:
         params["languages"] = language.lower().strip()
     headers = get_saavn_headers(language)
     try:
@@ -408,7 +414,7 @@ async def search_saavn_albums_direct(query: str, limit: int = 15, language: str 
         "n": str(limit),
         "q": clean_query
     }
-    if language:
+    if language and language.lower().strip() not in ["all", "any"]:
         params["languages"] = language.lower().strip()
     headers = get_saavn_headers(language)
     try:
@@ -596,11 +602,11 @@ async def get_trending(languages: str = None) -> Dict[str, List[Dict[str, Any]]]
                 artists_raw = artists_resp.get("data", {}).get("results", [])
 
     # 3. Normalization Loops with strict Hindi filtering when Tamil is selected
+    allowed_langs = {l.strip().lower() for l in effective_languages.split(",") if l.strip()}
     recommended_for_you = []
     for s in songs_raw:
-        # Filter out Hindi tracks when primary language is Tamil/not Hindi
         s_lang = str(s.get("language") or "").lower().strip()
-        if primary_lang != "hindi" and s_lang == "hindi":
+        if s_lang and allowed_langs and s_lang not in allowed_langs and "all" not in allowed_langs:
             continue
         recommended_for_you.append({
             "id": s.get("id"),

@@ -12,14 +12,14 @@ pinned: false
 [![Flutter](https://img.shields.io/badge/Flutter-v3.x-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
 [![Android](https://img.shields.io/badge/Android-SDK_36-3DDC84?logo=android&logoColor=white)](https://developer.android.com)
 [![FastAPI](https://img.shields.io/badge/FastAPI-Python_3.13-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/React-v19_TypeScript-61DAFB?logo=react&logoColor=black)](https://react.dev)
 [![Supabase](https://img.shields.io/badge/Supabase-Auth_%26_Cloud_DB-3ECF8E?logo=supabase&logoColor=white)](https://supabase.com)
 [![Firebase](https://img.shields.io/badge/Firebase-Core_%26_Analytics-FFCA28?logo=firebase&logoColor=black)](https://firebase.google.com)
-[![Audius](https://img.shields.io/badge/Audius-Decentralized_Audio-CC1166?logo=audius&logoColor=white)](https://audius.co)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI Pipeline](https://github.com/TGAshwinYT/Paatu_Padava/actions/workflows/ci.yml/badge.svg)](https://github.com/TGAshwinYT/Paatu_Padava/actions/workflows/ci.yml)
 [![Build APK](https://github.com/TGAshwinYT/Paatu_Padava/actions/workflows/build-apk.yml/badge.svg)](https://github.com/TGAshwinYT/Paatu_Padava/actions/workflows/build-apk.yml)
-[![Tests: 100% Green](https://img.shields.io/badge/Tests-371%20Flutter%20%7C%2036%20Backend%20Passing-brightgreen.svg)](#-engineering-metrics)
+[![Tests: 100% Green](https://img.shields.io/badge/Tests-417%20Flutter%20%7C%2038%20Backend%20Passing-brightgreen.svg)](#-engineering-metrics)
 
-> **Your Infinite Music Universe** — Studio-quality 320kbps audio streaming, Adaptive Bitrate (ABR) streaming with buffer-stall dynamic downscale rescue, multi-format progressive fallback (320 → 160 → 96 kbps), equal-power acoustic crossfading (V_out² + V_in² ≡ 1.0), smart gapless HTTP Range pre-caching (<10ms skip latency), O(1) space-efficient Bloom Filter existence gates, O(log N) BK-Tree typo-tolerant search ("Did you mean?"), O(K) Prefix Trie keystroke autocomplete, Reversible Fisher-Yates uniform shuffle with bidirectional history stack, hybrid Markov-Cosine similarity radio generator, triple-engine hybrid audio resolution (JioSaavn CDN, YouTube Explode, Audius decentralized MP3), sub-200ms synced LRC lyrics via direct LRCLIB with auto-stretching, secure Spotify Developer playlist importer with server-side OAuth proxy, Spotify/Echo-Music-inspired 3-tier queue management, continuous endless autoplay, Android Auto dashboard media browsing, Google Firebase telemetry, Supabase cloud sync, and 100% offline downloads.
+> **Your Infinite Music Universe** — Studio-quality 320kbps audio streaming, Multi-Language Streaming Pipeline (Tamil, Hindi, Telugu, Malayalam, Kannada, Punjabi, English), Two-Phase Synchronized Lyrics Auto-Scroll with 10-Second Idle Re-Sync, Adaptive Bitrate (ABR) streaming with buffer-stall dynamic downscale rescue, multi-format progressive fallback (320 → 160 → 96 kbps), equal-power acoustic crossfading (V_out² + V_in² ≡ 1.0), smart gapless HTTP Range pre-caching (<10ms skip latency), O(1) space-efficient Bloom Filter existence gates, O(log N) BK-Tree typo-tolerant search ("Did you mean?"), O(K) Prefix Trie keystroke autocomplete, Reversible Fisher-Yates uniform shuffle with bidirectional history stack, hybrid Markov-Cosine similarity radio generator, quadruple-engine hybrid audio resolution (JioSaavn CDN, YouTube Explode, Backend Stream Proxy, Audius decentralized MP3), sub-200ms synced LRC lyrics via direct LRCLIB with auto-stretching and Indic romanization, secure Spotify Developer playlist importer with server-side OAuth proxy, Spotify/Echo-Music-inspired 3-tier queue management, continuous endless autoplay, Android Auto dashboard media browsing, Google Firebase telemetry, Supabase cloud sync, and 100% offline downloads.
 
 ---
 
@@ -27,9 +27,10 @@ pinned: false
 
 **Paatu Padava** is a mobile-first, high-fidelity music streaming ecosystem tailored for Indian regional and international music lovers:
 
-1. **Android Mobile App (`mobile/`)**: Native Flutter application built with Clean Architecture, background `AudioService`, gapless `ConcatenatingAudioSource`, 3-tier queue architecture modeled after Spotify and modern open-source players (Bloomee, Echo-Music), Adaptive Bitrate Streaming (ABR) with zero-loading buffer stall rescue, remote InnerTube client rotation, endless autoplay refill, Android Auto media hierarchy, real-time collaborative playlists, native Android AudioSession EQ, bidirectional Supabase playlist synchronization, direct LRCLIB synced lyrics with auto-stretching, Audius decentralized streaming, Google Firebase integration, 3-state smart shuffle with feedback learning, modern glassmorphic sleep timer, and advanced offline downloads.
-2. **Backend Service (`backend-data-hf/`)**: FastAPI + Python 3.13 service providing 320kbps DES media decryption, item-item collaborative filtering recommendation graphs, secure Spotify OAuth token proxy, asynchronous SQLAlchemy with Greenlet, and sub-5ms prefix trie autocomplete.
-3. **AI MCP Server (`mcp_server.py`)**: Model Context Protocol interface enabling AI assistants (Claude Desktop, Gemini CLI, Antigravity IDE) to search tracks, fetch recommendations, and construct smart shuffle queues.
+1. **Android Mobile App (`mobile/`)**: Native Flutter application built with Clean Architecture, background `AudioService`, gapless `ConcatenatingAudioSource`, 3-tier queue architecture modeled after Spotify and modern open-source players (Bloomee, Echo-Music), Adaptive Bitrate Streaming (ABR) with zero-loading buffer stall rescue, multi-language search filtering (Tamil, Hindi, Telugu, English, Malayalam, Kannada, Punjabi), synchronized lyrics auto-scroll with 10-second idle timeline re-sync, dual-language Indic romanization, remote InnerTube client rotation, endless autoplay refill, Android Auto media hierarchy, real-time collaborative playlists, native Android AudioSession EQ, bidirectional Supabase playlist synchronization, direct LRCLIB synced lyrics with auto-stretching, Audius decentralized streaming, Google Firebase integration, 3-state smart shuffle with feedback learning, modern glassmorphic sleep timer, and advanced offline downloads.
+2. **Backend Service (`backend-data-hf/`)**: FastAPI + Python 3.13 service providing 320kbps DES media decryption, Stage D streaming proxy, multi-language search normalization, item-item collaborative filtering recommendation graphs, secure Spotify OAuth token proxy, asynchronous SQLAlchemy with Greenlet connection pooling (`pool_size=20`, `max_overflow=10`), and sub-5ms prefix trie autocomplete.
+3. **React Web App (`frontend-react/`)**: React 19 + TypeScript modern web application featuring an audiophile 10-band equalizer, responsive player interface, fluid visualizer, and cross-platform playback.
+4. **AI MCP Server (`mcp_server.py`)**: Model Context Protocol interface enabling AI assistants (Claude Desktop, Gemini CLI, Antigravity IDE) to search tracks, fetch recommendations, and construct smart shuffle queues.
 
 ---
 
@@ -250,9 +251,27 @@ pinned: false
 - **Artwork Fallback & Anti-Duplication**: Replaces generic compilation covers with verified artist portraits or high-resolution video thumbnails.
 - **Categorized Error States**: Search distinguishes offline, timeout, server cold-start, and genuine empty results with actionable UI messages.
 
+### 🌐 Multi-Language Search & Universal Streaming Pipeline
+- **Dynamic Language Filter Chips**: Fast one-tap filtering across `All`, `Tamil`, `Hindi`, `Telugu`, `English`, `Malayalam`, `Kannada`, and `Punjabi` in `SearchScreen`.
+- **4-Stage Stream Resolver Architecture**:
+  - **Stage A (JioSaavn 320kbps CDN)**: Direct 320kbps DES media decryption with progressive 160k/96k step-down.
+  - **Stage B (FastAPI Backend Candidate Search)**: Secondary candidate lookup via backend proxy.
+  - **Stage C (On-Device YouTube Client)**: Adaptive stream probe with itag priority chain (`140` → `251` → `250` → `249`).
+  - **Stage D (Backend Streaming Proxy Fallback)**: `/api/music/stream` backend proxy fallback with title/artist search, resolving international and regional songs cleanly.
+- **Connection Pool Hardening**: Asynchronous backend database connection pool with `pool_size=20`, `max_overflow=10`, and `pool_recycle=1800` to prevent socket exhaustion during high-concurrency multilingual traffic.
+- **Decoupled Language Preference Filtering**: Non-Tamil tracks and artists are preserved cleanly without being dropped or misattributed by language priors.
+
 ---
 
-### 📜 Direct Synced LRC Lyrics Engine (LRCLIB & Auto-Stretching)
+### 📜 Direct Synced LRC Lyrics Engine (Auto-Scroll, 10s Idle Re-Sync & Dual-Language)
+- **Two-Phase Synchronized Auto-Scroll on Open**:
+  - Solves the Flutter lazy `ListView.builder` off-screen rendering issue. When opening lyrics midway through a track, an estimated offset jump immediately mounts the target line widget into the viewport, followed by sub-pixel `Scrollable.ensureVisible` alignment at 45% eye-level without lag or user intervention.
+- **10-Second Idle Timeline Re-Sync**:
+  - Allows users to freely scroll and read lyrics ahead. If the user stops interacting and remains idle for **10 seconds**, the view smoothly animates back to the active synchronized playback line.
+  - Tapping any lyric line immediately jumps playback to that exact timestamp and locks synchronization.
+- **Dual-Language & Indic Romanizer (`IndicRomanizer`)**:
+  - Automatic on-device phonetic transliteration for South Asian languages (Tamil, Hindi/Devanagari, Telugu, Malayalam, Kannada).
+  - Floating `EN / Default` language switch pill allows users to toggle between native script and Romanized phonetics in real time while preserving exact LRC timestamp cues.
 - **Direct Public LRCLIB Integration**: Queries `https://lrclib.net/api` directly from the mobile client for sub-200ms synced lyrics resolution.
 - **Client-Side Line Auto-Stretching**: Dynamically stretches active line display durations during vocal pauses, instrumental solos, and preludes so the highlighted lyrics stay visible until the next vocal cue begins.
 - **Precision Microsecond Offset Calibration**: Interactive calibration sheet allowing users to advance or delay lyrics timing (-5.0s to +5.0s), persisted per-track in local Hive storage.
@@ -359,9 +378,11 @@ Paatu Padava incorporates high-performance custom data structures and algorithms
 | **Catalog Deduplication** | **Zero Redundant Tracks** | Normalized token keys (`${title}_${artist}`) across Saavn, YouTube & Audius |
 | **Search Latency (p95)** | **< 300 ms** | Parallel `Future.wait` aggregation + language match re-ranking |
 | **Collaborative Sync Latency** | **< 100 ms** | Supabase Realtime WebSocket subscription channels |
-| **Flutter Test Suite** | **371 / 371 Tests Passing (100%)** | Comprehensive unit, widget, coordination, queue resilience, ABR, DSA, and audio engine tests across 29 suites |
-| **Backend Test Suite** | **36 / 36 Tests Passing (100%)** | API contracts, recommender graphs, security, trie autocomplete, and search tests |
-| **Total Test Suite** | **407 / 407 Tests Passing (100%)** | End-to-end verification across mobile and backend |
+| **Backend Database Pool** | **20 Conns + 10 Overflow** | SQLAlchemy async pool (`pool_size=20`, `max_overflow=10`, `pool_recycle=1800`) |
+| **Flutter Test Suite** | **417 / 417 Tests Passing (100%)** | Comprehensive unit, widget, queue resilience, ABR, DSA, multi-language, and synced lyrics tests across 37 suites |
+| **Backend Test Suite** | **38 / 38 Tests Passing (100%)** | API contracts, recommender graphs, security audits, trie autocomplete, and multilingual search pipeline tests |
+| **Web Client Suite** | **0 Errors (2199 Modules)** | React 19 + TypeScript production build verification via Vite & TSC |
+| **Total Test Suite** | **455 / 455 Tests Passing (100%)** | End-to-end automated verification across mobile and backend |
 | **Static Analysis** | **0 Errors, 0 Warnings** | Strictly enforced via `flutter analyze` |
 
 ---
@@ -580,7 +601,7 @@ flutter pub get
 # Run static analysis
 flutter analyze
 
-# Execute complete test suite (371 tests)
+# Execute complete test suite (417 tests across 37 suites)
 flutter test
 
 # Run app on connected Android device/emulator
@@ -613,13 +634,34 @@ python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 #### Run Backend Test Suite:
 ```bash
-# Run backend test suite (36 tests)
-python -m unittest discover -s tests
+# Run backend test suite (38 tests across 4 suites)
+pytest -v
 ```
 
 ---
 
-### 3. Model Context Protocol (MCP) Server Setup
+### 3. Web Client (React 19 + TypeScript)
+
+#### Prerequisites:
+- Node.js 18+ & npm
+
+#### Setup & Run:
+```bash
+cd frontend-react
+
+# Install dependencies
+npm install
+
+# Run Vite development server
+npm run dev
+
+# Run type check and production build
+npm run build
+```
+
+---
+
+### 4. Model Context Protocol (MCP) Server Setup
 
 To connect Paatu Padava to Claude Desktop, Gemini CLI, or Antigravity IDE, add this configuration to your `claude_desktop_config.json` or `mcp_config.json`:
 
@@ -646,13 +688,14 @@ Paatu_Padava/
 │   │   │   └── dsa/                  # High-Performance DSA: BkTree (Levenshtein), BloomFilter (Kirsch-Mitzenmacher),
 │   │   │                             # PrefixTrie (Keystroke Autocomplete), LruCache (O(1) Eviction),
 │   │   │                             # CircularBuffer (Ring Buffer), ReversibleShuffle (Fisher-Yates)
-│   │   ├── domain/models/            # TrackEntity, AppError, LyricsState
+│   │   ├── domain/models/            # TrackEntity, AppError, LyricsState, DualLyrics
 │   │   ├── data/repositories/        # SongRepository (Multi-source aggregation)
 │   │   ├── logic/                    # AudioQueueHandler (3-tier queue, stall rescue, preloading),
 │   │   │                             # CrossfadeEngine (Equal-power trigonometric 0dB crossfader),
 │   │   │                             # SmartShuffleController (3-state Markov, feedback learning),
 │   │   │                             # MarkovCosineRadioStrategy (Hybrid transition & cosine vector sim),
-│   │   │                             # NextTrackStrategy (recommendation refills), HomeFeedProvider
+│   │   │                             # NextTrackStrategy (recommendation refills), HomeFeedProvider,
+│   │   │                             # IndicRomanizer (Phonetic script transliteration)
 │   │   ├── services/                 # SmartGaplessPrecacher (HTTP Range 512KB pre-cache worker),
 │   │   │                             # ConnectivityService (ABR, latency & interface monitoring),
 │   │   │                             # InnerTubeConfigService (remote & cached client configs),
@@ -664,33 +707,42 @@ Paatu_Padava/
 │   │   ├── ui/
 │   │   │   ├── screens/              # HomeScreen, SearchScreen, FullPlayerScreen, LibraryScreen,
 │   │   │   │                         # StorageSettingsScreen, ListeningRecapScreen, SettingsScreen,
-│   │   │   │                         # AudioQualitySettingsScreen
+│   │   │   │                         # AudioQualitySettingsScreen, LyricsScreen (two-phase auto-scroll)
 │   │   │   └── widgets/              # Modular UI Component System:
 │   │   │       ├── home/             # HomeSongCard, HomePlaylistCard, HomeQuickPicks
 │   │   │       ├── player/           # SleepTimerSheet (glassmorphic countdown), QueueSheet,
-│   │   │       │                     # PlayerScrubber, MusicVideoPlayerView, PlayerGestureDetector
-│   │   │       ├── search/           # SearchSongOptionsSheet, SearchResultsList, BkTree Did-You-Mean
+│   │   │       │                     # PlayerScrubber, MusicVideoPlayerView, PlayerGestureDetector,
+│   │   │       │                     # SyncedLyricsEmbed (10s idle re-sync)
+│   │   │       ├── search/           # SearchSongOptionsSheet, SearchResultsList, BkTree Did-You-Mean,
+│   │   │       │                     # LanguageFilterChipsBar (8-language quick filters)
 │   │   │       ├── settings/         # AudioQualitySettingsCard, StorageSettingsCard, CrossfadeSlider
 │   │   │       ├── library/          # Playlist cards, download lists
-│   │   │       ├── lyrics/           # Synced lyrics rendering, offset pills
+│   │   │       ├── lyrics/           # Synced lyrics rendering, offset pills, dual-language toggle
 │   │   │       ├── recap/            # Story slides, persona badges
 │   │   │       └── ...               # FluidMeshGradient, SwipeableSongTile, MiniPlayer
 │   │   ├── firebase_options.dart     # Cross-platform Firebase initialization options
 │   │   └── main.dart                 # App Entrypoint, Firebase Init, AudioService Init, Fatal Error Recovery
 │   ├── assets/
 │   │   └── innertube_clients.json    # Bundled fallback InnerTube client configurations
-│   ├── test/                         # 371 Comprehensive Unit, Widget & Integration Tests (29 Suites)
+│   ├── test/                         # 417 Comprehensive Unit, Widget & Integration Tests (37 Suites)
 │   ├── android/                      # Android Gradle project (Java 17, SDK 36, Automotive XML)
 │   │   └── app/google-services.json  # Google Services Firebase Android configuration
 │   └── firebase.json                 # Firebase project configuration
 ├── backend-data-hf/                  # FastAPI Python 3.13 Data Service
-│   ├── services/                     # DES Decryption, Music Graph, Trie Autocomplete, Spotify Proxy & Scraper
-│   ├── tests/                        # 36 Backend, Security & Recommender Test Suites
-│   ├── requirements.txt              # FastAPI, SQLAlchemy[asyncio], Greenlet, Requests, Cryptography
+│   ├── routers/                      # Music, Search, Recommender, Auth, History, Playlists
+│   ├── services/                     # DES Decryption, Stream Resolver, Music Graph, Trie Autocomplete, Spotify Proxy
+│   ├── tests/                        # 38 Backend, Security, Recommender & Pipeline Tests (4 Suites)
+│   ├── connection.py                 # SQLAlchemy async pool (pool_size=20, max_overflow=10, pool_recycle=1800)
+│   ├── requirements.txt              # FastAPI, SQLAlchemy[asyncio], Greenlet, Requests, Cryptography, Pytest
 │   └── .env                          # Server Secrets (SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SUPABASE_JWT_SECRET)
+├── frontend-react/                   # React 19 + TypeScript Audiophile Web Application
+│   ├── src/                          # Player, Equalizer (10-Band), Visualizer, Search, State Management
+│   ├── package.json                  # React 19, TypeScript, Vite, TailwindCSS
+│   └── vite.config.ts                # Fast development & optimized production build config
 ├── innertube_clients.json            # Dynamic remote InnerTube client configurations
 ├── plans/                            # Architecture specs, migration scripts, summaries
 ├── .github/workflows/
+│   ├── ci.yml                        # Full-stack automated CI workflow (Flutter, Backend, React)
 │   └── build-apk.yml                 # Automated Release APK CI/CD pipeline
 ├── mcp_server.py                     # AI Model Context Protocol Server
 └── README.md                         # Project documentation

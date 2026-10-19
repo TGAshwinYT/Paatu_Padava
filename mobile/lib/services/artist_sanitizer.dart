@@ -236,6 +236,16 @@ class ArtistSanitizer {
       return false;
     }
 
+    // Whitelist known genuine musicians
+    if (_canonicalArtistMap.containsKey(rawName) ||
+        rawName == 'vijay yesudas' ||
+        rawName == 'vijay prakash' ||
+        rawName == 'vijay antony' ||
+        rawName == 'arijit singh' ||
+        rawName == 'ed sheeran') {
+      return true;
+    }
+
     // 1. Check Record Label match
     for (final label in _recordLabels) {
       if (rawName == label || rawName.contains(label)) return false;
@@ -253,7 +263,8 @@ class ArtistSanitizer {
 
     // 4. Check Non-musician actors
     for (final actor in _nonMusicianActors) {
-      if (rawName == actor || rawName.contains(actor)) return false;
+      if (rawName == actor) return false;
+      if (actor.contains(' ') && rawName.contains(actor)) return false;
     }
 
     // 5. Check accidental substring hits, devotional labels, and obscure non-profile tags
@@ -411,6 +422,8 @@ class ArtistSanitizer {
     'shreya ghoshal': 'Shreya Ghoshal',
     'shreya ghosal': 'Shreya Ghoshal',
     'vijay antony': 'Vijay Antony',
+    'vijay yesudas': 'Vijay Yesudas',
+    'vijay prakash': 'Vijay Prakash',
     'haricharan seshadri': 'Haricharan',
     's.p. balasubrahmanyam': 'S.P. Balasubrahmanyam',
     'sp balasubrahmanyam': 'S.P. Balasubrahmanyam',

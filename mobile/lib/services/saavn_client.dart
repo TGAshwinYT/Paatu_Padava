@@ -6,20 +6,30 @@ import '../models/song.dart';
 import 'des_decrypt.dart';
 import 'app_logger.dart';
 import 'artist_sanitizer.dart';
-import 'settings_manager.dart';
 import '../data/repositories/song_repository.dart';
 
 class SaavnClient {
   static const String baseUrl = 'https://www.jiosaavn.com/api.php';
 
+  static const String allIndianLanguagesCookie =
+      'hindi%2Cenglish%2Ctamil%2Ctelugu%2Cpunjabi%2Cmarathi%2Cgujarati%2Cbengali%2Ckannada%2Cbhojpuri%2Cmalayalam%2Curdu%2Charyanvi%2Crajasthani%2Codia%2Cassamese';
+
   /// Generates dynamic headers with JioSaavn's required regional Cookie.
-  /// JioSaavn ignores URL language params on charts/playlists unless the 'Cookie: L=$lang' header is provided.
+  /// If language is provided and specific (e.g. 'tamil' or 'hindi'), uses that language.
+  /// If language is 'all', 'any', or omitted, uses user's preferred languages or the full multi-language set.
   static Map<String, String> getHeaders([String? language]) {
-    final selectedLanguage = (language != null && language.isNotEmpty)
-        ? language.toLowerCase().trim()
-        : (SettingsManager.preferredLanguages.isNotEmpty
-            ? SettingsManager.preferredLanguages.first.toLowerCase().trim()
-            : 'tamil');
+    String selectedLanguage;
+    final lowerLang = language?.toLowerCase().trim();
+
+    if (lowerLang == null || lowerLang.isEmpty || lowerLang == 'all' || lowerLang == 'any') {
+      selectedLanguage = allIndianLanguagesCookie;
+    } else {
+      final parts = lowerLang.split(',').map((l) => Uri.encodeComponent(l.trim())).where((l) => l.isNotEmpty).toList();
+      selectedLanguage = parts.join('%2C');
+      if (!selectedLanguage.contains('english')) {
+        selectedLanguage += '%2Cenglish';
+      }
+    }
 
     return {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -124,16 +134,17 @@ class SaavnClient {
     if (clean.isEmpty) return [];
 
     try {
-      final langParam = (language != null && language.isNotEmpty)
+      final bool isSpecificLang = language != null &&
+          language.isNotEmpty &&
+          language.toLowerCase().trim() != 'all' &&
+          language.toLowerCase().trim() != 'any';
+
+      final langParam = isSpecificLang
           ? '&languages=${Uri.encodeComponent(language.toLowerCase().trim())}'
           : '';
       final url = 'https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&_marker=0&api_version=4&ctx=web6dot0&n=$limit&p=1&q=${Uri.encodeComponent(clean)}$langParam';
       final uri = Uri.parse(url);
-      final response = await http.get(uri, headers: const {
-        'User-Agent': 'Mozilla/5.0',
-        'Cookie': 'L=tamil%2Cenglish; gdpr_acceptance=true',
-        'Accept': 'application/json, text/plain, */*',
-      }).timeout(const Duration(seconds: 5));
+      final response = await http.get(uri, headers: getHeaders(language)).timeout(const Duration(seconds: 5));
       if (response.statusCode != 200) return [];
 
       final dynamic data = (response.body.isNotEmpty) ? json.decode(response.body) : null;
@@ -150,22 +161,10 @@ class SaavnClient {
         }
       }
 
-      final activeLang = (language != null && language.isNotEmpty)
-          ? language.toLowerCase().trim()
-          : (SettingsManager.preferredLanguages.isNotEmpty
-              ? SettingsManager.preferredLanguages.first.toLowerCase().trim()
-              : 'tamil');
-
-      // Strictly filter out Hindi tracks when active language is Tamil, but never filter when language is all/any
-      if (activeLang != 'all' && activeLang != 'any') {
-        if (activeLang == 'tamil' && !clean.toLowerCase().contains('hindi')) {
-          return songs.where((s) {
-            if (s.language == 'hindi') return false;
-            // Retain English songs if query is English or candidate is English
-            if (s.language == 'english') return true;
-            return !SongRepository.isLanguageMismatch(s, 'tamil');
-          }).toList();
-        }
+      // If an explicit language filter was specified (e.g. from dedicated language tab/chip), filter by it
+      if (isSpecificLang) {
+        final targetLang = language.toLowerCase().trim();
+        return songs.where((s) => !SongRepository.isLanguageMismatch(s, targetLang)).toList();
       }
 
       return songs;
@@ -217,10 +216,7 @@ class SaavnClient {
     if (clean.isEmpty) return null;
     try {
       final url = 'https://www.jiosaavn.com/api.php?__call=search.getArtistResults&_format=json&_marker=0&api_version=4&ctx=web6dot0&n=2&p=1&q=${Uri.encodeComponent(clean)}';
-      final response = await http.get(Uri.parse(url), headers: const {
-        'User-Agent': 'Mozilla/5.0',
-        'Cookie': 'L=tamil%2Cenglish; gdpr_acceptance=true',
-      }).timeout(const Duration(seconds: 3));
+      final response = await http.get(Uri.parse(url), headers: getHeaders()).timeout(const Duration(seconds: 3));
 
       if (response.statusCode != 200) return null;
       final data = json.decode(response.body);
@@ -237,11 +233,10 @@ class SaavnClient {
 
   static Future<List<Map<String, dynamic>>> searchAlbums(String query, {int limit = 15, String? language}) async {
     try {
-      final activeLang = (language != null && language.isNotEmpty)
-          ? language.toLowerCase().trim()
-          : (SettingsManager.preferredLanguages.isNotEmpty
-              ? SettingsManager.preferredLanguages.first.toLowerCase().trim()
-              : 'tamil');
+      final bool isSpecificLang = language != null &&
+          language.isNotEmpty &&
+          language.toLowerCase().trim() != 'all' &&
+          language.toLowerCase().trim() != 'any';
 
       final uri = Uri.parse(baseUrl).replace(queryParameters: {
         '__call': 'search.getAlbumResults',
@@ -252,7 +247,7 @@ class SaavnClient {
         'p': '1',
         'n': limit.toString(),
         'q': query.trim(),
-        if (language != null && language.isNotEmpty) 'languages': language.toLowerCase().trim(),
+        if (isSpecificLang) 'languages': language.toLowerCase().trim(),
       });
 
       final response = await http.get(uri, headers: getHeaders(language)).timeout(const Duration(seconds: 6));
@@ -273,10 +268,10 @@ class SaavnClient {
           continue;
         }
 
-        // When Tamil is selected, exclude Hindi albums
-        if (activeLang == 'tamil' && !query.toLowerCase().contains('hindi')) {
-          if (RegExp(r'[\u0900-\u097F]').hasMatch(title) ||
-              RegExp(r'\b(hindi|bollywood)\b').hasMatch(title)) {
+        // When a specific language was requested (e.g. from language tab), apply language match
+        if (isSpecificLang) {
+          final targetLang = language.toLowerCase().trim();
+          if (targetLang == 'tamil' && RegExp(r'[\u0900-\u097F]').hasMatch(title)) {
             continue;
           }
         }
@@ -461,18 +456,10 @@ class SaavnClient {
         }
       }
 
-      final activeLang = (language != null && language.isNotEmpty)
-          ? language.toLowerCase().trim()
-          : (SettingsManager.preferredLanguages.isNotEmpty
-              ? SettingsManager.preferredLanguages.first.toLowerCase().trim()
-              : 'tamil');
-
-      // Strictly filter out Hindi tracks when active language is Tamil
-      if (activeLang == 'tamil') {
-        return songs.where((s) {
-          if (s.language == 'hindi') return false;
-          return !SongRepository.isLanguageMismatch(s, 'tamil');
-        }).toList();
+      // If an explicit language was targeted, filter out direct mismatches, otherwise return all related tracks
+      if (language != null && language.isNotEmpty && language.toLowerCase().trim() != 'all' && language.toLowerCase().trim() != 'any') {
+        final targetLang = language.toLowerCase().trim();
+        return songs.where((s) => !SongRepository.isLanguageMismatch(s, targetLang)).toList();
       }
 
       return songs;

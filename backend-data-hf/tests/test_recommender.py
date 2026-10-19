@@ -6,6 +6,9 @@ from collections import defaultdict, Counter
 # Ensure backend-data-hf directory is in Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+if not os.environ.get("JWT_SECRET"):
+    os.environ["JWT_SECRET"] = "test_jwt_secret_for_ci_and_local_testing_minimum_32_chars"
+
 from services.recommender import PersonalRecommender, canonical_title
 from utils.location import resolve_user_languages, get_search_languages, get_user_search_languages, SUPPORTED_LANGUAGES, DEFAULT_APP_LANGUAGES
 

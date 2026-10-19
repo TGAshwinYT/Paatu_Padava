@@ -28,6 +28,11 @@ jobs:
 
       - name: Run Backend Unit Tests
         working-directory: backend-data-hf
+        env:
+          JWT_SECRET: "ci_testing_jwt_secret_minimum_32_characters_long"
+          SUPABASE_JWT_SECRET: "ci_testing_supabase_jwt_secret_minimum_32_characters"
+          DATABASE_URL: "postgresql://mock_user:mock_pass@localhost:5432/mock_db"
+          SAAVN_API_URL: "https://saavn.sumit.co/api"
         run: |
           python -m unittest discover -s tests
 

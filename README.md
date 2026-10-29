@@ -143,7 +143,9 @@ pinned: false
 
 ### 🧠 Recommendation Engine Remediation & Adaptive Markov-Cosine AI Mix
 - **Unicode-Aware Artist Normalization (`QueueCooldownManager`)**: Replaces naive ASCII-stripping regex with Unicode-aware tokenization:
-  $$\text{Regex: } [\text{^\p{L}\p{N}\s}]$$
+  ```dart
+  RegExp(r'[^\p{L}\p{N}\s]', unicode: true)
+  ```
   Preserves non-Latin scripts (Tamil, Hindi, Telugu, Malayalam) and punctuated names (e.g. *"A.R. Rahman"*, *"Harris Jayaraj"*, *"அனிருத்"*), guaranteeing reliable artist cooldowns and anti-fatigue safeguards.
 - **Adaptive Spotify Style Radio**:
   - **Dynamic Skip Fatigue Cooldown**: Skipping a track (< 30s) automatically applies a rolling 5-artist cooldown penalty, preventing skipped artists from dominating upcoming recommendations.

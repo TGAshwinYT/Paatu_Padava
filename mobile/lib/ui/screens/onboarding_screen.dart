@@ -583,6 +583,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                 ? CachedNetworkImage(
                                     imageUrl: imageUrl,
                                     fit: BoxFit.cover,
+                                    memCacheWidth: 200,
+                                    memCacheHeight: 200,
                                     placeholder: (_, __) => Container(
                                       color: const Color(0xFF131B2E),
                                     ),

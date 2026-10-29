@@ -53,13 +53,17 @@ class AudioQualitySettingsScreen extends StatelessWidget {
       children: [
         Icon(icon, color: const Color(0xFF6366F1), size: 18),
         const SizedBox(width: 8),
-        Text(
-          title,
-          style: const TextStyle(
-            color: Color(0xFF818CF8),
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.1,
+        Expanded(
+          child: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0xFF818CF8),
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.1,
+            ),
           ),
         ),
       ],
@@ -325,26 +329,30 @@ class AudioQualitySettingsScreen extends StatelessWidget {
               ValueListenableBuilder<NextTrackStrategyMode>(
                 valueListenable: SettingsManager.nextTrackStrategyNotifier,
                 builder: (context, strategy, _) {
-                  return Row(
+                  return Column(
                     children: [
-                      Expanded(
-                        child: _buildStrategyCard(
-                          title: 'Spotify Context',
-                          subtitle: 'Anchored 60/40 blend with artist cooldown',
-                          icon: Icons.graphic_eq_rounded,
-                          isSelected: strategy == NextTrackStrategyMode.spotifyStyle,
-                          onTap: () => SettingsManager.setNextTrackStrategy(NextTrackStrategyMode.spotifyStyle),
-                        ),
+                      _buildStrategyCard(
+                        title: 'Spotify Context',
+                        subtitle: 'Adaptive anchor blend with short-term artist cooldown & candidate scoring',
+                        icon: Icons.graphic_eq_rounded,
+                        isSelected: strategy == NextTrackStrategyMode.spotifyStyle,
+                        onTap: () => SettingsManager.setNextTrackStrategy(NextTrackStrategyMode.spotifyStyle),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _buildStrategyCard(
-                          title: 'YouTube Auto-Mix',
-                          subtitle: 'Radio graph traversal with official masters',
-                          icon: Icons.radio_rounded,
-                          isSelected: strategy == NextTrackStrategyMode.ytMusicStyle,
-                          onTap: () => SettingsManager.setNextTrackStrategy(NextTrackStrategyMode.ytMusicStyle),
-                        ),
+                      const SizedBox(height: 8),
+                      _buildStrategyCard(
+                        title: 'YouTube Auto-Mix',
+                        subtitle: 'Graph traversal with official master tracks & rolling skip fatigue',
+                        icon: Icons.radio_rounded,
+                        isSelected: strategy == NextTrackStrategyMode.ytMusicStyle,
+                        onTap: () => SettingsManager.setNextTrackStrategy(NextTrackStrategyMode.ytMusicStyle),
+                      ),
+                      const SizedBox(height: 8),
+                      _buildStrategyCard(
+                        title: 'Markov-Cosine AI',
+                        subtitle: 'Multi-dimensional vector similarity with transition learning',
+                        icon: Icons.auto_awesome_rounded,
+                        isSelected: strategy == NextTrackStrategyMode.markovCosineRadio,
+                        onTap: () => SettingsManager.setNextTrackStrategy(NextTrackStrategyMode.markovCosineRadio),
                       ),
                     ],
                   );

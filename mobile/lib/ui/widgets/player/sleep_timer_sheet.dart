@@ -143,53 +143,62 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Row(
-                            children: [
-                              Container(
-                                width: 40,
-                                height: 40,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  gradient: const LinearGradient(
-                                    colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: const Color(0xFF6366F1).withValues(alpha: 0.4),
-                                      blurRadius: 12,
+                          Expanded(
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    gradient: const LinearGradient(
+                                      colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
                                     ),
-                                  ],
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: const Color(0xFF6366F1).withValues(alpha: 0.4),
+                                        blurRadius: 12,
+                                      ),
+                                    ],
+                                  ),
+                                  child: const Icon(Icons.bedtime_rounded, color: Colors.white, size: 22),
                                 ),
-                                child: const Icon(Icons.bedtime_rounded, color: Colors.white, size: 22),
-                              ),
-                              const SizedBox(width: 12),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Sleep Timer',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 19,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: -0.3,
-                                    ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Sleep Timer',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 19,
+                                          fontWeight: FontWeight.bold,
+                                          letterSpacing: -0.3,
+                                        ),
+                                      ),
+                                      Text(
+                                        timer.isActive
+                                            ? 'Music will fade out smoothly'
+                                            : 'Fade out and stop when you sleep',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Color(0xFF94A3B8),
+                                          fontSize: 12.5,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  Text(
-                                    timer.isActive
-                                        ? 'Music will fade out smoothly'
-                                        : 'Fade out and stop when you sleep',
-                                    style: const TextStyle(
-                                      color: Color(0xFF94A3B8),
-                                      fontSize: 12.5,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
+                                ),
+                              ],
+                            ),
                           ),
+                          const SizedBox(width: 8),
                           IconButton(
                             style: IconButton.styleFrom(
                               backgroundColor: Colors.white.withValues(alpha: 0.06),
@@ -262,36 +271,39 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
                   ),
                 ),
                 // Inner Content
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      timer.stopAtEndOfTrack ? Icons.music_note_rounded : Icons.nightlight_round,
-                      color: const Color(0xFF818CF8),
-                      size: 28,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      timer.formattedRemaining,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 34,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 1.5,
-                        fontFeatures: [FontFeature.tabularFigures()],
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        timer.stopAtEndOfTrack ? Icons.music_note_rounded : Icons.nightlight_round,
+                        color: const Color(0xFF818CF8),
+                        size: 28,
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      timer.stopAtEndOfTrack ? 'TRACK END' : 'REMAINING',
-                      style: TextStyle(
-                        color: const Color(0xFF94A3B8).withValues(alpha: 0.8),
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.5,
+                      const SizedBox(height: 8),
+                      Text(
+                        timer.formattedRemaining,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 34,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.5,
+                          fontFeatures: [FontFeature.tabularFigures()],
+                        ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 4),
+                      Text(
+                        timer.stopAtEndOfTrack ? 'TRACK END' : 'REMAINING',
+                        style: TextStyle(
+                          color: const Color(0xFF94A3B8).withValues(alpha: 0.8),
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.5,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -323,16 +335,20 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
                 color: timer.isFadingOut ? const Color(0xFFFBBF24) : const Color(0xFF818CF8),
               ),
               const SizedBox(width: 6),
-              Text(
-                timer.isFadingOut
-                    ? 'Gently fading out volume now... 🌙'
-                    : (timer.stopAtEndOfTrack
-                        ? 'Playback halts when the song finishes'
-                        : 'Audio will smoothly fade and stop'),
-                style: TextStyle(
-                  color: timer.isFadingOut ? const Color(0xFFFDE68A) : const Color(0xFFCBD5E1),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
+              Flexible(
+                child: Text(
+                  timer.isFadingOut
+                      ? 'Gently fading out volume now... 🌙'
+                      : (timer.stopAtEndOfTrack
+                          ? 'Playback halts when the song finishes'
+                          : 'Audio will smoothly fade and stop'),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: timer.isFadingOut ? const Color(0xFFFDE68A) : const Color(0xFFCBD5E1),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
             ],
@@ -400,12 +416,16 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
           children: [
             const Icon(Icons.add_rounded, size: 16, color: Color(0xFF818CF8)),
             const SizedBox(width: 4),
-            Text(
-              '$minutes min',
-              style: const TextStyle(
-                color: Color(0xFFE2E8F0),
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
+            Flexible(
+              child: Text(
+                '$minutes min',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFFE2E8F0),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
               ),
             ),
           ],
@@ -438,11 +458,11 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           itemCount: _presets.length,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
             crossAxisSpacing: 10,
             mainAxisSpacing: 10,
-            childAspectRatio: 2.3,
+            childAspectRatio: MediaQuery.textScalerOf(context).scale(1.0) > 1.2 ? 1.7 : 2.2,
           ),
           itemBuilder: (context, index) {
             final preset = _presets[index];
@@ -455,7 +475,7 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
               borderRadius: BorderRadius.circular(16),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 decoration: BoxDecoration(
                   color: isSelected
                       ? const Color(0xFF6366F1).withValues(alpha: 0.18)
@@ -493,7 +513,7 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
                         color: isSelected ? const Color(0xFF818CF8) : const Color(0xFF94A3B8),
                       ),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -501,6 +521,8 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
                         children: [
                           Text(
                             preset.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: isSelected ? Colors.white : const Color(0xFFCBD5E1),
                               fontSize: 13.5,
@@ -547,14 +569,19 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'Custom Duration',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
+                  const Expanded(
+                    child: Text(
+                      'Custom Duration',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
+                  const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
@@ -681,14 +708,18 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
                 children: [
                   const Icon(Icons.bedtime_rounded, size: 20),
                   const SizedBox(width: 8),
-                  Text(
-                    _isEndOfTrack
-                        ? 'Start Timer (End of Track)'
-                        : 'Start Sleep Timer (${_formatDurationTitle(_selectedDuration)})',
-                    style: const TextStyle(
-                      fontSize: 15.5,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.2,
+                  Flexible(
+                    child: Text(
+                      _isEndOfTrack
+                          ? 'Start Timer (End of Track)'
+                          : 'Start Sleep Timer (${_formatDurationTitle(_selectedDuration)})',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.2,
+                      ),
                     ),
                   ),
                 ],

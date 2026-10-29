@@ -114,25 +114,25 @@ class SettingsManager {
     downloadQualityNotifier.value = _box.get('download_quality', defaultValue: '320kbps') as String;
     volumeNormalizationNotifier.value = _box.get('volume_normalization', defaultValue: true) as bool;
     autoplayNotifier.value = _box.get('autoplay', defaultValue: true) as bool;
-    crossfadeDurationNotifier.value = (_box.get('crossfade_seconds', defaultValue: 0) as num).toInt();
+    crossfadeDurationNotifier.value = (_box.get('crossfade_seconds', defaultValue: 0) as num).toInt().clamp(0, 12);
     eqPresetNotifier.value = _box.get('eq_preset', defaultValue: 'flat') as String;
 
     final rawBands = _box.get('eq_bands');
     if (rawBands is List) {
-      eqBandsNotifier.value = rawBands.map((e) => (e as num).toDouble()).toList();
+      eqBandsNotifier.value = rawBands.map((e) => (e as num).toDouble().clamp(-10.0, 10.0)).toList();
     } else {
       eqBandsNotifier.value = presets['flat']!;
     }
 
-    bassBoostNotifier.value = (_box.get('bass_boost_strength', defaultValue: 0.0) as num).toDouble();
-    virtualizerNotifier.value = (_box.get('virtualizer_strength', defaultValue: 0.0) as num).toDouble();
+    bassBoostNotifier.value = (_box.get('bass_boost_strength', defaultValue: 0.0) as num).toDouble().clamp(0.0, 1.0);
+    virtualizerNotifier.value = (_box.get('virtualizer_strength', defaultValue: 0.0) as num).toDouble().clamp(0.0, 1.0);
 
     final rawCustomPresets = _box.get('custom_eq_presets');
     if (rawCustomPresets is Map) {
       final parsed = <String, List<double>>{};
       rawCustomPresets.forEach((k, v) {
         if (v is List) {
-          parsed[k.toString()] = v.map((e) => (e as num).toDouble()).toList();
+          parsed[k.toString()] = v.map((e) => (e as num).toDouble().clamp(-10.0, 10.0)).toList();
         }
       });
       customEqPresetsNotifier.value = parsed;
@@ -149,7 +149,7 @@ class SettingsManager {
       orElse: () => NextTrackStrategyMode.spotifyStyle,
     );
     maxCacheSizeMbNotifier.value = (_box.get('max_cache_size_mb', defaultValue: 500) as num).toInt();
-    bluetoothDelayMsNotifier.value = (_box.get('bluetooth_delay_ms', defaultValue: 0) as num).toInt();
+    bluetoothDelayMsNotifier.value = (_box.get('bluetooth_delay_ms', defaultValue: 0) as num).toInt().clamp(-500, 500);
     hardwareAudioLatencyMsNotifier.value = (_box.get('hardware_audio_latency_ms', defaultValue: 0) as num).toInt().clamp(-150, 150);
     lyricsPreferredLanguageNotifier.value = _box.get('lyrics_preferred_language', defaultValue: 'default') as String;
     playerGesturesEnabledNotifier.value = _box.get('player_gestures_enabled', defaultValue: true) as bool;

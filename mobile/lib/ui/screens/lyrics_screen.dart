@@ -219,7 +219,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
             final mountedContext = _lineKeys[idx].currentContext;
-            if (mountedContext != null) {
+            if (mountedContext != null && mountedContext.mounted) {
               Scrollable.ensureVisible(
                 mountedContext,
                 alignment: 0.45,
@@ -237,7 +237,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
               .then((_) {
             if (!mounted) return;
             final mountedContext = _lineKeys[idx].currentContext;
-            if (mountedContext != null) {
+            if (mountedContext != null && mountedContext.mounted) {
               Scrollable.ensureVisible(
                 mountedContext,
                 alignment: 0.45,

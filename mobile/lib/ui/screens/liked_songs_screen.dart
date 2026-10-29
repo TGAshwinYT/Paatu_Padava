@@ -45,6 +45,8 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                     width: 48,
                     height: 48,
                     fit: BoxFit.cover,
+                    memCacheWidth: 150,
+                    memCacheHeight: 150,
                     errorWidget: (_, __, ___) => Container(color: Colors.white10, child: const Icon(Icons.music_note)),
                   ),
                 ),
@@ -378,6 +380,8 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                                           width: 48,
                                           height: 48,
                                           fit: BoxFit.cover,
+                                          memCacheWidth: 150,
+                                          memCacheHeight: 150,
                                           errorWidget: (_, __, ___) => Container(
                                             width: 48,
                                             height: 48,

@@ -8,6 +8,7 @@ import '../core/app_config.dart';
 import 'supabase_service.dart';
 import 'sync_manager.dart';
 import 'settings_manager.dart';
+import 'app_logger.dart';
 
 class AuthUser {
   final String id;
@@ -45,7 +46,9 @@ class AuthUser {
         try {
           final decoded = jsonDecode(val);
           if (decoded is List) return decoded.map((e) => e.toString()).toList();
-        } catch (_) {}
+        } catch (e) {
+          AppLogger.debug('AuthUser', 'Failed to parse JSON list from $val: $e');
+        }
       }
       return [];
     }
@@ -155,7 +158,9 @@ class AuthManager {
     try {
       final remoteLangs = await SupabaseService.fetchUserPreferences(supaUser.id);
       if (remoteLangs.isNotEmpty) langs = remoteLangs;
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.warn('AuthManager', 'Failed to fetch user preferences from Supabase: $e');
+    }
 
     final authUser = AuthUser.fromSupabase(supaUser, languages: langs, artists: artists);
     authNotifier.value = authUser;
@@ -287,7 +292,9 @@ class AuthManager {
         if (Hive.isBoxOpen(SettingsManager.boxName)) {
           await Hive.box(SettingsManager.boxName).put('languages', languages);
         }
-      } catch (_) {}
+      } catch (e, st) {
+        AppLogger.recordError(e, st, context: 'AuthManager.updateLanguagePreferences (Hive)');
+      }
 
       if (isLoggedIn) {
         await SupabaseService.saveUserTaste(

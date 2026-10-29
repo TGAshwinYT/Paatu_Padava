@@ -1379,9 +1379,16 @@ class AudioQueueHandler {
       if (_userQueue.isNotEmpty) {
         final next = _userQueue.removeAt(0);
         if (_currentTrack != null) {
-          _playbackHistory.add(_currentTrack!);
-          if (!_actuallyPlayedInSession.any((t) => t.id == _currentTrack!.id)) {
-            _actuallyPlayedInSession.add(_currentTrack!);
+          final previous = _currentTrack!;
+          final listenedSec = player.position.inSeconds;
+          NextTrackStrategyFactory.recordTransition(
+            previous.toSong(),
+            next.toSong(),
+            isPositive: !isUserInitiated || listenedSec >= 30,
+          );
+          _playbackHistory.add(previous);
+          if (!_actuallyPlayedInSession.any((t) => t.id == previous.id)) {
+            _actuallyPlayedInSession.add(previous);
           }
         }
         _currentTrack = next;
@@ -1405,9 +1412,16 @@ class AudioQueueHandler {
             ? _contextQueue[_contextShuffleIndices[_contextIndex]]
             : _contextQueue[_contextIndex];
         if (_currentTrack != null) {
-          _playbackHistory.add(_currentTrack!);
-          if (!_actuallyPlayedInSession.any((t) => t.id == _currentTrack!.id)) {
-            _actuallyPlayedInSession.add(_currentTrack!);
+          final previous = _currentTrack!;
+          final listenedSec = player.position.inSeconds;
+          NextTrackStrategyFactory.recordTransition(
+            previous.toSong(),
+            next.toSong(),
+            isPositive: !isUserInitiated || listenedSec >= 30,
+          );
+          _playbackHistory.add(previous);
+          if (!_actuallyPlayedInSession.any((t) => t.id == previous.id)) {
+            _actuallyPlayedInSession.add(previous);
           }
         }
         _currentTrack = next;
@@ -1639,9 +1653,15 @@ class AudioQueueHandler {
     if (_userQueue.isNotEmpty) {
       final next = _userQueue.removeAt(0);
       if (_currentTrack != null) {
-        _playbackHistory.add(_currentTrack!);
-        if (!_actuallyPlayedInSession.any((t) => t.id == _currentTrack!.id)) {
-          _actuallyPlayedInSession.add(_currentTrack!);
+        final previous = _currentTrack!;
+        NextTrackStrategyFactory.recordTransition(
+          previous.toSong(),
+          next.toSong(),
+          isPositive: true,
+        );
+        _playbackHistory.add(previous);
+        if (!_actuallyPlayedInSession.any((t) => t.id == previous.id)) {
+          _actuallyPlayedInSession.add(previous);
         }
       }
       _currentTrack = next;
@@ -1657,9 +1677,15 @@ class AudioQueueHandler {
             ? _contextQueue[_contextShuffleIndices[_contextIndex]]
             : _contextQueue[_contextIndex];
         if (_currentTrack != null) {
-          _playbackHistory.add(_currentTrack!);
-          if (!_actuallyPlayedInSession.any((t) => t.id == _currentTrack!.id)) {
-            _actuallyPlayedInSession.add(_currentTrack!);
+          final previous = _currentTrack!;
+          NextTrackStrategyFactory.recordTransition(
+            previous.toSong(),
+            next.toSong(),
+            isPositive: true,
+          );
+          _playbackHistory.add(previous);
+          if (!_actuallyPlayedInSession.any((t) => t.id == previous.id)) {
+            _actuallyPlayedInSession.add(previous);
           }
         }
         _currentTrack = next;

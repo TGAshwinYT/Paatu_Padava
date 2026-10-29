@@ -51,6 +51,8 @@ class SessionCollageCover extends StatelessWidget {
       width: width,
       height: height,
       fit: BoxFit.cover,
+      memCacheWidth: 200,
+      memCacheHeight: 200,
       placeholder: (_, __) => Container(
         width: width,
         height: height,

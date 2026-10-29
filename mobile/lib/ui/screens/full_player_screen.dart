@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:just_audio/just_audio.dart';
 import '../../models/song.dart';
 import '../../services/player_handler.dart';
@@ -16,6 +15,7 @@ import '../widgets/player/player_controls.dart';
 import '../widgets/player/player_scrubber.dart';
 import '../widgets/player/player_gesture_detector.dart';
 import 'lyrics_screen.dart';
+import '../widgets/cover_art_image.dart';
 import '../../services/artist_sanitizer.dart';
 import '../../data/repositories/song_repository.dart';
 import '../widgets/artist_picker_sheet.dart';
@@ -614,13 +614,17 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                       children: [
                                         const Icon(Icons.speaker_rounded, size: 14, color: Color(0xFF10B981)),
                                         const SizedBox(width: 8),
-                                        Text(
+                                        Flexible(
+                                          child: Text(
                                           'Listening on ${device.name}',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
                                           style: const TextStyle(
                                             color: Color(0xFF10B981),
                                             fontSize: 12,
                                             fontWeight: FontWeight.bold,
                                           ),
+                                        ),
                                         ),
                                       ],
                                     ),
@@ -805,19 +809,13 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => _defaultCover(),
                       )
-                    : (song.coverUrl.isNotEmpty
-                        ? CachedNetworkImage(
-                            imageUrl: song.coverUrl,
-                            fit: BoxFit.cover,
-                            placeholder: (_, __) => Container(
-                              color: const Color(0xFF1E293B),
-                              child: const Center(
-                                child: CircularProgressIndicator(color: Color(0xFF6366F1)),
-                              ),
-                            ),
-                            errorWidget: (_, __, ___) => _defaultCover(),
-                          )
-                        : _defaultCover()),
+                    : CoverArtImage(
+                        song: song,
+                        borderRadius: BorderRadius.circular(28),
+                        memCacheWidth: 800,
+                        memCacheHeight: 800,
+                        errorWidget: _defaultCover(),
+                      ),
                 if (_showHeartOverlay)
                   Center(
                     child: AnimatedBuilder(

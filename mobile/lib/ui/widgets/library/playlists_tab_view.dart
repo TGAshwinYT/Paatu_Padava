@@ -233,6 +233,8 @@ class PlaylistsTabView extends StatelessWidget {
                                   ? CachedNetworkImage(
                                       imageUrl: playlist.coverUrl,
                                       fit: BoxFit.cover,
+                                      memCacheWidth: 150,
+                                      memCacheHeight: 150,
                                       errorWidget: (_, __, ___) => _buildPlaylistIcon(),
                                     )
                                   : _buildPlaylistIcon()),

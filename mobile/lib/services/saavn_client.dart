@@ -40,7 +40,7 @@ class SaavnClient {
 
   static String _extractHighResImage(String? img) {
     if (img == null || img.isEmpty) {
-      return 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&h=500&fit=crop';
+      return '';
     }
     String highRes = img.replaceAll('50x50', '500x500').replaceAll('150x150', '500x500');
     if (highRes.startsWith('http://')) {

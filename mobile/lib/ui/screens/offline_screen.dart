@@ -50,6 +50,8 @@ class _OfflineScreenState extends State<OfflineScreen> {
                               width: 48,
                               height: 48,
                               fit: BoxFit.cover,
+                              memCacheWidth: 150,
+                              memCacheHeight: 150,
                               errorWidget: (_, __, ___) => const Icon(Icons.music_note),
                             )
                           : const Icon(Icons.music_note)),
@@ -384,6 +386,8 @@ class _OfflineScreenState extends State<OfflineScreen> {
                                                 ? CachedNetworkImage(
                                                     imageUrl: song.coverUrl,
                                                     fit: BoxFit.cover,
+                                                    memCacheWidth: 150,
+                                                    memCacheHeight: 150,
                                                     errorWidget: (_, __, ___) => Container(color: const Color(0xFF1E293B)),
                                                   )
                                                 : Container(color: const Color(0xFF1E293B))),

@@ -148,9 +148,13 @@ class BatchDownloadButton extends StatelessWidget {
                   children: [
                     const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 24),
                     const SizedBox(width: 10),
-                    Text(
-                      'All ${songs.length} Tracks Downloaded',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                    Expanded(
+                      child: Text(
+                        'All ${songs.length} Tracks Downloaded',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
                     ),
                   ],
                 ),
@@ -166,10 +170,12 @@ class BatchDownloadButton extends StatelessWidget {
                   contentPadding: EdgeInsets.zero,
                   onTap: () async {
                     Navigator.pop(ctx);
+                    // Capture before the async gap: the sheet/context may be gone afterwards.
+                    final messenger = ScaffoldMessenger.of(context);
                     for (final s in songs) {
                       await DownloadManager.deleteSong(s.id);
                     }
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    messenger.showSnackBar(
                       SnackBar(content: Text('Removed ${songs.length} songs from offline storage')),
                     );
                   },

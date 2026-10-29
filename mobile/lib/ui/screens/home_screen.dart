@@ -801,15 +801,21 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Row(
-                                children: [
-                                  const Icon(Icons.new_releases_rounded, color: AppColors.neonViolet, size: 18),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    'New $currentLang Releases',
-                                    style: GoogleFonts.outfit(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
-                                  ),
-                                ],
+                              Expanded(
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.new_releases_rounded, color: AppColors.neonViolet, size: 18),
+                                    const SizedBox(width: 6),
+                                    Flexible(
+                                      child: Text(
+                                        'New $currentLang Releases',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: GoogleFonts.outfit(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                               TextButton(
                                 child: Text('Play All', style: GoogleFonts.outfit(color: AppColors.neonViolet, fontWeight: FontWeight.bold)),
@@ -891,6 +897,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                           child: CachedNetworkImage(
                                             imageUrl: img,
                                             fit: BoxFit.cover,
+                                            memCacheWidth: 300,
+                                            memCacheHeight: 300,
                                             errorWidget: (_, __, ___) => Container(color: AppColors.surfaceElevated),
                                           ),
                                         ),

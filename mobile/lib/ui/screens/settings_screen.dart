@@ -122,6 +122,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           context,
                           MaterialPageRoute(builder: (_) => const AudioQualitySettingsScreen()),
                         );
+                        if (!mounted) return;
                         setState(() {});
                       },
                     );
@@ -141,6 +142,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           context,
                           MaterialPageRoute(builder: (_) => const EqualizerSettingsScreen()),
                         );
+                        if (!mounted) return;
                         setState(() {});
                       },
                     );
@@ -219,6 +221,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           context,
                           MaterialPageRoute(builder: (_) => const HomeSettingsScreen()),
                         );
+                        if (!mounted) return;
                         setState(() {});
                       },
                     );
@@ -245,6 +248,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           context,
                           MaterialPageRoute(builder: (_) => const AppearanceSettingsScreen()),
                         );
+                        if (!mounted) return;
                         setState(() {});
                       },
                     );
@@ -285,6 +289,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           context,
                           MaterialPageRoute(builder: (_) => const PartySyncSettingsScreen()),
                         );
+                        if (!mounted) return;
                         setState(() {});
                       },
                     );

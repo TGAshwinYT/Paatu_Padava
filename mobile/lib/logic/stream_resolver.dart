@@ -9,6 +9,7 @@ import '../services/youtube_client.dart';
 import '../services/saavn_client.dart';
 import '../services/audius_client.dart';
 import '../services/artist_sanitizer.dart';
+import '../services/cover_art_resolver.dart';
 import '../services/download_manager.dart';
 import '../core/app_config.dart';
 import '../core/dsa/lru_cache.dart';
@@ -166,6 +167,9 @@ class DefaultStreamResolver implements StreamResolver {
 
   @override
   Future<String?> resolveStreamUrl(Song song, {bool forceSaavnFallback = false, bool forceYouTubeFallback = false}) async {
+    // Proactively resolve high-res studio cover art in background for player and notifications
+    unawaited(CoverArtResolver.resolveCover(song).catchError((_) => ''));
+
     // 0. Check DownloadManager local file path first for offline playback
     if (song.localFilePath != null && File(song.localFilePath!).existsSync()) {
       return song.localFilePath;

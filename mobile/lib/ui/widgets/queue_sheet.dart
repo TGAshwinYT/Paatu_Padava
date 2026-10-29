@@ -590,6 +590,8 @@ class _QueueSheetState extends State<QueueSheet> {
                       ? CachedNetworkImage(
                           imageUrl: song.coverUrl,
                           fit: BoxFit.cover,
+                          memCacheWidth: 150,
+                          memCacheHeight: 150,
                           errorWidget: (_, __, ___) => Container(color: const Color(0xFF1E293B)),
                         )
                       : Container(color: const Color(0xFF1E293B))),
@@ -752,6 +754,8 @@ class _QueueSheetState extends State<QueueSheet> {
                         ? CachedNetworkImage(
                             imageUrl: song.coverUrl,
                             fit: BoxFit.cover,
+                            memCacheWidth: 150,
+                            memCacheHeight: 150,
                             placeholder: (_, __) => Container(color: const Color(0xFF1E293B)),
                             errorWidget: (_, __, ___) => Container(color: const Color(0xFF1E293B)),
                           )

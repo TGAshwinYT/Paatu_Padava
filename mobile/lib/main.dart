@@ -16,26 +16,10 @@ import 'services/history_manager.dart';
 import 'services/supabase_service.dart';
 import 'services/cache_manager.dart';
 import 'services/battery_optimization_service.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
+import 'services/cover_art_resolver.dart';
 import 'services/innertube_config_service.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/screens/main_navigation.dart';
-
-Future<void> _initFirebase() async {
-  try {
-    if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS)) {
-      final options = DefaultFirebaseOptions.currentPlatform;
-      final future = options.apiKey.isNotEmpty
-          ? Firebase.initializeApp(options: options)
-          : Firebase.initializeApp();
-      await future.timeout(const Duration(seconds: 1));
-      AppLogger.log('AppInit', 'Firebase successfully connected');
-    }
-  } catch (e, stack) {
-    AppLogger.recordError(e, stack, context: 'Firebase.initializeApp');
-  }
-}
 
 Future<void> _initSupabase() async {
   try {
@@ -113,9 +97,9 @@ Future<void> main() async {
         HistoryManager.init(),
         PlaylistManager.init(),
         SearchHistoryManager.init(),
+        CoverArtResolver.init(),
         Hive.openBox('home_feed_cache'),
         InnerTubeConfigService.initialize(),
-        _initFirebase(),
         _initSupabase(),
       ]).timeout(const Duration(seconds: 2), onTimeout: () {
         AppLogger.log('AppInit', 'Non-dependent services initialization completed with 2s safety timeout');

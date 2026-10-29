@@ -288,7 +288,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     int? initialSessionId;
     try {
       initialSessionId = _player.androidAudioSessionId;
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('PaatuAudioHandler', 'Android audio session ID not available: $e');
+    }
     EqualizerService.bindToPlayerSession(
       _player.androidAudioSessionIdStream,
       initialSessionId: initialSessionId,
@@ -296,7 +298,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
 
     try {
       WidgetsBinding.instance.addObserver(this);
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('PaatuAudioHandler', 'Could not register WidgetsBinding observer: $e');
+    }
 
     // Initialize Predictive Smart Cache for queue and radio streams
     SmartCacheService.instance.init();
@@ -356,7 +360,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
                 try {
                   final activeSession = await AudioSession.instance;
                   await activeSession.setActive(true);
-                } catch (_) {}
+                } catch (e) {
+                  AppLogger.debug('PaatuAudioHandler', 'Could not reactivate AudioSession after interruption: $e');
+                }
                 await play();
               }
               break;
@@ -634,7 +640,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
           }
         }
       });
-    } catch (_) {}
+    } catch (e, st) {
+      AppLogger.recordError(e, st, context: 'PaatuAudioHandler duration stream subscription');
+    }
 
     _playerStateSub = _player.playerStateStream.listen((state) {
       if (state.playing) {
@@ -666,7 +674,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   Future<void> disposeAudioHandler() async {
     try {
       WidgetsBinding.instance.removeObserver(this);
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('PaatuAudioHandler', 'Could not remove WidgetsBinding observer: $e');
+    }
     _becomingNoisySub?.cancel();
     _becomingNoisySub = null;
     _playerStateSub?.cancel();
@@ -810,7 +820,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     try {
       final session = await AudioSession.instance;
       await session.setActive(true);
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('PaatuAudioHandler', 'AudioSession setActive(true) error on playSong: $e');
+    }
     _isForegroundDowngraded = false;
     _queueHandler.cancelIdleTimer();
 
@@ -972,10 +984,27 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   }
 
   Future<int> startSongRadio(Song seedSong) async {
-    final radioQueue = await RadioEngine.buildSongRadio(seedSong);
-    if (radioQueue.isNotEmpty) {
-      await playSong(seedSong, queue: radioQueue);
-      return radioQueue.length;
+    try {
+      final strategy = NextTrackStrategyFactory.getStrategy(SettingsManager.nextTrackStrategy);
+      strategy.resetSession(initialAnchor: seedSong);
+      final tracks = await strategy.getUpcomingTracks(
+        seedSong: seedSong,
+        queue: [seedSong],
+        history: HistoryManager.historyNotifier.value.map((e) => e.toSong()).toList(),
+        count: 25,
+      );
+      if (tracks.isNotEmpty) {
+        final radioQueue = [seedSong, ...tracks];
+        await playSong(seedSong, queue: radioQueue);
+        return radioQueue.length;
+      }
+    } catch (e, stack) {
+      AppLogger.recordError(e, stack, context: 'startSongRadio with ${SettingsManager.nextTrackStrategy.name}');
+    }
+    final fallbackQueue = await RadioEngine.buildSongRadio(seedSong);
+    if (fallbackQueue.isNotEmpty) {
+      await playSong(seedSong, queue: fallbackQueue);
+      return fallbackQueue.length;
     }
     return 0;
   }
@@ -997,7 +1026,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     try {
       final session = await AudioSession.instance;
       await session.setActive(true);
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('PaatuAudioHandler', 'AudioSession setActive(true) error on playSong: $e');
+    }
     _isForegroundDowngraded = false;
     _queueHandler.cancelIdleTimer();
     await _player.play();
@@ -1067,15 +1098,19 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
 
   @override
   Future<void> stop() async {
-    _becomingNoisySub?.cancel();
-    _interruptionSub?.cancel();
-    _playerStateSub?.cancel();
+    // NOTE: do NOT cancel _becomingNoisySub / _interruptionSub / _playerStateSub here.
+    // They are created once in the constructor; cancelling them on stop() (notification
+    // swipe, idle timeout, sleep timer) permanently disabled headphone-unplug auto-pause,
+    // phone-call interruption handling and state broadcasting until the app restarted.
+    // They are released only in dispose()/disposeAudioHandler().
     _queueHandler.cancelIdleTimer();
     YouTubeClient.closeIdleClient();
     try {
       final session = await AudioSession.instance;
       await session.setActive(false);
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('PaatuAudioHandler', 'AudioSession setActive(false) notice on stop: $e');
+    }
     await _player.stop();
     _isForegroundDowngraded = true;
     _broadcastState(downgradeNotification: true);
@@ -1087,6 +1122,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     _becomingNoisySub?.cancel();
     _interruptionSub?.cancel();
     _playerStateSub?.cancel();
+    _playbackEventSub?.cancel();
+    _durationSub?.cancel();
+    _throttledPositionSub?.cancel();
     _queueHandler.dispose();
   }
 

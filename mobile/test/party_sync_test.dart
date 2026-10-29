@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paatu_padava_mobile/logic/party_sync_engine.dart';
 import 'package:paatu_padava_mobile/services/party_sync_coordinator.dart';
+import 'package:paatu_padava_mobile/services/party_lan_accelerator.dart';
 
 void main() {
   group('NTP Clock Skew & Offset Calculations', () {
@@ -67,10 +69,25 @@ void main() {
       );
       expect(convertedBack, equals(localTime));
     });
+
+    test('Prioritizes LAN samples over cloud samples to avoid cloud latency spikes', () {
+      final samples = [
+        // Cloud samples with higher RTT (80-120ms) and slight jitter
+        const NtpSample(t0: 1000, t1: 1090, t2: 1092, t3: 1100, isLan: false), // RTT: 98ms, offset: 41ms
+        const NtpSample(t0: 2000, t1: 2095, t2: 2097, t3: 2110, isLan: false), // RTT: 108ms, offset: 41ms
+        // Ultra-clean LAN samples (< 4ms RTT)
+        const NtpSample(t0: 3000, t1: 3040, t2: 3041, t3: 3001, isLan: true),  // RTT: 0ms, offset: 40ms
+        const NtpSample(t0: 4000, t1: 4040, t2: 4041, t3: 4001, isLan: true),  // RTT: 0ms, offset: 40ms
+      ];
+
+      // LAN sample prioritization selects only the clean LAN samples
+      final offset = NtpCalculator.calculateOffset(samples);
+      expect(offset, equals(40));
+    });
   });
 
-  group('Playback Drift Reconciliation & Micro Speed Adjustments', () {
-    test('Drift within deadband (< 10ms) maintains normal speed 1.0x', () {
+  group('Playback Drift Reconciliation & Gentle Rate Adjustments', () {
+    test('Drift within deadband (< 30ms) maintains normal speed 1.0x', () {
       final actionAhead = DriftReconciler.reconcileDrift(
         currentPositionMs: 15006,
         expectedPositionMs: 15000, // drift = +6ms
@@ -88,29 +105,71 @@ void main() {
       expect(actionBehind.isInSync, isTrue);
     });
 
-    test('Micro-drift between 10ms and 250ms ahead applies imperceptible slow-down (0.98x)', () {
-      final action = DriftReconciler.reconcileDrift(
+    test('Small drift (30-80ms) applies gentle ±0.5% rate adjustment to prevent audible warble', () {
+      // Local is ahead by 50ms: gentle slow down (0.995x)
+      final actionAhead = DriftReconciler.reconcileDrift(
+        currentPositionMs: 15050,
+        expectedPositionMs: 15000, // drift = +50ms
+      );
+      expect(actionAhead.type, equals(DriftActionType.slowDown));
+      expect(actionAhead.playbackSpeed, equals(0.995));
+      expect(actionAhead.isMicroAdjusting, isTrue);
+      expect(actionAhead.seekTargetMs, isNull);
+
+      // Local is behind by 50ms: gentle catch up (1.005x)
+      final actionBehind = DriftReconciler.reconcileDrift(
+        currentPositionMs: 14950,
+        expectedPositionMs: 15000, // drift = -50ms
+      );
+      expect(actionBehind.type, equals(DriftActionType.speedUp));
+      expect(actionBehind.playbackSpeed, equals(1.005));
+      expect(actionBehind.isMicroAdjusting, isTrue);
+      expect(actionBehind.seekTargetMs, isNull);
+    });
+
+    test('Moderate drift (80-150ms) applies ±1.5% adjustment', () {
+      final actionAhead = DriftReconciler.reconcileDrift(
         currentPositionMs: 15120,
         expectedPositionMs: 15000, // drift = +120ms
       );
-      expect(action.type, equals(DriftActionType.slowDown));
-      expect(action.playbackSpeed, equals(0.98));
-      expect(action.isMicroAdjusting, isTrue);
-      expect(action.seekTargetMs, isNull);
-    });
+      expect(actionAhead.type, equals(DriftActionType.slowDown));
+      expect(actionAhead.playbackSpeed, equals(0.985));
+      expect(actionAhead.isMicroAdjusting, isTrue);
+      expect(actionAhead.seekTargetMs, isNull);
 
-    test('Micro-drift between 10ms and 250ms behind applies imperceptible speed-up (1.02x)', () {
-      final action = DriftReconciler.reconcileDrift(
+      final actionBehind = DriftReconciler.reconcileDrift(
         currentPositionMs: 14880,
         expectedPositionMs: 15000, // drift = -120ms
       );
-      expect(action.type, equals(DriftActionType.speedUp));
-      expect(action.playbackSpeed, equals(1.02));
-      expect(action.isMicroAdjusting, isTrue);
-      expect(action.seekTargetMs, isNull);
+      expect(actionBehind.type, equals(DriftActionType.speedUp));
+      expect(actionBehind.playbackSpeed, equals(1.015));
+      expect(actionBehind.isMicroAdjusting, isTrue);
+      expect(actionBehind.seekTargetMs, isNull);
     });
 
-    test('Macro-drift (>= 250ms) triggers seamless hard seek', () {
+    test('Hysteresis deadband prevents hunting when previously in sync', () {
+      // Drift is 35ms (above normal 30ms deadband), but wasInSync = true allows deadband + 10ms (40ms)
+      final action = DriftReconciler.reconcileDrift(
+        currentPositionMs: 15035,
+        expectedPositionMs: 15000, // drift = +35ms
+        deadbandMs: 30,
+        wasInSync: true,
+      );
+      expect(action.type, equals(DriftActionType.inSync));
+      expect(action.playbackSpeed, equals(1.0));
+
+      // Once drift exceeds 40ms, hysteresis allows transition to micro-adjust
+      final actionExceeded = DriftReconciler.reconcileDrift(
+        currentPositionMs: 15045,
+        expectedPositionMs: 15000, // drift = +45ms
+        deadbandMs: 30,
+        wasInSync: true,
+      );
+      expect(actionExceeded.type, equals(DriftActionType.slowDown));
+      expect(actionExceeded.playbackSpeed, equals(0.995));
+    });
+
+    test('Macro-drift (>= 150ms) triggers seamless hard seek', () {
       final action = DriftReconciler.reconcileDrift(
         currentPositionMs: 15450,
         expectedPositionMs: 15000, // drift = +450ms
@@ -256,5 +315,35 @@ void main() {
       expect(updated.isSelf, isTrue);
     });
   });
-}
 
+  group('Party Mode Code & Security Validation', () {
+    test('Party code produces 6 alphanumeric characters with SYNC- prefix (30 bits of entropy)', () {
+      final code = PartySyncCoordinator.generatePartyCode();
+      expect(code.startsWith('SYNC-'), isTrue);
+      // 'SYNC-' (5 chars) + 6 chars = 11 chars
+      expect(code.length, equals(11));
+      final rawKey = code.substring(5);
+      expect(rawKey.length, equals(6));
+      expect(RegExp(r'^[2-9A-Z]{6}$').hasMatch(rawKey), isTrue);
+    });
+  });
+
+  group('LAN Peer Registration & Unicast Datagrams', () {
+    test('LanJoinerPeer serializes and updates lastSeen timestamp', () {
+      final peer = LanJoinerPeer(
+        id: 'joiner-1',
+        address: InternetAddress('192.168.1.105'),
+        port: 54321,
+        lastSeen: DateTime.now(),
+      );
+
+      expect(peer.id, equals('joiner-1'));
+      expect(peer.address.address, equals('192.168.1.105'));
+      expect(peer.port, equals(54321));
+
+      final updatedTime = DateTime.now().add(const Duration(seconds: 5));
+      peer.lastSeen = updatedTime;
+      expect(peer.lastSeen, equals(updatedTime));
+    });
+  });
+}

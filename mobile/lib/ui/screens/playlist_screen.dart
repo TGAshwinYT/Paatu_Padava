@@ -69,16 +69,16 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
     super.dispose();
   }
 
-  void _showCollaborationSheet(BuildContext context, UserPlaylist playlist) {
+  void _showCollaborationSheet(BuildContext hostContext, UserPlaylist playlist) {
     showModalBottomSheet(
-      context: context,
+      context: hostContext,
       backgroundColor: const Color(0xFF131B2E),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (bottomCtx) {
         return StatefulBuilder(
-          builder: (context, setSheetState) {
+          builder: (sheetCtx, setSheetState) {
             final isCollab = playlist.isCollaborative;
             final code = playlist.inviteCode ?? '';
 
@@ -186,7 +186,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                             label: const Text('Copy'),
                             onPressed: () {
                               Clipboard.setData(ClipboardData(text: code));
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              ScaffoldMessenger.of(sheetCtx).showSnackBar(
                                 const SnackBar(content: Text('Invite code copied to clipboard!')),
                               );
                             },
@@ -212,7 +212,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                             CollaborativePlaylistService.unsubscribe(_collabChannel);
                             _collabChannel = null;
                             if (mounted) setState(() {});
-                            Navigator.pop(bottomCtx);
+                            if (bottomCtx.mounted) Navigator.pop(bottomCtx);
                           }
                         },
                       )
@@ -252,8 +252,8 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                           if (updated != null) {
                             _setupRealtimeSubscription();
                             if (mounted) setState(() {});
-                            Navigator.pop(bottomCtx);
-                            _showCollaborationSheet(context, updated);
+                            if (bottomCtx.mounted) Navigator.pop(bottomCtx);
+                            if (hostContext.mounted) _showCollaborationSheet(hostContext, updated);
                           }
                         },
                       ),
@@ -467,6 +467,8 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                             CachedNetworkImage(
                               imageUrl: playlist.coverUrl,
                               fit: BoxFit.cover,
+                              memCacheWidth: 600,
+                              memCacheHeight: 600,
                               errorWidget: (_, __, ___) => _buildPlaceholderCover(),
                             )
                           else
@@ -526,16 +528,20 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                                         size: 12,
                                       ),
                                       const SizedBox(width: 4),
-                                      Text(
+                                      Flexible(
+                                        child: Text(
                                         _isCollabConnected
                                             ? 'LIVE COLLAB • ${playlist.inviteCode ?? ""}'
                                             : 'RECONNECTING • ${playlist.inviteCode ?? ""}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                         style: GoogleFonts.outfit(
                                           color: _isCollabConnected ? const Color(0xFF34D399) : const Color(0xFFFBBF24),
                                           fontSize: 10,
                                           fontWeight: FontWeight.bold,
                                           letterSpacing: 0.8,
                                         ),
+                                      ),
                                       ),
                                     ],
                                   ),

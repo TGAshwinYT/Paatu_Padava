@@ -53,13 +53,17 @@ class HomeSettingsScreen extends StatelessWidget {
       children: [
         Icon(icon, color: const Color(0xFF6366F1), size: 18),
         const SizedBox(width: 8),
-        Text(
-          title,
-          style: const TextStyle(
-            color: Color(0xFF818CF8),
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.1,
+        Expanded(
+          child: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0xFF818CF8),
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.1,
+            ),
           ),
         ),
       ],

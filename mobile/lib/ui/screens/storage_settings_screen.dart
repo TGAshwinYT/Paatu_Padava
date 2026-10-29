@@ -504,6 +504,8 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
                                 width: 44,
                                 height: 44,
                                 fit: BoxFit.cover,
+                                memCacheWidth: 150,
+                                memCacheHeight: 150,
                                 errorWidget: (_, __, ___) => Container(
                                   width: 44,
                                   height: 44,

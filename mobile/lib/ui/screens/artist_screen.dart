@@ -217,6 +217,8 @@ class _ArtistScreenState extends State<ArtistScreen> {
               child: CachedNetworkImage(
                 imageUrl: song.coverUrl,
                 fit: BoxFit.cover,
+                memCacheWidth: 150,
+                memCacheHeight: 150,
                 placeholder: (_, __) => Container(color: const Color(0xFF1E293B)),
                 errorWidget: (_, __, ___) => Container(
                   color: const Color(0xFF1E293B),
@@ -376,6 +378,8 @@ class _ArtistScreenState extends State<ArtistScreen> {
                           ? CachedNetworkImage(
                               imageUrl: _resolvedImageUrl,
                               fit: BoxFit.cover,
+                              memCacheWidth: 600,
+                              memCacheHeight: 600,
                               errorWidget: (_, __, ___) => Container(color: const Color(0xFF1E293B)),
                             )
                           : Container(color: const Color(0xFF1E293B)),

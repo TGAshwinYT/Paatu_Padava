@@ -84,6 +84,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           width: 48,
                           height: 48,
                           fit: BoxFit.cover,
+                          memCacheWidth: 150,
+                          memCacheHeight: 150,
                           errorWidget: (_, __, ___) => const Icon(Icons.music_note),
                         )
                       : const Icon(Icons.music_note),
@@ -500,6 +502,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                                 width: 48,
                                                 height: 48,
                                                 fit: BoxFit.cover,
+                                                memCacheWidth: 150,
+                                                memCacheHeight: 150,
                                                 errorWidget: (_, __, ___) => Container(
                                                   width: 48,
                                                   height: 48,

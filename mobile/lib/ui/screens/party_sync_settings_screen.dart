@@ -54,13 +54,17 @@ class PartySyncSettingsScreen extends StatelessWidget {
       children: [
         Icon(icon, color: const Color(0xFF6366F1), size: 18),
         const SizedBox(width: 8),
-        Text(
-          title,
-          style: const TextStyle(
-            color: Color(0xFF818CF8),
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.1,
+        Expanded(
+          child: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0xFF818CF8),
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.1,
+            ),
           ),
         ),
       ],
@@ -106,27 +110,34 @@ class PartySyncSettingsScreen extends StatelessWidget {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Row(
-                            children: [
-                              Container(
-                                width: 8,
-                                height: 8,
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFF10B981),
-                                  shape: BoxShape.circle,
+                          Expanded(
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFF10B981),
+                                    shape: BoxShape.circle,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                '${peers.length} Device${peers.length > 1 ? "s" : ""} in Party',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    '${peers.length} Device${peers.length > 1 ? "s" : ""} in Party',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
+                          const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
@@ -350,21 +361,26 @@ class PartySyncSettingsScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF6366F1),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                ),
-                onPressed: () => PartyModeSheet.show(context),
-                child: const Text('Open Session', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
-              ),
             ],
           ),
           const SizedBox(height: 12),
           const Text(
             'Play music together across multiple phones in the same room. Sub-millisecond NTP synchronization eliminates echo and delay.',
             style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12, height: 1.3),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.speaker_group_rounded, size: 16),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF6366F1),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              ),
+              onPressed: () => PartyModeSheet.show(context),
+              label: const Text('Open Session', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+            ),
           ),
         ],
       ),
@@ -393,22 +409,27 @@ class PartySyncSettingsScreen extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Hardware Output Offset',
-                        style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                      Expanded(
+                        child: Text(
+                          'Hardware Output Offset',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                        ),
                       ),
+                      const SizedBox(width: 8),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
                           color: const Color(0xFF6366F1).withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          latencyMs == 0 ? '0 ms (Standard)' : '${latencyMs > 0 ? "+$latencyMs" : latencyMs} ms',
+                          latencyMs == 0 ? '0 ms' : '${latencyMs > 0 ? "+$latencyMs" : latencyMs} ms',
                           style: const TextStyle(
                             color: Color(0xFF818CF8),
                             fontWeight: FontWeight.bold,
-                            fontSize: 12,
+                            fontSize: 11,
                           ),
                         ),
                       ),
@@ -435,19 +456,19 @@ class PartySyncSettingsScreen extends StatelessWidget {
                       onChanged: (val) => SettingsManager.setHardwareAudioLatencyMs(val.toInt()),
                     ),
                   ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _buildStepButton('-10ms', () => SettingsManager.setHardwareAudioLatencyMs(latencyMs - 10)),
-                      const SizedBox(width: 8),
-                      _buildStepButton('-2ms', () => SettingsManager.setHardwareAudioLatencyMs(latencyMs - 2)),
-                      const SizedBox(width: 8),
-                      _buildStepButton('Reset (0ms)', () => SettingsManager.setHardwareAudioLatencyMs(0)),
-                      const SizedBox(width: 8),
-                      _buildStepButton('+2ms', () => SettingsManager.setHardwareAudioLatencyMs(latencyMs + 2)),
-                      const SizedBox(width: 8),
-                      _buildStepButton('+10ms', () => SettingsManager.setHardwareAudioLatencyMs(latencyMs + 10)),
-                    ],
+                  Center(
+                    child: Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _buildStepButton('-10ms', () => SettingsManager.setHardwareAudioLatencyMs(latencyMs - 10)),
+                        _buildStepButton('-2ms', () => SettingsManager.setHardwareAudioLatencyMs(latencyMs - 2)),
+                        _buildStepButton('Reset (0ms)', () => SettingsManager.setHardwareAudioLatencyMs(0)),
+                        _buildStepButton('+2ms', () => SettingsManager.setHardwareAudioLatencyMs(latencyMs + 2)),
+                        _buildStepButton('+10ms', () => SettingsManager.setHardwareAudioLatencyMs(latencyMs + 10)),
+                      ],
+                    ),
                   ),
                 ],
               );
@@ -480,12 +501,17 @@ class PartySyncSettingsScreen extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Bluetooth Buffer Compensation',
-                        style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                      Expanded(
+                        child: Text(
+                          'Bluetooth Buffer Compensation',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                        ),
                       ),
+                      const SizedBox(width: 8),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
                           color: const Color(0xFF06B6D4).withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(8),
@@ -495,7 +521,7 @@ class PartySyncSettingsScreen extends StatelessWidget {
                           style: const TextStyle(
                             color: Color(0xFF06B6D4),
                             fontWeight: FontWeight.bold,
-                            fontSize: 12,
+                            fontSize: 11,
                           ),
                         ),
                       ),
@@ -576,9 +602,11 @@ class PartySyncSettingsScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  const Text(
-                    'High-Precision 4-Timestamp Handshake',
-                    style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                  const Expanded(
+                    child: Text(
+                      'High-Precision 4-Timestamp Handshake',
+                      style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ],
               ),

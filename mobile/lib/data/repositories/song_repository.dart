@@ -8,6 +8,7 @@ import '../../services/supabase_service.dart';
 import '../../services/app_logger.dart';
 import '../../services/lyrics_client.dart';
 import '../../services/artist_sanitizer.dart';
+import '../../services/cover_art_resolver.dart';
 import 'package:flutter/material.dart';
 import '../../domain/models/lyrics_state.dart';
 import '../../domain/models/home_feed_models.dart';
@@ -383,18 +384,11 @@ class SongRepository {
     for (final song in songs) {
       String finalCover = song.coverUrl.trim();
 
-      // Only attempt fallback if the cover is completely missing/empty
+      // If cover is empty, check CoverArtResolver cache or default to YouTube thumbnail
       if (finalCover.isEmpty) {
-        final normArtist = normalizeArtist(song.artist);
-        String? artistAvatar = _verifiedArtistAvatars[normArtist];
-
-        if (artistAvatar == null && song.artist.contains(',')) {
-          final firstArtist = normalizeArtist(song.artist.split(',').first);
-          artistAvatar = _verifiedArtistAvatars[firstArtist];
-        }
-
-        if (artistAvatar != null) {
-          finalCover = artistAvatar;
+        final cached = CoverArtResolver.getCachedCover(song.id);
+        if (cached != null && cached.isNotEmpty) {
+          finalCover = cached;
         } else if (song.source == 'youtube' || song.id.length == 11) {
           finalCover = 'https://img.youtube.com/vi/${song.id}/hqdefault.jpg';
         }

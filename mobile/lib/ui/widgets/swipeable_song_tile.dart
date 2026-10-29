@@ -142,6 +142,7 @@ class SwipeableSongTile extends StatelessWidget {
             // Swipe Left to Like / Save
             HapticFeedback.mediumImpact();
             final wasLiked = await FavoritesManager.toggleFavorite(song);
+            if (!context.mounted) return false;
             ScaffoldMessenger.of(context).hideCurrentSnackBar();
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(

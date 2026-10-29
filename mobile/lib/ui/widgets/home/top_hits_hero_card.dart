@@ -195,6 +195,8 @@ class TopHitsHeroCard extends StatelessWidget {
                                   ? CachedNetworkImage(
                                       imageUrl: cover,
                                       fit: BoxFit.cover,
+                                      memCacheWidth: 350,
+                                      memCacheHeight: 350,
                                       errorWidget: (_, __, ___) => Container(
                                         color: AppColors.surfaceElevated,
                                         child: const Icon(Icons.music_note_rounded, color: Colors.white54, size: 36),

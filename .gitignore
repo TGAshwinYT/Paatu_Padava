@@ -1,65 +1,35 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+# Keystores & Android signing credentials
+**/key.properties
+key.properties
+**/*.jks
+*.jks
+**/*.keystore
+*.keystore
+**/google-services.json
+google-services.json
 
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# Environment variables
+# Environment files
 .env
 .env.*
 *.env
-!.env.example
 
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-.pytest_cache/
-scratch_song*.jpg
-
-# Antigravity IDE local configs
-.agents/
-
-# Flutter & Android
-.dart_tool/
-.flutter-plugins
-.flutter-plugins-dependencies
-.packages
-.pub-cache/
-.pub/
+# Build outputs
 build/
-**/android/local.properties
-**/android/key.properties
-**/key.properties
-key.properties
+**/build/
+.dart_tool/
+**/.dart_tool/
+**/local.properties
+local.properties
+
+# Python cache
+**/__pycache__/
+*.pyc
+
+# Node
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+
+# Auto-generated Flutter registrant
 **/GeneratedPluginRegistrant.java
-*.keystore
-**/*.keystore
-*.jks
-**/*.jks
-keystore_base64.txt
-
-# Sensitive credentials & cookies
-cookies.txt
-**/cookies.txt
-
-

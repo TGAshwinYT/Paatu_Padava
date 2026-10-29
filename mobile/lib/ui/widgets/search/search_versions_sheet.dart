@@ -64,6 +64,8 @@ class SearchVersionsSheet {
                             child: CachedNetworkImage(
                               imageUrl: v.coverUrl,
                               fit: BoxFit.cover,
+                              memCacheWidth: 150,
+                              memCacheHeight: 150,
                               errorWidget: (_, __, ___) => Container(color: AppColors.surfaceElevated),
                             ),
                           ),

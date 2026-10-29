@@ -51,6 +51,7 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
 
     setState(() => _isJoining = true);
     final success = await PartySyncCoordinator.joinParty(code);
+    if (!mounted) return;
     setState(() => _isJoining = false);
 
     if (!success && mounted) {

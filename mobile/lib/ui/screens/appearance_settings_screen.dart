@@ -53,13 +53,17 @@ class AppearanceSettingsScreen extends StatelessWidget {
       children: [
         Icon(icon, color: const Color(0xFF6366F1), size: 18),
         const SizedBox(width: 8),
-        Text(
-          title,
-          style: const TextStyle(
-            color: Color(0xFF818CF8),
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.1,
+        Expanded(
+          child: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0xFF818CF8),
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.1,
+            ),
           ),
         ),
       ],
@@ -155,24 +159,29 @@ class AppearanceSettingsScreen extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? const Color(0xFF6366F1).withValues(alpha: 0.2)
-                        : Colors.white.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    title.contains('AMOLED') ? 'PITCH BLACK' : 'SLATE NAVY',
-                    style: TextStyle(
-                      color: isSelected ? const Color(0xFF818CF8) : const Color(0xFF64748B),
-                      fontSize: 9,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.8,
+                Flexible(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? const Color(0xFF6366F1).withValues(alpha: 0.2)
+                          : Colors.white.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      title.contains('AMOLED') ? 'PITCH BLACK' : 'SLATE NAVY',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: isSelected ? const Color(0xFF818CF8) : const Color(0xFF64748B),
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.8,
+                      ),
                     ),
                   ),
                 ),
+                const SizedBox(width: 4),
                 Icon(
                   isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
                   color: isSelected ? const Color(0xFF6366F1) : const Color(0xFF475569),
@@ -439,7 +448,7 @@ class AppearanceSettingsScreen extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
           decoration: BoxDecoration(
             color: isSelected ? const Color(0xFF6366F1).withValues(alpha: 0.2) : const Color(0xFF1E293B),
             borderRadius: BorderRadius.circular(12),
@@ -451,6 +460,8 @@ class AppearanceSettingsScreen extends StatelessWidget {
           child: Center(
             child: Text(
               label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: isSelected ? const Color(0xFF818CF8) : Colors.white70,
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,

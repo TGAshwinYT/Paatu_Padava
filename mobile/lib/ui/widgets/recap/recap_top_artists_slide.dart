@@ -58,6 +58,8 @@ class RecapTopArtistsSlide extends StatelessWidget {
                   ? CachedNetworkImage(
                       imageUrl: artist.representativeCoverUrl,
                       fit: BoxFit.cover,
+                      memCacheWidth: 150,
+                      memCacheHeight: 150,
                       errorWidget: (_, __, ___) => _artistAvatarPlaceholder(artist.artistName),
                     )
                   : _artistAvatarPlaceholder(artist.artistName),

@@ -161,6 +161,8 @@ class _ListeningSessionScreenState extends State<ListeningSessionScreen> {
                           width: 48,
                           height: 48,
                           fit: BoxFit.cover,
+                          memCacheWidth: 150,
+                          memCacheHeight: 150,
                           errorWidget: (_, __, ___) => const Icon(Icons.music_note),
                         )
                       : const Icon(Icons.music_note),
@@ -451,6 +453,8 @@ class _ListeningSessionScreenState extends State<ListeningSessionScreen> {
                                     width: 46,
                                     height: 46,
                                     fit: BoxFit.cover,
+                                    memCacheWidth: 150,
+                                    memCacheHeight: 150,
                                     errorWidget: (_, __, ___) => Container(
                                       width: 46,
                                       height: 46,

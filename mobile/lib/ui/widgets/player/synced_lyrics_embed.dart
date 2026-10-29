@@ -175,7 +175,7 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
             final mountedContext = _lineKeys[idx].currentContext;
-            if (mountedContext != null) {
+            if (mountedContext != null && mountedContext.mounted) {
               Scrollable.ensureVisible(
                 mountedContext,
                 alignment: 0.45,
@@ -193,7 +193,7 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
               .then((_) {
             if (!mounted) return;
             final mountedContext = _lineKeys[idx].currentContext;
-            if (mountedContext != null) {
+            if (mountedContext != null && mountedContext.mounted) {
               Scrollable.ensureVisible(
                 mountedContext,
                 alignment: 0.45,

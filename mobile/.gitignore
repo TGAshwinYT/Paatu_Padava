@@ -58,7 +58,11 @@ key.properties
 **/*.jks
 *.jks
 **/*.keystore
+**/google-services.json
+google-services.json
 *.keystore
+**/google-services.json
+google-services.json
 
 # Environment files
 .env
@@ -69,3 +73,6 @@ key.properties
 scratch*
 scratch_*.dart
 
+
+# Auto-generated Flutter registrant
+**/GeneratedPluginRegistrant.java

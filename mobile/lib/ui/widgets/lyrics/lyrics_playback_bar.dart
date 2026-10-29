@@ -4,13 +4,21 @@ import 'package:just_audio/just_audio.dart';
 import '../../../models/song.dart';
 import '../../../services/player_handler.dart';
 
-class LyricsPlaybackBar extends StatelessWidget {
+class LyricsPlaybackBar extends StatefulWidget {
   final Song? song;
 
   const LyricsPlaybackBar({
     super.key,
     required this.song,
   });
+
+  @override
+  State<LyricsPlaybackBar> createState() => _LyricsPlaybackBarState();
+}
+
+class _LyricsPlaybackBarState extends State<LyricsPlaybackBar> {
+  bool _isDragging = false;
+  double _dragPositionMs = 0.0;
 
   String _formatDuration(Duration d) {
     final minutes = d.inMinutes;
@@ -44,15 +52,19 @@ class LyricsPlaybackBar extends StatelessWidget {
                 stream: audioHandler.throttledPositionStream,
                 builder: (context, snapshot) {
                   final position = snapshot.data ?? Duration.zero;
-                  final totalDuration = audioHandler.player.duration ?? Duration(seconds: song?.duration ?? 0);
+                  final totalDuration = audioHandler.player.duration ?? Duration(seconds: widget.song?.duration ?? 0);
                   final posMs = position.inMilliseconds.toDouble();
                   final totalMs = totalDuration.inMilliseconds.toDouble();
                   final maxVal = (totalMs > posMs && totalMs > 0) ? totalMs : (posMs + 1);
 
+                  final displayedMs = _isDragging ? _dragPositionMs : posMs;
+                  final displayedPosition =
+                      _isDragging ? Duration(milliseconds: _dragPositionMs.toInt()) : position;
+
                   return Row(
                     children: [
                       Text(
-                        _formatDuration(position),
+                        _formatDuration(displayedPosition),
                         style: const TextStyle(color: Colors.white38, fontSize: 11, fontWeight: FontWeight.bold),
                       ),
                       Expanded(
@@ -68,8 +80,22 @@ class LyricsPlaybackBar extends StatelessWidget {
                           child: Slider(
                             min: 0,
                             max: maxVal,
-                            value: posMs.clamp(0.0, maxVal),
+                            value: displayedMs.clamp(0.0, maxVal),
+                            onChangeStart: (val) {
+                              setState(() {
+                                _isDragging = true;
+                                _dragPositionMs = val;
+                              });
+                            },
                             onChanged: (val) {
+                              setState(() {
+                                _dragPositionMs = val;
+                              });
+                            },
+                            onChangeEnd: (val) {
+                              setState(() {
+                                _isDragging = false;
+                              });
                               audioHandler.seek(Duration(milliseconds: val.toInt()));
                             },
                           ),

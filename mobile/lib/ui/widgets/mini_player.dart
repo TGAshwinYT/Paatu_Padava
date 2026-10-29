@@ -1,12 +1,12 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:just_audio/just_audio.dart';
 import '../../models/song.dart';
 import '../../services/player_handler.dart';
 import '../../services/favorites_manager.dart';
 import '../screens/full_player_screen.dart';
 import 'artist_picker_sheet.dart';
+import 'cover_art_image.dart';
 
 class MiniPlayer extends StatelessWidget {
   const MiniPlayer({Key? key}) : super(key: key);
@@ -98,14 +98,15 @@ class MiniPlayer extends StatelessWidget {
                                         fit: BoxFit.cover,
                                         errorBuilder: (_, __, ___) => _coverFallback(),
                                       )
-                                    : (song.coverUrl.isNotEmpty
-                                        ? CachedNetworkImage(
-                                            imageUrl: song.coverUrl,
-                                            fit: BoxFit.cover,
-                                            placeholder: (_, __) => Container(color: const Color(0xFF1E293B)),
-                                            errorWidget: (_, __, ___) => _coverFallback(),
-                                          )
-                                        : _coverFallback()),
+                                    : CoverArtImage(
+                                        song: song,
+                                        width: 44,
+                                        height: 44,
+                                        borderRadius: BorderRadius.circular(10),
+                                        memCacheWidth: 150,
+                                        memCacheHeight: 150,
+                                        errorWidget: _coverFallback(),
+                                      ),
                               ),
                             ),
                             const SizedBox(width: 12),

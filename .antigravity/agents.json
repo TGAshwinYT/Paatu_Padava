@@ -5,8 +5,10 @@
     "role": "Lead Systems Architect & Autonomous Meta-Orchestrator",
     "description": "Oversees end-to-end multi-agent execution, cross-layer dependency ordering, and architectural coherence across database, backend, web, and mobile.",
     "skills": [
-      "anti-fallback-guardrails"
-    ]
+      "anti-fallback-guardrails",
+      "mobile-ui-guidelines"
+    ],
+    "rules_ref": ".agent/rules/definition-of-done.md"
   },
   "agents": [
     {
@@ -122,7 +124,9 @@
         "allowed_paths": [
           "mobile/**",
           "plans/**",
-          ".antigravity/skills/mobile-guidelines/**"
+          ".antigravity/skills/mobile-guidelines/**",
+          ".antigravity/skills/mobile-ui-guidelines/**",
+          ".agent/**"
         ],
         "denied_paths": [
           "backend-data-hf/**",
@@ -137,7 +141,10 @@
         "Local offline storage with Hive boxes and automatic cache eviction",
         "Synchronized LRC lyrics renderer with millisecond offset controls",
         "Native Android 5-band equalizer bound to audio session ID",
-        "Full Flutter test suite execution and pass guarantees"
+        "Full Flutter test suite execution and pass guarantees",
+        "Screen layouts must survive small phones (360x640) and 1.5x text scale (no RenderFlex overflow)",
+        "Every new screen is registered in mobile/test/ui_layout_matrix_test.dart",
+        "Write plans/<feature>.md from plans/TEMPLATE.md BEFORE writing code"
       ],
       "tools": [
         "view_file",
@@ -149,9 +156,20 @@
         "list_dir"
       ],
       "skills": [
-        "anti-fallback-guardrails"
+        "anti-fallback-guardrails",
+        "mobile-ui-guidelines"
       ],
-      "skill_ref": ".antigravity/skills/mobile-guidelines/SKILL.md"
+      "skill_ref": [
+        ".antigravity/skills/mobile-guidelines/SKILL.md",
+        ".antigravity/skills/mobile-ui-guidelines/SKILL.md"
+      ],
+      "verification": {
+        "commands": [
+          "cd mobile && flutter analyze --no-fatal-infos",
+          "cd mobile && flutter test --exclude-tags golden"
+        ],
+        "on_ui_change": "cd mobile && flutter test test/ui_layout_matrix_test.dart"
+      }
     }
   ]
 }

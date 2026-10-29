@@ -130,6 +130,8 @@ class QuickPicksGridCarousel extends StatelessWidget {
                       ? CachedNetworkImage(
                           imageUrl: song.coverUrl,
                           fit: BoxFit.cover,
+                          memCacheWidth: 150,
+                          memCacheHeight: 150,
                           errorWidget: (_, __, ___) => Container(
                             color: AppColors.surfaceElevated,
                             child: const Icon(Icons.music_note_rounded, color: Colors.white38, size: 20),

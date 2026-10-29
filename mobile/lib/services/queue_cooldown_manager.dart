@@ -18,6 +18,18 @@ class QueueCooldownManager {
   // Ring buffer of clean artist names maintaining order of playback
   static final Queue<String> _artistHistoryRing = Queue<String>();
 
+  /// Canonical artist key for cooldown matching:
+  /// Strips punctuation (dots, hyphens, quotes) while preserving all Unicode letters
+  /// (Tamil, Devanagari, English, etc.) and collapsing whitespace.
+  static String normalizeArtistKey(String primaryArtist) {
+    if (primaryArtist.isEmpty) return '';
+    return primaryArtist
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^\p{L}\p{N}\s]', unicode: true), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
   /// Records a track as recently played, adding it to the cooldown window.
   /// Evicts the oldest track once capacity reaches 75.
   static void recordPlayed(Song song) {
@@ -42,7 +54,7 @@ class QueueCooldownManager {
     }
 
     // Record primary artist for artist dispersion cooldown (last 4 tracks window)
-    final artist = song.primaryArtist.toLowerCase().trim();
+    final artist = normalizeArtistKey(song.primaryArtist);
     if (artist.isNotEmpty && artist != 'various artists') {
       _artistHistoryRing.addLast(artist);
       while (_artistHistoryRing.length > maxCooldownCapacity) {
@@ -72,7 +84,7 @@ class QueueCooldownManager {
   /// Checks if a candidate's primary artist has appeared in the last [window] played tracks (default 4).
   /// Spotify / Apple Music standard: prevents repetitive single-artist runs in auto-generated queues.
   static bool isArtistCoolingDown(String primaryArtist, {int window = 4}) {
-    final norm = primaryArtist.toLowerCase().replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), '').trim();
+    final norm = normalizeArtistKey(primaryArtist);
     if (norm.isEmpty || norm == 'various artists') return false;
     final recent = _artistHistoryRing.toList().reversed.take(window);
     return recent.contains(norm);

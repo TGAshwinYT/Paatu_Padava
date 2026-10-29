@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:audio_service/audio_service.dart';
 import 'package:html_unescape/html_unescape.dart';
+import '../../services/cover_art_resolver.dart';
 
 /// Unified Clean Architecture Domain Entity for all audio tracks in Paatu Paadava.
 /// Guarantees centralized string sanitization, deduplication across multi-source catalogs,
@@ -78,7 +79,7 @@ class TrackEntity {
     final lower = artist.toLowerCase();
     final parts = lower.split(RegExp(r'[,&/|]|\bfeat\.?\b|\bft\.?\b|\bwith\b'));
     final first = parts.isNotEmpty ? parts.first.trim() : lower.trim();
-    return first.replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), '').trim();
+    return first.replaceAll(RegExp(r'[^\p{L}\p{N}\s]', unicode: true), '').replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
   /// Normalized title: strips brackets, parentheses (From film, remix, lofi tags), punctuation
@@ -88,7 +89,7 @@ class TrackEntity {
         .replaceAll(RegExp(r'\([^)]*\)'), ' ')
         .replaceAll(RegExp(r'\[[^\]]*\]'), ' ')
         .replaceAll(RegExp(r'\b(remix|lofi|lo-fi|live|acoustic|cover|soundtrack|ost)\b', caseSensitive: false), ' ')
-        .replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), ' ')
+        .replaceAll(RegExp(r'[^\p{L}\p{N}\s]', unicode: true), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
   }
@@ -109,7 +110,7 @@ class TrackEntity {
       ' ',
     );
     return text
-        .replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), '')
+        .replaceAll(RegExp(r'[^\p{L}\p{N}\s]', unicode: true), '')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
   }
@@ -120,7 +121,7 @@ class TrackEntity {
         .toLowerCase()
         .replaceAll(RegExp(r'\([^)]*\)'), ' ')
         .replaceAll(RegExp(r'\[[^\]]*\]'), ' ')
-        .replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), '')
+        .replaceAll(RegExp(r'[^\p{L}\p{N}\s]', unicode: true), '')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
   }
@@ -287,13 +288,15 @@ class TrackEntity {
 
   /// Converts to audio_service MediaItem for lock screen and system notification
   MediaItem toMediaItem() {
+    final cached = CoverArtResolver.getCachedCover(id);
+    final effectiveCover = (cached != null && cached.isNotEmpty) ? cached : coverUrl;
     return MediaItem(
       id: id,
       title: title,
       artist: artist,
       album: album,
       duration: duration > 0 ? Duration(seconds: duration) : null,
-      artUri: coverUrl.isNotEmpty ? Uri.tryParse(coverUrl) : null,
+      artUri: effectiveCover.isNotEmpty ? Uri.tryParse(effectiveCover) : null,
       extras: {
         'streamUrl': streamUrl,
         'source': source,

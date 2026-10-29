@@ -1,7 +1,7 @@
 name: paatu_padava_mobile
 description: "Paatu Padava - Client-based music player with full offline downloads and background audio."
 publish_to: 'none'
-version: 2.3.0+4
+version: 2.4.0+5
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -51,10 +51,11 @@ dependencies:
   cupertino_icons: ^1.0.6
   uuid: ^4.6.0
   palette_generator: ^0.3.3+7
-  firebase_core: ^4.15.0
 
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+  integration_test:
     sdk: flutter
   flutter_lints: ^3.0.0
 

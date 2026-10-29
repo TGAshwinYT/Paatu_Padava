@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'package:flutter/foundation.dart';
 import '../models/song.dart';
 import '../services/api_client.dart';
@@ -28,6 +29,9 @@ abstract class NextTrackStrategy {
   /// Invalidate and branch the recommendation graph when a track is skipped
   void recordSkip(Song skippedSong, {required int listenedSeconds});
 
+  /// Records a track-to-track transition to train sequential listening models
+  void recordTransition(Song from, Song to, {bool isPositive = true});
+
   /// Resets the session context anchor and any temporary skip blacklists
   void resetSession({Song? initialAnchor});
 }
@@ -48,11 +52,11 @@ List<Song> enforceArtistDispersionAndNoBackToBack(
   final List<Song> result = [];
   final List<Song> deferred = [];
   final Map<String, int> artistCounts = {};
-  String lastArtist = seedArtist.toLowerCase().trim();
+  String lastArtist = QueueCooldownManager.normalizeArtistKey(seedArtist);
 
   for (final c in candidates) {
     if (result.length >= count) break;
-    final a = c.primaryArtist.toLowerCase().trim();
+    final a = QueueCooldownManager.normalizeArtistKey(c.primaryArtist);
 
     // 1. Sliding window per-artist cap (max 2 songs per artist in the pool)
     if (a.isNotEmpty && (artistCounts[a] ?? 0) >= maxPerArtist) {
@@ -83,7 +87,7 @@ List<Song> enforceArtistDispersionAndNoBackToBack(
     if (deferred.isNotEmpty) {
       for (int i = 0; i < deferred.length; i++) {
         final d = deferred[i];
-        final da = d.primaryArtist.toLowerCase().trim();
+        final da = QueueCooldownManager.normalizeArtistKey(d.primaryArtist);
         if (da != lastArtist && (da.isEmpty || (artistCounts[da] ?? 0) < maxPerArtist)) {
           result.add(d);
           lastArtist = da;
@@ -102,7 +106,7 @@ List<Song> enforceArtistDispersionAndNoBackToBack(
   if (result.length < count && deferred.isNotEmpty) {
     for (final d in deferred) {
       if (result.length >= count) break;
-      final da = d.primaryArtist.toLowerCase().trim();
+      final da = QueueCooldownManager.normalizeArtistKey(d.primaryArtist);
       if (da != lastArtist) {
         result.add(d);
         lastArtist = da;
@@ -137,7 +141,7 @@ List<Song> getLocalFallbackTracks(
   } catch (_) {}
 
   final targetLanguage = targetLang ?? seedSong.language?.toLowerCase() ?? 'tamil';
-  final primaryArtist = seedSong.primaryArtist.toLowerCase().trim();
+  final primaryArtist = QueueCooldownManager.normalizeArtistKey(seedSong.primaryArtist);
 
   // Score candidates: Same Artist (score 3) > Same Language (score 2) > Other (score 1)
   final List<MapEntry<int, Song>> scored = [];
@@ -158,7 +162,7 @@ List<Song> getLocalFallbackTracks(
     if (s.isSameSongOrDub(seedSong)) continue;
 
     int score = 1;
-    final sArtist = s.primaryArtist.toLowerCase().trim();
+    final sArtist = QueueCooldownManager.normalizeArtistKey(s.primaryArtist);
     final sLang = s.language?.toLowerCase().trim();
 
     if (sArtist.isNotEmpty && sArtist == primaryArtist) {
@@ -185,12 +189,13 @@ List<Song> getLocalFallbackTracks(
 // ================= 1. Spotify Strategy Implementation ================= //
 
 /// Spotify-style:
-/// 1. "Session Context Anchoring": Stores initial session seed track and artist ID.
+/// 1. "Adaptive Session Context Anchoring": Stores initial session seed track and artist ID.
 ///    Computes recommendations using a weighted blend of the session anchor (60%)
-///    and the current track (40%) to eliminate telephone-game style genre drift.
+///    and the current track (40%), shifting smoothly as user listens through songs.
 /// 2. Batch Generation: Generates an initial pool of 20 tracks instead of polling 1-by-1.
 /// 3. Artist Dispersion: Integrates with [QueueCooldownManager] (rejects candidates if primary
 ///    artist appeared in last 4 played tracks) and enforces zero back-to-back artist duplicates.
+/// 4. Skip Reactivity: Records skips under 30s into a rolling 5-artist fatigue cooldown.
 class SpotifyStyleStrategy implements NextTrackStrategy {
   @override
   String get id => 'spotify_style';
@@ -202,18 +207,51 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
   String get description => 'Weighted session anchoring (60% anchor / 40% current) with strict artist dispersion';
 
   Song? _sessionAnchorTrack;
+  final Queue<String> _skippedArtists = Queue<String>();
+  final Set<String> _skippedTrackKeys = <String>{};
+
+  @visibleForTesting
+  List<String> get skippedArtists => _skippedArtists.toList();
+
+  @visibleForTesting
+  Song? get sessionAnchor => _sessionAnchorTrack;
 
   @override
   void resetSession({Song? initialAnchor}) {
     _sessionAnchorTrack = initialAnchor;
+    _skippedArtists.clear();
+    _skippedTrackKeys.clear();
     AppLogger.log('SpotifyStyleStrategy', 'Session anchor reset. Anchor: ${_sessionAnchorTrack?.title ?? "none"}');
   }
 
   @override
   void recordSkip(Song skippedSong, {required int listenedSeconds}) {
-    // Spotify Radio records short skips to subtly weight away from artist
+    // Spotify Radio records short skips (<30s) to penalize and cool down skipped artist/track
     if (listenedSeconds < 30) {
-      AppLogger.log('SpotifyStyleStrategy', 'Recorded skip for "${skippedSong.title}" after ${listenedSeconds}s');
+      final artist = QueueCooldownManager.normalizeArtistKey(skippedSong.primaryArtist);
+      if (artist.isNotEmpty && artist != 'various artists') {
+        _skippedArtists.addLast(artist);
+        while (_skippedArtists.length > 5) {
+          _skippedArtists.removeFirst();
+        }
+      }
+      if (skippedSong.cleanTitleKey.isNotEmpty) {
+        _skippedTrackKeys.add(skippedSong.cleanTitleKey);
+      }
+      QueueCooldownManager.recordPlayed(skippedSong);
+      AppLogger.log(
+        'SpotifyStyleStrategy',
+        'Recorded skip for "${skippedSong.title}" after ${listenedSeconds}s. Active cooling artist: $artist',
+      );
+    }
+  }
+
+  @override
+  void recordTransition(Song from, Song to, {bool isPositive = true}) {
+    // Adaptive session anchoring: smoothly advance anchor as user listens through tracks
+    if (isPositive && to.id != _sessionAnchorTrack?.id) {
+      _sessionAnchorTrack = to;
+      AppLogger.log('SpotifyStyleStrategy', 'Smoothly shifted anchor to "${to.title}"');
     }
   }
 
@@ -226,7 +264,6 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
   }) async {
     try {
       // 1. Session Context Anchoring:
-      // If no anchor is set, this initial seedSong establishes the session anchor.
       if (_sessionAnchorTrack == null) {
         _sessionAnchorTrack = seedSong;
         AppLogger.log('SpotifyStyleStrategy', 'Anchored session to "${seedSong.title}" by ${seedSong.primaryArtist}');
@@ -238,17 +275,17 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
           ? seedSong.language!.toLowerCase()
           : (prefLangs.firstOrNull ?? 'tamil').toLowerCase();
 
-      // Batch Generation: Target initial pool of 20 tracks
       final targetBatch = count > 0 ? count : 20;
 
-      // 2. Build strict exclusion set to eliminate repeat plays
+      // 2. Build strict exclusion set (capped to last 50 tracks in history to prevent pool starvation)
       final Set<String> exclusions = {};
       for (final s in queue) {
         exclusions.add(s.id);
         exclusions.add(s.canonicalBaseKey);
         if (s.cleanTitleKey.isNotEmpty) exclusions.add(s.cleanTitleKey);
       }
-      for (final s in history) {
+      final recentHistory = history.length > 50 ? history.sublist(history.length - 50) : history;
+      for (final s in recentHistory) {
         exclusions.add(s.id);
         exclusions.add(s.canonicalBaseKey);
         if (s.cleanTitleKey.isNotEmpty) exclusions.add(s.cleanTitleKey);
@@ -295,7 +332,12 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
       final List<Song> anchorCandidates = anchorResults.expand((x) => x).toList();
       final List<Song> currentCandidates = currentResults.expand((x) => x).toList();
 
-      // Interleave with 60% anchor / 40% current ratio (3 anchor, 2 current, 3 anchor, 2 current...)
+      // If anchor pool runs dry, promote current seedSong as new anchor to keep radio thriving
+      if (anchorCandidates.isEmpty && seedSong.id != _sessionAnchorTrack?.id) {
+        _sessionAnchorTrack = seedSong;
+      }
+
+      // Interleave with 60% anchor / 40% current ratio
       final List<Song> blendedPool = [];
       int aIdx = 0;
       int cIdx = 0;
@@ -311,7 +353,7 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
         }
       }
 
-      // 4. Pre-filter candidate tracks for language and duplicate variants
+      // 4. Pre-filter candidate tracks for language, duplicate variants, and cooldowns
       final Set<String> seenKeys = {};
       final List<Song> validCandidates = [];
 
@@ -345,9 +387,36 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
         validCandidates.add(c.copyWith(isSmartRecommended: true, language: targetLang));
       }
 
-      // 5. Enforce Artist Dispersion (QueueCooldownManager last 4 played + ZERO back-to-back duplicates)
+      // 5. Candidate Ranking & Scoring
+      final targetArtistKey = QueueCooldownManager.normalizeArtistKey(seedSong.primaryArtist);
+      final anchorArtistKey = QueueCooldownManager.normalizeArtistKey(anchorSong.primaryArtist);
+
+      final scoredCandidates = <MapEntry<Song, double>>[];
+      for (final c in validCandidates) {
+        double score = 0.5;
+        final cArtistKey = QueueCooldownManager.normalizeArtistKey(c.primaryArtist);
+        if (cArtistKey == targetArtistKey) {
+          score += 0.35;
+        } else if (cArtistKey == anchorArtistKey) {
+          score += 0.20;
+        }
+        if (c.language != null && c.language!.toLowerCase().trim() == targetLang) {
+          score += 0.15;
+        }
+        if (_skippedArtists.contains(cArtistKey)) {
+          score -= 0.50;
+        }
+        if (c.cleanTitleKey.isNotEmpty && _skippedTrackKeys.contains(c.cleanTitleKey)) {
+          score -= 0.60;
+        }
+        scoredCandidates.add(MapEntry(c, score));
+      }
+      scoredCandidates.sort((a, b) => b.value.compareTo(a.value));
+      final rankedCandidates = scoredCandidates.map((e) => e.key).toList();
+
+      // 6. Enforce Artist Dispersion (QueueCooldownManager last 4 played + ZERO back-to-back duplicates)
       final shapedTracks = enforceArtistDispersionAndNoBackToBack(
-        validCandidates,
+        rankedCandidates,
         seedArtist: seedSong.primaryArtist,
         count: targetBatch,
       );
@@ -385,7 +454,7 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
         shapedTracks.addAll(shapedTrending);
       }
 
-      // 6. Circuit Breaker Fallback: if all upstream endpoints failed or yielded zero tracks
+      // 7. Circuit Breaker Fallback: if all upstream endpoints failed or yielded zero tracks
       if (shapedTracks.isEmpty) {
         return getLocalFallbackTracks(
           seedSong,
@@ -398,7 +467,6 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
       return shapedTracks;
     } catch (e) {
       debugPrint('[SpotifyStyleStrategy] Upstream failure: $e');
-      // Circuit breaker gracefully returns local tracks
       return getLocalFallbackTracks(
         seedSong,
         exclusions: {seedSong.id, seedSong.canonicalBaseKey},
@@ -416,7 +484,7 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
 /// 2. Audio-First Master Filtering: Prioritizes Topic channels (- Topic, VEVO, official release metadata).
 ///    Strictly excludes live recordings, fan covers, and tracks with duration deviations (>120s delta).
 /// 3. Skip Reactivity: When a recommended track is skipped with < 30 seconds of playback,
-///    invalidates the active graph branch, blacklists the artist/track key for the session,
+///    invalidates the active graph branch, places the artist into a rolling 5-track cooldown queue,
 ///    and branches the mix back to the session anchor.
 class YtMusicStyleStrategy implements NextTrackStrategy {
   @override
@@ -426,13 +494,19 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
   String get displayName => 'YouTube Music Style (Dynamic Auto-Mix)';
 
   @override
-  String get description => 'Native YouTube Radio graph walking with topic channel priority and skip reactivity';
+  String get description => 'Native YouTube Radio graph walking with topic channel priority and rolling skip reactivity';
 
   Song? _sessionAnchorSong;
   Song? _currentGraphNode;
-  final Set<String> _skippedArtists = {};
-  final Set<String> _skippedTrackKeys = {};
+  final Queue<String> _skippedArtists = Queue<String>();
+  final Set<String> _skippedTrackKeys = <String>{};
   final List<Song> _graphCache = [];
+
+  @visibleForTesting
+  List<String> get skippedArtists => _skippedArtists.toList();
+
+  @visibleForTesting
+  Song? get sessionAnchor => _sessionAnchorSong;
 
   @override
   void resetSession({Song? initialAnchor}) {
@@ -448,19 +522,22 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
   void recordSkip(Song skippedSong, {required int listenedSeconds}) {
     // Skip Reactivity: Invalidate and branch the auto-mix graph away when skipped with < 30s playback
     if (listenedSeconds < 30) {
-      final artist = skippedSong.primaryArtist.toLowerCase().trim();
+      final artist = QueueCooldownManager.normalizeArtistKey(skippedSong.primaryArtist);
       if (artist.isNotEmpty && artist != 'various artists') {
-        _skippedArtists.add(artist);
+        _skippedArtists.addLast(artist);
+        while (_skippedArtists.length > 5) {
+          _skippedArtists.removeFirst();
+        }
       }
       if (skippedSong.cleanTitleKey.isNotEmpty) {
         _skippedTrackKeys.add(skippedSong.cleanTitleKey);
       }
 
       // Invalidate existing graph cache branch for this artist
-      _graphCache.removeWhere((s) =>
-          s.primaryArtist.toLowerCase().trim() == artist ||
-          s.cleanTitleKey == skippedSong.cleanTitleKey ||
-          _skippedArtists.contains(s.primaryArtist.toLowerCase().trim()));
+      _graphCache.removeWhere((s) {
+        final a = QueueCooldownManager.normalizeArtistKey(s.primaryArtist);
+        return a == artist || s.cleanTitleKey == skippedSong.cleanTitleKey || _skippedArtists.contains(a);
+      });
 
       // Branch graph away: Reset current walk node back to session anchor
       if (_sessionAnchorSong != null) {
@@ -470,8 +547,15 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
       AppLogger.log(
         'YtMusicStyleStrategy',
         'Skip Reactivity triggered (<30s). Branched auto-mix away from artist "$artist". '
-        'Active blacklisted artists: ${_skippedArtists.length}',
+        'Active cooling artists: ${_skippedArtists.length}',
       );
+    }
+  }
+
+  @override
+  void recordTransition(Song from, Song to, {bool isPositive = true}) {
+    if (isPositive) {
+      _currentGraphNode = to;
     }
   }
 
@@ -494,14 +578,15 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
           ? seedSong.language!.toLowerCase()
           : (prefLangs.firstOrNull ?? 'tamil').toLowerCase();
 
-      // 1. Build exclusion set
+      // 1. Build exclusion set (capped to last 50 tracks in history to prevent pool starvation)
       final Set<String> exclusions = {};
       for (final s in queue) {
         exclusions.add(s.id);
         exclusions.add(s.canonicalBaseKey);
         if (s.cleanTitleKey.isNotEmpty) exclusions.add(s.cleanTitleKey);
       }
-      for (final s in history) {
+      final recentHistory = history.length > 50 ? history.sublist(history.length - 50) : history;
+      for (final s in recentHistory) {
         exclusions.add(s.id);
         exclusions.add(s.canonicalBaseKey);
         if (s.cleanTitleKey.isNotEmpty) exclusions.add(s.cleanTitleKey);
@@ -511,7 +596,6 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
       if (seedSong.cleanTitleKey.isNotEmpty) exclusions.add(seedSong.cleanTitleKey);
 
       // 2. Radio Graph Walking:
-      // Walk native YouTube Music InnerTube playlist tokens (RDAMVM$videoId) from the current graph node
       final walkNode = _currentGraphNode ?? seedSong;
       final List<Song> candidatePool = [];
 
@@ -533,7 +617,7 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
           final radioTracks = await YouTubeClient.getRadioTracks(
             walkNode,
             limit: targetBatch * 2,
-            excludedArtists: _skippedArtists,
+            excludedArtists: _skippedArtists.toSet(),
             excludedKeys: _skippedTrackKeys,
           );
           candidatePool.addAll(radioTracks);
@@ -558,7 +642,7 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
         if (s.title.trim().isEmpty) continue;
         final baseKey = s.canonicalBaseKey;
         final titleKey = s.cleanTitleKey;
-        final artist = s.primaryArtist.toLowerCase().trim();
+        final artist = QueueCooldownManager.normalizeArtistKey(s.primaryArtist);
 
         if (exclusions.contains(s.id) ||
             exclusions.contains(baseKey) ||
@@ -568,7 +652,7 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
           continue;
         }
 
-        // Skip Reactivity blacklist check
+        // Rolling Skip Reactivity blacklist check
         if (_skippedArtists.contains(artist) || (titleKey.isNotEmpty && _skippedTrackKeys.contains(titleKey))) {
           continue;
         }
@@ -647,6 +731,13 @@ class NextTrackStrategyFactory {
     _spotifyStrategy.recordSkip(skippedSong, listenedSeconds: listenedSeconds);
     _ytMusicStrategy.recordSkip(skippedSong, listenedSeconds: listenedSeconds);
     _markovCosineStrategy.recordSkip(skippedSong, listenedSeconds: listenedSeconds);
+  }
+
+  /// Convenience coordinator to record a track transition across active strategy instances
+  static void recordTransition(Song from, Song to, {bool isPositive = true}) {
+    _spotifyStrategy.recordTransition(from, to, isPositive: isPositive);
+    _ytMusicStrategy.recordTransition(from, to, isPositive: isPositive);
+    _markovCosineStrategy.recordTransition(from, to, isPositive: isPositive);
   }
 
   /// Convenience coordinator to reset session anchor across strategy instances

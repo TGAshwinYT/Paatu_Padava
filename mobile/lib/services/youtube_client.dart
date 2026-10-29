@@ -219,7 +219,7 @@ class YouTubeClient {
         'Accept': '*/*',
         'Connection': 'keep-alive',
       });
-      final response = await client.send(request);
+      final response = await client.send(request).timeout(const Duration(seconds: 20));
       yield* response.stream;
     } finally {
       client.close();

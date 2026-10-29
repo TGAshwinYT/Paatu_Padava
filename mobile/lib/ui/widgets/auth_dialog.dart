@@ -279,7 +279,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
             ElevatedButton.icon(
               onPressed: () async {
                 await AuthManager.logout();
-                if (mounted) Navigator.pop(context);
+                if (context.mounted) Navigator.pop(context);
               },
               icon: const Icon(Icons.logout, color: Colors.white70, size: 18),
               label: Text('Sign Out', style: GoogleFonts.outfit(color: Colors.white)),
@@ -499,7 +499,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
               child: TextButton(
                 onPressed: () async {
                   await AuthManager.loginAsGuest();
-                  if (mounted) Navigator.pop(context);
+                  if (context.mounted) Navigator.pop(context);
                 },
                 child: Text(
                   'Continue in Guest Mode',

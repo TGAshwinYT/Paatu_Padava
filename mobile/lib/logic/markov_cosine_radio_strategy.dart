@@ -10,15 +10,19 @@ import 'next_track_strategy.dart';
 /// Markov Transition State Matrix tracking transition frequencies between tracks/artists.
 class MarkovTransitionMatrix {
   final Map<String, Map<String, double>> _transitions = {};
+  final Set<String> _knownStates = {};
   static const double laplaceSmoothing = 0.2;
 
-  String _songKey(Song s) => 'artist:${s.primaryArtist.toLowerCase().trim()}';
+  String _songKey(Song s) => 'artist:${QueueCooldownManager.normalizeArtistKey(s.primaryArtist)}';
 
   /// Records a transition between track [from] and track [to].
   void recordTransition(Song from, Song to, {bool isPositive = true}) {
     final fromKey = _songKey(from);
     final toKey = _songKey(to);
     if (fromKey.isEmpty || toKey.isEmpty) return;
+
+    _knownStates.add(fromKey);
+    _knownStates.add(toKey);
 
     final row = _transitions.putIfAbsent(fromKey, () => <String, double>{});
     final currentWeight = row[toKey] ?? 0.0;
@@ -46,13 +50,15 @@ class MarkovTransitionMatrix {
       totalRowWeight += w;
     }
 
+    final vocabSize = math.max(5, _knownStates.length);
     final numerator = targetWeight + laplaceSmoothing;
-    final denominator = totalRowWeight + (row.length * laplaceSmoothing);
+    final denominator = totalRowWeight + (vocabSize * laplaceSmoothing);
     return (numerator / denominator).clamp(0.0, 1.0);
   }
 
   void clear() {
     _transitions.clear();
+    _knownStates.clear();
   }
 }
 
@@ -71,6 +77,16 @@ class SongFeatureVector {
     required this.durationAffinity,
     required this.tokenOverlap,
   });
+
+  /// Computes a balanced relative score using multi-dimensional weights:
+  /// 35% artist affinity, 30% language match, 15% era proximity, 10% duration affinity, 10% title/album token overlap.
+  double get compositeVectorScore {
+    return (0.35 * artistSimilarity) +
+        (0.30 * languageMatch) +
+        (0.15 * eraProximity) +
+        (0.10 * durationAffinity) +
+        (0.10 * tokenOverlap);
+  }
 
   /// Computes cosine similarity between this vector and [other].
   double cosineSimilarityTo(SongFeatureVector other) {
@@ -103,8 +119,10 @@ class SongFeatureVector {
   /// Extracts normalized feature vector comparing candidate [cand] relative to [seed].
   static SongFeatureVector extractRelative(Song seed, Song cand) {
     // 1. Artist Token Jaccard Similarity
-    final seedArtistTokens = seed.primaryArtist.toLowerCase().split(RegExp(r'\s+')).toSet();
-    final candArtistTokens = cand.primaryArtist.toLowerCase().split(RegExp(r'\s+')).toSet();
+    final seedArtist = QueueCooldownManager.normalizeArtistKey(seed.primaryArtist);
+    final candArtist = QueueCooldownManager.normalizeArtistKey(cand.primaryArtist);
+    final seedArtistTokens = seedArtist.split(RegExp(r'\s+')).toSet();
+    final candArtistTokens = candArtist.split(RegExp(r'\s+')).toSet();
     final intersection = seedArtistTokens.intersection(candArtistTokens).length;
     final union = seedArtistTokens.union(candArtistTokens).length;
     final artistSim = union > 0 ? (intersection / union) : 0.0;
@@ -140,8 +158,8 @@ class SongFeatureVector {
     }
 
     // 5. Title / Album Token Overlap
-    final seedTokens = '${seed.title} ${seed.album}'.toLowerCase().split(RegExp(r'[\s,-]+')).toSet();
-    final candTokens = '${cand.title} ${cand.album}'.toLowerCase().split(RegExp(r'[\s,-]+')).toSet();
+    final seedTokens = '${seed.cleanTitleKey} ${seed.album}'.toLowerCase().split(RegExp(r'[\s,-]+')).toSet();
+    final candTokens = '${cand.cleanTitleKey} ${cand.album}'.toLowerCase().split(RegExp(r'[\s,-]+')).toSet();
     final tokenInter = seedTokens.intersection(candTokens).length;
     final tokenScore = math.min(1.0, tokenInter * 0.3);
 
@@ -156,7 +174,7 @@ class SongFeatureVector {
 
   /// Reference ideal vector where all dimensions align perfectly.
   static const SongFeatureVector ideal = SongFeatureVector(
-    artistSimilarity: 0.5, // Not 1.0 so we don't only recommend the exact same artist
+    artistSimilarity: 0.5,
     languageMatch: 1.0,
     eraProximity: 1.0,
     durationAffinity: 1.0,
@@ -168,8 +186,9 @@ class SongFeatureVector {
 /// Blends probabilistic transition graphs with vector space similarity to produce
 /// infinite, smooth, anti-fatigued personalized radio mixes.
 class MarkovCosineRadioStrategy implements NextTrackStrategy {
-  final MarkovTransitionMatrix _markovMatrix = MarkovTransitionMatrix();
+  static final MarkovTransitionMatrix _globalMarkovMatrix = MarkovTransitionMatrix();
   final Set<String> _sessionBlacklistIds = {};
+  Song? _lastSeedSong;
 
   @override
   String get id => 'markov_cosine_radio';
@@ -179,9 +198,18 @@ class MarkovCosineRadioStrategy implements NextTrackStrategy {
 
   @override
   String get description =>
-      'Blends Markov Chain state transition probabilities with multi-dimensional Cosine Similarity vector space.';
+      'Blends Markov Chain state transition probabilities with multi-dimensional feature vector similarity.';
 
-  MarkovTransitionMatrix get markovMatrix => _markovMatrix;
+  MarkovTransitionMatrix get markovMatrix => _globalMarkovMatrix;
+
+  @override
+  void recordTransition(Song from, Song to, {bool isPositive = true}) {
+    _globalMarkovMatrix.recordTransition(from, to, isPositive: isPositive);
+    AppLogger.log(
+      'MarkovCosineRadio',
+      'Learned transition "${from.primaryArtist}" -> "${to.primaryArtist}" (positive: $isPositive)',
+    );
+  }
 
   @override
   Future<List<Song>> getUpcomingTracks({
@@ -190,16 +218,20 @@ class MarkovCosineRadioStrategy implements NextTrackStrategy {
     required List<Song> history,
     int count = 20,
   }) async {
+    _lastSeedSong = seedSong;
     final existingIds = queue.map((s) => s.id).toSet();
     final existingKeys = queue.map((s) => s.cleanTitleKey).toSet();
-    for (final h in history.take(15)) {
+    
+    // Cap history exclusions to last 50 tracks to avoid pool starvation
+    final recentHistory = history.length > 50 ? history.sublist(history.length - 50) : history;
+    for (final h in recentHistory) {
       existingIds.add(h.id);
-      existingKeys.add(h.cleanTitleKey);
+      if (h.cleanTitleKey.isNotEmpty) existingKeys.add(h.cleanTitleKey);
     }
 
     final candidatePool = <Song>[];
 
-    // 1. Gather initial recommendation seeds from RadioEngine
+    // 1. Fetch seed recommendations via RadioEngine (InnerTube & Saavn mix)
     try {
       final radioTracks = await RadioEngine.buildSongRadio(
         seedSong,
@@ -210,7 +242,7 @@ class MarkovCosineRadioStrategy implements NextTrackStrategy {
       AppLogger.log('MarkovCosineRadio', 'RadioEngine pool notice: $e');
     }
 
-    // 2. Fetch supplemental related songs from Saavn recommendations
+    // 2. Fetch supplemental candidates from primary artist
     try {
       if (candidatePool.length < count) {
         final query = '${seedSong.primaryArtist} ${seedSong.language ?? "Tamil"}';
@@ -225,11 +257,12 @@ class MarkovCosineRadioStrategy implements NextTrackStrategy {
       AppLogger.log('MarkovCosineRadio', 'Saavn pool notice: $e');
     }
 
-    // 3. Score candidates with Cosine Similarity and Markov Transition probabilities
+    // 3. Score candidates with Relative Vector Feature Score and Markov Transition probabilities
     final scoredCandidates = <MapEntry<Song, double>>[];
 
     for (final candidate in candidatePool) {
-      if (existingIds.contains(candidate.id) || existingKeys.contains(candidate.cleanTitleKey)) {
+      if (existingIds.contains(candidate.id) || 
+          (candidate.cleanTitleKey.isNotEmpty && existingKeys.contains(candidate.cleanTitleKey))) {
         continue;
       }
       if (_sessionBlacklistIds.contains(candidate.id)) {
@@ -240,11 +273,11 @@ class MarkovCosineRadioStrategy implements NextTrackStrategy {
       }
 
       final featureVec = SongFeatureVector.extractRelative(seedSong, candidate);
-      final cosineSim = featureVec.cosineSimilarityTo(SongFeatureVector.ideal);
-      final markovProb = _markovMatrix.getProbability(seedSong, candidate);
+      final vectorScore = featureVec.compositeVectorScore;
+      final markovProb = _globalMarkovMatrix.getProbability(seedSong, candidate);
 
-      // Blended Score: 60% Vector Cosine Similarity + 40% Markov Transition Probability
-      final compositeScore = (0.60 * cosineSim) + (0.40 * markovProb);
+      // Blended Score: 60% Multi-Dimensional Vector Score + 40% Markov Transition Probability
+      final compositeScore = (0.60 * vectorScore) + (0.40 * markovProb);
       scoredCandidates.add(MapEntry(candidate, compositeScore));
     }
 
@@ -266,14 +299,18 @@ class MarkovCosineRadioStrategy implements NextTrackStrategy {
 
   @override
   void recordSkip(Song skippedSong, {required int listenedSeconds}) {
-    if (listenedSeconds < 15) {
+    if (listenedSeconds < 30) {
       _sessionBlacklistIds.add(skippedSong.id);
       QueueCooldownManager.recordPlayed(skippedSong);
+      if (_lastSeedSong != null) {
+        _globalMarkovMatrix.recordTransition(_lastSeedSong!, skippedSong, isPositive: false);
+      }
     }
   }
 
   @override
   void resetSession({Song? initialAnchor}) {
     _sessionBlacklistIds.clear();
+    _lastSeedSong = initialAnchor;
   }
 }

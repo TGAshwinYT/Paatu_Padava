@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "paatu-padava": {
+      "command": "D:\\Library\\Ashwin\\Offical\\Python\\Python313\\python.exe",
+      "args": [
+        "d:\\Library\\Ashwin\\Offical\\TamilGaming\\Music\\Music 2\\Paatu_Paaduva\\mcp_server.py"
+      ],
+      "env": {
+        "PYTHONPATH": "d:\\Library\\Ashwin\\Offical\\TamilGaming\\Music\\Music 2\\Paatu_Paaduva\\backend-data-hf"
+      }
+    }
+  }
+}

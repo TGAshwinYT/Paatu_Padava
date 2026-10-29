@@ -47,6 +47,10 @@ void main() {
   });
 
   testWidgets('Tapping End of Track updates selection and button label', (tester) async {
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
     await tester.pumpWidget(
       const MaterialApp(
         home: Scaffold(
@@ -59,6 +63,7 @@ void main() {
     // Tap 'End of Track' card in grid
     final endOfTrackGridItem = find.text('Finish current song');
     expect(endOfTrackGridItem, findsOneWidget);
+    await tester.ensureVisible(endOfTrackGridItem);
     await tester.tap(endOfTrackGridItem);
     await tester.pump(const Duration(milliseconds: 100));
 

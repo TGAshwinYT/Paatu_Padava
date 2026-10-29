@@ -188,6 +188,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       return CachedNetworkImage(
         imageUrl: playlist.coverUrl,
         fit: BoxFit.cover,
+        memCacheWidth: 150,
+        memCacheHeight: 150,
         errorWidget: (_, __, ___) => _buildFallbackPlaylistCover(),
       );
     }
@@ -219,23 +221,29 @@ class _LibraryScreenState extends State<LibraryScreen> {
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'Your Library',
-                      style: GoogleFonts.outfit(
-                        color: Colors.white,
-                        fontSize: 26,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.5,
+                    Expanded(
+                      child: Text(
+                        'Your Library',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.outfit(
+                          color: Colors.white,
+                          fontSize: 26,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.5,
+                        ),
                       ),
                     ),
+                    const SizedBox(width: 8),
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const SyncStatusIndicator(showLabel: true),
-                        const SizedBox(width: 6),
+                        const SyncStatusIndicator(),
+                        const SizedBox(width: 2),
                         IconButton(
+                          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                          padding: const EdgeInsets.all(6),
                           icon: const Icon(Icons.settings_outlined, color: Colors.white, size: 22),
                           tooltip: 'Settings & Equalizer',
                           onPressed: () {
@@ -245,7 +253,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                             );
                           },
                         ),
-                        const SizedBox(width: 4),
+                        const SizedBox(width: 2),
                         const AccountBarButton(),
                       ],
                     ),
@@ -530,14 +538,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'Your Playlists',
-                      style: GoogleFonts.outfit(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                    Expanded(
+                      child: Text(
+                        'Your Playlists',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.outfit(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
+                    const SizedBox(width: 8),
                     TextButton(
                       onPressed: () {
                         Navigator.push(

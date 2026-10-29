@@ -529,6 +529,8 @@ class _OnboardingArtistsScreenState extends State<OnboardingArtistsScreen> with 
                                     child: CachedNetworkImage(
                                       imageUrl: image,
                                       fit: BoxFit.cover,
+                                      memCacheWidth: 200,
+                                      memCacheHeight: 200,
                                       placeholder: (_, __) => Container(color: AppColors.surfaceElevated),
                                       errorWidget: (_, __, ___) => Container(
                                         color: AppColors.surfaceElevated,

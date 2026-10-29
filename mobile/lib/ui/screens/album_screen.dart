@@ -141,6 +141,8 @@ class _AlbumScreenState extends State<AlbumScreen> {
                       CachedNetworkImage(
                         imageUrl: _currentImageUrl.isNotEmpty ? _currentImageUrl : widget.imageUrl,
                         fit: BoxFit.cover,
+                        memCacheWidth: 600,
+                        memCacheHeight: 600,
                         errorWidget: (_, __, ___) => Container(color: const Color(0xFF1E293B)),
                       ),
                       Container(

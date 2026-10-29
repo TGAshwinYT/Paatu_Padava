@@ -155,6 +155,17 @@ class AudioQualitySettingsCard extends StatelessWidget {
                       }
                     },
                   ),
+                  _buildQualityRadioTile(
+                    title: 'Markov-Cosine AI (Inbuilt Mix)',
+                    subtitle: 'Multi-dimensional vector scoring with session transition probability learning',
+                    value: NextTrackStrategyMode.markovCosineRadio.name,
+                    groupValue: strategyMode.name,
+                    onChanged: (val) {
+                      if (val != null) {
+                        SettingsManager.setNextTrackStrategy(NextTrackStrategyMode.markovCosineRadio);
+                      }
+                    },
+                  ),
                 ],
               );
             },

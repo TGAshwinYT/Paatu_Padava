@@ -50,6 +50,7 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
 
   Future<void> _pasteFromClipboard() async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (!mounted) return;
     if (data?.text != null && data!.text!.isNotEmpty) {
       final text = data.text!.trim();
       setState(() {
@@ -201,9 +202,14 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
       }
     }
 
+    if (!mounted) return;
+
     // Capture context before closing modal bottom sheet
     final rootContext = Navigator.of(context, rootNavigator: true).context;
     Navigator.of(context).pop();
+
+    if (!rootContext.mounted) return;
+    final scaffoldMessenger = ScaffoldMessenger.of(rootContext);
 
     // 6. If any track failed to match, display summary dialog with skipped items
     if (result.hasSkipped) {
@@ -214,7 +220,7 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
         playedImmediately: playImmediately,
       );
     } else if (result.importedSongs.isNotEmpty) {
-      ScaffoldMessenger.of(rootContext).showSnackBar(
+      scaffoldMessenger.showSnackBar(
         SnackBar(
           content: Text(
             saveAsPlaylist
@@ -226,7 +232,7 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
         ),
       );
     } else {
-      ScaffoldMessenger.of(rootContext).showSnackBar(
+      scaffoldMessenger.showSnackBar(
         const SnackBar(
           content: Text('Could not match tracks on JioSaavn or YouTube.'),
           backgroundColor: Colors.redAccent,
@@ -511,16 +517,21 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          _currentStatus.isNotEmpty
-                              ? _currentStatus
-                              : 'Matching tracks ($_currentTrackNum/$_totalTracks)...',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
+                        Expanded(
+                          child: Text(
+                            _currentStatus.isNotEmpty
+                                ? _currentStatus
+                                : 'Matching tracks ($_currentTrackNum/$_totalTracks)...',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
+                        const SizedBox(width: 10),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(

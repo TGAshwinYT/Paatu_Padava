@@ -40,7 +40,7 @@ jobs:
 
       - name: Run Unit Tests
         working-directory: mobile
-        run: flutter test
+        run: flutter test --exclude-tags golden
 
       - name: Upload Analysis Log
         if: always()

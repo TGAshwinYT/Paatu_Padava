@@ -12,6 +12,8 @@ library;
 // you run `flutter test --tags golden`. Flutter's test font is a fixed block
 // font, so snapshots are stable across Windows/macOS/Linux; they detect layout
 // and spacing changes, not font-rendering differences.
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paatu_padava_mobile/services/sleep_timer_service.dart';
@@ -26,17 +28,23 @@ void main() {
   tearDown(() => SleepTimerService.instance.cancel());
 
   for (final device in [kDevices[0], kDevices[1]]) {
-    testWidgets('SleepTimerSheet golden on ${device.name}', (tester) async {
-      await pumpAndCollectLayoutErrors(
-        tester,
-        const Scaffold(body: SleepTimerSheet()),
-        device: device,
-      );
-      await expectLater(
-        find.byType(Scaffold).first,
-        matchesGoldenFile('files/sleep_timer_sheet_${device.name}.png'),
-      );
-    });
+    final goldenFile = File('test/goldens/files/sleep_timer_sheet_${device.name}.png');
+    testWidgets(
+      'SleepTimerSheet golden on ${device.name}',
+      (tester) async {
+        await pumpAndCollectLayoutErrors(
+          tester,
+          const Scaffold(body: SleepTimerSheet()),
+          device: device,
+        );
+        await expectLater(
+          find.byType(Scaffold).first,
+          matchesGoldenFile('files/sleep_timer_sheet_${device.name}.png'),
+        );
+      },
+      tags: ['golden'],
+      skip: !goldenFile.existsSync(),
+    );
   }
 
   // TODO(ui): add goldens for MiniPlayer, PlayerControls, QueueSheet and

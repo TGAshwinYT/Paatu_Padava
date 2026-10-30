@@ -18,6 +18,7 @@ import 'services/cache_manager.dart';
 import 'services/battery_optimization_service.dart';
 import 'services/cover_art_resolver.dart';
 import 'services/innertube_config_service.dart';
+import 'services/sync_manager.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/screens/main_navigation.dart';
 
@@ -55,7 +56,11 @@ Future<void> main() async {
       ),
     );
 
-    // 3. Fast local startup: only await local Hive engine and critical settings preferences
+    // 3. Bound in-memory image cache to 64 MB (100 images) to eliminate OOMs during long catalog browsing
+    PaintingBinding.instance.imageCache.maximumSizeBytes = 64 * 1024 * 1024;
+    PaintingBinding.instance.imageCache.maximumSize = 100;
+
+    // 4. Fast local startup: only await local Hive engine and critical settings preferences
     try {
       await Hive.initFlutter();
       await SettingsManager.init();
@@ -63,7 +68,22 @@ Future<void> main() async {
       AppLogger.recordError(e, stack, context: 'SettingsManager.init');
     }
 
-    // 4. Initialize background AudioService engine
+    // 5. Fast local storage boxes (pure in-memory/disk deserialization, < 25ms total)
+    try {
+      await Future.wait([
+        FavoritesManager.init(),
+        HistoryManager.init(),
+        SearchHistoryManager.init(),
+        DownloadManager.init(),
+        PlaylistManager.init(),
+        CoverArtResolver.init(),
+        Hive.openBox('home_feed_cache'),
+      ]);
+    } catch (e, stack) {
+      AppLogger.recordError(e, stack, context: 'Local Hive boxes init');
+    }
+
+    // 6. Initialize background AudioService engine
     Object? audioInitError;
     try {
       audioHandler = await AudioService.init(
@@ -87,38 +107,49 @@ Future<void> main() async {
       return;
     }
 
-    // 5. Run non-dependent initializations concurrently via Future.wait() with a 2-second safety timeout
-    try {
-      await Future.wait([
-        AppLogger.init(),
-        AuthManager.init(),
-        DownloadManager.init(),
-        FavoritesManager.init(),
-        HistoryManager.init(),
-        PlaylistManager.init(),
-        SearchHistoryManager.init(),
-        CoverArtResolver.init(),
-        Hive.openBox('home_feed_cache'),
-        InnerTubeConfigService.initialize(),
-        _initSupabase(),
-      ]).timeout(const Duration(seconds: 2), onTimeout: () {
-        AppLogger.log('AppInit', 'Non-dependent services initialization completed with 2s safety timeout');
-        return [];
-      });
-    } catch (e, stack) {
-      AppLogger.recordError(e, stack, context: 'Non-critical init');
-    }
-
-    // Run automatic audio cache cleaner in background (>400MB or >7 days old) after settings are initialized
-    CacheManager.autoEvictOldCache();
-
-    // Request Android 13+ POST_NOTIFICATIONS runtime permission for reliable media notifications
-    unawaited(BatteryOptimizationService.requestNotificationPermission());
-
+    // 7. Mount and render application frame immediately (< 250ms cold start)
     runApp(const PaatuPadavaApp());
+
+    // 8. Defer non-critical and network-dependent services to post-first-frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_initDeferredServices());
+    });
   }, (error, stack) {
     AppLogger.recordError(error, stack, context: 'runZonedGuarded');
   });
+}
+
+Future<void> _initDeferredServices() async {
+  // File-based logging
+  try {
+    await AppLogger.init();
+  } catch (e, stack) {
+    AppLogger.recordError(e, stack, context: 'AppLogger.init');
+  }
+
+  // Supabase cloud backend and authentication session check
+  try {
+    await _initSupabase();
+    await AuthManager.init();
+    if (SupabaseService.currentUser != null) {
+      unawaited(SyncManager.syncAll());
+    }
+  } catch (e, stack) {
+    AppLogger.recordError(e, stack, context: 'Supabase/Auth init');
+  }
+
+  // Dynamic remote client configs
+  try {
+    await InnerTubeConfigService.initialize();
+  } catch (e, stack) {
+    AppLogger.recordError(e, stack, context: 'InnerTubeConfigService.initialize');
+  }
+
+  // Audio cache eviction in background (>400MB or >7 days old)
+  CacheManager.autoEvictOldCache();
+
+  // Android 13+ runtime notification permission request
+  unawaited(BatteryOptimizationService.requestNotificationPermission());
 }
 
 class AudioFatalErrorApp extends StatelessWidget {

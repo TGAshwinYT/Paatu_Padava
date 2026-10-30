@@ -134,6 +134,9 @@ jobs:
           for i in $(seq 1 $MAX_RETRIES); do
             echo "Attempt $i of $MAX_RETRIES: Building release APK..."
             if flutter build apk --release -t lib/main.dart --android-skip-build-dependency-validation \
+                --split-per-abi \
+                --obfuscate \
+                --split-debug-info=symbols \
                 --build-number=${{ github.run_number }} \
                 --dart-define=SUPABASE_URL="$CLEAN_URL" \
                 --dart-define=SUPABASE_ANON_KEY="$CLEAN_KEY" \
@@ -154,9 +157,10 @@ jobs:
             fi
           done
 
-      - name: Upload APK Artifact
+      - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: paatu-padava-release-apk
-          path: mobile/build/app/outputs/flutter-apk/app-release.apk
+          name: paatu-padava-release-apks
+          path: |
+            mobile/build/app/outputs/flutter-apk/*.apk
           retention-days: 30

@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:collection';
 import 'package:flutter/foundation.dart';
 import '../models/song.dart';
-import '../services/api_client.dart';
 import '../services/radio_engine.dart';
 import '../services/saavn_client.dart';
 import '../services/settings_manager.dart';
@@ -298,31 +297,34 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
       exclusions.add(anchorSong.canonicalBaseKey);
       if (anchorSong.cleanTitleKey.isNotEmpty) exclusions.add(anchorSong.cleanTitleKey);
 
-      // 3. Weighted Blend Fetching:
+      // 3. Weighted Blend Fetching via Upstream Graph Endpoints:
       // Session Anchor (60% weight) + Current Track (40% weight)
+      // Piggyback on YouTube Music Next (RDAMVM) & JioSaavn Reco (reco.getreco) graph APIs directly
       final List<Future<List<Song>>> anchorFutures = [
-        ApiClient.fetchRecommendations(
-          anchorSong.id,
-          artist: anchorSong.primaryArtist,
-          language: targetLang,
+        YouTubeClient.getRadioTracks(
+          anchorSong,
+          limit: 15,
+          excludedArtists: _skippedArtists.toSet(),
+          excludedKeys: _skippedTrackKeys,
         ),
+        SaavnClient.getRelatedSongs(anchorSong.id, language: targetLang),
         if (anchorSong.primaryArtist.isNotEmpty && anchorSong.primaryArtist.toLowerCase() != 'various artists')
           SaavnClient.search('${anchorSong.primaryArtist} $targetLang hits', limit: 12, language: targetLang),
         if (anchorSong.album.isNotEmpty && anchorSong.album.toLowerCase() != 'unknown album')
           SaavnClient.search('${anchorSong.album} $targetLang songs', limit: 8, language: targetLang),
-        SaavnClient.getRelatedSongs(anchorSong.id, language: targetLang),
       ];
 
       final List<Future<List<Song>>> currentFutures = (seedSong.id != anchorSong.id)
           ? [
-              ApiClient.fetchRecommendations(
-                seedSong.id,
-                artist: seedSong.primaryArtist,
-                language: targetLang,
+              YouTubeClient.getRadioTracks(
+                seedSong,
+                limit: 10,
+                excludedArtists: _skippedArtists.toSet(),
+                excludedKeys: _skippedTrackKeys,
               ),
+              SaavnClient.getRelatedSongs(seedSong.id, language: targetLang),
               if (seedSong.primaryArtist.isNotEmpty && seedSong.primaryArtist.toLowerCase() != 'various artists')
                 SaavnClient.search('${seedSong.primaryArtist} $targetLang hits', limit: 8, language: targetLang),
-              SaavnClient.getRelatedSongs(seedSong.id, language: targetLang),
             ]
           : [];
 

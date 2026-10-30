@@ -6,6 +6,7 @@ import '../services/api_client.dart';
 import '../services/history_manager.dart';
 import '../services/saavn_client.dart';
 import '../services/settings_manager.dart';
+import '../services/youtube_client.dart';
 import '../services/queue_cooldown_manager.dart';
 import 'audio_queue_handler.dart';
 import 'next_track_strategy.dart';
@@ -218,15 +219,11 @@ class SmartShuffleController {
         : (prefLangs.firstOrNull ?? 'tamil').toLowerCase();
 
     try {
-      // 2. Multi-Source Concurrent Recommendation Retrieval
+      // 2. Multi-Source Concurrent Recommendation Retrieval (Piggybacking on Upstream Graph APIs)
       final List<Future<List<Song>>> candidateFutures = [
-        // Source 1: Backend Machine Learning Taste Recommender
-        ApiClient.fetchRecommendations(
-          userSeed.id,
-          artist: userSeed.artist,
-          language: primaryLang,
-        ),
-        // Source 2: Contextual Related Songs for user seed
+        // Source 1: YouTube Music Upstream Automix Graph (RDAMVM)
+        YouTubeClient.getRadioTracks(userSeed, limit: 12),
+        // Source 2: Contextual Related Songs for user seed (reco.getreco)
         SaavnClient.getRelatedSongs(userSeed.id, language: primaryLang),
         // Source 3: Artist Hits (capped)
         SaavnClient.search('${userSeed.artist} hits', limit: 8, language: primaryLang),

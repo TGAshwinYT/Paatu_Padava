@@ -54,14 +54,14 @@ class RadioEngine {
       }
     }
 
-    // 4. Fetch Contextual Recommendations from Backend ML
+    // 4. Fetch Contextual Recommendations from Backend ML (Non-blocking with 1.5s timeout)
     List<Song> backendRecs = [];
     try {
       backendRecs = await ApiClient.fetchRecommendations(
         seedSong.id,
         artist: primaryArtist,
         language: targetLang,
-      );
+      ).timeout(const Duration(milliseconds: 1500), onTimeout: () => <Song>[]);
     } catch (e) {
       AppLogger.log('RadioEngine', 'Backend recommendations fallback: $e');
     }

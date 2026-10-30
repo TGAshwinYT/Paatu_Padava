@@ -126,6 +126,30 @@ void main() {
       strategy.resetSession();
       expect(true, isTrue); // verified no exception
     });
+
+    test('Spotify strategy getUpcomingTracks executes without blocking on external ML backend', () async {
+      final strategy = SpotifyStyleStrategy();
+      final seed = Song(
+        id: 'seed_spot_1',
+        title: 'Naa Ready',
+        artist: 'Anirudh Ravichander',
+        album: 'Leo',
+        coverUrl: '',
+        language: 'tamil',
+      );
+
+      final upcoming = await strategy.getUpcomingTracks(
+        seedSong: seed,
+        queue: [seed],
+        history: [],
+        count: 5,
+      );
+
+      // Successfully returns candidates without throwing unhandled exceptions
+      expect(upcoming, isA<List<Song>>());
+      // Guarantees zero duplicate of seed song
+      expect(upcoming.any((s) => s.id == seed.id), isFalse);
+    });
   });
 
   group('YouTube Music Auto-Mix Skip Reactivity', () {

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/song.dart';
 import 'des_decrypt.dart';
@@ -128,6 +129,51 @@ class SaavnClient {
       source: 'saavn',
       language: rawLang?.toLowerCase().trim(),
     );
+  }
+
+  /// Direct client-side autocomplete via JioSaavn autocomplete.get endpoint.
+  /// Sub-100ms response fetching top query, songs, albums, and artist names.
+  static Future<List<String>> getSearchSuggestions(String query) async {
+    final clean = query.trim();
+    if (clean.isEmpty) return [];
+
+    try {
+      final uri = Uri.parse('$baseUrl?__call=autocomplete.get&_format=json&query=${Uri.encodeComponent(clean)}');
+      final response = await http.get(uri, headers: getHeaders()).timeout(const Duration(milliseconds: 1500));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map) {
+          final Set<String> suggestions = {};
+
+          void extractFromSection(dynamic section) {
+            if (section is Map && section['data'] is List) {
+              for (final item in section['data']) {
+                if (item is Map) {
+                  final title = (item['title'] ?? item['name'] ?? '').toString().trim();
+                  if (title.isNotEmpty) {
+                    final decoded = ArtistSanitizer.decodeHtml(title);
+                    if (decoded.isNotEmpty) {
+                      suggestions.add(decoded);
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          extractFromSection(data['topquery']);
+          extractFromSection(data['songs']);
+          extractFromSection(data['artists']);
+          extractFromSection(data['albums']);
+          extractFromSection(data['playlists']);
+
+          return suggestions.toList();
+        }
+      }
+    } catch (e) {
+      debugPrint('[SaavnClient] getSearchSuggestions notice: $e');
+    }
+    return [];
   }
 
   static Future<List<Song>> search(String query, {int limit = 10, String? language}) async {

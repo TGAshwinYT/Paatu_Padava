@@ -236,20 +236,50 @@ class YouTubeClient {
   static String? extractPlaylistId(String input) => YouTubeTitleCleaner.extractPlaylistId(input);
 
   /// Direct client-side search autocomplete / suggestions via Google Suggest endpoint.
-  /// Zero-server dependency, works with sub-40ms latency directly on device.
+  /// Works with sub-40ms latency directly on device with zero-server dependency.
   static Future<List<String>> getSearchSuggestions(String query) async {
     final clean = query.trim();
     if (clean.isEmpty) return [];
     try {
-      final uri = Uri.parse('https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=${Uri.encodeComponent(clean)}');
-      final response = await http.get(uri).timeout(const Duration(seconds: 4));
+      final uri = Uri.parse(
+        'https://suggestqueries.google.com/complete/search?client=youtube&ds=yt&q=${Uri.encodeComponent(clean)}',
+      );
+      final response = await http.get(uri).timeout(const Duration(milliseconds: 1500));
       if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body);
+        String body = response.body.trim();
+        if (body.startsWith('window.google.ac.h(') && body.endsWith(')')) {
+          body = body.substring('window.google.ac.h('.length, body.length - 1);
+        }
+        final decoded = jsonDecode(body);
         if (decoded is List && decoded.length >= 2 && decoded[1] is List) {
-          return (decoded[1] as List).map((e) => e.toString()).toList();
+          final List<String> suggestions = [];
+          for (final item in decoded[1]) {
+            if (item is List && item.isNotEmpty) {
+              final term = item[0]?.toString().trim();
+              if (term != null && term.isNotEmpty) {
+                suggestions.add(term);
+              }
+            } else if (item is String && item.trim().isNotEmpty) {
+              suggestions.add(item.trim());
+            }
+          }
+          if (suggestions.isNotEmpty) return suggestions;
         }
       }
     } catch (e) {
+      // Fallback to firefox client format
+      try {
+        final uriFallback = Uri.parse(
+          'https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=${Uri.encodeComponent(clean)}',
+        );
+        final res = await http.get(uriFallback).timeout(const Duration(milliseconds: 1500));
+        if (res.statusCode == 200) {
+          final decoded = jsonDecode(res.body);
+          if (decoded is List && decoded.length >= 2 && decoded[1] is List) {
+            return (decoded[1] as List).map((e) => e.toString().trim()).where((s) => s.isNotEmpty).toList();
+          }
+        }
+      } catch (_) {}
       AppLogger.log('YouTubeClient', 'Search suggestions notice: $e');
     }
     return [];

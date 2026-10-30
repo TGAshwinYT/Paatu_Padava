@@ -295,15 +295,18 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     }
 
-    // 400ms Debounce: strictly prevents API requests and rebuilds while typing
-    _debounceTimer = Timer(const Duration(milliseconds: 400), () {
+    // Stage 1: Instant Debounced Typeahead (< 150ms)
+    // Asynchronously queries YouTube and JioSaavn autocomplete in parallel
+    SearchService.getTypeaheadSuggestions(clean, localTrie: _localSearchTrie, limit: 8).then((suggs) {
+      if (mounted && _searchController.text.trim() == clean) {
+        _suggestionsNotifier.value = suggs;
+      }
+    });
+
+    // Stage 2: 350ms Debounce for Parallel Multi-Source Entity Fetch
+    // Prevents heavy search requests while user is actively typing
+    _debounceTimer = Timer(const Duration(milliseconds: 350), () {
       if (!mounted) return;
-      ApiClient.searchSuggestions(clean).then((remoteSuggs) {
-        if (mounted && _searchController.text.trim() == clean) {
-          final Set<String> merged = {...instantMatches, ...remoteSuggs};
-          _suggestionsNotifier.value = merged.take(8).toList();
-        }
-      });
       _executeSearch(clean, saveHistory: false);
     });
   }

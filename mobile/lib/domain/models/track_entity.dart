@@ -138,12 +138,12 @@ class TrackEntity {
   /// Tags version type like Remix, Lofi, Live, From film, Acoustic, Cover, or Original
   String get versionTag {
     final lower = title.toLowerCase();
-    if (lower.contains('remix') || lower.contains('mix') || lower.contains('club')) return 'Remix';
-    if (lower.contains('lofi') || lower.contains('lo-fi') || lower.contains('chill') || lower.contains('slowed')) return 'Lofi';
-    if (lower.contains('live') || lower.contains('unplugged') || lower.contains('concert')) return 'Live';
-    if (lower.contains('acoustic') || lower.contains('piano')) return 'Acoustic';
-    if (lower.contains('cover') || lower.contains('tribute')) return 'Cover';
-    if (lower.contains('from ') || lower.contains('soundtrack') || lower.contains('film') || lower.contains('ost')) return 'From film';
+    if (RegExp(r'\b(remix|mix|club)\b', caseSensitive: false).hasMatch(lower)) return 'Remix';
+    if (RegExp(r'\b(lofi|lo-fi|chill|slowed)\b', caseSensitive: false).hasMatch(lower)) return 'Lofi';
+    if (RegExp(r'\b(live|unplugged|concert)\b', caseSensitive: false).hasMatch(lower)) return 'Live';
+    if (RegExp(r'\b(acoustic|piano)\b', caseSensitive: false).hasMatch(lower)) return 'Acoustic';
+    if (RegExp(r'\b(cover|tribute)\b', caseSensitive: false).hasMatch(lower)) return 'Cover';
+    if (RegExp(r'\b(from|soundtrack|film|ost)\b', caseSensitive: false).hasMatch(lower)) return 'From film';
     return 'Original';
   }
 

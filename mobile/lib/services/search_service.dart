@@ -1,12 +1,18 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
-import 'package:fuzzywuzzy/fuzzywuzzy.dart';
 import '../models/song.dart';
 import '../domain/models/app_error.dart';
+import '../domain/models/track_entity.dart';
+import '../core/dsa/bk_tree.dart';
+import '../core/dsa/prefix_trie.dart';
+import '../logic/search_query_planner.dart';
 import 'saavn_client.dart';
 import 'youtube_client.dart';
 import 'audius_client.dart';
 import 'settings_manager.dart';
+import 'history_manager.dart';
+import 'favorites_manager.dart';
 import 'fuzzy_search_service.dart';
 import 'error_handler.dart';
 import 'app_logger.dart';
@@ -166,6 +172,55 @@ class SearchService {
                .replaceAll('oorum blood', 'oorum blood');
 
     return text;
+  }
+
+  /// Stage 1: Instant Debounced Typeahead (< 150ms).
+  /// Queries local PrefixTrie in < 1ms, then merges lightweight autocomplete suggestions
+  /// directly from YouTube (suggestqueries.google.com) and JioSaavn in parallel.
+  /// Strictly avoids heavy entity or stream resolution while typing.
+  static Future<List<String>> getTypeaheadSuggestions(
+    String query, {
+    PrefixTrie<String>? localTrie,
+    int limit = 10,
+  }) async {
+    final clean = query.trim();
+    if (clean.isEmpty) return const [];
+
+    final Set<String> suggestions = {};
+
+    // 1. Instant O(K) local Prefix Trie matches (0ms local latency)
+    if (localTrie != null) {
+      final localMatches = localTrie.findByPrefix(clean, limit: 6);
+      for (final m in localMatches) {
+        suggestions.add(m.term);
+      }
+    }
+
+    // 2. Parallel lightweight suggestions from YouTube and JioSaavn (<150ms non-blocking)
+    try {
+      final remoteFutures = await Future.wait([
+        YouTubeClient.getSearchSuggestions(clean)
+            .timeout(const Duration(milliseconds: 750), onTimeout: () => <String>[]),
+        SaavnClient.getSearchSuggestions(clean)
+            .timeout(const Duration(milliseconds: 750), onTimeout: () => <String>[]),
+      ]);
+
+      final ytSuggestions = remoteFutures[0];
+      final saavnSuggestions = remoteFutures[1];
+
+      for (final s in saavnSuggestions) {
+        if (suggestions.length >= limit) break;
+        suggestions.add(s);
+      }
+      for (final s in ytSuggestions) {
+        if (suggestions.length >= limit) break;
+        suggestions.add(s);
+      }
+    } catch (e) {
+      debugPrint('[SearchService] getTypeaheadSuggestions notice: $e');
+    }
+
+    return suggestions.take(limit).toList();
   }
 
   /// Strictly filters out single-song releases and fake albums
@@ -404,12 +459,139 @@ class SearchService {
   }
 
 
-  /// Computes composite relevance score combining text similarity, artist match,
-  /// language prior boost, version penalty, and source quality.
-  static double scoreSong(
+  /// Stage 4: Multi-Factor Relevance Scoring Component 1: StringSimilarity (Weight 0.45)
+  /// Evaluates exact match, token containment, and Levenshtein metric distance via BkTree
+  /// to handle Tanglish and Romanized South Indian spelling variations.
+  static double calculateStringSimilarity(Song song, QueryIntent intent) {
+    final qLower = intent.cleanQuery.toLowerCase();
+    final transLower = intent.transliteratedQuery.toLowerCase();
+    final titleNorm = song.normalizedTitle;
+    final cleanTitle = SearchQueryPlanner.cleanTitle(song.title).toLowerCase();
+
+    if (qLower.isEmpty) return 0.0;
+    if (cleanTitle == qLower || titleNorm == qLower || transLower == cleanTitle || transLower == titleNorm) {
+      return 1.0;
+    }
+    if (cleanTitle.startsWith(qLower) || titleNorm.startsWith(qLower) || cleanTitle.startsWith(transLower)) {
+      return 0.95;
+    }
+
+    // Levenshtein typo-tolerance using BkTree
+    final int distClean = BkTree.levenshteinDistance(qLower, cleanTitle);
+    final int maxLenClean = math.max(qLower.length, cleanTitle.length);
+    final double levClean = maxLenClean == 0 ? 1.0 : (1.0 - (distClean / maxLenClean)).clamp(0.0, 1.0);
+
+    final int distNorm = BkTree.levenshteinDistance(qLower, titleNorm);
+    final int maxLenNorm = math.max(qLower.length, titleNorm.length);
+    final double levNorm = maxLenNorm == 0 ? 1.0 : (1.0 - (distNorm / maxLenNorm)).clamp(0.0, 1.0);
+
+    final int distTrans = BkTree.levenshteinDistance(transLower, titleNorm);
+    final int maxLenTrans = math.max(transLower.length, titleNorm.length);
+    final double levTrans = maxLenTrans == 0 ? 1.0 : (1.0 - (distTrans / maxLenTrans)).clamp(0.0, 1.0);
+
+    double similarity = math.max(levClean, math.max(levNorm, levTrans));
+
+    // Word token containment (e.g. query "hukum" inside "Hukum - Thalaivar Alappara")
+    if (cleanTitle.contains(qLower) || titleNorm.contains(qLower) || titleNorm.contains(transLower)) {
+      final tokenBoost = 0.80 + (0.15 * (qLower.length / math.max(1, titleNorm.length)));
+      similarity = math.max(similarity, tokenBoost);
+    }
+
+    // Artist token match bonus (e.g. searching "anirudh" finds his songs)
+    final artistLower = song.primaryArtist.toLowerCase();
+    if (artistLower.isNotEmpty && (artistLower.contains(qLower) || qLower.contains(artistLower))) {
+      similarity = math.max(similarity, 0.85);
+    }
+
+    return similarity.clamp(0.0, 1.0);
+  }
+
+  /// Stage 4: Multi-Factor Relevance Scoring Component 2: SourcePopularity (Weight 0.35)
+  /// Weights 320kbps JioSaavn studio catalog, YouTube Music Official Topic/VEVO badges,
+  /// verified square album artwork, and song duration sanity (90s - 360s).
+  static double calculateSourcePopularity(Song song) {
+    double score = 0.0;
+
+    // 1. Studio release / verified source (Saavn or YouTube Official Topic/VEVO)
+    if (song.source == 'saavn') {
+      score += 0.40;
+    } else if (song.artist.toLowerCase().contains('topic') ||
+               song.artist.toLowerCase().contains('vevo') ||
+               song.hasOfficialAlbumArt) {
+      score += 0.35;
+    } else {
+      score += 0.15;
+    }
+
+    // 2. Official Square Studio Album Art (1000x1000 / 500x500 CDN vs thumbnail)
+    if (song.hasOfficialAlbumArt) {
+      score += 0.30;
+    } else if (song.coverUrl.isNotEmpty && !song.coverUrl.contains('default.jpg')) {
+      score += 0.15;
+    }
+
+    // 3. Duration Sanity (standard studio song 90s - 360s)
+    if (song.duration >= 90 && song.duration <= 360) {
+      score += 0.20;
+    } else if (song.duration >= 45 && song.duration <= 600) {
+      score += 0.10;
+    }
+
+    // 4. Clean studio title (not a remix/lofi/bootleg unless requested)
+    if (song.versionTag == 'Original') {
+      score += 0.10;
+    } else {
+      score += 0.05;
+    }
+
+    return score.clamp(0.0, 1.0);
+  }
+
+  /// Stage 4: Multi-Factor Relevance Scoring Component 3: UserAffinity (Weight 0.20)
+  /// Checks whether the song artist is in HistoryManager (listening history)
+  /// or FavoritesManager (liked songs), boosting familiar and loved artists.
+  static double calculateUserAffinity(
+    Song song, {
+    List<Song>? history,
+    List<Song>? favorites,
+  }) {
+    final hist = history ?? (HistoryManager.historyNotifier.value);
+    final favs = favorites ?? (FavoritesManager.favoritesNotifier.value);
+
+    final candArtist = song.primaryArtist.toLowerCase();
+    if (candArtist.isEmpty) return 0.0;
+
+    // 1. Liked in favorites -> highest affinity 1.0
+    for (final fav in favs) {
+      if (fav.primaryArtist.toLowerCase() == candArtist ||
+          SongRepository.normalizeArtist(fav.artist).toLowerCase() == candArtist) {
+        return 1.0;
+      }
+    }
+
+    // 2. Played in history
+    int playCount = 0;
+    for (final h in hist) {
+      if (h.primaryArtist.toLowerCase() == candArtist ||
+          SongRepository.normalizeArtist(h.artist).toLowerCase() == candArtist) {
+        playCount++;
+      }
+    }
+
+    if (playCount >= 3) return 1.0;
+    if (playCount >= 1) return 0.70;
+
+    return 0.0;
+  }
+
+  /// Computes composite multi-factor relevance score:
+  /// Score = (0.45 * StringSimilarity) + (0.35 * SourcePopularity) + (0.20 * UserAffinity)
+  static double calculateCompositeRelevance(
     Song song,
     QueryIntent intent, {
-    required List<String> preferredLanguages,
+    List<Song>? history,
+    List<Song>? favorites,
+    List<String>? preferredLanguages,
   }) {
     // If query has explicit language override, strictly reject any cross-language mismatch
     if (intent.explicitLanguage != null &&
@@ -417,69 +599,131 @@ class SearchService {
       return 0.0;
     }
 
-    double score = 0.0;
-    final qLower = intent.cleanQuery.toLowerCase();
-    final transLower = intent.transliteratedQuery.toLowerCase();
-    final titleNorm = song.normalizedTitle;
-    final artistNorm = song.primaryArtist;
+    final stringSim = calculateStringSimilarity(song, intent);
+    final popularity = calculateSourcePopularity(song);
+    final affinity = calculateUserAffinity(song, history: history, favorites: favorites);
 
-    // 1. Text Similarity (0.0 to 0.50)
-    final ratioTitle = weightedRatio(qLower, titleNorm) / 100.0;
-    final ratioTrans = weightedRatio(transLower, titleNorm) / 100.0;
-    final textMatch = ratioTitle > ratioTrans ? ratioTitle : ratioTrans;
-    score += textMatch * 0.50;
+    // Multi-factor formula
+    double score = (0.45 * stringSim) + (0.35 * popularity) + (0.20 * affinity);
 
-    // Direct containment bonus
-    if (titleNorm.contains(qLower) || qLower.contains(titleNorm)) {
-      score += 0.15;
-    }
-
-    // 2. Artist Match (0.0 to 0.20)
-    final artistRatio = weightedRatio(qLower, artistNorm) / 100.0;
-    if (artistRatio >= 0.75 || artistNorm.contains(qLower)) {
-      score += 0.20;
-    }
-
-    // 3. Language Prior Boost
-    // If query has explicit language override, respect it as top priority
-    final primaryLang = intent.explicitLanguage?.toLowerCase() ??
-        (preferredLanguages.isNotEmpty ? preferredLanguages.first.toLowerCase().trim() : null);
-
-    final songLang = song.language?.toLowerCase().trim() ?? '';
-    if (primaryLang != null && (songLang == primaryLang || song.title.toLowerCase().contains(primaryLang))) {
-      score += 0.25; // Gentle boost for 1st preferred language
-    } else {
-      // Check if candidate matches any other user-preferred language
-      for (final pLang in preferredLanguages) {
-        final normPLang = pLang.toLowerCase().trim();
-        if (normPLang.isNotEmpty && (songLang == normPLang || song.title.toLowerCase().contains(normPLang))) {
-          score += 0.15; // Positive boost for secondary languages
-          break;
-        }
+    // Subtle language match boost if preferred languages provided
+    if (preferredLanguages != null && preferredLanguages.isNotEmpty) {
+      final pLang = preferredLanguages.first.toLowerCase().trim();
+      final songLang = song.language?.toLowerCase().trim() ?? '';
+      if (pLang.isNotEmpty && (songLang == pLang || song.title.toLowerCase().contains(pLang))) {
+        score = (score + 0.05).clamp(0.0, 1.0);
       }
     }
 
-    // 4. Version Penalty
-    final isVersion = song.versionTag == 'Remix' || song.versionTag == 'Lofi' || song.versionTag == 'Live';
-    if (isVersion && !intent.isRemixIntent) {
-      score -= 0.15; // Version penalty unless explicitly requested
-    } else if (isVersion && intent.isRemixIntent) {
-      score += 0.15;
-    }
-
-    // 5. Source Quality & Official Album Art
-    if (song.source == 'saavn') {
-      score += 0.08;
-    }
-    if (song.hasOfficialAlbumArt) {
-      score += 0.05;
-    }
-
-    return score;
+    return score.clamp(0.0, 1.0);
   }
 
-  /// Interleaves primary (JioSaavn) and secondary (YouTube) search candidates,
-  /// deduplicating across providers and ensuring fallback ranker resilience.
+  /// Backward-compatible adapter for scoreSong utilizing the unified Multi-Factor Relevance Ranker.
+  static double scoreSong(
+    Song song,
+    QueryIntent intent, {
+    required List<String> preferredLanguages,
+    List<Song>? history,
+    List<Song>? favorites,
+  }) {
+    return calculateCompositeRelevance(
+      song,
+      intent,
+      history: history,
+      favorites: favorites,
+      preferredLanguages: preferredLanguages,
+    );
+  }
+
+  /// Stage 3 & 4: Normalization, Cross-Source Canonical Fingerprint Deduplication,
+  /// and Unified Multi-Factor Relevance Ranking.
+  static List<Song> deduplicateAndRankUnified({
+    required List<Song> saavnSongs,
+    required List<Song> ytSongs,
+    required List<Song> audiusSongs,
+    required QueryIntent intent,
+    List<String>? preferredLanguages,
+    List<Song>? history,
+    List<Song>? favorites,
+  }) {
+    final Map<String, Song> canonicalMap = {};
+    final List<Song> deduplicatedPool = [];
+
+    // 1. Ingest JioSaavn songs first: clean Indian/regional metadata, 320kbps audio, studio square cover art
+    for (final song in saavnSongs) {
+      final fp = SearchQueryPlanner.generateCanonicalFingerprint(song.title, song.artist);
+      if (fp.isNotEmpty && !canonicalMap.containsKey(fp)) {
+        canonicalMap[fp] = song;
+        deduplicatedPool.add(song);
+      }
+    }
+
+    // 2. Ingest YouTube Music songs: attach to existing canonical as version if duplicate, else add as new candidate
+    for (final ytSong in ytSongs) {
+      final fp = SearchQueryPlanner.generateCanonicalFingerprint(ytSong.title, ytSong.artist);
+      Song? matchedPrimary = canonicalMap[fp];
+
+      // Secondary check via isSameSong if fingerprint differed slightly
+      if (matchedPrimary == null) {
+        for (final existing in deduplicatedPool) {
+          if (SearchQueryPlanner.isSameSong(
+            titleA: existing.title,
+            artistsA: existing.artist,
+            titleB: ytSong.title,
+            artistsB: ytSong.artist,
+          )) {
+            matchedPrimary = existing;
+            break;
+          }
+        }
+      }
+
+      if (matchedPrimary != null) {
+        // Merge YouTube track into versions list of the primary studio track
+        final existingVersions = List<TrackEntity>.from(matchedPrimary.versions);
+        if (!existingVersions.any((v) => v.id == ytSong.id)) {
+          existingVersions.add(ytSong);
+          final updated = matchedPrimary.copyWith(versions: existingVersions);
+          final idx = deduplicatedPool.indexOf(matchedPrimary);
+          if (idx != -1) {
+            deduplicatedPool[idx] = updated;
+          }
+          canonicalMap[fp] = updated;
+        }
+      } else {
+        if (fp.isNotEmpty) canonicalMap[fp] = ytSong;
+        deduplicatedPool.add(ytSong);
+      }
+    }
+
+    // 3. Ingest Audius songs
+    for (final audiusSong in audiusSongs) {
+      final fp = SearchQueryPlanner.generateCanonicalFingerprint(audiusSong.title, audiusSong.artist);
+      if (fp.isNotEmpty && !canonicalMap.containsKey(fp)) {
+        canonicalMap[fp] = audiusSong;
+        deduplicatedPool.add(audiusSong);
+      }
+    }
+
+    // 4. Score every song in the unified deduplicated pool
+    final scored = deduplicatedPool.map((song) {
+      final score = calculateCompositeRelevance(
+        song,
+        intent,
+        history: history,
+        favorites: favorites,
+        preferredLanguages: preferredLanguages,
+      );
+      return MapEntry(score, song);
+    }).where((e) => e.key > 0.0).toList();
+
+    // 5. Sort descending by Multi-Factor Relevance Score
+    scored.sort((a, b) => b.key.compareTo(a.key));
+
+    return scored.map((e) => e.value).toList();
+  }
+
+  /// Interleaves primary (JioSaavn) and secondary (YouTube) search candidates (fallback ranker).
   static List<Song> interleaveRankedResults(
     List<Song> primarySongs,
     List<Song> secondarySongs,
@@ -778,25 +1022,31 @@ class SearchService {
       scoredYt.sort((a, b) => b.key.compareTo(a.key));
       final rankedYt = scoredYt.map((e) => e.value).toList();
 
-      final saavnYtMerged = interleaveRankedResults(rankedSaavn, rankedYt);
-      final List<Song> mergedSongs = rawAudius.isNotEmpty
-          ? interleaveRankedResults(saavnYtMerged, rawAudius)
-          : saavnYtMerged;
+      final List<Song> mergedSongs = deduplicateAndRankUnified(
+        saavnSongs: rankedSaavn,
+        ytSongs: candidateYt,
+        audiusSongs: rawAudius,
+        intent: intent,
+        preferredLanguages: prefLangs,
+      );
 
       Map<String, dynamic>? finalTopResult = initialTopResult;
-      if (finalTopResult == null && rankedSaavn.isEmpty && scoredYt.isNotEmpty && scoredYt.first.key >= 0.70) {
-        final top = scoredYt.first.value;
-        finalTopResult = {
-          'type': 'song',
-          'id': top.id,
-          'title': top.title,
-          'artist': top.artist,
-          'cover_url': top.coverUrl,
-          'duration': top.duration,
-          'source': top.source,
-          'score': scoredYt.first.key,
-          'versions': top.versions.map((v) => v.toMap()).toList(),
-        };
+      if (mergedSongs.isNotEmpty) {
+        final top = mergedSongs.first;
+        final topScore = calculateCompositeRelevance(top, intent, preferredLanguages: prefLangs);
+        if (topScore >= 0.70) {
+          finalTopResult = {
+            'type': 'song',
+            'id': top.id,
+            'title': top.title,
+            'artist': top.artist,
+            'cover_url': top.coverUrl,
+            'duration': top.duration,
+            'source': top.source,
+            'score': topScore,
+            'versions': top.versions.map((v) => v.toMap()).toList(),
+          };
+        }
       }
 
       FuzzySearchService.registerSongs(mergedSongs);

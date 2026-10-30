@@ -6,6 +6,7 @@ import '../../../models/song.dart';
 import '../../theme/app_theme.dart';
 import '../../screens/artist_screen.dart';
 import '../../screens/album_screen.dart';
+import '../../screens/remote_playlist_screen.dart';
 import 'search_top_result_card.dart';
 import 'search_song_tile.dart';
 
@@ -34,7 +35,7 @@ class SearchAllResultsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (state.songs.isEmpty && state.albums.isEmpty && state.artists.isEmpty && state.topResult == null) {
+    if (state.songs.isEmpty && state.albums.isEmpty && state.artists.isEmpty && state.playlists.isEmpty && state.topResult == null) {
       return Center(
         child: Text(
           'No results found for "$query"',
@@ -245,6 +246,124 @@ class SearchAllResultsView extends StatelessWidget {
                             errorWidget: (_, __, ___) => Container(color: AppColors.surfaceDark),
                           ),
                         ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.outfit(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+
+      // Discovered Playlists Row
+      if (state.playlists.isNotEmpty) ...[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+          child: Text(
+            'Playlists',
+            style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+        ),
+        SizedBox(
+          height: 165,
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            scrollDirection: Axis.horizontal,
+            itemCount: state.playlists.length,
+            itemBuilder: (context, index) {
+              final playlist = state.playlists[index];
+              final id = playlist['id']?.toString() ?? '';
+              final title = _unescape.convert(Song.sanitize(playlist['title']?.toString() ?? ''));
+              final subtitle = _unescape.convert(playlist['subtitle']?.toString() ?? '');
+              final img = playlist['image']?.toString() ?? '';
+              final source = playlist['source']?.toString() ?? 'saavn';
+              final isYoutube = source == 'youtube';
+              final isAutoAlbum = source == 'auto_album';
+
+              return GestureDetector(
+                onTap: () {
+                  onRecordClick();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => RemotePlaylistScreen(
+                        playlistId: id,
+                        playlistTitle: title,
+                        imageUrl: img,
+                        subtitle: subtitle,
+                        source: source,
+                      ),
+                    ),
+                  );
+                },
+                child: Container(
+                  width: 125,
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Stack(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(14),
+                            child: SizedBox(
+                              width: 125,
+                              height: 125,
+                              child: img.isNotEmpty
+                                  ? CachedNetworkImage(
+                                      imageUrl: img,
+                                      fit: BoxFit.cover,
+                                      memCacheWidth: 220,
+                                      memCacheHeight: 220,
+                                      errorWidget: (_, __, ___) => Container(
+                                        color: AppColors.surfaceDark,
+                                        child: const Icon(Icons.queue_music_rounded, color: Colors.white24, size: 36),
+                                      ),
+                                    )
+                                  : Container(
+                                      color: AppColors.surfaceDark,
+                                      child: const Icon(Icons.queue_music_rounded, color: Colors.white24, size: 36),
+                                    ),
+                            ),
+                          ),
+                          Positioned(
+                            top: 6,
+                            right: 6,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.75),
+                                borderRadius: BorderRadius.circular(5),
+                                border: Border.all(
+                                  color: isYoutube
+                                      ? AppColors.electricCyan.withValues(alpha: 0.6)
+                                      : (isAutoAlbum
+                                          ? Colors.amberAccent.withValues(alpha: 0.6)
+                                          : AppColors.neonViolet.withValues(alpha: 0.6)),
+                                  width: 0.8,
+                                ),
+                              ),
+                              child: Text(
+                                isYoutube ? 'YT' : (isAutoAlbum ? 'Mix' : 'Saavn'),
+                                style: GoogleFonts.outfit(
+                                  color: isYoutube
+                                      ? AppColors.electricCyan
+                                      : (isAutoAlbum ? Colors.amberAccent : AppColors.neonViolet),
+                                  fontSize: 8.5,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 6),
                       Text(

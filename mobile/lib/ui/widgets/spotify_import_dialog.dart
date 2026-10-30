@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../models/song.dart';
 import '../../services/spotify_import_service.dart';
 import '../../services/player_handler.dart';
 import '../../services/playlist_manager.dart';
+import '../../services/spotify_import_links.dart';
 import '../../services/error_handler.dart';
 
 class SpotifyImportDialog extends StatefulWidget {
@@ -111,6 +113,44 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
     }
   }
 
+  /// Asks what to do when this Spotify playlist is already in the library.
+  /// true = update the existing playlist (add only new songs), false = make a separate copy, null = cancel.
+  Future<bool?> _askUpdateOrCopy(String playlistName) {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text('Already in your library', style: TextStyle(color: Colors.white)),
+        content: Text(
+          '"$playlistName" already exists. Add only the NEW songs to it, or create a separate copy?',
+          style: const TextStyle(color: Color(0xFFCBD5E1)),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(null), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Make a copy')),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Add new songs')),
+        ],
+      ),
+    );
+  }
+
+  static UserPlaylist? _findByTitle(String title) {
+    final t = title.trim().toLowerCase();
+    for (final p in PlaylistManager.getPlaylists()) {
+      if (!p.isBlend && p.title.trim().toLowerCase() == t) return p;
+    }
+    return null;
+  }
+
+  static String _uniqueTitle(String base) {
+    final taken = PlaylistManager.getPlaylists().map((p) => p.title.trim().toLowerCase()).toSet();
+    var n = 2;
+    while (taken.contains('$base ($n)'.toLowerCase())) {
+      n++;
+    }
+    return '$base ($n)';
+  }
+
   Future<void> _handleImport({
     bool playImmediately = true,
     bool saveAsPlaylist = false,
@@ -147,6 +187,28 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
       }
     }
 
+    // 1b. Re-import detection: is this Spotify playlist/album already in the library?
+    final parsedUrl = SpotifyImportService.parseSpotifyUrl(url);
+    final String? spotifyKey = parsedUrl == null ? null : '${parsedUrl['type']}:${parsedUrl['id']}';
+    SpotifyImportLink? link;
+    UserPlaylist? existingPlaylist;
+    bool updateExisting = false;
+    String? copyTitle;
+    if (saveAsPlaylist && spotifyKey != null) {
+      link = await SpotifyImportLinks.get(spotifyKey);
+      if (link != null) existingPlaylist = PlaylistManager.getPlaylist(link.playlistId);
+      existingPlaylist ??= _findByTitle(meta.title); // playlists imported before links existed
+      if (existingPlaylist != null) {
+        final choice = await _askUpdateOrCopy(existingPlaylist.title);
+        if (!mounted) return;
+        if (choice == null) return; // user cancelled
+        updateExisting = choice;
+        if (!choice) copyTitle = _uniqueTitle(meta.title);
+      }
+    }
+    final Set<String> knownKeys = updateExisting ? (link?.importedKeys ?? <String>{}) : <String>{};
+    final UserPlaylist? target = updateExisting ? existingPlaylist : null;
+
     // 2. Initialize in-dialog Progress View
     setState(() {
       _isImporting = true;
@@ -165,6 +227,11 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
     final result = await SpotifyImportService.importPlaylistWithProgress(
       metadata: meta,
       isCancelled: () => _isCancelled,
+      isAlreadyImported: target == null
+          ? null
+          // Only what is IN the playlist right now counts as "already there".
+          // A song you deleted locally is therefore added back on the next import.
+          : (t) => SpotifyImportService.isTrackInSongs(t, target.tracks),
       onProgress: (current, total, progress, status, matched) {
         if (!mounted) return;
         setState(() {
@@ -189,13 +256,40 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
     if (!mounted || _isCancelled) return;
 
     // 4. Save to Local Hive Playlist Table named after the imported Spotify playlist
-    if (saveAsPlaylist && result.importedSongs.isNotEmpty) {
-      await PlaylistManager.createPlaylist(result.playlistTitle, initialTracks: result.importedSongs);
+    // result.importedSongs now contains ONLY songs that were newly matched
+    // (already-present tracks were skipped), so adding/queuing it never duplicates.
+    UserPlaylist? savedPlaylist;
+    if (saveAsPlaylist) {
+      if (target != null) {
+        for (final s in result.importedSongs) {
+          await PlaylistManager.addSongToPlaylist(target.id, s); // has its own duplicate guard
+        }
+        savedPlaylist = PlaylistManager.getPlaylist(target.id) ?? target;
+      } else if (result.importedSongs.isNotEmpty) {
+        savedPlaylist = await PlaylistManager.createPlaylist(
+          copyTitle ?? result.playlistTitle,
+          initialTracks: result.importedSongs,
+        );
+      }
+      if (savedPlaylist != null && spotifyKey != null) {
+        await SpotifyImportLinks.save(SpotifyImportLink(
+          spotifyKey: spotifyKey,
+          playlistId: savedPlaylist.id,
+          importedKeys: {...knownKeys, ...result.handledKeys},
+          updatedAt: DateTime.now().millisecondsSinceEpoch,
+        ));
+      }
     }
 
     // 5. Handle Playback or Queueing
-    if (playImmediately && result.importedSongs.isNotEmpty) {
-      await audioHandler.playSong(result.importedSongs.first, queue: result.importedSongs);
+    if (playImmediately) {
+      final List<Song> playList = (target != null && savedPlaylist != null && savedPlaylist.tracks.isNotEmpty)
+          ? savedPlaylist.tracks // updating: play the whole playlist, starting at the first NEW song
+          : result.importedSongs;
+      if (playList.isNotEmpty) {
+        final Song start = result.importedSongs.isNotEmpty ? result.importedSongs.first : playList.first;
+        await audioHandler.playSong(start, queue: playList);
+      }
     } else if (addToQueue && result.importedSongs.isNotEmpty) {
       for (final song in result.importedSongs) {
         audioHandler.addToQueue(song);
@@ -219,13 +313,23 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
         saveAsPlaylist: saveAsPlaylist,
         playedImmediately: playImmediately,
       );
+    } else if (target != null && result.importedSongs.isEmpty) {
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text('"${target.title}" is already up to date. No new songs.'),
+          backgroundColor: const Color(0xFF1DB954),
+          duration: const Duration(seconds: 4),
+        ),
+      );
     } else if (result.importedSongs.isNotEmpty) {
       scaffoldMessenger.showSnackBar(
         SnackBar(
           content: Text(
-            saveAsPlaylist
-                ? 'Saved all ${result.importedSongs.length} songs to "${result.playlistTitle}"!'
-                : 'Imported and playing ${result.importedSongs.length} tracks!',
+            target != null
+                ? 'Updated "${target.title}": added ${result.importedSongs.length} new songs (${result.alreadyPresentCount} already there).'
+                : saveAsPlaylist
+                    ? 'Saved all ${result.importedSongs.length} songs to "${copyTitle ?? result.playlistTitle}"!'
+                    : 'Imported and playing ${result.importedSongs.length} tracks!',
           ),
           backgroundColor: const Color(0xFF1DB954),
           duration: const Duration(seconds: 4),

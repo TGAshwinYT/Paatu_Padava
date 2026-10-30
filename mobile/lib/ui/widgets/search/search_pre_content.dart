@@ -13,6 +13,10 @@ class SearchPreContent extends StatelessWidget {
   final List<String> trendingArtists;
   final List<Map<String, dynamic>> browseCategories;
   final ValueChanged<String> onSelectQuery;
+
+  /// Used for recent-search and trending-artist chips: searches the text EXACTLY as written
+  /// (no language prefix). Falls back to [onSelectQuery] when not provided.
+  final ValueChanged<String>? onSelectExactQuery;
   final void Function(Song song) onPlaySong;
 
   const SearchPreContent({
@@ -20,6 +24,7 @@ class SearchPreContent extends StatelessWidget {
     required this.trendingArtists,
     required this.browseCategories,
     required this.onSelectQuery,
+    this.onSelectExactQuery,
     required this.onPlaySong,
   });
 
@@ -210,7 +215,7 @@ class SearchPreContent extends StatelessWidget {
                               borderRadius: BorderRadius.circular(16),
                               side: const BorderSide(color: AppColors.surfaceBorder),
                             ),
-                            onPressed: () => onSelectQuery(q),
+                            onPressed: () => (onSelectExactQuery ?? onSelectQuery)(q),
                           );
                         }).toList(),
                       ),
@@ -246,7 +251,7 @@ class SearchPreContent extends StatelessWidget {
                   borderRadius: BorderRadius.circular(16),
                   side: const BorderSide(color: AppColors.surfaceBorder),
                 ),
-                onPressed: () => onSelectQuery(artist),
+                onPressed: () => (onSelectExactQuery ?? onSelectQuery)(artist),
               );
             },
           ),

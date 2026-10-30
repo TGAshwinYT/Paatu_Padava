@@ -17,9 +17,9 @@ pinned: false
 [![Privacy: 100% Offline & Open-Source](https://img.shields.io/badge/Privacy-100%25%20Open--Source%20%7C%20No%20Tracking-blue.svg)](#-security--privacy)
 [![CI Pipeline](https://github.com/TGAshwinYT/Paatu_Padava/actions/workflows/ci.yml/badge.svg)](https://github.com/TGAshwinYT/Paatu_Padava/actions/workflows/ci.yml)
 [![Build APK](https://github.com/TGAshwinYT/Paatu_Padava/actions/workflows/build-apk.yml/badge.svg)](https://github.com/TGAshwinYT/Paatu_Padava/actions/workflows/build-apk.yml)
-[![Tests: 100% Green](https://img.shields.io/badge/Tests-550%20Flutter%20%7C%2038%20Backend%20Passing-brightgreen.svg)](#-engineering-metrics)
+[![Tests: 100% Green](https://img.shields.io/badge/Tests-577%20Flutter%20%7C%2038%20Backend%20Passing-brightgreen.svg)](#-engineering-metrics)
 
-> **Your Infinite Music Universe** — Studio-quality 320kbps audio streaming, Sub-Millisecond LAN Multi-Speaker Synchronization & Party Mode Overhaul (dual-transport UDP unicast, host reference clock, hold-before-start barrier synchronization, multi-tier gentle rate drift correction), 5-Tier Cascading Spotify-Quality Cover Art Resolver (Saavn 500x500 → YouTube Music Topic 1000x1000 → iTunes 1000x1000 → Deezer 1000x1000 → ambient blur with fuzzy metadata verification), Adaptive Recommendation Engine Remediation (Unicode-aware artist normalization `[^\p{L}\p{N}\s]`, adaptive Spotify radio with rolling skip cooldown & smooth anchor shifting, expiring YouTube Music skips, 50-track history cap, completed & exposed Markov-Cosine AI Radio Mix), Zero-Overflow Responsive UI (97 layout matrix test permutations passing with zero overflows at 1.5x font scale across all compact/standard/tablet phone sizes), Clean Open-Source Privacy Hardening (zero Firebase/Google telemetry tracking, scoped storage, gitignored secrets), Multi-Language Streaming Pipeline (Tamil, Hindi, Telugu, Malayalam, Kannada, Punjabi, English), Two-Phase Synchronized Lyrics Auto-Scroll with 10-Second Idle Re-Sync, Adaptive Bitrate (ABR) streaming with buffer-stall dynamic downscale rescue, multi-format progressive fallback (320 → 160 → 96 kbps), equal-power acoustic crossfading (V_out² + V_in² ≡ 1.0), smart gapless HTTP Range pre-caching (<10ms skip latency), O(1) space-efficient Bloom Filter existence gates, O(log N) BK-Tree typo-tolerant search ("Did you mean?"), O(K) Prefix Trie keystroke autocomplete, Reversible Fisher-Yates uniform shuffle with bidirectional history stack, Spotify/Echo-Music-inspired 3-tier queue management, continuous endless autoplay, Android Auto dashboard media browsing, Supabase cloud sync, and 100% offline downloads.
+> **Your Infinite Music Universe** — Studio-quality 320kbps audio streaming, Multi-Provider Playlists in Search (JioSaavn editorial & user playlists, YouTube Music community playlists, on-the-fly "Movie - All Songs" collections, `TrackQualityFilter` stream protection), Smart Spotify Playlist Re-Import (`SpotifyTrackKey` & `SpotifyImportLinks` deduplication), Sub-Millisecond LAN Multi-Speaker Synchronization & Party Mode Overhaul (dual-transport UDP unicast, host reference clock, hold-before-start barrier synchronization, multi-tier gentle rate drift correction), 5-Tier Cascading Spotify-Quality Cover Art Resolver (Saavn 500x500 → YouTube Music Topic 1000x1000 → iTunes 1000x1000 → Deezer 1000x1000 → ambient blur with fuzzy metadata verification), Adaptive Recommendation Engine Remediation (Unicode-aware artist normalization `[^\p{L}\p{N}\s]`, adaptive Spotify radio with rolling skip cooldown & smooth anchor shifting, expiring YouTube Music skips, 50-track history cap, completed & exposed Markov-Cosine AI Radio Mix), Zero-Overflow Responsive UI (97 layout matrix test permutations passing with zero overflows at 1.5x font scale across all compact/standard/tablet phone sizes), Clean Open-Source Privacy Hardening (zero Firebase/Google telemetry tracking, scoped storage, gitignored secrets), Multi-Language Streaming Pipeline (Tamil, Hindi, Telugu, Malayalam, Kannada, Punjabi, English), Two-Phase Synchronized Lyrics Auto-Scroll with 10-Second Idle Re-Sync, Adaptive Bitrate (ABR) streaming with buffer-stall dynamic downscale rescue, multi-format progressive fallback (320 → 160 → 96 kbps), equal-power acoustic crossfading (V_out² + V_in² ≡ 1.0), smart gapless HTTP Range pre-caching (<10ms skip latency), O(1) space-efficient Bloom Filter existence gates, O(log N) BK-Tree typo-tolerant search ("Did you mean?"), O(K) Prefix Trie keystroke autocomplete, Reversible Fisher-Yates uniform shuffle with bidirectional history stack, Spotify/Echo-Music-inspired 3-tier queue management, continuous endless autoplay, Android Auto dashboard media browsing, Supabase cloud sync, and 100% offline downloads.
 
 ---
 
@@ -158,6 +158,17 @@ pinned: false
   - Relative acoustic vector cosine similarity computes mood, tempo, and valence affinity.
   - Fully integrated into the Settings UI and Settings Card, giving users full control over their recommendation algorithm.
 - **Harmonized Radio Routing**: "Start Song Radio" actions across all screens route dynamically through `NextTrackStrategyFactory` according to user preferences.
+
+---
+
+### 🔍 Multi-Provider Playlists in Search & Auto-Generated Movie Collections
+- **Unified Playlist Discovery**: Sourced dynamically in parallel from JioSaavn editorial/user playlists, YouTube Music community playlists, and on-the-fly synthesized movie playlists.
+- **Dedicated "Playlists" Tab**: Added alongside All, Songs, Albums, and Artists tabs with responsive grid layout (`SearchPlaylistsGrid`) and source badges (`Saavn`, `YT`, `Mix`).
+- **Auto-Made Movie Collections ("Movie - All Songs")**: Intelligently identifies movie album records and auto-synthesizes full-collection playlists on the fly without requiring third-party playlist scrapers or brittle workarounds.
+- **`TrackQualityFilter` Streaming Protection**: Filters out 3-hour non-stop jukeboxes, 24/7 radio streams, teasers, and full album single-video uploads (>10 min duration), ensuring all playlist tracks buffer and stream instantly without stalling.
+- **One-Tap "Save to Library"**: Tapping Save on any remote playlist view (`RemotePlaylistScreen`) instantly imports and persists all tracks to local Hive storage (`PlaylistManager.createPlaylist`) for offline listening and cloud sync.
+- **Smart Spotify Re-Import (`SpotifyImportLinks` & `SpotifyTrackKey`)**: Deduplicates tracks using normalized Unicode keys across Spotify, Saavn, and YouTube Music to safely update existing imported playlists without creating duplicates.
+- **Dual-Layer Buffered Scrubber (`PlayerScrubber`)**: Enhanced seekbar with secondary buffered progress tracking and formatted time indicators.
 
 ---
 
@@ -441,10 +452,10 @@ Paatu Padava incorporates high-performance custom data structures and algorithms
 | **Search Latency (p95)** | **< 300 ms** | Parallel `Future.wait` aggregation + language match re-ranking |
 | **Collaborative Sync Latency** | **< 100 ms** | Supabase Realtime WebSocket subscription channels |
 | **Backend Database Pool** | **20 Conns + 10 Overflow** | SQLAlchemy async pool (`pool_size=20`, `max_overflow=10`, `pool_recycle=1800`) |
-| **Flutter Test Suite** | **550 / 550 Tests Passing (100%)** | Unit, widget, queue resilience, ABR, DSA, cover art, party sync, layout matrix (97 tests), and lyrics tests across 40 suites |
+| **Flutter Test Suite** | **577 / 577 Tests Passing (100%)** | Unit, widget, queue resilience, ABR, DSA, cover art, party sync, layout matrix (97 tests), playlists discovery, Spotify re-import, and lyrics tests across 45 suites |
 | **Backend Test Suite** | **38 / 38 Tests Passing (100%)** | API contracts, recommender graphs, security audits, trie autocomplete, and multilingual search pipeline tests |
 | **Web Client Suite** | **0 Errors (2199 Modules)** | React 19 + TypeScript production build verification via Vite & TSC |
-| **Total Test Suite** | **588 / 588 Tests Passing (100%)** | End-to-end automated verification across mobile and backend |
+| **Total Test Suite** | **615 / 615 Tests Passing (100%)** | End-to-end automated verification across mobile and backend |
 | **Static Analysis** | **0 Errors, 0 Warnings** | Strictly enforced via `flutter analyze --no-fatal-infos` |
 
 ---

@@ -10,6 +10,7 @@ import 'saavn_client.dart';
 import 'youtube_client.dart';
 import 'app_logger.dart';
 import '../core/app_config.dart';
+import 'spotify_track_key.dart';
 
 /// Single Spotify Track representation extracted from Spotify Web API or Embed
 class SpotifyTrackItem {
@@ -51,12 +52,21 @@ class SpotifyImportResult {
   final List<Song> importedSongs;
   final List<SpotifyTrackItem> skippedTracks;
 
+  /// Tracks that were already in the target playlist and therefore NOT matched again.
+  final int alreadyPresentCount;
+
+  /// SpotifyTrackKey of every track that is now "handled" (newly matched + already present).
+  /// Unmatched tracks are deliberately NOT included, so a later import retries them.
+  final List<String> handledKeys;
+
   const SpotifyImportResult({
     required this.playlistTitle,
     this.coverUrl,
     required this.totalTracks,
     required this.importedSongs,
     required this.skippedTracks,
+    this.alreadyPresentCount = 0,
+    this.handledKeys = const [],
   });
 
   bool get hasSkipped => skippedTracks.isNotEmpty;
@@ -915,6 +925,21 @@ class SpotifyImportService {
     return null;
   }
 
+  /// Stable identity of a Spotify track (used to remember what was already imported).
+  static String trackKey(SpotifyTrackItem t) => SpotifyTrackKey.keyFor(cleanTrackTitle(t.title), t.artist);
+
+  /// True when [t] is already present in [songs] (same cleaned title + a shared artist).
+  /// Compares text, not ids, because the matcher may pick another source/id next time.
+  static bool isTrackInSongs(SpotifyTrackItem t, Iterable<Song> songs) {
+    final title = cleanTrackTitle(t.title);
+    return songs.any((s) => SpotifyTrackKey.sameTrack(
+          titleA: title,
+          artistsA: t.artist,
+          titleB: cleanTrackTitle(s.title),
+          artistsB: s.artist,
+        ));
+  }
+
   /// 3. Complete Batch Importer with Progress Notification
   static Future<SpotifyImportResult> importPlaylistWithProgress({
     required SpotifyPlaylistMetadata metadata,
@@ -927,7 +952,12 @@ class SpotifyImportService {
     ) onProgress,
     String? preferredLanguage,
     bool Function()? isCancelled,
+    // Re-import support: return true for tracks that are already in the playlist so
+    // they are skipped without any network matching.
+    bool Function(SpotifyTrackItem track)? isAlreadyImported,
   }) async {
+    int alreadyPresent = 0;
+    final List<String> handledKeys = [];
     final List<Song> importedSongs = [];
     final List<SpotifyTrackItem> skippedTracks = [];
     final total = metadata.tracks.length;
@@ -942,6 +972,13 @@ class SpotifyImportService {
       final currentNum = i + 1;
       final progress = currentNum / (total > 0 ? total : 1);
 
+      if (isAlreadyImported != null && isAlreadyImported(track)) {
+        alreadyPresent++;
+        handledKeys.add(trackKey(track));
+        onProgress(currentNum, total, progress, 'Already in playlist: "${cleanTrackTitle(track.title)}"', null);
+        continue;
+      }
+
       onProgress(
         currentNum,
         total,
@@ -953,6 +990,7 @@ class SpotifyImportService {
       final matched = await matchSingleTrack(track, preferredLanguage: preferredLanguage);
       if (matched != null) {
         importedSongs.add(matched);
+        handledKeys.add(trackKey(track));
         onProgress(
           currentNum,
           total,
@@ -981,6 +1019,8 @@ class SpotifyImportService {
       totalTracks: total,
       importedSongs: importedSongs,
       skippedTracks: skippedTracks,
+      alreadyPresentCount: alreadyPresent,
+      handledKeys: handledKeys,
     );
   }
 }

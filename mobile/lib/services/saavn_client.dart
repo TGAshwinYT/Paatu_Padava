@@ -7,6 +7,7 @@ import 'des_decrypt.dart';
 import 'app_logger.dart';
 import 'artist_sanitizer.dart';
 import '../data/repositories/song_repository.dart';
+import '../logic/track_quality_filter.dart';
 
 class SaavnClient {
   static const String baseUrl = 'https://www.jiosaavn.com/api.php';
@@ -334,6 +335,108 @@ class SaavnClient {
       }).toList();
     } catch (e) {
       return [];
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> searchPlaylists(
+    String query, {
+    int limit = 15,
+    String? language,
+  }) async {
+    try {
+      final bool isSpecificLang = language != null &&
+          language.isNotEmpty &&
+          language.toLowerCase().trim() != 'all' &&
+          language.toLowerCase().trim() != 'any';
+
+      final uri = Uri.parse(baseUrl).replace(queryParameters: {
+        '__call': 'search.getPlaylistResults',
+        '_format': 'json',
+        '_marker': '0',
+        'api_version': '4',
+        'ctx': 'web6dot0',
+        'p': '1',
+        'n': limit.toString(),
+        'q': query.trim(),
+        if (isSpecificLang) 'languages': language.toLowerCase().trim(),
+      });
+
+      final response = await http.get(uri, headers: getHeaders(language)).timeout(const Duration(seconds: 6));
+      if (response.statusCode != 200) return [];
+
+      final data = json.decode(response.body);
+      final results = data['results'] as List<dynamic>? ?? [];
+      final validPlaylists = <Map<String, dynamic>>[];
+
+      for (final item in results) {
+        if (item is! Map) continue;
+        final more = item['more_info'] ?? {};
+        final songCount = int.tryParse(more['song_count']?.toString() ?? '') ??
+            int.tryParse(item['song_count']?.toString() ?? '') ?? 0;
+        final title = Song.sanitize(item['title'] ?? item['name'], fallback: 'Playlist');
+        final subtitle = item['subtitle']?.toString().isNotEmpty == true
+            ? item['subtitle'].toString()
+            : (songCount > 0 ? '$songCount Songs' : 'JioSaavn Playlist');
+
+        validPlaylists.add({
+          'id': item['id']?.toString() ?? '',
+          'title': title,
+          'subtitle': subtitle,
+          'image': _extractHighResImage(item['image']?.toString()),
+          'song_count': songCount,
+          'source': 'saavn',
+          'type': 'playlist',
+        });
+      }
+
+      return validPlaylists;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getPlaylistDetails(String playlistId) async {
+    if (playlistId.trim().isEmpty) return null;
+    try {
+      final uri = Uri.parse(baseUrl).replace(queryParameters: {
+        '__call': 'playlist.getDetails',
+        '_format': 'json',
+        '_marker': '0',
+        'api_version': '4',
+        'ctx': 'web6dot0',
+        'listid': playlistId.trim(),
+      });
+
+      final response = await http.get(uri, headers: getHeaders()).timeout(const Duration(seconds: 6));
+      if (response.statusCode != 200) return null;
+
+      final data = json.decode(response.body);
+      final playlistImage = _extractHighResImage(data['image']?.toString());
+      final list = data['list'] as List<dynamic>? ?? data['songs'] as List<dynamic>? ?? [];
+      final List<Song> songs = [];
+
+      for (final item in list) {
+        if (item is! Map) continue;
+        final parsed = _parseSongItem(Map<String, dynamic>.from(item));
+        if (TrackQualityFilter.shouldKeep(title: parsed.title, durationSec: parsed.duration)) {
+          if (parsed.coverUrl.isEmpty && playlistImage.isNotEmpty) {
+            songs.add(parsed.copyWith(coverUrl: playlistImage));
+          } else {
+            songs.add(parsed);
+          }
+        }
+      }
+
+      return {
+        'id': data['id']?.toString() ?? playlistId,
+        'title': Song.sanitize(data['title'] ?? data['name'], fallback: 'JioSaavn Playlist'),
+        'subtitle': data['subtitle']?.toString() ?? '${songs.length} Songs',
+        'image': playlistImage,
+        'songs': songs,
+        'source': 'saavn',
+      };
+    } catch (e) {
+      return null;
     }
   }
 

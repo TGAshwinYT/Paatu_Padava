@@ -43,6 +43,7 @@ class SearchResults {
   final List<Song> audiusSongs;
   final List<Map<String, dynamic>> albums;
   final List<Map<String, dynamic>> artists;
+  final List<Map<String, dynamic>> playlists;
   final Map<String, dynamic>? topResult;
   final String? didYouMean;
   final AppError? error;
@@ -54,6 +55,7 @@ class SearchResults {
     this.audiusSongs = const [],
     this.albums = const [],
     this.artists = const [],
+    this.playlists = const [],
     this.topResult,
     this.didYouMean,
     this.error,
@@ -65,7 +67,8 @@ class SearchResults {
       saavnSongs.isEmpty &&
       audiusSongs.isEmpty &&
       albums.isEmpty &&
-      artists.isEmpty;
+      artists.isEmpty &&
+      playlists.isEmpty;
   bool get hasError => error != null;
 }
 
@@ -181,6 +184,112 @@ class SearchService {
       });
     }
     return valid;
+  }
+
+  /// Synthesizes dynamic 'Movie - All Songs' auto-playlists directly from album metadata
+  static List<Map<String, dynamic>> generateAutoPlaylistsFromAlbums(
+    List<Map<String, dynamic>> albums, {
+    int maxCount = 2,
+  }) {
+    final List<Map<String, dynamic>> autoPlaylists = [];
+    for (final album in albums.take(maxCount)) {
+      final title = (album['title'] ?? album['name'] ?? '').toString().trim();
+      final id = album['id']?.toString() ?? '';
+      final img = album['image']?.toString() ?? '';
+      final artist = album['artist']?.toString() ?? '';
+      final songCount = album['song_count'] ?? 0;
+      if (title.isNotEmpty && id.isNotEmpty) {
+        autoPlaylists.add({
+          'id': id,
+          'title': '$title (All Songs)',
+          'subtitle': songCount > 0 ? '$songCount Tracks • Movie Playlist' : 'Movie Playlist • All Songs',
+          'image': img,
+          'artist': artist,
+          'song_count': songCount,
+          'source': 'auto_album',
+          'type': 'playlist',
+        });
+      }
+    }
+    return autoPlaylists;
+  }
+
+  /// Deduplicates and merges playlist collections across providers
+  static List<Map<String, dynamic>> mergePlaylists(
+    List<Map<String, dynamic>> primary,
+    List<Map<String, dynamic>> secondary,
+  ) {
+    final List<Map<String, dynamic>> merged = [];
+    final Set<String> seen = {};
+
+    for (final p in primary) {
+      final key = (p['title'] ?? '').toString().toLowerCase().trim();
+      if (key.isNotEmpty && seen.add(key)) {
+        merged.add(p);
+      }
+    }
+
+    for (final p in secondary) {
+      final key = (p['title'] ?? '').toString().toLowerCase().trim();
+      if (key.isNotEmpty && seen.add(key)) {
+        merged.add(p);
+      }
+    }
+
+    return merged;
+  }
+
+  /// Searches playlists across JioSaavn, YouTube, and dynamic album-based playlists
+  static Future<List<Map<String, dynamic>>> searchPlaylists(
+    String query, {
+    String? language,
+    int limit = 20,
+  }) async {
+    final intent = understandQuery(query);
+    final effectiveLang = intent.explicitLanguage ??
+        (language != null && language.isNotEmpty && language.toLowerCase() != 'all' ? language : null);
+    final saavnQuery = (intent.explicitLanguage != null &&
+            !intent.cleanQuery.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
+        ? '${intent.explicitLanguage!} ${intent.cleanQuery}'
+        : intent.cleanQuery;
+
+    final saavnFuture = SaavnClient.searchPlaylists(saavnQuery, limit: limit, language: effectiveLang)
+        .timeout(const Duration(seconds: 4), onTimeout: () => <Map<String, dynamic>>[]);
+    final ytFuture = YouTubeClient.searchPlaylists(intent.cleanQuery, limit: limit)
+        .timeout(const Duration(seconds: 5), onTimeout: () => <Map<String, dynamic>>[]);
+    final albumsFuture = SaavnClient.searchAlbums(saavnQuery, limit: 4)
+        .timeout(const Duration(seconds: 3), onTimeout: () => <Map<String, dynamic>>[]);
+
+    final results = await Future.wait([saavnFuture, ytFuture, albumsFuture]);
+    final saavnPlaylists = results[0];
+    final ytPlaylists = results[1];
+    final albums = results[2];
+
+    final autoPlaylists = generateAutoPlaylistsFromAlbums(albums);
+
+    final List<Map<String, dynamic>> merged = [];
+    final Set<String> seenTitles = {};
+
+    for (final p in autoPlaylists) {
+      final key = (p['title'] ?? '').toString().toLowerCase();
+      if (seenTitles.add(key)) merged.add(p);
+    }
+
+    int sIdx = 0;
+    int yIdx = 0;
+    while (sIdx < saavnPlaylists.length || yIdx < ytPlaylists.length) {
+      if (sIdx < saavnPlaylists.length) {
+        final p = saavnPlaylists[sIdx++];
+        final key = (p['title'] ?? '').toString().toLowerCase();
+        if (key.isNotEmpty && seenTitles.add(key)) merged.add(p);
+      }
+      if (yIdx < ytPlaylists.length) {
+        final p = ytPlaylists[yIdx++];
+        final key = (p['title'] ?? '').toString().toLowerCase();
+        if (key.isNotEmpty && seenTitles.add(key)) merged.add(p);
+      }
+    }
+    return merged;
   }
 
   /// Strictly filters search artists by language, purging Bollywood/Hindi leaks,
@@ -507,6 +616,16 @@ class SearchService {
         }
       }();
 
+      final Future<List<Map<String, dynamic>>> playlistsFuture = () async {
+        try {
+          return await SaavnClient.searchPlaylists(saavnSearchQuery, limit: 10, language: effectiveLang)
+              .timeout(const Duration(seconds: 3), onTimeout: () => <Map<String, dynamic>>[]);
+        } catch (e) {
+          debugPrint('[SearchService] Upstream Saavn playlists search fault isolated: $e');
+          return <Map<String, dynamic>>[];
+        }
+      }();
+
       final ytSearchQuery = (intent.explicitLanguage != null &&
               !intent.cleanQuery.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
           ? '${intent.explicitLanguage!} ${intent.cleanQuery}'
@@ -522,6 +641,16 @@ class SearchService {
           AppLogger.log('SearchService', 'Upstream YouTube search fault isolated: $e');
           debugPrint('[SearchService] Upstream YouTube search fault isolated: $e');
           return <Song>[];
+        }
+      }();
+
+      final Future<List<Map<String, dynamic>>> ytPlaylistsFuture = () async {
+        try {
+          return await YouTubeClient.searchPlaylists(ytSearchQuery, limit: 8)
+              .timeout(const Duration(seconds: 5), onTimeout: () => <Map<String, dynamic>>[]);
+        } catch (e) {
+          debugPrint('[SearchService] Upstream YouTube playlists search fault isolated: $e');
+          return <Map<String, dynamic>>[];
         }
       }();
 
@@ -544,12 +673,17 @@ class SearchService {
         transliteratedSaavnFuture,
         albumsFuture,
         artistsFuture,
+        playlistsFuture,
       ]);
 
       final rawSaavn = saavnResults[0] as List<Song>;
       final transSaavn = saavnResults[1] as List<Song>;
       final rawAlbums = saavnResults[2] as List<Map<String, dynamic>>;
       final artists = saavnResults[3] as List<Map<String, dynamic>>;
+      final rawPlaylists = saavnResults[4] as List<Map<String, dynamic>>;
+
+      final autoPlaylists = generateAutoPlaylistsFromAlbums(rawAlbums);
+      final initialPlaylists = mergePlaylists(autoPlaylists, rawPlaylists);
 
       final List<Song> combinedSaavn = [];
       combinedSaavn.addAll(rawSaavn);
@@ -602,7 +736,7 @@ class SearchService {
         }
       }
 
-      if (rankedSaavn.isNotEmpty || labeledAlbums.isNotEmpty || artists.isNotEmpty) {
+      if (rankedSaavn.isNotEmpty || labeledAlbums.isNotEmpty || artists.isNotEmpty || initialPlaylists.isNotEmpty) {
         yield SearchResults(
           songs: rankedSaavn,
           ytSongs: const [],
@@ -610,6 +744,7 @@ class SearchService {
           audiusSongs: const [],
           albums: labeledAlbums,
           artists: artists,
+          playlists: initialPlaylists,
           topResult: initialTopResult,
           didYouMean: didYouMean,
           error: null,
@@ -620,10 +755,14 @@ class SearchService {
       final remainingResults = await Future.wait([
         ytFuture,
         audiusFuture,
+        ytPlaylistsFuture,
       ]);
 
-      final rawYt = remainingResults[0];
-      final rawAudius = remainingResults[1];
+      final rawYt = remainingResults[0] as List<Song>;
+      final rawAudius = remainingResults[1] as List<Song>;
+      final rawYtPlaylists = remainingResults[2] as List<Map<String, dynamic>>;
+
+      final finalPlaylists = mergePlaylists(initialPlaylists, rawYtPlaylists);
 
       final groupedYt = SongRepository.groupCanonicalSongs(rawYt, preferredLanguage: effectiveLang);
       final deduplicatedYt = SongRepository.deduplicateSongs(groupedYt);
@@ -663,7 +802,7 @@ class SearchService {
       FuzzySearchService.registerSongs(mergedSongs);
 
       AppError? searchError;
-      if (mergedSongs.isEmpty && ytSongs.isEmpty && rawAudius.isEmpty && labeledAlbums.isEmpty && artists.isEmpty && (saavnFailed && ytFailed && audiusFailed)) {
+      if (mergedSongs.isEmpty && ytSongs.isEmpty && rawAudius.isEmpty && labeledAlbums.isEmpty && artists.isEmpty && finalPlaylists.isEmpty && (saavnFailed && ytFailed && audiusFailed)) {
         searchError = AppError.offline(debugDetails: 'All upstream providers failed for "${intent.cleanQuery}"');
       }
 
@@ -674,6 +813,7 @@ class SearchService {
         audiusSongs: rawAudius,
         albums: labeledAlbums,
         artists: artists,
+        playlists: finalPlaylists,
         topResult: finalTopResult,
         didYouMean: didYouMean,
         error: searchError,

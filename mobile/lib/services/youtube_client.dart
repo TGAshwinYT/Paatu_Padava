@@ -10,6 +10,7 @@ import 'artist_sanitizer.dart';
 import 'innertube_config_service.dart';
 import 'youtube/youtube_header_utils.dart';
 import 'youtube/youtube_title_cleaner.dart';
+import '../logic/track_quality_filter.dart';
 import '../data/repositories/song_repository.dart';
 
 class YouTubeClient {
@@ -293,6 +294,11 @@ class YouTubeClient {
       final pId = PlaylistId(playlistId);
       final videoStream = _yt.playlists.getVideos(pId);
       await for (final video in videoStream.take(limit)) {
+        final dur = video.duration?.inSeconds ?? 0;
+        if (!TrackQualityFilter.shouldKeep(title: video.title, durationSec: dur)) {
+          continue;
+        }
+
         final cleanAuthor = ArtistSanitizer.extractArtistFromVideo(video.title, video.author);
         final highThumb = video.thumbnails.highResUrl;
         final safeThumb = (highThumb.isNotEmpty && highThumb.startsWith('http'))
@@ -305,7 +311,7 @@ class YouTubeClient {
           artist: Song.sanitize(cleanAuthor),
           album: 'YouTube Playlist',
           coverUrl: safeThumb,
-          duration: video.duration?.inSeconds ?? 0,
+          duration: dur,
           source: 'youtube',
         ));
       }
@@ -313,6 +319,43 @@ class YouTubeClient {
       AppLogger.recordError(e, st, context: 'YouTubeClient.getPlaylistTracks("$playlistId")');
     }
     return tracks;
+  }
+
+  /// Searches YouTube for curated and user playlists.
+  static Future<List<Map<String, dynamic>>> searchPlaylists(String query, {int limit = 15}) async {
+    final clean = query.trim();
+    if (clean.isEmpty) return [];
+
+    final List<Map<String, dynamic>> playlists = [];
+    try {
+      final results = await _yt.search.searchContent(clean, filter: TypeFilters.playlist);
+      for (final item in results) {
+        if (playlists.length >= limit) break;
+        if (item is SearchPlaylist) {
+          final count = item.videoCount;
+          final title = cleanTitle(item.title);
+          final thumb = item.thumbnails.isNotEmpty
+              ? item.thumbnails.first.url.toString()
+              : '';
+          final safeThumb = (thumb.isNotEmpty && thumb.startsWith('http://'))
+              ? thumb.replaceFirst('http://', 'https://')
+              : thumb;
+
+          playlists.add({
+            'id': item.id.value,
+            'title': title,
+            'subtitle': count > 0 ? '$count tracks • YouTube' : 'YouTube Playlist',
+            'image': safeThumb,
+            'song_count': count,
+            'source': 'youtube',
+            'type': 'playlist',
+          });
+        }
+      }
+    } catch (e, st) {
+      AppLogger.recordError(e, st, context: 'YouTubeClient.searchPlaylists("$clean")');
+    }
+    return playlists;
   }
 
   static int _parseDurationMs(String? text) {
@@ -362,16 +405,19 @@ class YouTubeClient {
 
               final cleanAuthor = ArtistSanitizer.extractArtistFromVideo(rawTitle, rawArtist);
 
-              tracks.add(TrackEntity(
-                id: videoId,
-                title: cleanTitle(rawTitle),
-                artist: Song.sanitize(cleanAuthor.isNotEmpty ? cleanAuthor : rawArtist),
-                album: 'YouTube Music',
-                coverUrl: imageUrl,
-                duration: durationSec,
-                streamUrl: '',
-                source: 'youtube',
-              ));
+              // Drop hour-long jukeboxes / non-stop mixes / live streams (cannot be buffered in time).
+              if (TrackQualityFilter.shouldKeep(title: rawTitle, durationSec: durationSec)) {
+                tracks.add(TrackEntity(
+                  id: videoId,
+                  title: cleanTitle(rawTitle),
+                  artist: Song.sanitize(cleanAuthor.isNotEmpty ? cleanAuthor : rawArtist),
+                  album: 'YouTube Music',
+                  coverUrl: imageUrl,
+                  duration: durationSec,
+                  streamUrl: '',
+                  source: 'youtube',
+                ));
+              }
             }
           }
         }
@@ -440,6 +486,7 @@ class YouTubeClient {
       final searchResults = await _yt.search.search(clean).timeout(const Duration(seconds: 8));
       final List<TrackEntity> ytExplodeTracks = [];
       for (final video in searchResults.take(limit)) {
+        if (!TrackQualityFilter.shouldKeep(title: video.title, durationSec: video.duration?.inSeconds ?? 0)) continue;
         final rawAuthor = video.author;
         final cleanAuthor = ArtistSanitizer.extractArtistFromVideo(video.title, rawAuthor);
         final highThumb = video.thumbnails.highResUrl;
@@ -602,7 +649,8 @@ class YouTubeClient {
                   thumbUrl = 'https://img.youtube.com/vi/$vId/hqdefault.jpg';
                 }
 
-                if (title.isNotEmpty) {
+                if (title.isNotEmpty &&
+                    TrackQualityFilter.shouldKeep(title: title, durationSec: durationSec, allowUnknownDuration: true)) {
                   automixSongs.add(Song(
                     id: vId,
                     title: cleanTitle(title),

@@ -17,6 +17,7 @@ import '../../services/audius_client.dart';
 import '../../services/search_service.dart';
 import '../../data/repositories/song_repository.dart';
 import '../../logic/stream_resolver.dart';
+import '../../logic/search_query_planner.dart';
 import '../../core/dsa/prefix_trie.dart';
 import '../theme/app_theme.dart';
 import 'library_screen.dart';
@@ -28,12 +29,14 @@ import '../widgets/search/search_artists_list.dart';
 import '../widgets/search/search_all_results_view.dart';
 import '../widgets/search/search_song_options_sheet.dart';
 import '../widgets/search/search_versions_sheet.dart';
+import '../widgets/search/search_playlists_grid.dart';
 
 class SearchResultsState {
   final Map<String, dynamic>? topResult;
   final List<Song> songs;
   final List<Map<String, dynamic>> albums;
   final List<Map<String, dynamic>> artists;
+  final List<Map<String, dynamic>> playlists;
   final List<Song> ytSongs;
   final List<Song> saavnSongs;
   final List<Song> audiusSongs;
@@ -46,6 +49,7 @@ class SearchResultsState {
     this.songs = const [],
     this.albums = const [],
     this.artists = const [],
+    this.playlists = const [],
     this.ytSongs = const [],
     this.saavnSongs = const [],
     this.audiusSongs = const [],
@@ -58,6 +62,7 @@ class SearchResultsState {
       songs.isEmpty &&
       albums.isEmpty &&
       artists.isEmpty &&
+      playlists.isEmpty &&
       ytSongs.isEmpty &&
       saavnSongs.isEmpty &&
       audiusSongs.isEmpty;
@@ -385,6 +390,7 @@ class _SearchScreenState extends State<SearchScreen> {
             audiusSongs: unified.audiusSongs,
             albums: unified.albums,
             artists: unified.artists,
+            playlists: unified.playlists,
             didYouMean: unified.didYouMean,
             error: unified.error,
           );
@@ -395,6 +401,12 @@ class _SearchScreenState extends State<SearchScreen> {
         if (mounted && currentRequestId == _searchRequestId) {
           _isSearchingNotifier.value = false;
         }
+        return;
+      } else if (tab == 'Playlists') {
+        final playlists = await SearchService.searchPlaylists(clean, language: effectiveLangFilter, limit: 30);
+        if (!mounted || currentRequestId != _searchRequestId) return;
+        _resultsNotifier.value = SearchResultsState(playlists: playlists);
+        _isSearchingNotifier.value = false;
         return;
       } else if (tab == 'Saavn' || tab == 'Songs') {
         final saavnSongs = await SaavnClient.search(clean, limit: 25, language: effectiveLangFilter)
@@ -594,12 +606,28 @@ class _SearchScreenState extends State<SearchScreen> {
         ? SettingsManager.preferredLanguages.first
         : 'Tamil';
     final intent = SearchService.understandQuery(query);
-    // Contextualize generic category queries with user's preferred language to avoid cross-language leaks
-    final effectiveQuery = (intent.explicitLanguage == null && !query.toLowerCase().contains(prefLang.toLowerCase()))
-        ? '$prefLang $query'
-        : query;
+    // Contextualize generic CATEGORY tiles with the user's preferred language to avoid cross-language leaks.
+    // (Recent searches / artist chips must NOT use this path: see _searchExactQuery.)
+    final effectiveQuery = SearchQueryPlanner.forCategory(
+      query,
+      preferredLanguage: prefLang,
+      explicitLanguage: intent.explicitLanguage,
+    );
     _searchController.text = effectiveQuery;
     _executeSearch(effectiveQuery, saveHistory: true);
+  }
+
+  /// Recent-search and trending-artist taps: search the text exactly as the user wrote it.
+  /// No language is injected, the language chip stays on "All", and history is not polluted.
+  void _searchExactQuery(String query) {
+    final exact = SearchQueryPlanner.forExactQuery(query);
+    if (exact.isEmpty) return;
+    if (!_isSearchActiveNotifier.value) {
+      _isSearchActiveNotifier.value = true;
+    }
+    _searchController.text = exact;
+    _searchController.selection = TextSelection.collapsed(offset: exact.length);
+    _executeSearch(exact, saveHistory: true);
   }
 
   void _recordSearchResultClick([Song? song]) {
@@ -837,7 +865,7 @@ class _SearchScreenState extends State<SearchScreen> {
                           return ListView(
                             padding: const EdgeInsets.symmetric(horizontal: 20),
                             scrollDirection: Axis.horizontal,
-                            children: ['All', 'YT Music', 'Saavn', 'Audius', 'Albums', 'Artists'].map((tab) {
+                            children: ['All', 'Playlists', 'YT Music', 'Saavn', 'Albums', 'Artists', 'Audius'].map((tab) {
                               final isSelected = currentTab == tab;
                               return Padding(
                                 padding: const EdgeInsets.only(right: 8.0),
@@ -945,6 +973,7 @@ class _SearchScreenState extends State<SearchScreen> {
             trendingArtists: _trendingArtists,
             browseCategories: _browseCategories,
             onSelectQuery: _triggerCategorySearch,
+            onSelectExactQuery: _searchExactQuery,
             onPlaySong: (song) {
               SearchHistoryManager.addSong(song);
               audioHandler.playSong(song);
@@ -1044,6 +1073,12 @@ class _SearchScreenState extends State<SearchScreen> {
                           ? state.audiusSongs
                           : state.songs.where((s) => s.source == 'audius').toList();
                       return _buildSongsList(audiusList);
+                    } else if (currentTab == 'Playlists') {
+                      return SearchPlaylistsGrid(
+                        playlists: state.playlists,
+                        query: _searchController.text,
+                        onRecordClick: _recordSearchResultClick,
+                      );
                     } else if (currentTab == 'Albums') {
                       return SearchAlbumsGrid(
                         albums: state.albums,

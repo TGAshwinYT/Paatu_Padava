@@ -652,7 +652,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       _broadcastState();
     });
 
-    // Telemetry: 50% playback progress milestone
+    // Telemetry: Scrobble threshold milestone (30s, or >= 50% for tracks under 60 seconds)
     _throttledPositionSub = _player.positionStream.listen((pos) {
       if (!_hasRecordedListen && pos.inSeconds >= 15 && currentSong != null) {
         _hasRecordedListen = true;
@@ -661,14 +661,13 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       if (!_hasRecordedHistory && currentSong != null) {
         final song = currentSong!;
         final totalSec = _player.duration?.inSeconds ?? song.duration;
-        final isFiftyPercent = totalSec > 0
-            ? (pos.inSeconds >= (totalSec * 0.50))
-            : (pos.inSeconds >= 30);
-        if (isFiftyPercent) {
+        final thresholdSec = (totalSec > 0 && totalSec < 60) ? (totalSec * 0.5) : 30.0;
+        if (pos.inSeconds >= thresholdSec) {
           _hasRecordedHistory = true;
           final track = TrackEntity.fromSong(song);
           HistoryManager.addToHistory(track);
           QueueCooldownManager.recordPlayed(song);
+          AppLogger.log('PlayerHandler', 'Scrobble milestone reached: Recorded play to HistoryManager and QueueCooldownManager for "${song.title}".');
         }
       }
     });

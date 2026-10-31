@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../services/auth_manager.dart';
-import '../../services/api_client.dart';
+import '../../services/search_service.dart';
 import '../../services/error_handler.dart';
 import 'onboarding_artists_screen.dart';
 
@@ -129,8 +129,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     setState(() => _isSearching = true);
     _debounceTimer = Timer(const Duration(milliseconds: 400), () async {
       try {
-        final result = await ApiClient.searchGlobal(q);
-        final artists = result?.artists ?? [];
+        final artists = await SearchService.searchArtistsTab(q);
         final parsed = artists.map((map) {
           return {
             'name': map['name']?.toString() ?? '',

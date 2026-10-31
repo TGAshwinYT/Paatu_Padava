@@ -47,6 +47,10 @@ class SongRepository {
     );
   }
 
+  /// Search LRCLIB candidates for manual correction
+  static Future<List<Map<String, dynamic>>> searchLyricsCandidates(String query) =>
+      ApiClient.searchLyricsCandidates(query);
+
   /// Normalizes a song title by stripping metadata tags, HTML entities, and punctuation.
   static String normalizeTitle(String rawTitle) {
     if (rawTitle.isEmpty) return '';

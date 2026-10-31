@@ -57,8 +57,8 @@ Future<void> main() async {
     );
 
     // 3. Bound in-memory image cache to 64 MB (100 images) to eliminate OOMs during long catalog browsing
-    PaintingBinding.instance.imageCache.maximumSizeBytes = 64 * 1024 * 1024;
-    PaintingBinding.instance.imageCache.maximumSize = 100;
+    CacheManager.configureMemoryLimits();
+
 
     // 4. Fast local startup: only await local Hive engine and critical settings preferences
     try {
@@ -78,6 +78,7 @@ Future<void> main() async {
         PlaylistManager.init(),
         CoverArtResolver.init(),
         Hive.openBox('home_feed_cache'),
+        AuthManager.initLocalCache(),
       ]);
     } catch (e, stack) {
       AppLogger.recordError(e, stack, context: 'Local Hive boxes init');

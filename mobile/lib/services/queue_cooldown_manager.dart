@@ -18,6 +18,9 @@ class QueueCooldownManager {
   // Ring buffer of clean artist names maintaining order of playback
   static final Queue<String> _artistHistoryRing = Queue<String>();
 
+  // Guard against duplicate consecutive additions for the exact same track
+  static String? _lastRecordedSongId;
+
   /// Canonical artist key for cooldown matching:
   /// Strips punctuation (dots, hyphens, quotes) while preserving all Unicode letters
   /// (Tamil, Devanagari, English, etc.) and collapsing whitespace.
@@ -35,6 +38,11 @@ class QueueCooldownManager {
   static void recordPlayed(Song song) {
     final titleKey = song.cleanTitleKey;
     if (titleKey.isEmpty) return;
+
+    if (song.id.isNotEmpty && _lastRecordedSongId == song.id) {
+      return; // Deduplicate: exact same track was already recorded in this window
+    }
+    _lastRecordedSongId = song.id;
 
     // Remove if already in ring to refresh its position to most recent
     if (_cooldownKeys.contains(titleKey)) {
@@ -114,5 +122,6 @@ class QueueCooldownManager {
     _historyRing.clear();
     _cooldownKeys.clear();
     _artistHistoryRing.clear();
+    _lastRecordedSongId = null;
   }
 }

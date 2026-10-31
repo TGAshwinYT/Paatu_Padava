@@ -4,19 +4,22 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:paatu_padava_mobile/data/repositories/song_repository.dart';
-import 'package:paatu_padava_mobile/logic/audio_queue_handler.dart';
 import 'package:paatu_padava_mobile/logic/stream_resolver.dart';
 import 'package:paatu_padava_mobile/models/song.dart';
 import 'package:paatu_padava_mobile/services/favorites_manager.dart';
 import 'package:paatu_padava_mobile/services/history_manager.dart';
 import 'package:paatu_padava_mobile/services/queue_cooldown_manager.dart';
 import 'package:paatu_padava_mobile/services/search_service.dart';
+import 'package:paatu_padava_mobile/services/player_handler.dart';
 
 class MockAudioPlayer extends Fake implements AudioPlayer {
   final StreamController<int?> _currentIndexController = StreamController<int?>.broadcast();
   final StreamController<PlayerState> _playerStateController = StreamController<PlayerState>.broadcast();
   final StreamController<SequenceState?> _sequenceStateController = StreamController<SequenceState?>.broadcast();
   final StreamController<Duration> _positionController = StreamController<Duration>.broadcast();
+  final StreamController<PlaybackEvent> _playbackEventController = StreamController<PlaybackEvent>.broadcast();
+  final StreamController<int?> _sessionIdController = StreamController<int?>.broadcast();
+  final StreamController<Duration?> _durationController = StreamController<Duration?>.broadcast();
 
   double _volume = 1.0;
   bool _playing = false;
@@ -25,6 +28,10 @@ class MockAudioPlayer extends Fake implements AudioPlayer {
   AudioSource? _audioSource;
   int? _sourceIndex;
   LoopMode _loopMode = LoopMode.off;
+
+  @override Stream<PlaybackEvent> get playbackEventStream => _playbackEventController.stream;
+  @override Stream<int?> get androidAudioSessionIdStream => _sessionIdController.stream;
+  @override Stream<Duration?> get durationStream => _durationController.stream;
 
   @override
   int? get currentIndex => _sourceIndex;
@@ -54,6 +61,15 @@ class MockAudioPlayer extends Fake implements AudioPlayer {
 
   @override
   bool get playing => _playing;
+
+  @override
+  ProcessingState get processingState => ProcessingState.ready;
+
+  @override
+  double get speed => 1.0;
+
+  @override
+  Duration get bufferedPosition => Duration.zero;
 
   @override
   Duration get position => _position;
@@ -123,6 +139,9 @@ class MockAudioPlayer extends Fake implements AudioPlayer {
     await _playerStateController.close();
     await _sequenceStateController.close();
     await _positionController.close();
+    await _playbackEventController.close();
+    await _sessionIdController.close();
+    await _durationController.close();
   }
 }
 
@@ -172,10 +191,11 @@ void main() {
     });
   });
 
-  group('Layer 4: Telemetry & Feedback Loop at 50% Playback Milestone', () {
-    test('50% playback progress milestone triggers HistoryManager and QueueCooldownManager', () async {
+  group('Layer 4: Telemetry & Feedback Loop at Scrobble Playback Milestone', () {
+    test('Playback scrobble milestone triggers HistoryManager and QueueCooldownManager exactly once', () async {
       final player = MockAudioPlayer();
-      final handler = AudioQueueHandler(player: player);
+      final handler = PaatuAudioHandler(player: player);
+      audioHandler = handler;
 
       final track = Song(
         id: 'track_50',
@@ -186,21 +206,26 @@ void main() {
         coverUrl: '',
       );
 
-      await handler.loadQueue([track], autoPlay: false);
+      await handler.queueHandler.loadQueue([track], autoPlay: false);
 
-      // Play at 25% (60s out of 240s) -> should NOT trigger history yet
-      player.simulatePosition(const Duration(seconds: 60));
+      // Play at 15s (below 30s threshold) -> should NOT trigger history yet
+      player.simulatePosition(const Duration(seconds: 15));
       await Future.delayed(const Duration(milliseconds: 50));
+      expect(handler.hasRecordedHistory, isFalse);
       expect(QueueCooldownManager.isCoolingDown(track), isFalse);
 
-      // Play past 50% (125s out of 240s) -> triggers Milestone 2: Telemetry
-      player.simulatePosition(const Duration(seconds: 125));
+      // Play past 30s threshold -> triggers Scrobble milestone: Telemetry
+      player.simulatePosition(const Duration(seconds: 35));
       await Future.delayed(const Duration(milliseconds: 50));
 
+      expect(handler.hasRecordedHistory, isTrue);
       expect(QueueCooldownManager.isCoolingDown(track), isTrue,
-          reason: '50% playback milestone must record played track to QueueCooldownManager');
+          reason: 'Playback scrobble milestone must record played track to QueueCooldownManager');
+      final entries = HistoryManager.getHistoryEntries();
+      expect(entries.where((e) => e.track.id == 'track_50').length, equals(1),
+          reason: 'HistoryManager must only record track play once (no duplicate)');
 
-      handler.dispose();
+      await handler.disposeAudioHandler();
       await player.dispose();
     });
   });

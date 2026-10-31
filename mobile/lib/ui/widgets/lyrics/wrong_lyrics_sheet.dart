@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../models/song.dart';
 import '../../../services/player_handler.dart';
-import '../../../services/api_client.dart';
+import '../../../data/repositories/song_repository.dart';
 
 class WrongLyricsSheet {
   static Future<void> show(BuildContext context, Song? song) async {
@@ -24,7 +24,7 @@ class WrongLyricsSheet {
               final q = searchController.text.trim();
               if (q.isEmpty) return;
               setSheetState(() => isSearching = true);
-              final results = await ApiClient.searchLyricsCandidates(q);
+              final results = await SongRepository.searchLyricsCandidates(q);
               setSheetState(() {
                 searchResults = results;
                 isSearching = false;

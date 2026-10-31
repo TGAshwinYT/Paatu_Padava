@@ -48,7 +48,8 @@ class StorageBreakdown {
 /// in the background without blocking the UI thread.
 class CacheManager {
   static const int maxCacheSizeBytesCap = 100 * 1024 * 1024; // 100 MB LRU eviction threshold cap
-  static const int maxMemoryImageCacheSizeBytes = 100 * 1024 * 1024; // 100 MB memory image cache cap
+  static const int maxMemoryImageCacheSizeBytes = 64 * 1024 * 1024; // 64 MB memory image cache cap
+  static const int maxMemoryImageCacheCount = 100; // 100 images cap
 
   static int get maxCacheSizeBytes {
     final configured = SettingsManager.maxCacheSizeMb * 1024 * 1024;
@@ -62,7 +63,7 @@ class CacheManager {
   static void configureMemoryLimits() {
     try {
       PaintingBinding.instance.imageCache.maximumSizeBytes = maxMemoryImageCacheSizeBytes;
-      PaintingBinding.instance.imageCache.maximumSize = 1000;
+      PaintingBinding.instance.imageCache.maximumSize = maxMemoryImageCacheCount;
     } catch (_) {}
   }
 

@@ -19,7 +19,6 @@ import '../services/player_handler.dart';
 import '../services/app_logger.dart';
 import '../services/battery_optimization_service.dart';
 import '../services/queue_cooldown_manager.dart';
-import '../services/history_manager.dart';
 import '../services/des_decrypt.dart';
 import '../services/connectivity_service.dart';
 import '../services/smart_cache_service.dart';
@@ -137,12 +136,10 @@ class AudioQueueHandler {
   bool _hasEnforcedInitialVolume = false;
   bool _isRecovering = false;
   bool _hasTriggered25PctRecs = false;
-  bool _hasTriggered50PctHistory = false;
   bool _hasTriggered70PctPrecache = false;
 
   void _resetTrackMilestones() {
     _hasTriggered25PctRecs = false;
-    _hasTriggered50PctHistory = false;
     _hasTriggered70PctPrecache = false;
   }
   bool _wasStalledByNetwork = false;
@@ -507,19 +504,7 @@ class AudioQueueHandler {
           }
         }
 
-        // Milestone 2: 50% Progress - Telemetry & Feedback Loop
-        if (!_hasTriggered50PctHistory && progressRatio >= 0.50) {
-          _hasTriggered50PctHistory = true;
-          final active = currentSong;
-          if (active != null) {
-            final track = TrackEntity.fromSong(active);
-            HistoryManager.addToHistory(track);
-            QueueCooldownManager.recordPlayed(active);
-            AppLogger.log('AudioQueueHandler', '50% milestone: Recorded play to HistoryManager and QueueCooldownManager for "${active.title}".');
-          }
-        }
-
-        // Milestone 3: 70% Progress - JIT Pre-caching for next song (index + 1)
+        // Milestone 2: 70% Progress - JIT Pre-caching for next song (index + 1)
         if (!_hasTriggered70PctPrecache && (progressRatio >= 0.70 || remainingSec <= 15)) {
           _hasTriggered70PctPrecache = true;
           AppLogger.log('AudioQueueHandler', '70% milestone: JIT stream pre-cache for index + 1.');
@@ -595,7 +580,6 @@ class AudioQueueHandler {
 
         final current = currentSong;
         if (current != null) {
-          QueueCooldownManager.recordPlayed(current);
           final dur = player.duration ?? const Duration(seconds: 180);
           if (isAudioHandlerInitialized) {
             audioHandler.smartShuffleController.recordPlaybackFeedback(

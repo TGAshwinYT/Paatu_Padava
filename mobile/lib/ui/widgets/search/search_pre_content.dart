@@ -34,7 +34,7 @@ class SearchPreContent extends StatelessWidget {
     },
     {
       'title': 'Anirudh Vibe',
-      'query': 'Anirudh Ravichander Vibe Hits',
+      'query': 'Anirudh Ravichander',
       'colors': [Color(0xFF7C3AED), Color(0xFFC026D3)],
       'icon': Icons.bolt_rounded,
     },
@@ -123,7 +123,7 @@ class SearchPreContent extends StatelessWidget {
               final colors = vibe['colors'] as List<Color>;
 
               return InkWell(
-                onTap: () => onSelectQuery(vibe['query'] as String),
+                onTap: () => (onSelectExactQuery ?? onSelectQuery)(vibe['query'] as String),
                 borderRadius: BorderRadius.circular(14),
                 child: Container(
                   width: 140,

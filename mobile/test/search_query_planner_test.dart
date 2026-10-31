@@ -27,5 +27,17 @@ void main() {
     test('no preferred language -> unchanged', () {
       expect(SearchQueryPlanner.forCategory('Party', preferredLanguage: ''), 'Party');
     });
+    test('category for known artist is not mutated with language prefix', () {
+      expect(SearchQueryPlanner.forCategory('Anirudh Ravichander', preferredLanguage: 'Tamil'), 'Anirudh Ravichander');
+      expect(SearchQueryPlanner.forCategory('A.R. Rahman', preferredLanguage: 'Tamil'), 'A.R. Rahman');
+      expect(SearchQueryPlanner.forCategory('Ilaiyaraaja', preferredLanguage: 'Tamil'), 'Ilaiyaraaja');
+    });
+
+    test('extractCoreSubject strips descriptor intent tokens', () {
+      expect(SearchQueryPlanner.extractCoreSubject('Anirudh Ravichander Vibe Hits'), 'Anirudh Ravichander');
+      expect(SearchQueryPlanner.extractCoreSubject('Harris Jayaraj Songs'), 'Harris Jayaraj');
+      expect(SearchQueryPlanner.extractCoreSubject('Best of Yuvan'), 'Yuvan');
+      expect(SearchQueryPlanner.extractCoreSubject('SPB All Hits'), 'SPB');
+    });
   });
 }

@@ -307,8 +307,8 @@ class YouTubeClient {
         duration: video.duration?.inSeconds ?? 0,
         source: 'youtube',
       );
-    } catch (e, st) {
-      AppLogger.recordError(e, st, context: 'YouTubeClient.resolveTrackFromUrl("$url")');
+    } catch (e) {
+      AppLogger.recordError(e, null, context: 'YouTubeClient.resolveTrackFromUrl("$url")');
       return null;
     }
   }
@@ -345,8 +345,8 @@ class YouTubeClient {
           source: 'youtube',
         ));
       }
-    } catch (e, st) {
-      AppLogger.recordError(e, st, context: 'YouTubeClient.getPlaylistTracks("$playlistId")');
+    } catch (e) {
+      AppLogger.recordError(e, null, context: 'YouTubeClient.getPlaylistTracks("$playlistId")');
     }
     return tracks;
   }
@@ -382,8 +382,8 @@ class YouTubeClient {
           });
         }
       }
-    } catch (e, st) {
-      AppLogger.recordError(e, st, context: 'YouTubeClient.searchPlaylists("$clean")');
+    } catch (e) {
+      AppLogger.log('YouTubeClient', 'searchPlaylists notice: $e');
     }
     return playlists;
   }
@@ -1036,8 +1036,8 @@ class YouTubeClient {
           }
         }
       }
-    } catch (e, st) {
-      AppLogger.recordError(e, st, context: 'YouTubeClient.getRadioTracks');
+    } catch (e) {
+      AppLogger.recordError(e, null, context: 'YouTubeClient.getRadioTracks');
     }
 
     // Fallback: If results are still empty or small, supplement with getRelatedSongs

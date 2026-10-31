@@ -30,6 +30,7 @@ import '../logic/track_quality_filter.dart';
 class QueryIntent {
   final String rawQuery;
   final String cleanQuery;
+  final String coreSubject;
   final String? detectedScript;
   final String? explicitLanguage;
   final String transliteratedQuery;
@@ -39,6 +40,7 @@ class QueryIntent {
   const QueryIntent({
     required this.rawQuery,
     required this.cleanQuery,
+    this.coreSubject = '',
     this.detectedScript,
     this.explicitLanguage,
     required this.transliteratedQuery,
@@ -46,6 +48,7 @@ class QueryIntent {
     this.didYouMeanSuggestion,
   });
 
+  String get effectiveCoreQuery => coreSubject.isNotEmpty ? coreSubject : cleanQuery;
   String? get detectedLanguage => detectedScript;
   String? get explicitLanguageOverride => explicitLanguage?.toLowerCase();
 }
@@ -684,10 +687,12 @@ class SearchService {
     }
 
     final isRemix = lower.contains('remix') || lower.contains('lofi') || lower.contains('slowed');
+    final core = SearchQueryPlanner.extractCoreSubject(clean);
 
     return QueryIntent(
       rawQuery: trimmed,
       cleanQuery: clean,
+      coreSubject: core,
       detectedScript: detectedScript,
       explicitLanguage: explicitLang,
       transliteratedQuery: transliterated,
@@ -737,7 +742,10 @@ class SearchService {
 
     // Artist token match bonus (e.g. searching "anirudh" finds his songs)
     final artistLower = song.primaryArtist.toLowerCase();
-    if (artistLower.isNotEmpty && (artistLower.contains(qLower) || qLower.contains(artistLower))) {
+    final coreLower = intent.effectiveCoreQuery.toLowerCase();
+    if (artistLower.isNotEmpty &&
+        (artistLower.contains(qLower) || qLower.contains(artistLower) ||
+         artistLower.contains(coreLower) || coreLower.contains(artistLower))) {
       similarity = math.max(similarity, 0.85);
     }
 
@@ -1029,11 +1037,23 @@ class SearchService {
 
       final Future<List<Song>> saavnFuture = () async {
         try {
-          return await SaavnClient.search(
+          var results = await SaavnClient.search(
             saavnSearchQuery,
             limit: limit,
             language: effectiveLang,
-          ).timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
+          ).timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]);
+          if (results.isEmpty && intent.effectiveCoreQuery != intent.cleanQuery) {
+            final coreSearch = (intent.explicitLanguage != null &&
+                    !intent.effectiveCoreQuery.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
+                ? '${intent.explicitLanguage!} ${intent.effectiveCoreQuery}'
+                : intent.effectiveCoreQuery;
+            results = await SaavnClient.search(
+              coreSearch,
+              limit: limit,
+              language: effectiveLang,
+            ).timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]);
+          }
+          return results;
         } catch (e) {
           saavnFailed = true;
           debugPrint('[SearchService] Upstream Saavn primary search fault isolated: $e');
@@ -1052,7 +1072,7 @@ class SearchService {
             transQuery,
             limit: limit,
             language: effectiveLang,
-          ).timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
+          ).timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]);
         } catch (e) {
           debugPrint('[SearchService] Upstream Saavn transliterated search fault isolated: $e');
           return <Song>[];
@@ -1061,8 +1081,13 @@ class SearchService {
 
       final Future<List<Map<String, dynamic>>> albumsFuture = () async {
         try {
-          return await SaavnClient.searchAlbums(saavnSearchQuery, limit: 12)
-              .timeout(const Duration(seconds: 3), onTimeout: () => <Map<String, dynamic>>[]);
+          var alb = await SaavnClient.searchAlbums(saavnSearchQuery, limit: 12)
+              .timeout(const Duration(seconds: 5), onTimeout: () => <Map<String, dynamic>>[]);
+          if (alb.isEmpty && intent.effectiveCoreQuery != intent.cleanQuery) {
+            alb = await SaavnClient.searchAlbums(intent.effectiveCoreQuery, limit: 12)
+                .timeout(const Duration(seconds: 5), onTimeout: () => <Map<String, dynamic>>[]);
+          }
+          return alb;
         } catch (e) {
           debugPrint('[SearchService] Upstream Saavn albums search fault isolated: $e');
           return <Map<String, dynamic>>[];
@@ -1076,12 +1101,12 @@ class SearchService {
               intent.cleanQuery.toLowerCase() == 'top songs' ||
               intent.cleanQuery.toLowerCase() == 'songs';
           final artistSearchQuery = (intent.explicitLanguage != null &&
-                  !intent.cleanQuery.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
-              ? (isGeneric ? 'Top ${intent.explicitLanguage!} Artists' : '${intent.explicitLanguage!} ${intent.cleanQuery}')
-              : intent.cleanQuery;
+                  !intent.effectiveCoreQuery.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
+              ? (isGeneric ? 'Top ${intent.explicitLanguage!} Artists' : '${intent.explicitLanguage!} ${intent.effectiveCoreQuery}')
+              : intent.effectiveCoreQuery;
           final rawArtists = await SaavnClient.searchArtists(artistSearchQuery, limit: 12, language: effectiveLang)
-              .timeout(const Duration(seconds: 3), onTimeout: () => <Map<String, dynamic>>[]);
-          return filterArtistsByLanguage(rawArtists, language: effectiveLang, query: intent.cleanQuery);
+              .timeout(const Duration(seconds: 5), onTimeout: () => <Map<String, dynamic>>[]);
+          return filterArtistsByLanguage(rawArtists, language: effectiveLang, query: intent.effectiveCoreQuery);
         } catch (e) {
           debugPrint('[SearchService] Upstream Saavn artists search fault isolated: $e');
           return <Map<String, dynamic>>[];
@@ -1091,7 +1116,7 @@ class SearchService {
       final Future<List<Map<String, dynamic>>> playlistsFuture = () async {
         try {
           return await SaavnClient.searchPlaylists(saavnSearchQuery, limit: 10, language: effectiveLang)
-              .timeout(const Duration(seconds: 3), onTimeout: () => <Map<String, dynamic>>[]);
+              .timeout(const Duration(seconds: 5), onTimeout: () => <Map<String, dynamic>>[]);
         } catch (e) {
           debugPrint('[SearchService] Upstream Saavn playlists search fault isolated: $e');
           return <Map<String, dynamic>>[];
@@ -1131,13 +1156,27 @@ class SearchService {
       List<Map<String, dynamic>> catMovies = [];
       List<Map<String, dynamic>> catArtists = [];
       try {
+        final catQuery = intent.effectiveCoreQuery;
         catalogSongs = await CatalogDatabase.searchCatalog(
-          intent.cleanQuery,
+          catQuery,
           limit: limit,
           language: effectiveLang,
         );
-        catMovies = await CatalogDatabase.searchMovies(intent.cleanQuery, limit: 8);
-        catArtists = await CatalogDatabase.searchArtists(intent.cleanQuery, limit: 6);
+        if (catalogSongs.isEmpty && catQuery != intent.cleanQuery) {
+          catalogSongs = await CatalogDatabase.searchCatalog(
+            intent.cleanQuery,
+            limit: limit,
+            language: effectiveLang,
+          );
+        }
+        catMovies = await CatalogDatabase.searchMovies(catQuery, limit: 8);
+        if (catMovies.isEmpty && catQuery != intent.cleanQuery) {
+          catMovies = await CatalogDatabase.searchMovies(intent.cleanQuery, limit: 8);
+        }
+        catArtists = await CatalogDatabase.searchArtists(catQuery, limit: 6);
+        if (catArtists.isEmpty && catQuery != intent.cleanQuery) {
+          catArtists = await CatalogDatabase.searchArtists(intent.cleanQuery, limit: 6);
+        }
       } catch (_) {}
 
       final phase0Albums = catMovies.map((m) => {

@@ -16,6 +16,7 @@ enum QueryIntentType {
 class QueryIntentAnalysis {
   final String rawQuery;
   final String cleanQuery;
+  final String coreSubject;
   final QueryIntentType intentType;
   final String? explicitLanguage;
   final bool isExplicitMixRequest;
@@ -23,6 +24,7 @@ class QueryIntentAnalysis {
   const QueryIntentAnalysis({
     required this.rawQuery,
     required this.cleanQuery,
+    this.coreSubject = '',
     required this.intentType,
     this.explicitLanguage,
     this.isExplicitMixRequest = false,
@@ -48,11 +50,24 @@ class SearchQueryPlanner {
     caseSensitive: false,
   );
 
+  static final RegExp descriptorRegex = RegExp(
+    r'\b(vibe|vibes|hits|hit\s*songs|top\s*hits|top\s*songs|songs|song|all\s*hits|all\s*songs|best\s*of|collection|jukebox|discography)\b',
+    caseSensitive: false,
+  );
+
+  /// Strips descriptive music query intent modifiers (e.g. "Vibe Hits", "Best of", "Songs")
+  /// to extract the pure musical subject (artist, movie, or song title).
+  static String extractCoreSubject(String query) {
+    var core = query.replaceAll(descriptorRegex, ' ');
+    core = core.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return core.isNotEmpty ? core : query.trim();
+  }
+
   /// Recent searches, trending-artist chips and typed text: searched EXACTLY as written.
   static String forExactQuery(String query) => query.trim();
 
   /// Browse-category tiles ("Workout", "Party"): add the user's preferred
-  /// language only when the query does not already name a language.
+  /// language only when the query does not already name a language and is not an artist.
   static String forCategory(
     String query, {
     required String preferredLanguage,
@@ -63,6 +78,16 @@ class SearchQueryPlanner {
     if (pref.isEmpty) return clean;
     if (explicitLanguage != null) return clean;
     if (clean.toLowerCase().contains(pref.toLowerCase())) return clean;
+    final lower = clean.toLowerCase();
+    for (final artist in const [
+      'anirudh', 'anirudh ravichander', 'a.r. rahman', 'ar rahman', 'ilaiyaraaja',
+      'ilayaraja', 'harris jayaraj', 'yuvan', 'yuvan shankar raja', 'sid sriram',
+      'santhosh narayanan', 's. p. balasubrahmanyam', 'spb', 'k. j. yesudas', 'shreya ghoshal'
+    ]) {
+      if (lower == artist || lower.startsWith('$artist ') || lower.endsWith(' $artist')) {
+        return clean;
+      }
+    }
     return '$pref $clean';
   }
 
@@ -70,12 +95,14 @@ class SearchQueryPlanner {
   static QueryIntentAnalysis analyzeQuery(String query, {String? explicitLanguage}) {
     final clean = query.trim();
     final lower = clean.toLowerCase();
+    final core = extractCoreSubject(clean);
 
     final isMix = _mixIntentRegex.hasMatch(lower);
     if (isMix) {
       return QueryIntentAnalysis(
         rawQuery: query,
         cleanQuery: clean,
+        coreSubject: core,
         intentType: QueryIntentType.mixOrBgm,
         explicitLanguage: explicitLanguage,
         isExplicitMixRequest: true,
@@ -86,6 +113,7 @@ class SearchQueryPlanner {
       return QueryIntentAnalysis(
         rawQuery: query,
         cleanQuery: clean,
+        coreSubject: core,
         intentType: QueryIntentType.collectionOrMovie,
         explicitLanguage: explicitLanguage,
       );
@@ -95,6 +123,7 @@ class SearchQueryPlanner {
       return QueryIntentAnalysis(
         rawQuery: query,
         cleanQuery: clean,
+        coreSubject: core,
         intentType: QueryIntentType.artist,
         explicitLanguage: explicitLanguage,
       );
@@ -103,6 +132,7 @@ class SearchQueryPlanner {
     return QueryIntentAnalysis(
       rawQuery: query,
       cleanQuery: clean,
+      coreSubject: core,
       intentType: QueryIntentType.song,
       explicitLanguage: explicitLanguage,
       isExplicitMixRequest: false,

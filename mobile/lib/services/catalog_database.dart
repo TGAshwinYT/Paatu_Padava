@@ -76,6 +76,13 @@ class CatalogDatabase {
     await batch.commit(noResult: true);
   }
 
+  static String _stripSearchNoise(String query) {
+    return query.toLowerCase()
+        .replaceAll(RegExp(r'\b(tamil|telugu|hindi|malayalam|kannada)\b'), ' ')
+        .replaceAll(RegExp(r'\b(vibe|vibes|hits|hit\s*songs|top\s*hits|top\s*songs|songs|song|all\s*hits|all\s*songs|best\s*of|collection|jukebox|discography)\b'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
   /// Searches master catalog songs at 0ms latency with multi-token matching.
   static Future<List<Song>> searchCatalog(String query, {int limit = 20, String? language}) async {
     final q = query.trim().toLowerCase();
@@ -89,6 +96,13 @@ class CatalogDatabase {
         final fullText = '${s.title} ${s.movieTitle} ${s.composer} ${s.singers} ${s.starring}'.toLowerCase();
         return fullText.contains(q);
       }).toList();
+
+      if (matches.isEmpty) {
+        final stripped = _stripSearchNoise(q);
+        if (stripped.isNotEmpty && stripped != q) {
+          return searchCatalog(stripped, limit: limit, language: language);
+        }
+      }
 
       matches.sort((a, b) {
         final aExact = a.title.toLowerCase() == q;
@@ -120,6 +134,13 @@ class CatalogDatabase {
           ? [safeQ, safeQ, safeQ, safeQ, safeQ, language.toLowerCase(), q, '$q%', '$q%', limit]
           : [safeQ, safeQ, safeQ, safeQ, safeQ, q, '$q%', '$q%', limit]);
 
+      if (rows.isEmpty) {
+        final stripped = _stripSearchNoise(q);
+        if (stripped.isNotEmpty && stripped != q) {
+          return await searchCatalog(stripped, limit: limit, language: language);
+        }
+      }
+
       return rows.map((r) => CatalogSong.fromMap(r).toSong()).toList();
     } catch (e) {
       AppLogger.log('CatalogDatabase', 'searchCatalog error: $e');
@@ -147,6 +168,12 @@ class CatalogDatabase {
           _extractAndAddArtists(s, results);
         }
       }
+      if (results.isEmpty) {
+        final stripped = _stripSearchNoise(q);
+        if (stripped.isNotEmpty && stripped != q) {
+          return await searchArtists(stripped, limit: limit);
+        }
+      }
       return results.values.take(limit).toList();
     }
 
@@ -165,6 +192,12 @@ class CatalogDatabase {
         );
         for (final sr in songRows) {
           _extractAndAddArtists(CatalogSong.fromMap(sr), results);
+        }
+      }
+      if (results.isEmpty) {
+        final stripped = _stripSearchNoise(q);
+        if (stripped.isNotEmpty && stripped != q) {
+          return await searchArtists(stripped, limit: limit);
         }
       }
       return results.values.take(limit).toList();
@@ -216,7 +249,7 @@ class CatalogDatabase {
     if (q.isEmpty) return const [];
 
     if (_useInMemoryFallback || _db == null) {
-      return _memMovies.values.where((m) {
+      final matches = _memMovies.values.where((m) {
         final text = '${m.title} ${m.starring} ${m.composer}'.toLowerCase();
         return text.contains(q);
       }).take(limit).map((m) => {
@@ -228,6 +261,14 @@ class CatalogDatabase {
         'image': m.coverUrl ?? '',
         'type': 'Movie / Album',
       }).toList();
+
+      if (matches.isEmpty) {
+        final stripped = _stripSearchNoise(q);
+        if (stripped.isNotEmpty && stripped != q) {
+          return searchMovies(stripped, limit: limit);
+        }
+      }
+      return matches;
     }
 
     try {
@@ -238,6 +279,13 @@ class CatalogDatabase {
         ORDER BY year DESC
         LIMIT ?
       ''', [safeQ, safeQ, safeQ, limit]);
+
+      if (rows.isEmpty) {
+        final stripped = _stripSearchNoise(q);
+        if (stripped.isNotEmpty && stripped != q) {
+          return await searchMovies(stripped, limit: limit);
+        }
+      }
 
       return rows.map((r) => {
         'id': r['id']?.toString() ?? '',

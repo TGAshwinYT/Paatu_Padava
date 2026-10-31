@@ -140,6 +140,15 @@ class FuzzySearchService {
     if (cleanQuery.length < 3) return null;
 
     final lowerQuery = cleanQuery.toLowerCase();
+
+    // Avoid correcting category queries or generic discovery terms (e.g. "Top Tamil Hits")
+    final genericDiscoveryPattern = RegExp(
+      r'^(?:top|best|latest|trending|new)?\s*(?:tamil|telugu|hindi|english|malayalam|kannada)?\s*(?:hits?|songs?|tracks?|melodies|vibes?)?$',
+      caseSensitive: false,
+    );
+    if (genericDiscoveryPattern.hasMatch(cleanQuery)) {
+      return null;
+    }
     _ensureInitialized();
 
     // If exact case-insensitive match already exists, no typo correction is needed
@@ -182,7 +191,11 @@ class FuzzySearchService {
           final weightScore = weightedRatio(cleanQuery, best.choice);
           final combinedScore = (best.score + tokenScore + weightScore) ~/ 3;
 
-          if (combinedScore >= 70 && best.choice.toLowerCase() != lowerQuery) {
+          final queryTokens = lowerQuery.split(RegExp(r'\s+')).where((t) => t.length > 2).toSet();
+          final choiceTokens = best.choice.toLowerCase().split(RegExp(r'\s+')).where((t) => t.length > 2).toSet();
+          final extraTokens = choiceTokens.difference(queryTokens);
+
+          if (combinedScore >= 70 && best.choice.toLowerCase() != lowerQuery && extraTokens.length <= 1) {
             return FuzzyCorrectionResult(
               original: cleanQuery,
               corrected: Song.sanitize(best.choice),

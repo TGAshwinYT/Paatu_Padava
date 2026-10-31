@@ -9,7 +9,6 @@ import '../../theme/app_theme.dart';
 import '../../screens/artist_screen.dart';
 import '../../screens/album_screen.dart';
 import '../../screens/remote_playlist_screen.dart';
-import 'search_top_result_card.dart';
 import 'search_song_tile.dart';
 
 class SearchAllResultsView extends StatefulWidget {
@@ -79,6 +78,11 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
       return cls == ContentClassification.officialTrack;
     }).toList();
 
+    final RegExp mixOrBgmRegex = RegExp(
+      r'\b(bgm|theme|ost|score|instrumental|remix|mashup|lo[\s\-]?fi|slowed|reverb|acoustic|reprise|extended|mix|version|soundtrack)\b',
+      caseSensitive: false,
+    );
+
     final fanMixes = <Song>[];
     for (final s in allSongs) {
       final cls = TrackQualityFilter.classifyTrack(
@@ -87,7 +91,8 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
         source: s.source,
         artist: s.artist,
       );
-      if (cls == ContentClassification.fanMixOrVersion) {
+      final isMix = cls == ContentClassification.fanMixOrVersion || mixOrBgmRegex.hasMatch(s.title);
+      if (isMix && !fanMixes.any((m) => m.id == s.id)) {
         fanMixes.add(s);
       }
       for (final v in s.versions) {
@@ -146,9 +151,8 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
               if (state.didYouMean != null && _selectedFilter == 'All')
                 _buildDidYouMeanBanner(state.didYouMean!),
 
-              // Filter: All
+              // Filter: All (Top Result card removed per user preference)
               if (_selectedFilter == 'All') ...[
-                if (state.topResult != null) _buildTopResult(state.topResult!),
                 if (artists.isNotEmpty) _buildArtistsSection(artists),
                 if (albums.isNotEmpty) _buildAlbumsSection(albums),
                 if (playlists.isNotEmpty) _buildPlaylistsSection(playlists),
@@ -232,57 +236,6 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildTopResult(Map<String, dynamic> top) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 2),
-          child: Text(
-            'Top Result',
-            style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-        ),
-        SearchTopResultCard(
-          top: top,
-          onArtistClick: () {
-            widget.onArtistRecordClick();
-            final title = _unescape.convert(Song.sanitize(top['title']?.toString() ?? top['name']?.toString() ?? ''));
-            final cover = top['cover_url']?.toString() ?? top['image']?.toString() ?? '';
-            final type = (top['type']?.toString() ?? '').toLowerCase();
-            if (type == 'album') {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => AlbumScreen(albumId: top['id']?.toString() ?? '', albumTitle: title, imageUrl: cover),
-                ),
-              );
-            } else {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => ArtistScreen(
-                    artistId: top['id']?.toString() ?? '',
-                    artistName: title,
-                    imageUrl: cover,
-                  ),
-                ),
-              );
-            }
-          },
-          onPlay: () {
-            final List<Song> songs = (widget.state.songs as List<dynamic>?)?.cast<Song>() ?? [];
-            final songToPlay = songs.isNotEmpty ? songs.first : null;
-            widget.onRecordClick(songToPlay);
-            if (songToPlay != null) {
-              widget.onSongTap(songToPlay);
-            }
-          },
-        ),
-      ],
     );
   }
 
@@ -434,7 +387,7 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
           ),
         ),
         SizedBox(
-          height: 155,
+          height: 165,
           child: ListView.builder(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             scrollDirection: Axis.horizontal,
@@ -442,7 +395,8 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
             itemBuilder: (context, index) {
               final playlist = playlists[index];
               final id = playlist['id']?.toString() ?? '';
-              final title = _unescape.convert(Song.sanitize(playlist['title']?.toString() ?? ''));
+              final rawTitle = _unescape.convert(Song.sanitize(playlist['title']?.toString() ?? ''));
+              final title = rawTitle.replaceAll(RegExp(r'\s*\((All Songs|Full Album)\)', caseSensitive: false), '').trim();
               final subtitle = _unescape.convert(playlist['subtitle']?.toString() ?? '');
               final img = playlist['image']?.toString() ?? '';
               final source = playlist['source']?.toString() ?? 'saavn';
@@ -488,7 +442,7 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
                       const SizedBox(height: 6),
                       Text(
                         title,
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.outfit(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
                       ),
@@ -663,7 +617,8 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
       itemBuilder: (context, i) {
         final pl = playlists[i];
         final id = pl['id']?.toString() ?? '';
-        final title = _unescape.convert(Song.sanitize(pl['title']?.toString() ?? ''));
+        final rawTitle = _unescape.convert(Song.sanitize(pl['title']?.toString() ?? ''));
+        final title = rawTitle.replaceAll(RegExp(r'\s*\((All Songs|Full Album)\)', caseSensitive: false), '').trim();
         final subtitle = _unescape.convert(pl['subtitle']?.toString() ?? '');
         final img = pl['image']?.toString() ?? '';
         final source = pl['source']?.toString() ?? 'saavn';

@@ -147,5 +147,23 @@ class CatalogArtistsSeed {
       role: 'Folk / Playback Singer',
       imageUrl: 'https://c.saavncdn.com/artists/Anthony_Daasan_500x500.jpg',
     ),
+    CatalogArtist(
+      id: 'thaman_s',
+      name: 'Thaman S',
+      role: 'Composer / Singer',
+      imageUrl: 'https://c.saavncdn.com/artists/Thaman_S_500x500.jpg',
+    ),
+    CatalogArtist(
+      id: 'vishal_mishra',
+      name: 'Vishal Mishra',
+      role: 'Playback Singer / Composer',
+      imageUrl: 'https://c.saavncdn.com/artists/Vishal_Mishra_500x500.jpg',
+    ),
+    CatalogArtist(
+      id: 'dhanush',
+      name: 'Dhanush',
+      role: 'Playback Singer / Lyricist',
+      imageUrl: 'https://c.saavncdn.com/artists/Dhanush_500x500.jpg',
+    ),
   ];
 }

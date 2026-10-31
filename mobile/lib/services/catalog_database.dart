@@ -174,19 +174,38 @@ class CatalogDatabase {
     }
   }
 
+  /// Resolves verified high-resolution artist portrait from seed catalog or memory
+  static String? getArtistProfileImage(String name) {
+    final clean = name.trim().toLowerCase();
+    if (clean.isEmpty) return null;
+    if (_memArtists.containsKey(clean)) {
+      return _memArtists[clean]?.imageUrl;
+    }
+    final alpha = clean.replaceAll(RegExp(r'[^a-z0-9]'), '');
+    for (final a in CatalogSeedData.initialArtists) {
+      final aAlpha = a.name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+      if (aAlpha == alpha || aAlpha.contains(alpha) || alpha.contains(aAlpha)) {
+        return a.imageUrl;
+      }
+    }
+    return null;
+  }
+
   static void _extractAndAddArtists(CatalogSong s, Map<String, Map<String, dynamic>> results) {
     if (s.composer.isNotEmpty) {
       final comp = s.composer.trim();
       final key = comp.toLowerCase();
       if (!results.containsKey(key)) {
-        results[key] = _artistEntry('art_${key.replaceAll(' ', '_')}', comp, 'Music Director / Composer', s.coverUrl, true);
+        final img = getArtistProfileImage(comp) ?? '';
+        results[key] = _artistEntry('art_${key.replaceAll(' ', '_')}', comp, 'Music Director / Composer', img, true);
       }
     }
     final allSingers = ArtistSanitizer.extractAllGenuineArtists(s.singers);
     for (final singer in allSingers) {
       final key = singer.toLowerCase();
       if (!results.containsKey(key)) {
-        results[key] = _artistEntry('art_${key.replaceAll(' ', '_')}', singer, 'Playback Singer', s.coverUrl, true);
+        final img = getArtistProfileImage(singer) ?? '';
+        results[key] = _artistEntry('art_${key.replaceAll(' ', '_')}', singer, 'Playback Singer', img, true);
       }
     }
   }
@@ -288,21 +307,27 @@ class CatalogDatabase {
     }
   }
 
-  /// Extracts genuine artists from an arbitrary list of songs.
+  /// Extracts genuine artists from an arbitrary list of songs with verified portraits.
   static List<Map<String, dynamic>> extractArtistsFromSongs(List<Song> songs, {int limit = 10}) {
     final Map<String, Map<String, dynamic>> map = {};
     for (final song in songs) {
       final artists = ArtistSanitizer.extractAllGenuineArtists(song.artist);
       for (final art in artists) {
-        final key = art.toLowerCase();
+        if (ArtistSanitizer.isCompositeOrMultiArtist(art)) continue;
+        final lowerArt = art.toLowerCase().trim();
+        if (lowerArt == song.album.toLowerCase().trim() || lowerArt == song.title.toLowerCase().trim()) continue;
+        if (lowerArt == 'unknown artist' || lowerArt == 'various artists' || lowerArt.contains('soundtrack')) continue;
+
+        final key = lowerArt;
         if (!map.containsKey(key)) {
+          final img = getArtistProfileImage(art) ?? '';
           map[key] = {
             'id': 'art_${key.replaceAll(' ', '_')}',
             'name': art,
             'title': art,
             'role': 'Singer / Composer',
-            'image': song.coverUrl,
-            'is_verified': true,
+            'image': img,
+            'is_verified': img.isNotEmpty,
           };
           if (map.length >= limit) break;
         }

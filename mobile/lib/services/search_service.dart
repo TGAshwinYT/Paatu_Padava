@@ -9,7 +9,6 @@ import '../core/dsa/prefix_trie.dart';
 import '../logic/search_query_planner.dart';
 import 'saavn_client.dart';
 import 'youtube_client.dart';
-import 'audius_client.dart';
 import 'settings_manager.dart';
 import 'history_manager.dart';
 import 'favorites_manager.dart';
@@ -244,15 +243,38 @@ class SearchService {
     return suggestions.take(limit).toList();
   }
 
-  /// Strictly filters out single-song releases and fake albums
-  static List<Map<String, dynamic>> filterGenuineAlbums(List<Map<String, dynamic>> rawAlbums) {
+  /// Strictly filters out single-song releases, fake albums, and unrelated compilations
+  static List<Map<String, dynamic>> filterGenuineAlbums(
+    List<Map<String, dynamic>> rawAlbums, {
+    String? query,
+  }) {
     final valid = <Map<String, dynamic>>[];
+    final cleanQuery = (query ?? '').trim().toLowerCase();
+    final queryTokens = cleanQuery.split(RegExp(r'\s+')).where((t) => t.length > 2).toSet();
+
     for (final alb in rawAlbums) {
       final songCount = int.tryParse(alb['song_count']?.toString() ?? '0') ?? 0;
       final title = (alb['title'] ?? '').toString().toLowerCase();
+      final artist = (alb['artist'] ?? '').toString().toLowerCase();
+
       if (songCount == 1 || title.contains('single')) {
         continue;
       }
+
+      // Filter out completely unrelated albums for specific queries
+      if (cleanQuery.length >= 3 && queryTokens.isNotEmpty) {
+        final titleTokens = title.split(RegExp(r'\s+')).where((t) => t.length > 2).toSet();
+        final artistTokens = artist.split(RegExp(r'\s+')).where((t) => t.length > 2).toSet();
+        final isRelevant = title.contains(cleanQuery) ||
+            cleanQuery.contains(title) ||
+            artist.contains(cleanQuery) ||
+            titleTokens.intersection(queryTokens).isNotEmpty ||
+            artistTokens.intersection(queryTokens).isNotEmpty;
+        if (!isRelevant) {
+          continue;
+        }
+      }
+
       valid.add({
         ...alb,
         'type': 'Album',
@@ -262,7 +284,7 @@ class SearchService {
     return valid;
   }
 
-  /// Synthesizes dynamic 'Movie - All Songs' auto-playlists directly from album metadata
+  /// Synthesizes dynamic 'Movie Soundtrack' auto-playlists directly from album metadata
   static List<Map<String, dynamic>> generateAutoPlaylistsFromAlbums(
     List<Map<String, dynamic>> albums, {
     int maxCount = 4,
@@ -277,8 +299,8 @@ class SearchService {
       if (title.isNotEmpty) {
         autoPlaylists.add({
           'id': id.isNotEmpty ? id : 'pl_${title.toLowerCase().replaceAll(' ', '_')}',
-          'title': '$title (All Songs)',
-          'subtitle': songCount > 0 ? '$songCount Tracks • Movie Playlist' : 'Movie Playlist • All Songs',
+          'title': '$title Soundtrack',
+          'subtitle': songCount > 0 ? '$songCount Tracks • Movie Soundtrack' : 'Movie Soundtrack',
           'image': img,
           'artist': artist,
           'song_count': songCount,
@@ -551,14 +573,9 @@ class SearchService {
     }
   }
 
-  /// Tab search: Audius tracks
+  /// Tab search: Audius tracks (deprecated/removed)
   static Future<List<Song>> searchAudiusTab(String query, {int limit = 25}) async {
-    try {
-      return await AudiusClient.search(query, limit: limit)
-          .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]);
-    } catch (_) {
-      return <Song>[];
-    }
+    return const <Song>[];
   }
 
   /// Records a search click event for telemetry and ranking feedback loop
@@ -861,7 +878,7 @@ class SearchService {
   static List<Song> deduplicateAndRankUnified({
     required List<Song> saavnSongs,
     required List<Song> ytSongs,
-    required List<Song> audiusSongs,
+    List<Song> audiusSongs = const [],
     required QueryIntent intent,
     List<String>? preferredLanguages,
     List<Song>? history,
@@ -914,15 +931,6 @@ class SearchService {
       } else {
         if (fp.isNotEmpty) canonicalMap[fp] = ytSong;
         deduplicatedPool.add(ytSong);
-      }
-    }
-
-    // 3. Ingest Audius songs
-    for (final audiusSong in audiusSongs) {
-      final fp = SearchQueryPlanner.generateCanonicalFingerprint(audiusSong.title, audiusSong.artist);
-      if (fp.isNotEmpty && !canonicalMap.containsKey(fp)) {
-        canonicalMap[fp] = audiusSong;
-        deduplicatedPool.add(audiusSong);
       }
     }
 
@@ -1012,7 +1020,6 @@ class SearchService {
     try {
       bool saavnFailed = false;
       bool ytFailed = false;
-      bool audiusFailed = false;
 
       // Preserve explicit language in search query so providers don't default to Bollywood Hindi
       final saavnSearchQuery = (intent.explicitLanguage != null &&
@@ -1119,17 +1126,40 @@ class SearchService {
         }
       }();
 
-      final Future<List<Song>> audiusFuture = () async {
-        try {
-          return await AudiusClient.search(intent.cleanQuery, limit: limit)
-              .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
-        } catch (e) {
-          audiusFailed = true;
-          AppLogger.log('SearchService', 'Upstream Audius search fault isolated: $e');
-          debugPrint('[SearchService] Upstream Audius search fault isolated: $e');
-          return <Song>[];
-        }
-      }();
+      // ── PHASE 0: Instant Local Master Catalog Yield (0-15ms) ──
+      List<Song> catalogSongs = [];
+      List<Map<String, dynamic>> catMovies = [];
+      List<Map<String, dynamic>> catArtists = [];
+      try {
+        catalogSongs = await CatalogDatabase.searchCatalog(
+          intent.cleanQuery,
+          limit: limit,
+          language: effectiveLang,
+        );
+        catMovies = await CatalogDatabase.searchMovies(intent.cleanQuery, limit: 8);
+        catArtists = await CatalogDatabase.searchArtists(intent.cleanQuery, limit: 6);
+      } catch (_) {}
+
+      final phase0Albums = catMovies.map((m) => {
+        ...m,
+        'image': m['image'] ?? m['cover_url'] ?? '',
+      }).toList();
+      final phase0Playlists = generateAutoPlaylistsFromAlbums(phase0Albums);
+
+      if (catalogSongs.isNotEmpty || phase0Albums.isNotEmpty || catArtists.isNotEmpty) {
+        yield SearchResults(
+          songs: catalogSongs,
+          ytSongs: const [],
+          saavnSongs: catalogSongs,
+          audiusSongs: const [],
+          albums: phase0Albums,
+          artists: catArtists,
+          playlists: phase0Playlists,
+          topResult: null,
+          didYouMean: null,
+          error: null,
+        );
+      }
 
       // ── PHASE 1: Progressive Early Yield (~300ms) ──
       // JioSaavn results return ultra-fast. Yield them immediately without waiting for YouTube.
@@ -1146,18 +1176,6 @@ class SearchService {
       final rawAlbums = saavnResults[2] as List<Map<String, dynamic>>;
       final artists = saavnResults[3] as List<Map<String, dynamic>>;
       final rawPlaylists = saavnResults[4] as List<Map<String, dynamic>>;
-
-      // Local Master Catalog lookup (0ms)
-      List<Song> catalogSongs = [];
-      List<Map<String, dynamic>> catMovies = [];
-      try {
-        catalogSongs = await CatalogDatabase.searchCatalog(
-          intent.cleanQuery,
-          limit: limit,
-          language: effectiveLang,
-        );
-        catMovies = await CatalogDatabase.searchMovies(intent.cleanQuery, limit: 8);
-      } catch (_) {}
 
       final List<Song> combinedSaavn = [];
       combinedSaavn.addAll(catalogSongs);
@@ -1190,7 +1208,9 @@ class SearchService {
       final rankedSaavn = scoredSaavn.map((e) => e.value).toList();
 
       // Populate Albums Tab: Merge genuine albums with Master Catalog movies
-      final List<Map<String, dynamic>> initialAlbums = List<Map<String, dynamic>>.from(filterGenuineAlbums(rawAlbums));
+      final List<Map<String, dynamic>> initialAlbums = List<Map<String, dynamic>>.from(
+        filterGenuineAlbums(rawAlbums, query: intent.cleanQuery),
+      );
       final Set<String> seenAlbumNames = initialAlbums
           .map((a) => (a['title'] ?? a['name'] ?? '').toString().toLowerCase().trim())
           .toSet();
@@ -1204,32 +1224,44 @@ class SearchService {
         }
       }
 
-      // Auto-playlists: Synthesize 'Movie - All Songs' playlists directly from albums & catalog movies
+      // Auto-playlists: Synthesize 'Movie Soundtrack' playlists directly from albums & catalog movies
       final autoPlaylists = generateAutoPlaylistsFromAlbums(initialAlbums);
       final initialPlaylists = mergePlaylists(autoPlaylists, rawPlaylists);
 
       // Populate Artists Tab: Merge direct artists with Master Catalog artists and song composers/singers
-      final List<Map<String, dynamic>> initialArtists = List<Map<String, dynamic>>.from(artists);
-      final Set<String> seenArtistNames = initialArtists
-          .map((a) => (a['name'] ?? a['title'] ?? '').toString().toLowerCase().trim())
-          .toSet();
-      try {
-        final catArtists = await CatalogDatabase.searchArtists(intent.cleanQuery, limit: 8);
-        for (final ca in catArtists) {
-          final n = (ca['name'] ?? '').toString().toLowerCase().trim();
-          if (n.isNotEmpty && seenArtistNames.add(n)) {
-            initialArtists.add(ca);
-          }
+      final List<Map<String, dynamic>> initialArtists = [];
+      final Set<String> seenArtistNames = {};
+
+      void addCleanArtist(Map<String, dynamic> artMap) {
+        final raw = Song.sanitize(artMap['name'] ?? artMap['title'] ?? '').trim();
+        if (raw.isEmpty || raw.toLowerCase() == 'unknown artist') return;
+        if (ArtistSanitizer.isCompositeOrMultiArtist(raw)) return;
+        final canon = ArtistSanitizer.canonicalArtistName(raw);
+        final canonLower = canon.toLowerCase();
+        if (seenArtistNames.add(canonLower)) {
+          final existingImg = artMap['image']?.toString() ?? '';
+          final verifiedImg = existingImg.isNotEmpty && !existingImg.contains('default')
+              ? existingImg
+              : (SongRepository.verifiedArtistAvatars[canonLower] ?? '');
+          initialArtists.add({
+            ...artMap,
+            'name': canon,
+            'image': verifiedImg,
+          });
         }
-      } catch (_) {}
+      }
+
+      for (final ca in catArtists) {
+        addCleanArtist(ca);
+      }
+      for (final a in artists) {
+        addCleanArtist(a);
+      }
 
       if (initialArtists.isEmpty) {
         final songArtists = CatalogDatabase.extractArtistsFromSongs(combinedSaavn, limit: 6);
         for (final sa in songArtists) {
-          final n = (sa['name'] ?? '').toString().toLowerCase().trim();
-          if (n.isNotEmpty && seenArtistNames.add(n)) {
-            initialArtists.add(sa);
-          }
+          addCleanArtist(sa);
         }
       }
 
@@ -1286,16 +1318,14 @@ class SearchService {
         );
       }
 
-      // ── PHASE 2: Merge YouTube & Audius Results ──
+      // ── PHASE 2: Merge YouTube Results ──
       final remainingResults = await Future.wait([
         ytFuture,
-        audiusFuture,
         ytPlaylistsFuture,
       ]);
 
       final rawYt = remainingResults[0] as List<Song>;
-      final rawAudius = remainingResults[1] as List<Song>;
-      final rawYtPlaylists = remainingResults[2] as List<Map<String, dynamic>>;
+      final rawYtPlaylists = remainingResults[1] as List<Map<String, dynamic>>;
 
       final finalPlaylists = mergePlaylists(initialPlaylists, rawYtPlaylists);
 
@@ -1316,7 +1346,7 @@ class SearchService {
       final List<Song> mergedSongs = deduplicateAndRankUnified(
         saavnSongs: rankedSaavn,
         ytSongs: candidateYt,
-        audiusSongs: rawAudius,
+        audiusSongs: const [],
         intent: intent,
         preferredLanguages: prefLangs,
       );
@@ -1356,9 +1386,21 @@ class SearchService {
       final List<Map<String, dynamic>> finalArtists = List<Map<String, dynamic>>.from(initialArtists);
       if (finalArtists.length < 5) {
         for (final sa in CatalogDatabase.extractArtistsFromSongs(userRankedSongs, limit: 8)) {
-          final n = (sa['name'] ?? '').toString().toLowerCase().trim();
-          if (n.isNotEmpty && seenArtistNames.add(n)) {
-            finalArtists.add(sa);
+          final raw = Song.sanitize(sa['name'] ?? sa['title'] ?? '').trim();
+          if (raw.isEmpty || raw.toLowerCase() == 'unknown artist') continue;
+          if (ArtistSanitizer.isCompositeOrMultiArtist(raw)) continue;
+          final canon = ArtistSanitizer.canonicalArtistName(raw);
+          final canonLower = canon.toLowerCase();
+          if (seenArtistNames.add(canonLower)) {
+            final existingImg = sa['image']?.toString() ?? '';
+            final verifiedImg = existingImg.isNotEmpty && !existingImg.contains('default')
+                ? existingImg
+                : (SongRepository.verifiedArtistAvatars[canonLower] ?? '');
+            finalArtists.add({
+              ...sa,
+              'name': canon,
+              'image': verifiedImg,
+            });
           }
         }
       }
@@ -1366,7 +1408,7 @@ class SearchService {
       FuzzySearchService.registerSongs(userRankedSongs);
 
       AppError? searchError;
-      if (userRankedSongs.isEmpty && ytSongs.isEmpty && rawAudius.isEmpty && initialAlbums.isEmpty && finalArtists.isEmpty && finalPlaylists.isEmpty && (saavnFailed && ytFailed && audiusFailed)) {
+      if (userRankedSongs.isEmpty && ytSongs.isEmpty && initialAlbums.isEmpty && finalArtists.isEmpty && finalPlaylists.isEmpty && (saavnFailed && ytFailed)) {
         searchError = AppError.offline(debugDetails: 'All upstream providers failed for "${intent.cleanQuery}"');
       }
 
@@ -1374,7 +1416,7 @@ class SearchService {
         songs: userRankedSongs,
         ytSongs: rankedYt.isNotEmpty ? rankedYt : ytSongs,
         saavnSongs: rankedSaavn,
-        audiusSongs: rawAudius,
+        audiusSongs: const [],
         albums: initialAlbums,
         artists: finalArtists,
         playlists: finalPlaylists,

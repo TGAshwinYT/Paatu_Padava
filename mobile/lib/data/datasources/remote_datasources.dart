@@ -3,7 +3,6 @@
 library;
 
 export '../../services/api_client.dart';
-export '../../services/audius_client.dart';
 export '../../services/innertube_config_service.dart';
 export '../../services/lyrics_client.dart';
 export '../../services/saavn_client.dart';

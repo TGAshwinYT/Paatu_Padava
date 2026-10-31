@@ -370,21 +370,28 @@ class SaavnClient {
       final data = json.decode(response.body);
       final results = data['results'] as List<dynamic>? ?? [];
 
-      final validArtists = results.where((item) {
+      final seenNames = <String>{};
+      final validArtists = <Map<String, dynamic>>[];
+      for (final item in results) {
         if (item is Map) {
-          return isGenuineMusicArtist(item);
-        }
-        return false;
-      }).toList();
+          final rawName = Song.sanitize(item['name'] ?? item['title'] ?? '').trim();
+          if (rawName.isEmpty || rawName.toLowerCase() == 'unknown artist') continue;
+          if (ArtistSanitizer.isCompositeOrMultiArtist(rawName)) continue;
+          if (!isGenuineMusicArtist(item)) continue;
 
-      return validArtists.map((item) {
-        return {
-          'id': item['id']?.toString() ?? '',
-          'name': Song.sanitize(item['name'] ?? item['title'], fallback: 'Unknown Artist'),
-          'image': _extractHighResImage(item['image']?.toString()),
-          'role': item['role']?.toString() ?? item['extra']?.toString() ?? 'Artist',
-        };
-      }).toList();
+          final canon = ArtistSanitizer.canonicalArtistName(rawName).toLowerCase();
+          if (seenNames.add(canon)) {
+            validArtists.add({
+              'id': item['id']?.toString() ?? '',
+              'name': ArtistSanitizer.canonicalArtistName(rawName),
+              'image': _extractHighResImage(item['image']?.toString()),
+              'role': item['role']?.toString() ?? item['extra']?.toString() ?? 'Artist',
+            });
+          }
+        }
+      }
+
+      return validArtists;
     } catch (e) {
       return [];
     }

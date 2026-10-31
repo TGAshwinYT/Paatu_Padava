@@ -251,7 +251,7 @@ class _RemotePlaylistScreenState extends State<RemotePlaylistScreen> {
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
                     child: Text(
-                      '${_songs.length} Tracks • ${widget.subtitle ?? (widget.source == "youtube" ? "YouTube Music" : "JioSaavn")}',
+                      '${_songs.length} Tracks • ${(widget.subtitle ?? (widget.source == "youtube" ? "YouTube Music" : "JioSaavn")).replaceAll(RegExp(r'^\d+\s*Tracks\s*•\s*', caseSensitive: false), '')}',
                       style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 13),
                     ),
                   ),

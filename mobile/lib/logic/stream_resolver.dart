@@ -7,7 +7,6 @@ import '../domain/models/track_entity.dart';
 import '../services/app_logger.dart';
 import '../services/youtube_client.dart';
 import '../services/saavn_client.dart';
-import '../services/audius_client.dart';
 import '../services/artist_sanitizer.dart';
 import '../services/cover_art_resolver.dart';
 import '../services/download_manager.dart';
@@ -452,11 +451,7 @@ class DefaultStreamResolver implements StreamResolver {
     bool forceYouTubeFallback = false,
   }) async {
     if (song.source == 'audius') {
-      final audiusUrl = (song.streamUrl != null && song.streamUrl!.isNotEmpty)
-          ? song.streamUrl!
-          : AudiusClient.getStreamUrl(song.id);
-      song.streamUrl = audiusUrl;
-      return audiusUrl;
+      return song.streamUrl;
     }
 
     // Direct Saavn stream if already decrypted and valid

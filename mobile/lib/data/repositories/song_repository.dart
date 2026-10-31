@@ -481,6 +481,15 @@ class SongRepository {
     'unnikrishnan': 'https://c.saavncdn.com/artists/P__Unnikrishnan_500x500.jpg',
     'srinivas': 'https://c.saavncdn.com/artists/Srinivas_500x500.jpg',
     't.m. soundararajan': 'https://c.saavncdn.com/artists/T_M__Soundararajan_500x500.jpg',
+    'thaman s': 'https://c.saavncdn.com/artists/Thaman_S_500x500.jpg',
+    'thaman': 'https://c.saavncdn.com/artists/Thaman_S_500x500.jpg',
+    's. thaman': 'https://c.saavncdn.com/artists/Thaman_S_500x500.jpg',
+    'sai abhyankkar': 'https://c.saavncdn.com/artists/Sai_Abhyankkar_500x500.jpg',
+    'sai abhyankar': 'https://c.saavncdn.com/artists/Sai_Abhyankkar_500x500.jpg',
+    'vishal mishra': 'https://c.saavncdn.com/artists/Vishal_Mishra_500x500.jpg',
+    'dhanush': 'https://c.saavncdn.com/artists/Dhanush_500x500.jpg',
+    'madduri hemanth': 'https://c.saavncdn.com/artists/Madduri_Hemanth_500x500.jpg',
+    'hemanth madduri': 'https://c.saavncdn.com/artists/Madduri_Hemanth_500x500.jpg',
   };
 
   static const Map<String, String> _verifiedArtistAvatars = verifiedArtistAvatars;
@@ -1027,6 +1036,21 @@ class SongRepository {
         final fallback = await SaavnClient.search(artistName, limit: 30);
         uniqueSongs = deduplicateSongs(fallback);
       } catch (_) {}
+    }
+
+    // Strict artist verification: prevent cross-contamination (e.g. YouTube returning Premam under Anirudh)
+    final cleanTarget = artistName.trim().toLowerCase();
+    final verifiedSongs = uniqueSongs.where((s) {
+      final songArt = s.artist.toLowerCase();
+      final songTitle = s.title.toLowerCase();
+      final songAlb = s.album.toLowerCase();
+      return ArtistSanitizer.areSameOrVariantArtists(s.artist, artistName) ||
+             songArt.contains(cleanTarget) ||
+             songTitle.contains(cleanTarget) ||
+             songAlb.contains(cleanTarget);
+    }).toList();
+    if (verifiedSongs.isNotEmpty) {
+      uniqueSongs = verifiedSongs;
     }
 
     if (resolvedImageUrl == null || resolvedImageUrl.isEmpty) {

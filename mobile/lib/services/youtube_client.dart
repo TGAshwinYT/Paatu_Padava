@@ -467,12 +467,185 @@ class YouTubeClient {
     return tracks;
   }
 
-  /// Direct client-side YouTube search using standard WEB client context.
-  /// Bypasses datacenter blockades and extracts rich video metadata into [TrackEntity].
+  /// Parses YouTube Music InnerTube WEB_REMIX search response into strongly typed [TrackEntity] list.
+  /// Scans for `musicResponsiveListItemRenderer` and `musicCardShelfRenderer` with clean metadata.
+  static List<TrackEntity> _parseRemixSearchResponse(Map<String, dynamic> data, {int limit = 15}) {
+    final List<TrackEntity> tracks = [];
+    final Set<String> seenIds = {};
+
+    void extractFromItem(Map<String, dynamic> item) {
+      if (tracks.length >= limit) return;
+
+      String? videoId = item['playlistItemData']?['videoId']?.toString();
+      if (videoId == null || videoId.isEmpty) {
+        final overlay = item['overlay']?['musicItemThumbnailOverlayRenderer'];
+        final nav = overlay?['content']?['musicPlayButtonRenderer']?['playNavigationEndpoint']?['watchEndpoint'];
+        videoId = nav?['videoId']?.toString();
+      }
+      if (videoId == null || videoId.isEmpty) {
+        final nav = item['navigationEndpoint']?['watchEndpoint'];
+        videoId = nav?['videoId']?.toString();
+      }
+
+      if (videoId == null || videoId.isEmpty || seenIds.contains(videoId)) return;
+      seenIds.add(videoId);
+
+      final flexCols = item['flexColumns'] as List<dynamic>? ?? [];
+      String title = '';
+      if (flexCols.isNotEmpty) {
+        final col0 = flexCols[0] as Map<String, dynamic>?;
+        final runs = col0?['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs'] as List<dynamic>? ?? [];
+        title = runs.map((r) => r['text']?.toString() ?? '').join().trim();
+      }
+
+      String artist = 'YouTube Music';
+      String album = 'YouTube Music';
+      int durationSec = 0;
+
+      if (flexCols.length > 1) {
+        final col1 = flexCols[1] as Map<String, dynamic>?;
+        final runs = col1?['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs'] as List<dynamic>? ?? [];
+        final List<String> artists = [];
+
+        for (final r in runs) {
+          if (r is! Map<String, dynamic>) continue;
+          final t = r['text']?.toString().trim() ?? '';
+          if (t.isEmpty || t == '•' || t == '·' || t == ',' || t == '&' || t.contains('views')) continue;
+
+          final browseId = r['navigationEndpoint']?['browseEndpoint']?['browseId']?.toString() ?? '';
+
+          if (RegExp(r'^\d+:\d+(:\d+)?$').hasMatch(t)) {
+            final ms = _parseDurationMs(t);
+            durationSec = ms ~/ 1000;
+          } else if (browseId.startsWith('UC') || browseId.contains('artist')) {
+            artists.add(t);
+          } else if (browseId.startsWith('MPREb_') || browseId.contains('release_detail')) {
+            album = t;
+          } else if (artists.isEmpty && t != 'Song' && t != 'Video') {
+            artists.add(t);
+          }
+        }
+        if (artists.isNotEmpty) {
+          artist = artists.join(', ');
+        }
+      }
+
+      final thumbs = item['thumbnail']?['musicThumbnailRenderer']?['thumbnail']?['thumbnails'] as List<dynamic>? ?? [];
+      String coverUrl = 'https://i.ytimg.com/vi/$videoId/hqdefault.jpg';
+      if (thumbs.isNotEmpty) {
+        final lastThumb = thumbs.last as Map<String, dynamic>?;
+        final rawUrl = lastThumb?['url']?.toString() ?? '';
+        if (rawUrl.isNotEmpty) {
+          coverUrl = rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*'), '=w544-h544-l90-rj');
+        }
+      }
+
+      if (title.isNotEmpty && TrackQualityFilter.shouldKeep(title: title, durationSec: durationSec)) {
+        final cleanAuthor = ArtistSanitizer.extractArtistFromVideo(title, artist);
+        tracks.add(TrackEntity(
+          id: videoId,
+          title: cleanTitle(title),
+          artist: Song.sanitize(cleanAuthor.isNotEmpty ? cleanAuthor : artist),
+          album: album,
+          coverUrl: coverUrl,
+          duration: durationSec,
+          streamUrl: '',
+          source: 'youtube',
+        ));
+      }
+    }
+
+    void walkNode(dynamic node) {
+      if (node == null || tracks.length >= limit) return;
+
+      if (node is Map<String, dynamic>) {
+        if (node.containsKey('musicResponsiveListItemRenderer')) {
+          final item = node['musicResponsiveListItemRenderer'];
+          if (item is Map<String, dynamic>) {
+            extractFromItem(item);
+          }
+        }
+
+        for (final val in node.values) {
+          walkNode(val);
+          if (tracks.length >= limit) return;
+        }
+      } else if (node is List) {
+        for (final elem in node) {
+          walkNode(elem);
+          if (tracks.length >= limit) return;
+        }
+      }
+    }
+
+    walkNode(data);
+    return tracks;
+  }
+
+  /// Direct client-side YouTube Music search using WEB_REMIX client context.
+  /// Hits `https://music.youtube.com/youtubei/v1/search` with the Songs filter.
+  static Future<List<TrackEntity>> searchMusicTracks(String query, {int limit = 15}) async {
+    final clean = query.trim();
+    if (clean.isEmpty) return [];
+
+    try {
+      final uri = Uri.parse('https://music.youtube.com/youtubei/v1/search?prettyPrint=false');
+      final payload = jsonEncode({
+        'context': {
+          'client': {
+            'clientName': 'WEB_REMIX',
+            'clientVersion': '1.20260101.01.00',
+            'gl': 'IN',
+            'hl': 'en',
+          }
+        },
+        'query': clean,
+        'params': 'EgWKAQIIAWoKEAUQAxAEEAkQBQ%3D%3D',
+      });
+
+      final response = await http.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': 'https://music.youtube.com/',
+          'Accept': '*/*',
+        },
+        body: payload,
+      ).timeout(const Duration(seconds: 8));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>?;
+        if (data != null) {
+          final tracks = _parseRemixSearchResponse(data, limit: limit);
+          if (tracks.isNotEmpty) {
+            return tracks;
+          }
+        }
+      }
+    } catch (e) {
+      AppLogger.log('YouTubeClient', 'InnerTube WEB_REMIX search notice for "$clean": $e. Falling back to WEB.');
+    }
+    return [];
+  }
+
+  /// Primary multi-tier client-side YouTube search:
+  /// 1. Primary: YouTube Music WEB_REMIX endpoint (clean studio releases, zero non-music video junk)
+  /// 2. Fallback: Standard YouTube WEB client context (for UGC, rare mashups, and live fan covers)
+  /// 3. Fallback: YouTubeExplode scraper
+  /// 4. Fallback: SaavnClient mirror
   static Future<List<TrackEntity>> searchTracks(String query, {int limit = 15}) async {
     final clean = query.trim();
     if (clean.isEmpty) return [];
 
+    // Tier 1: YouTube Music WEB_REMIX search (Pure music tracks with clean metadata)
+    final musicTracks = await searchMusicTracks(clean, limit: limit);
+    if (musicTracks.isNotEmpty) {
+      return musicTracks;
+    }
+
+    // Tier 2: Standard YouTube WEB search
     try {
       final uri = Uri.parse('https://www.youtube.com/youtubei/v1/search?prettyPrint=false');
       final payload = jsonEncode({

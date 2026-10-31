@@ -461,8 +461,10 @@ class HomeFeedProvider extends ChangeNotifier {
 
       if (unifiedFeed != null &&
           (unifiedFeed['madeForYou'] is List || unifiedFeed['trending'] is List)) {
+        final localMadeForYou = await SongRepository.getMadeForYou(language: lang);
+        final serverMadeForYou = SongRepository.filterByLanguage(_decodeSongList(unifiedFeed['madeForYou']), lang);
         final madeForYou = _filterCrossLanguageLeaks(
-          SongRepository.filterByLanguage(_decodeSongList(unifiedFeed['madeForYou']), lang),
+          localMadeForYou.isNotEmpty ? localMadeForYou : serverMadeForYou,
           lang,
         );
         final trending = _filterCrossLanguageLeaks(

@@ -8,6 +8,7 @@ import 'youtube_client.dart';
 import 'saavn_client.dart';
 import 'unified_http_client.dart';
 import 'spotify_import_service.dart';
+import 'queue_cooldown_manager.dart';
 import '../core/app_config.dart';
 import 'app_logger.dart';
 import '../data/repositories/song_repository.dart';
@@ -277,64 +278,65 @@ class ApiClient {
     return await YouTubeClient.getSearchSuggestions(clean);
   }
 
-  // ================= 3. Smart Shuffle (Graph + On-Device Markov Chain) ================= //
+  // ================= 3. Smart Shuffle (100% On-Device Markov & Artist Dispersion) ================= //
 
+  /// Executes intelligent on-device shuffle permutation with 0ms network latency.
+  /// Strictly prevents server PR from corrupting local playback orders or user algorithm choices.
   static Future<List<String>> fetchSmartShuffle(List<Song> queue, Song? currentSong) async {
-    final queueIds = queue.map((s) => s.id).toList();
-    if (queue.length <= 2) return queueIds;
-
-    // 1. Try Backend Recommendation Graph
-    try {
-      final uri = Uri.parse('$baseUrl/api/music/shuffle-order');
-      final body = json.encode({
-        'queue_ids': queueIds,
-        'current_song_id': currentSong?.id,
-      });
-
-      final response = await UnifiedHttpClient.post(uri, headers: _headers, body: body, timeout: const Duration(seconds: 5));
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final ordered = (data['ordered_ids'] as List<dynamic>?)?.map((e) => e.toString()).toList();
-        if (ordered != null && ordered.length == queueIds.length) {
-          return ordered;
-        }
-      }
-    } catch (e) {
-      debugPrint('[ApiClient] fetchSmartShuffle backend notice: $e');
-    }
-
-    // 2. Intelligent On-Device Markov Similarity Transition Chain
-    return _onDeviceSmartShuffle(queue, currentSong);
+    return onDeviceSmartShuffle(queue, currentSong);
   }
 
-  static List<String> _onDeviceSmartShuffle(List<Song> queue, Song? currentSong) {
+  /// Pure algorithmic on-device nearest-neighbor shuffle chain with strict artist dispersion.
+  static List<String> onDeviceSmartShuffle(List<Song> queue, Song? currentSong) {
+    if (queue.length <= 1) return queue.map((s) => s.id).toList();
+
     final remaining = List<Song>.from(queue);
     final List<String> orderedIds = [];
 
     Song active = currentSong ?? remaining.first;
     if (queue.any((s) => s.id == active.id)) {
       orderedIds.add(active.id);
+      remaining.removeWhere((s) => s.id == active.id);
     }
-    remaining.removeWhere((s) => s.id == active.id);
+
+    final recentArtists = <String>[QueueCooldownManager.normalizeArtistKey(active.primaryArtist)];
 
     while (remaining.isNotEmpty) {
       Song? bestCandidate;
-      double bestScore = -1.0;
+      double bestScore = -double.infinity;
+
+      final hasAlternativeArtists = remaining.any((s) =>
+          QueueCooldownManager.normalizeArtistKey(s.primaryArtist) != recentArtists.last);
 
       for (final candidate in remaining) {
         double score = 0.0;
-        if (candidate.artist.toLowerCase() == active.artist.toLowerCase()) {
-          score += 4.0;
-        } else if (candidate.artist.toLowerCase().contains(active.artist.toLowerCase()) ||
-            active.artist.toLowerCase().contains(candidate.artist.toLowerCase())) {
+        final candArtist = QueueCooldownManager.normalizeArtistKey(candidate.primaryArtist);
+
+        // 1. Strict Anti-Clustering: penalize same artist back-to-back if alternative artists exist
+        if (candArtist.isNotEmpty && candArtist != 'various artists') {
+          if (candArtist == recentArtists.last && hasAlternativeArtists) {
+            score -= 10.0;
+          } else if (recentArtists.contains(candArtist)) {
+            // Penalize artist if played within the last 2 tracks
+            score -= 3.0;
+          } else {
+            // Reward fresh, diverse artist
+            score += 4.0;
+          }
+        }
+
+        // 2. Cooldown check: heavily penalize cooling-down artists/tracks
+        if (QueueCooldownManager.isArtistCoolingDown(candidate.primaryArtist)) {
+          score -= 8.0;
+        }
+
+        // 3. Audio flow alignment: smooth duration transitions
+        final diff = (candidate.duration - active.duration).abs();
+        if (diff < 45) {
           score += 2.0;
         }
-        if (candidate.album.isNotEmpty && candidate.album == active.album) {
-          score += 3.0;
-        }
-        final diff = (candidate.duration - active.duration).abs();
-        if (diff < 30) score += 1.5;
 
+        // 4. Subtle jitter to avoid deterministic loops
         score += (DateTime.now().microsecond % 100) / 100.0;
 
         if (score > bestScore) {
@@ -347,6 +349,11 @@ class ApiClient {
       orderedIds.add(chosen.id);
       remaining.removeWhere((s) => s.id == chosen.id);
       active = chosen;
+
+      recentArtists.add(QueueCooldownManager.normalizeArtistKey(chosen.primaryArtist));
+      if (recentArtists.length > 3) {
+        recentArtists.removeAt(0);
+      }
     }
 
     return orderedIds;

@@ -163,7 +163,7 @@ class SmartShuffleController {
           .toList();
 
       if (upcoming.isNotEmpty) {
-        final orderedIds = await ApiClient.fetchSmartShuffle(upcoming, currentSong);
+        final orderedIds = ApiClient.onDeviceSmartShuffle(upcoming, currentSong);
         final orderedUpcoming = _reorderQueueByIds(upcoming, orderedIds);
         queueHandler!.replaceUpcomingQueue(orderedUpcoming);
       }
@@ -219,20 +219,26 @@ class SmartShuffleController {
         : (prefLangs.firstOrNull ?? 'tamil').toLowerCase();
 
     try {
-      // 2. Multi-Source Concurrent Recommendation Retrieval (Piggybacking on Upstream Graph APIs)
-      final List<Future<List<Song>>> candidateFutures = [
-        // Source 1: YouTube Music Upstream Automix Graph (RDAMVM)
-        YouTubeClient.getRadioTracks(userSeed, limit: 12),
-        // Source 2: Contextual Related Songs for user seed (reco.getreco)
-        SaavnClient.getRelatedSongs(userSeed.id, language: primaryLang),
-        // Source 3: Artist Hits (capped)
-        SaavnClient.search('${userSeed.artist} hits', limit: 8, language: primaryLang),
-        // Source 4: Regional Trending in user's primary language
-        SaavnClient.getTrending(language: primaryLang),
-      ];
+      // 2. Multi-Source Recommendation Retrieval strictly following user's Settings strategy
+      final strategy = NextTrackStrategyFactory.getStrategy(SettingsManager.nextTrackStrategy);
+      List<Song> allCandidates = await strategy.getUpcomingTracks(
+        seedSong: userSeed,
+        queue: queueHandler!.queue,
+        history: HistoryManager.getHistory(),
+        count: 16,
+      );
 
-      final results = await Future.wait(candidateFutures);
-      final List<Song> allCandidates = results.expand((x) => x).toList();
+      // Safe local fallback if strategy candidate pool runs low
+      if (allCandidates.isEmpty) {
+        final List<Future<List<Song>>> fallbackFutures = [
+          YouTubeClient.getRadioTracks(userSeed, limit: 12),
+          SaavnClient.getRelatedSongs(userSeed.id, language: primaryLang),
+          SaavnClient.search('${userSeed.artist} hits', limit: 8, language: primaryLang),
+          SaavnClient.getTrending(language: primaryLang),
+        ];
+        final results = await Future.wait(fallbackFutures);
+        allCandidates = results.expand((x) => x).toList();
+      }
 
       // 3. Canonical-Level Deduplication & Feedback Scoring
       final exclusionKeys = _getExclusionKeys();
@@ -337,10 +343,10 @@ class SmartShuffleController {
         }
       }
 
-      // 5. Apply Intelligent Shuffle Reordering on auto-suggestions, leaving user queue intact
+      // 5. Apply Intelligent 100% On-Device Shuffle Reordering on auto-suggestions, leaving user queue intact
       List<Song> finalAutoUpcoming = interleaved;
       if (interleaved.length > 2) {
-        final orderedIds = await ApiClient.fetchSmartShuffle(interleaved, userSeed);
+        final orderedIds = ApiClient.onDeviceSmartShuffle(interleaved, userSeed);
         finalAutoUpcoming = _reorderQueueByIds(interleaved, orderedIds);
       }
 

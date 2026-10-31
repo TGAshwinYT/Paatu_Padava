@@ -187,13 +187,25 @@ class SearchService {
     final clean = query.trim();
     if (clean.isEmpty) return const [];
 
-    final Set<String> suggestions = {};
+    final List<String> suggestions = [];
+    final Set<String> seenLower = {};
+
+    void addSuggestion(String s) {
+      final trimmed = s.trim();
+      if (trimmed.isEmpty) return;
+      final lower = trimmed.toLowerCase();
+      if (!seenLower.contains(lower)) {
+        seenLower.add(lower);
+        suggestions.add(trimmed);
+      }
+    }
 
     // 1. Instant O(K) local Prefix Trie matches (0ms local latency)
     if (localTrie != null) {
       final localMatches = localTrie.findByPrefix(clean, limit: 6);
       for (final m in localMatches) {
-        suggestions.add(m.term);
+        if (suggestions.length >= limit) break;
+        addSuggestion(m.term);
       }
     }
 
@@ -211,11 +223,11 @@ class SearchService {
 
       for (final s in saavnSuggestions) {
         if (suggestions.length >= limit) break;
-        suggestions.add(s);
+        addSuggestion(s);
       }
       for (final s in ytSuggestions) {
         if (suggestions.length >= limit) break;
-        suggestions.add(s);
+        addSuggestion(s);
       }
     } catch (e) {
       debugPrint('[SearchService] getTypeaheadSuggestions notice: $e');

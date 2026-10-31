@@ -28,7 +28,7 @@ class SearchPreContent extends StatelessWidget {
   static const List<Map<String, dynamic>> _quickVibes = [
     {
       'title': '90s Melody',
-      'query': '90s Tamil Melody Hits',
+      'query': '90s Melodies',
       'colors': [Color(0xFF0F766E), Color(0xFF14B8A6)],
       'icon': Icons.radio_rounded,
     },
@@ -40,19 +40,19 @@ class SearchPreContent extends StatelessWidget {
     },
     {
       'title': 'Late Night Lo-Fi',
-      'query': 'Late Night Lofi Chill Tamil',
+      'query': 'Late Night Lofi Chill',
       'colors': [Color(0xFF312E81), Color(0xFF6366F1)],
       'icon': Icons.nightlight_round,
     },
     {
       'title': 'Workout Kuthu',
-      'query': 'High Energy Tamil Kuthu Bass',
+      'query': 'Workout Kuthu',
       'colors': [Color(0xFFC2410C), Color(0xFFF97316)],
       'icon': Icons.fitness_center_rounded,
     },
     {
       'title': 'Instrumental / BGM',
-      'query': 'Tamil Cinematic BGM Instrumental',
+      'query': 'Cinematic BGM Instrumental',
       'colors': [Color(0xFF0284C7), Color(0xFF06B6D4)],
       'icon': Icons.piano_rounded,
     },

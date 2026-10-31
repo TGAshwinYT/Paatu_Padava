@@ -66,30 +66,13 @@ class SearchQueryPlanner {
   /// Recent searches, trending-artist chips and typed text: searched EXACTLY as written.
   static String forExactQuery(String query) => query.trim();
 
-  /// Browse-category tiles ("Workout", "Party"): add the user's preferred
-  /// language only when the query does not already name a language and is not an artist.
+  /// Browse-category queries: preserves the exact query as-is without mutating
+  /// or forcing language prefixes into search boxes.
   static String forCategory(
     String query, {
-    required String preferredLanguage,
+    String? preferredLanguage,
     String? explicitLanguage,
-  }) {
-    final clean = query.trim();
-    final pref = preferredLanguage.trim();
-    if (pref.isEmpty) return clean;
-    if (explicitLanguage != null) return clean;
-    if (clean.toLowerCase().contains(pref.toLowerCase())) return clean;
-    final lower = clean.toLowerCase();
-    for (final artist in const [
-      'anirudh', 'anirudh ravichander', 'a.r. rahman', 'ar rahman', 'ilaiyaraaja',
-      'ilayaraja', 'harris jayaraj', 'yuvan', 'yuvan shankar raja', 'sid sriram',
-      'santhosh narayanan', 's. p. balasubrahmanyam', 'spb', 'k. j. yesudas', 'shreya ghoshal'
-    ]) {
-      if (lower == artist || lower.startsWith('$artist ') || lower.endsWith(' $artist')) {
-        return clean;
-      }
-    }
-    return '$pref $clean';
-  }
+  }) => query.trim();
 
   /// Parses search query to detect intended search category (Song, Movie/Album, Artist, Mix/BGM).
   static QueryIntentAnalysis analyzeQuery(String query, {String? explicitLanguage}) {

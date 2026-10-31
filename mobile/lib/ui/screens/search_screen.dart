@@ -184,8 +184,9 @@ class _SearchScreenState extends State<SearchScreen> {
       return;
     }
 
+    final prefLang = SettingsManager.preferredLanguages.isNotEmpty ? SettingsManager.preferredLanguages.first : 'Tamil';
     try {
-      await for (final unified in SearchService.searchProgressive(clean, limit: 25)) {
+      await for (final unified in SearchService.searchProgressive(clean, language: prefLang, limit: 25)) {
         if (!mounted || currentRequestId != _searchRequestId) return;
         final clustered = SearchService.clusterAndClassifySongs(unified.songs, query: clean);
         final clusteredTracks = clustered.map((c) => c.primaryTrack).toList();
@@ -218,12 +219,12 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _triggerCategorySearch(String query) {
+    final clean = query.trim();
+    if (clean.isEmpty) return;
     if (!_isSearchActiveNotifier.value) _isSearchActiveNotifier.value = true;
-    final prefLang = SettingsManager.preferredLanguages.isNotEmpty ? SettingsManager.preferredLanguages.first : 'Tamil';
-    final intent = SearchService.understandQuery(query);
-    final eff = SearchQueryPlanner.forCategory(query, preferredLanguage: prefLang, explicitLanguage: intent.explicitLanguage);
-    _searchController.text = eff;
-    _executeSearch(eff, saveHistory: true);
+    _searchController.text = clean;
+    _searchController.selection = TextSelection.collapsed(offset: clean.length);
+    _executeSearch(clean, saveHistory: true);
   }
 
   void _searchExactQuery(String query) {

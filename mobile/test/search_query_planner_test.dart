@@ -9,28 +9,15 @@ void main() {
       expect(SearchQueryPlanner.forExactQuery('Arijit Singh'), isNot(contains('Tamil')));
     });
 
-    test('category tiles get the preferred language when none is named', () {
-      expect(SearchQueryPlanner.forCategory('Workout', preferredLanguage: 'Tamil'), 'Tamil Workout');
-    });
-
-    test('category already naming the language is left alone', () {
+    test('category tiles preserve clean query without mutating language prefix', () {
+      expect(SearchQueryPlanner.forCategory('Workout', preferredLanguage: 'Tamil'), 'Workout');
       expect(SearchQueryPlanner.forCategory('Top Tamil Hits', preferredLanguage: 'Tamil'), 'Top Tamil Hits');
-    });
-
-    test('explicit other language is never overridden', () {
       expect(
         SearchQueryPlanner.forCategory('Hindi Romance', preferredLanguage: 'Tamil', explicitLanguage: 'Hindi'),
         'Hindi Romance',
       );
-    });
-
-    test('no preferred language -> unchanged', () {
       expect(SearchQueryPlanner.forCategory('Party', preferredLanguage: ''), 'Party');
-    });
-    test('category for known artist is not mutated with language prefix', () {
       expect(SearchQueryPlanner.forCategory('Anirudh Ravichander', preferredLanguage: 'Tamil'), 'Anirudh Ravichander');
-      expect(SearchQueryPlanner.forCategory('A.R. Rahman', preferredLanguage: 'Tamil'), 'A.R. Rahman');
-      expect(SearchQueryPlanner.forCategory('Ilaiyaraaja', preferredLanguage: 'Tamil'), 'Ilaiyaraaja');
     });
 
     test('extractCoreSubject strips descriptor intent tokens', () {

@@ -947,8 +947,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
         count: count,
       );
       if (tracks.isNotEmpty && !_isForegroundDowngraded) {
-        await _queueHandler.addAutoSuggestions(tracks);
-        // Pre-resolve the stream URL for the newly added next track so it's ready before EOF!
+        final toAdd = tracks.take(5).toList();
+        await _queueHandler.addAutoSuggestions(toAdd);
+        // Pre-resolve next 2 audio streams (preloadUpcomingTracks) so track transitions have 0ms latency
         if (_queueHandler.hasNext) {
           await _queueHandler.preloadUpcomingTracks(_queueHandler.currentIndex);
         }
@@ -971,8 +972,10 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
         count: 6,
       );
       if (tracks.isNotEmpty) {
-        await _queueHandler.addAutoSuggestions(tracks);
+        final toAdd = tracks.take(5).toList();
+        await _queueHandler.addAutoSuggestions(toAdd);
         if (_queueHandler.hasNext) {
+          await _queueHandler.preloadUpcomingTracks(_queueHandler.currentIndex);
           await _queueHandler.skipToNext(isUserInitiated: false);
           return;
         }

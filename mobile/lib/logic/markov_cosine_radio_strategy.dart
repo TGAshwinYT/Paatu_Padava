@@ -257,18 +257,23 @@ class MarkovCosineRadioStrategy implements NextTrackStrategy {
       AppLogger.log('MarkovCosineRadio', 'Saavn pool notice: $e');
     }
 
-    // 3. Score candidates with Relative Vector Feature Score and Markov Transition probabilities
+    // 3. Score candidates with Relative Vector Feature Score, Markov Transition probabilities, and Session-Aware Boosts
     final scoredCandidates = <MapEntry<Song, double>>[];
+    final filteredPool = RadioEngine.applyHardFiltering(
+      seedSong: seedSong,
+      candidates: candidatePool,
+      queue: queue,
+      history: recentHistory,
+      targetLanguage: seedSong.language,
+    );
 
-    for (final candidate in candidatePool) {
-      if (existingIds.contains(candidate.id) || 
-          (candidate.cleanTitleKey.isNotEmpty && existingKeys.contains(candidate.cleanTitleKey))) {
-        continue;
-      }
+    final seedYear = RadioEngine.extractReleaseYear(seedSong);
+    final recentArtists = QueueCooldownManager.getRecentArtists(window: 2)
+        .map((a) => QueueCooldownManager.normalizeArtistKey(a))
+        .toSet();
+
+    for (final candidate in filteredPool) {
       if (_sessionBlacklistIds.contains(candidate.id)) {
-        continue;
-      }
-      if (QueueCooldownManager.isCoolingDown(candidate)) {
         continue;
       }
 
@@ -277,7 +282,25 @@ class MarkovCosineRadioStrategy implements NextTrackStrategy {
       final markovProb = _globalMarkovMatrix.getProbability(seedSong, candidate);
 
       // Blended Score: 60% Multi-Dimensional Vector Score + 40% Markov Transition Probability
-      final compositeScore = (0.60 * vectorScore) + (0.40 * markovProb);
+      double compositeScore = (0.60 * vectorScore) + (0.40 * markovProb);
+
+      // Era proximity boost (±4 years)
+      final cYear = RadioEngine.extractReleaseYear(candidate);
+      if (seedYear != null && cYear != null && (seedYear - cYear).abs() <= 4) {
+        compositeScore += 0.25;
+      }
+
+      // Music Director / Composer boost
+      if (RadioEngine.isSharedMusicDirectorOrComposer(seedSong, candidate)) {
+        compositeScore += 0.30;
+      }
+
+      // Anti-fatigue penalty: -0.50 if candidate's primary artist played in the last 2 songs
+      final cArtist = QueueCooldownManager.normalizeArtistKey(candidate.primaryArtist);
+      if (cArtist.isNotEmpty && recentArtists.contains(cArtist)) {
+        compositeScore -= 0.50;
+      }
+
       scoredCandidates.add(MapEntry(candidate, compositeScore));
     }
 

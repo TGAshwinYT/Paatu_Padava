@@ -355,55 +355,52 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
         }
       }
 
-      // 4. Pre-filter candidate tracks for language, duplicate variants, and cooldowns
-      final Set<String> seenKeys = {};
-      final List<Song> validCandidates = [];
+      // 4. Pre-filter candidate tracks using RadioEngine.applyHardFiltering
+      final hardFiltered = RadioEngine.applyHardFiltering(
+        seedSong: seedSong,
+        candidates: blendedPool,
+        queue: queue,
+        history: recentHistory,
+        targetLanguage: targetLang,
+      );
 
-      for (final c in blendedPool) {
-        if (c.title.trim().isEmpty) continue;
-        final baseKey = c.canonicalBaseKey;
-        final titleKey = c.cleanTitleKey;
+      final List<Song> validCandidates = hardFiltered.where((c) {
+        if (c.isSameSongOrDub(anchorSong)) return false;
+        final cArtistKey = QueueCooldownManager.normalizeArtistKey(c.primaryArtist);
+        if (_skippedArtists.contains(cArtistKey)) return false;
+        if (c.cleanTitleKey.isNotEmpty && _skippedTrackKeys.contains(c.cleanTitleKey)) return false;
+        return true;
+      }).toList();
 
-        if (exclusions.contains(c.id) ||
-            exclusions.contains(baseKey) ||
-            (titleKey.isNotEmpty && (exclusions.contains(titleKey) || seenKeys.contains(titleKey))) ||
-            seenKeys.contains(baseKey) ||
-            QueueCooldownManager.isCoolingDown(c)) {
-          continue;
-        }
-
-        // Language lockdown: single-language radio
-        if (c.language != null && c.language!.isNotEmpty) {
-          final cLang = c.language!.toLowerCase().trim();
-          if (cLang != targetLang) continue;
-        }
-
-        // Anti-cross-language dubs against seed and queue
-        if (c.isSameSongOrDub(seedSong) || c.isSameSongOrDub(anchorSong)) continue;
-        if (queue.any((q) => c.isSameSongOrDub(q)) || validCandidates.any((f) => c.isSameSongOrDub(f))) {
-          continue;
-        }
-
-        seenKeys.add(baseKey);
-        if (titleKey.isNotEmpty) seenKeys.add(titleKey);
-        validCandidates.add(c.copyWith(isSmartRecommended: true, language: targetLang));
-      }
-
-      // 5. Candidate Ranking & Scoring
+      // 5. Candidate Ranking & Scoring (Session-Aware)
       final targetArtistKey = QueueCooldownManager.normalizeArtistKey(seedSong.primaryArtist);
       final anchorArtistKey = QueueCooldownManager.normalizeArtistKey(anchorSong.primaryArtist);
+      final seedYear = RadioEngine.extractReleaseYear(seedSong);
 
       final scoredCandidates = <MapEntry<Song, double>>[];
       for (final c in validCandidates) {
-        double score = 0.5;
+        final vector = SongFeatureVector.extractRelative(seedSong, c);
+        double score = vector.compositeVectorScore;
         final cArtistKey = QueueCooldownManager.normalizeArtistKey(c.primaryArtist);
         if (cArtistKey == targetArtistKey) {
           score += 0.35;
         } else if (cArtistKey == anchorArtistKey) {
           score += 0.20;
         }
+
+        // Era proximity boost (±4 years)
+        final cYear = RadioEngine.extractReleaseYear(c);
+        if (seedYear != null && cYear != null && (seedYear - cYear).abs() <= 4) {
+          score += 0.25;
+        }
+
+        // Music Director / Composer boost
+        if (RadioEngine.isSharedMusicDirectorOrComposer(seedSong, c)) {
+          score += 0.30;
+        }
+
         if (c.language != null && c.language!.toLowerCase().trim() == targetLang) {
-          score += 0.15;
+          score += 0.20;
         }
         if (_skippedArtists.contains(cArtistKey)) {
           score -= 0.50;
@@ -426,30 +423,22 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
       // If pool is still below target batch, supplement with Regional Trending in target language
       if (shapedTracks.length < targetBatch) {
         final trending = await SaavnClient.getTrending(language: targetLang);
-        final trendingCandidates = <Song>[];
-        for (final s in trending) {
-          final baseKey = s.canonicalBaseKey;
-          if (exclusions.contains(s.id) ||
-              exclusions.contains(baseKey) ||
-              seenKeys.contains(baseKey) ||
-              s.isSameSongOrDub(seedSong) ||
-              s.isSameSongOrDub(anchorSong) ||
-              shapedTracks.any((f) => s.isSameSongOrDub(f))) {
-            continue;
-          }
-          if (s.language != null && s.language!.isNotEmpty && s.language!.toLowerCase() != targetLang) {
-            continue;
-          }
-          seenKeys.add(baseKey);
-          trendingCandidates.add(s.copyWith(isSmartRecommended: true, language: targetLang));
-        }
-
-        trendingCandidates.shuffle();
+        final filteredTrending = RadioEngine.applyHardFiltering(
+          seedSong: seedSong,
+          candidates: trending,
+          queue: queue,
+          history: recentHistory,
+          targetLanguage: targetLang,
+        ).where((s) {
+          if (s.isSameSongOrDub(anchorSong)) return false;
+          if (shapedTracks.any((f) => s.isSameSongOrDub(f))) return false;
+          return true;
+        }).toList();
 
         final remainingCount = targetBatch - shapedTracks.length;
         final lastPlacedArtist = shapedTracks.isNotEmpty ? shapedTracks.last.primaryArtist : seedSong.primaryArtist;
         final shapedTrending = enforceArtistDispersionAndNoBackToBack(
-          trendingCandidates,
+          filteredTrending,
           seedArtist: lastPlacedArtist,
           count: remainingCount,
         );
@@ -636,49 +625,33 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
         } catch (_) {}
       }
 
-      // 3. Audio-First Master Filtering & Deduplication
-      final Set<String> seenKeys = {};
-      final List<Song> validCandidates = [];
+      // 3. Audio-First Master Filtering & Deduplication via RadioEngine.applyHardFiltering
+      final hardFiltered = RadioEngine.applyHardFiltering(
+        seedSong: walkNode,
+        candidates: candidatePool,
+        queue: queue,
+        history: recentHistory,
+        targetLanguage: targetLang,
+      );
 
-      for (final s in candidatePool) {
-        if (s.title.trim().isEmpty) continue;
-        final baseKey = s.canonicalBaseKey;
-        final titleKey = s.cleanTitleKey;
+      final List<Song> validCandidates = hardFiltered.where((s) {
         final artist = QueueCooldownManager.normalizeArtistKey(s.primaryArtist);
+        if (_skippedArtists.contains(artist)) return false;
+        if (s.cleanTitleKey.isNotEmpty && _skippedTrackKeys.contains(s.cleanTitleKey)) return false;
+        return true;
+      }).toList();
 
-        if (exclusions.contains(s.id) ||
-            exclusions.contains(baseKey) ||
-            (titleKey.isNotEmpty && (exclusions.contains(titleKey) || seenKeys.contains(titleKey))) ||
-            seenKeys.contains(baseKey) ||
-            QueueCooldownManager.isCoolingDown(s)) {
-          continue;
-        }
+      // 4. Session-Aware Scoring & Diversity Re-Ranking
+      final rankedCandidates = RadioEngine.scoreAndReRankCandidates(
+        seedSong: walkNode,
+        candidates: validCandidates,
+        history: recentHistory,
+        lastPlayedArtists: _skippedArtists.toList(),
+      );
 
-        // Rolling Skip Reactivity blacklist check
-        if (_skippedArtists.contains(artist) || (titleKey.isNotEmpty && _skippedTrackKeys.contains(titleKey))) {
-          continue;
-        }
-
-        // Language check
-        if (s.language != null && s.language!.isNotEmpty) {
-          final sLang = s.language!.toLowerCase().trim();
-          if (sLang != targetLang) continue;
-        }
-
-        // Anti-cross-language dubs
-        if (s.isSameSongOrDub(seedSong)) continue;
-        if (queue.any((q) => s.isSameSongOrDub(q)) || validCandidates.any((u) => s.isSameSongOrDub(u))) {
-          continue;
-        }
-
-        seenKeys.add(baseKey);
-        if (titleKey.isNotEmpty) seenKeys.add(titleKey);
-        validCandidates.add(s.copyWith(isSmartRecommended: true, language: targetLang));
-      }
-
-      // 4. Enforce Artist Dispersion (QueueCooldownManager + ZERO Back-to-Back duplicates)
+      // 5. Enforce Artist Dispersion (QueueCooldownManager + ZERO Back-to-Back duplicates)
       final shapedTracks = enforceArtistDispersionAndNoBackToBack(
-        validCandidates,
+        rankedCandidates,
         seedArtist: seedSong.primaryArtist,
         count: targetBatch,
       );

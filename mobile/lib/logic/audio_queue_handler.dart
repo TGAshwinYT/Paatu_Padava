@@ -73,6 +73,10 @@ class AudioQueueHandler {
 
   // Active track state
   TrackEntity? _currentTrack;
+  Song? _lastCompletedSeedSong;
+  Song? get lastCompletedSeedSong => _lastCompletedSeedSong;
+  @visibleForTesting
+  set lastCompletedSeedSong(Song? song) => _lastCompletedSeedSong = song;
   bool _currentTrackIsFromUserQueue = false;
   int _playlistBaseIndex = 0;
   int _loadRequestId = 0;
@@ -469,12 +473,12 @@ class AudioQueueHandler {
         _handleCrossfade(pos);
       }
 
-      // Lookahead Pre-Resolution & Recommendation Pre-fetch (80% progress or <= 15s remaining)
+      // Lookahead Pre-Resolution & Recommendation Pre-fetch (25% progress or <= 15s remaining)
       final dur = player.duration;
       if (dur != null && dur.inSeconds > 15 && !_isLookaheadTriggered) {
         final remainingSec = dur.inSeconds - pos.inSeconds;
         final progressRatio = pos.inMilliseconds / dur.inMilliseconds;
-        if (progressRatio >= 0.80 || remainingSec <= 15) {
+        if (progressRatio >= 0.25 || remainingSec <= 15) {
           _isLookaheadTriggered = true;
           AppLogger.log('AudioQueueHandler', 'Lookahead threshold reached (${(progressRatio * 100).toInt()}% / ${remainingSec}s remaining).');
 
@@ -483,11 +487,12 @@ class AudioQueueHandler {
           }
 
           final remainingUpcoming = upcomingCount;
-          if (remainingUpcoming <= 1 && SettingsManager.isAutoplayEnabled && isAudioHandlerInitialized) {
+          if (remainingUpcoming <= 2 && SettingsManager.isAutoplayEnabled && isAudioHandlerInitialized) {
             final active = currentSong;
             if (active != null) {
-              AppLogger.log('AudioQueueHandler', 'Lookahead triggered recommendation pre-fetch for "${active.title}" (upcoming count: $remainingUpcoming)');
-              audioHandler.prefetchNextRecommendations(active);
+              final seed = _lastCompletedSeedSong ?? active;
+              AppLogger.log('AudioQueueHandler', 'Lookahead triggered recommendation pre-fetch for seed "${seed.title}" (upcoming count: $remainingUpcoming)');
+              audioHandler.prefetchNextRecommendations(seed);
             }
           }
         }
@@ -551,6 +556,7 @@ class AudioQueueHandler {
         _isAdvancing = true;
 
         if (_currentTrack != null) {
+          _lastCompletedSeedSong = _currentTrack!.toSong();
           if (!_actuallyPlayedInSession.any((t) => t.id == _currentTrack!.id)) {
             _actuallyPlayedInSession.add(_currentTrack!);
           }
@@ -585,7 +591,7 @@ class AudioQueueHandler {
           handleRepeatAllLoop();
         } else if (SettingsManager.isAutoplayEnabled && current != null && isAudioHandlerInitialized) {
           _isAdvancing = false;
-          audioHandler.handleAutoplayQueueEnd(current);
+          audioHandler.handleAutoplayQueueEnd(_lastCompletedSeedSong ?? current);
         } else {
           _isAdvancing = false;
           startIdleTimer();
@@ -1073,6 +1079,7 @@ class AudioQueueHandler {
 
       _contextIndex = 0;
       _currentTrack = orderedTracks[0];
+      _lastCompletedSeedSong = _currentTrack?.toSong();
       _currentTrackIsFromUserQueue = false;
 
       NextTrackStrategyFactory.resetSession(initialAnchor: _currentTrack?.toSong());
@@ -1356,9 +1363,16 @@ class AudioQueueHandler {
         _lastCompletedTrackId = null;
       }
 
-      if (_currentTrack != null && isUserInitiated) {
+      if (_currentTrack != null) {
         final listenedSec = player.position.inSeconds;
-        NextTrackStrategyFactory.recordSkip(_currentTrack!.toSong(), listenedSeconds: listenedSec);
+        if (isUserInitiated) {
+          NextTrackStrategyFactory.recordSkip(_currentTrack!.toSong(), listenedSeconds: listenedSec);
+          if (listenedSec >= 30) {
+            _lastCompletedSeedSong = _currentTrack!.toSong();
+          }
+        } else {
+          _lastCompletedSeedSong = _currentTrack!.toSong();
+        }
       }
 
       if (_effectiveLoopMode == LoopMode.one) {
@@ -1440,7 +1454,7 @@ class AudioQueueHandler {
 
       // 5. Autoplay replenishment ONLY when at EOF (_contextIndex + 1 >= _contextQueue.length)
       if (SettingsManager.isAutoplayEnabled && _currentTrack != null && isAudioHandlerInitialized) {
-        await audioHandler.handleAutoplayQueueEnd(_currentTrack!.toSong());
+        await audioHandler.handleAutoplayQueueEnd(_lastCompletedSeedSong ?? _currentTrack!.toSong());
       }
     } finally {
       _isTransitioning = false;

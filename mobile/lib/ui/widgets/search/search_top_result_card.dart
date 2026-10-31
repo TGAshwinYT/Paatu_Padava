@@ -34,6 +34,7 @@ class SearchTopResultCard extends StatelessWidget {
     final artist = _unescape.convert(Song.sanitize(top['artist']?.toString() ?? top['subtitle']?.toString() ?? ''));
     final cover = top['cover_url']?.toString() ?? top['image']?.toString() ?? '';
     final isArtist = type.toLowerCase() == 'artist';
+    final isAlbum = type.toLowerCase() == 'album';
 
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 8, 20, 16),
@@ -65,7 +66,9 @@ class SearchTopResultCard extends StatelessWidget {
                       : Container(
                           color: AppColors.surfaceDark,
                           child: Icon(
-                            isArtist ? Icons.person : Icons.music_note,
+                            isArtist
+                            ? Icons.person
+                            : (isAlbum ? Icons.album_rounded : Icons.music_note),
                             color: Colors.white38,
                             size: 32,
                           ),
@@ -84,7 +87,7 @@ class SearchTopResultCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
-                        isArtist ? 'ARTIST' : 'TOP RESULT',
+                        isArtist ? 'ARTIST' : (isAlbum ? 'ALBUM / MOVIE' : 'TOP RESULT'),
                         style: GoogleFonts.outfit(
                           color: AppColors.neonViolet,
                           fontSize: 10,

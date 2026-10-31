@@ -323,10 +323,16 @@ class SaavnClient {
           }
         }
 
-        final artistName = Song.sanitize(more['music'] ?? item['subtitle'], fallback: 'Various Artists');
-        if (!ArtistSanitizer.isGenuineArtist(artistName) && artistName != 'Various Artists') {
+        final rawArtistStr = Song.sanitize(more['music'] ?? item['subtitle'] ?? '', fallback: 'Various Artists');
+        final genuineArtists = ArtistSanitizer.extractAllGenuineArtists(rawArtistStr);
+        if (rawArtistStr.isNotEmpty &&
+            rawArtistStr != 'Various Artists' &&
+            !rawArtistStr.toLowerCase().contains('various') &&
+            genuineArtists.isEmpty &&
+            !ArtistSanitizer.isGenuineArtist(rawArtistStr)) {
           continue;
         }
+        final artistName = genuineArtists.isNotEmpty ? genuineArtists.join(', ') : rawArtistStr;
 
         validAlbums.add({
           'id': item['id']?.toString() ?? '',

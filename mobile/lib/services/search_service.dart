@@ -265,24 +265,24 @@ class SearchService {
   /// Synthesizes dynamic 'Movie - All Songs' auto-playlists directly from album metadata
   static List<Map<String, dynamic>> generateAutoPlaylistsFromAlbums(
     List<Map<String, dynamic>> albums, {
-    int maxCount = 2,
+    int maxCount = 4,
   }) {
     final List<Map<String, dynamic>> autoPlaylists = [];
     for (final album in albums.take(maxCount)) {
       final title = (album['title'] ?? album['name'] ?? '').toString().trim();
       final id = album['id']?.toString() ?? '';
-      final img = album['image']?.toString() ?? '';
-      final artist = album['artist']?.toString() ?? '';
+      final img = album['image']?.toString() ?? album['cover_url']?.toString() ?? '';
+      final artist = album['artist']?.toString() ?? album['composer']?.toString() ?? '';
       final songCount = album['song_count'] ?? 0;
-      if (title.isNotEmpty && id.isNotEmpty) {
+      if (title.isNotEmpty) {
         autoPlaylists.add({
-          'id': id,
+          'id': id.isNotEmpty ? id : 'pl_${title.toLowerCase().replaceAll(' ', '_')}',
           'title': '$title (All Songs)',
           'subtitle': songCount > 0 ? '$songCount Tracks • Movie Playlist' : 'Movie Playlist • All Songs',
           'image': img,
           'artist': artist,
           'song_count': songCount,
-          'source': 'auto_album',
+          'source': id.startsWith('mov_') || id.startsWith('jailer') || id.startsWith('leo') ? 'catalog' : 'auto_album',
           'type': 'playlist',
         });
       }
@@ -1147,17 +1147,16 @@ class SearchService {
       final artists = saavnResults[3] as List<Map<String, dynamic>>;
       final rawPlaylists = saavnResults[4] as List<Map<String, dynamic>>;
 
-      final autoPlaylists = generateAutoPlaylistsFromAlbums(rawAlbums);
-      final initialPlaylists = mergePlaylists(autoPlaylists, rawPlaylists);
-
       // Local Master Catalog lookup (0ms)
       List<Song> catalogSongs = [];
+      List<Map<String, dynamic>> catMovies = [];
       try {
         catalogSongs = await CatalogDatabase.searchCatalog(
           intent.cleanQuery,
           limit: limit,
           language: effectiveLang,
         );
+        catMovies = await CatalogDatabase.searchMovies(intent.cleanQuery, limit: 8);
       } catch (_) {}
 
       final List<Song> combinedSaavn = [];
@@ -1195,15 +1194,19 @@ class SearchService {
       final Set<String> seenAlbumNames = initialAlbums
           .map((a) => (a['title'] ?? a['name'] ?? '').toString().toLowerCase().trim())
           .toSet();
-      try {
-        final catMovies = await CatalogDatabase.searchMovies(intent.cleanQuery, limit: 8);
-        for (final cm in catMovies) {
-          final t = (cm['title'] ?? '').toString().toLowerCase().trim();
-          if (t.isNotEmpty && seenAlbumNames.add(t)) {
-            initialAlbums.add(cm);
-          }
+      for (final cm in catMovies) {
+        final t = (cm['title'] ?? '').toString().toLowerCase().trim();
+        if (t.isNotEmpty && seenAlbumNames.add(t)) {
+          initialAlbums.add({
+            ...cm,
+            'image': cm['image'] ?? cm['cover_url'] ?? '',
+          });
         }
-      } catch (_) {}
+      }
+
+      // Auto-playlists: Synthesize 'Movie - All Songs' playlists directly from albums & catalog movies
+      final autoPlaylists = generateAutoPlaylistsFromAlbums(initialAlbums);
+      final initialPlaylists = mergePlaylists(autoPlaylists, rawPlaylists);
 
       // Populate Artists Tab: Merge direct artists with Master Catalog artists and song composers/singers
       final List<Map<String, dynamic>> initialArtists = List<Map<String, dynamic>>.from(artists);
@@ -1233,7 +1236,20 @@ class SearchService {
       Map<String, dynamic>? initialTopResult;
       String? didYouMean;
 
-      if (scoredSaavn.isNotEmpty && scoredSaavn.first.key >= 0.70) {
+      final exactMovieMatch = initialAlbums.where(
+        (a) => (a['title'] ?? '').toString().toLowerCase().trim() == intent.cleanQuery.toLowerCase().trim(),
+      ).firstOrNull;
+
+      if (exactMovieMatch != null) {
+        initialTopResult = {
+          'type': 'album',
+          'id': exactMovieMatch['id']?.toString() ?? '',
+          'title': exactMovieMatch['title']?.toString() ?? '',
+          'artist': exactMovieMatch['artist']?.toString() ?? exactMovieMatch['composer']?.toString() ?? 'Soundtrack',
+          'cover_url': exactMovieMatch['image']?.toString() ?? exactMovieMatch['cover_url']?.toString() ?? '',
+          'score': 1.0,
+        };
+      } else if (scoredSaavn.isNotEmpty && scoredSaavn.first.key >= 0.70) {
         final top = scoredSaavn.first.value;
         initialTopResult = {
           'type': 'song',
@@ -1306,7 +1322,9 @@ class SearchService {
       );
 
       Map<String, dynamic>? finalTopResult = initialTopResult;
-      if (mergedSongs.isNotEmpty) {
+      if (exactMovieMatch != null) {
+        finalTopResult = initialTopResult;
+      } else if (mergedSongs.isNotEmpty) {
         final top = mergedSongs.first;
         final topScore = calculateCompositeRelevance(top, intent, preferredLanguages: prefLangs);
         if (topScore >= 0.70) {

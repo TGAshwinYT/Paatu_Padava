@@ -1052,7 +1052,16 @@ class SongRepository {
     String? imageUrl;
 
     try {
-      if (source == 'auto_album') {
+      final cleanTitle = playlistTitle.replaceAll(RegExp(r'\s*\((All Songs|Full Album|Original Motion Picture Soundtrack)\)', caseSensitive: false), '').trim();
+      final localSongs = await CatalogDatabase.getSongsByMovie(cleanTitle);
+      if (localSongs.isNotEmpty) {
+        fetchedSongs.addAll(localSongs);
+        imageUrl = localSongs.first.coverUrl;
+      }
+    } catch (_) {}
+
+    try {
+      if (fetchedSongs.isEmpty && source == 'auto_album') {
         final details = await SaavnClient.getAlbumDetails(playlistId);
         if (details != null && details['songs'] is List<Song>) {
           fetchedSongs = details['songs'] as List<Song>;

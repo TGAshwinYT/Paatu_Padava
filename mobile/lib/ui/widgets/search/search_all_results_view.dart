@@ -48,6 +48,7 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
     'Mixes & BGM',
     'Artists',
     'Albums',
+    'Playlists',
   ];
 
   @override
@@ -169,6 +170,10 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
               // Filter: Albums
               if (_selectedFilter == 'Albums')
                 _buildAlbumsFullGrid(albums),
+
+              // Filter: Playlists
+              if (_selectedFilter == 'Playlists')
+                _buildPlaylistsFullGrid(playlists),
             ],
           ),
         ),
@@ -247,16 +252,26 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
             widget.onArtistRecordClick();
             final title = _unescape.convert(Song.sanitize(top['title']?.toString() ?? top['name']?.toString() ?? ''));
             final cover = top['cover_url']?.toString() ?? top['image']?.toString() ?? '';
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ArtistScreen(
-                  artistId: top['id']?.toString() ?? '',
-                  artistName: title,
-                  imageUrl: cover,
+            final type = (top['type']?.toString() ?? '').toLowerCase();
+            if (type == 'album') {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => AlbumScreen(albumId: top['id']?.toString() ?? '', albumTitle: title, imageUrl: cover),
                 ),
-              ),
-            );
+              );
+            } else {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ArtistScreen(
+                    artistId: top['id']?.toString() ?? '',
+                    artistName: title,
+                    imageUrl: cover,
+                  ),
+                ),
+              );
+            }
           },
           onPlay: () {
             final List<Song> songs = (widget.state.songs as List<dynamic>?)?.cast<Song>() ?? [];
@@ -617,6 +632,89 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.outfit(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
               ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPlaylistsFullGrid(List<Map<String, dynamic>> playlists) {
+    if (playlists.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32.0),
+          child: Text('No playlists found', style: GoogleFonts.outfit(color: AppColors.textSecondary)),
+        ),
+      );
+    }
+
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(16),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 180,
+        childAspectRatio: 0.82,
+        crossAxisSpacing: 14,
+        mainAxisSpacing: 14,
+      ),
+      itemCount: playlists.length,
+      itemBuilder: (context, i) {
+        final pl = playlists[i];
+        final id = pl['id']?.toString() ?? '';
+        final title = _unescape.convert(Song.sanitize(pl['title']?.toString() ?? ''));
+        final subtitle = _unescape.convert(pl['subtitle']?.toString() ?? '');
+        final img = pl['image']?.toString() ?? '';
+        final source = pl['source']?.toString() ?? 'saavn';
+
+        return InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () {
+            widget.onRecordClick();
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => RemotePlaylistScreen(
+                  playlistId: id,
+                  playlistTitle: title,
+                  imageUrl: img,
+                  subtitle: subtitle,
+                  source: source,
+                ),
+              ),
+            );
+          },
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: AspectRatio(
+                  aspectRatio: 1,
+                  child: CachedNetworkImage(
+                    imageUrl: img,
+                    fit: BoxFit.cover,
+                    memCacheWidth: 240,
+                    memCacheHeight: 240,
+                    errorWidget: (_, __, ___) => Container(color: AppColors.surfaceDark),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.outfit(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+              ),
+              if (subtitle.isNotEmpty)
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 11),
+                ),
             ],
           ),
         );

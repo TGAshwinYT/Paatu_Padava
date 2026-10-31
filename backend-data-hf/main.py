@@ -99,12 +99,14 @@ async def create_tables():
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_languages TEXT DEFAULT '[]'"))
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()"))
             
+            await conn.execute(text("ALTER TABLE listening_history ADD COLUMN IF NOT EXISTS yt_video_id TEXT"))
             await conn.execute(text("ALTER TABLE listening_history ADD COLUMN IF NOT EXISTS title TEXT"))
             await conn.execute(text("ALTER TABLE listening_history ADD COLUMN IF NOT EXISTS artist TEXT"))
             await conn.execute(text("ALTER TABLE listening_history ADD COLUMN IF NOT EXISTS cover_url TEXT"))
             await conn.execute(text("ALTER TABLE listening_history ADD COLUMN IF NOT EXISTS audio_url TEXT"))
             await conn.execute(text("ALTER TABLE listening_history ADD COLUMN IF NOT EXISTS language TEXT"))
             
+            await conn.execute(text("ALTER TABLE liked_songs ADD COLUMN IF NOT EXISTS yt_video_id TEXT"))
             await conn.execute(text("ALTER TABLE liked_songs ADD COLUMN IF NOT EXISTS title TEXT"))
             await conn.execute(text("ALTER TABLE liked_songs ADD COLUMN IF NOT EXISTS artist TEXT"))
             await conn.execute(text("ALTER TABLE liked_songs ADD COLUMN IF NOT EXISTS cover_url TEXT"))

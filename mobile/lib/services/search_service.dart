@@ -299,8 +299,8 @@ class SearchService {
       if (title.isNotEmpty) {
         autoPlaylists.add({
           'id': id.isNotEmpty ? id : 'pl_${title.toLowerCase().replaceAll(' ', '_')}',
-          'title': '$title Soundtrack',
-          'subtitle': songCount > 0 ? '$songCount Tracks • Movie Soundtrack' : 'Movie Soundtrack',
+          'title': '$title (All Songs)',
+          'subtitle': songCount > 0 ? '$songCount Tracks • Movie Playlist' : 'Movie Playlist',
           'image': img,
           'artist': artist,
           'song_count': songCount,

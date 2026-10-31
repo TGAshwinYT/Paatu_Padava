@@ -119,8 +119,8 @@ void main() {
       expect(find.text('Artists'), findsOneWidget);
       expect(find.text('Albums'), findsOneWidget);
 
-      // Top result hero card rendered (confidence 0.95 >= 0.85)
-      expect(find.byType(SearchTopResultCard), findsOneWidget);
+      // Top result hero card omitted from main view to prioritize songs and artists
+      expect(find.byType(SearchTopResultCard), findsNothing);
 
       // Song tile with clustered alternate versions badge
       expect(find.byType(SearchSongTile), findsOneWidget);
@@ -152,6 +152,27 @@ void main() {
 
       // Confidence 0.60 < 0.85 -> card omitted
       expect(find.text('TOP RESULT'), findsNothing);
+    });
+
+    testWidgets('SearchTopResultCard renders when confidence >= 0.85 threshold', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SearchTopResultCard(
+              top: const {
+                'id': 's_main',
+                'title': 'Arabic Kuthu',
+                'confidence': 0.95,
+              },
+              onArtistClick: () {},
+              onPlay: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('TOP RESULT'), findsOneWidget);
     });
   });
 }

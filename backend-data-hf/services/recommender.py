@@ -177,7 +177,9 @@ class PersonalRecommender:
                 user_histories[uid].append(record)
                 
                 # Catalog registration
-                sid = record.yt_video_id
+                sid = getattr(record, 'yt_video_id', None) or getattr(record, 'song_id', None) or getattr(record, 'id', None)
+                if not sid:
+                    continue
                 if sid not in new_catalog:
                     new_catalog[sid] = self._normalize_song_dict(
                         sid, record.title, record.artist, record.cover_url, record.audio_url, getattr(record, 'language', None)
@@ -193,13 +195,17 @@ class PersonalRecommender:
 
                 # Track recent plays (last 30 tracks)
                 for rec in records[-30:]:
-                    new_user_recent_plays[uid].add(rec.yt_video_id)
+                    r_sid = getattr(rec, 'yt_video_id', None) or getattr(rec, 'song_id', None) or getattr(rec, 'id', None)
+                    if r_sid:
+                        new_user_recent_plays[uid].add(r_sid)
 
                 current_session: List[str] = []
                 last_time: Optional[datetime] = None
 
                 for rec in records:
-                    sid = rec.yt_video_id
+                    sid = getattr(rec, 'yt_video_id', None) or getattr(rec, 'song_id', None) or getattr(rec, 'id', None)
+                    if not sid:
+                        continue
                     new_user_taste[uid][sid] += LISTEN_AFFINITY_WEIGHT
                     new_item_frequencies[sid] += LISTEN_AFFINITY_WEIGHT
 
@@ -227,7 +233,9 @@ class PersonalRecommender:
             user_likes: Dict[str, List[str]] = defaultdict(list)
             for like in liked_records:
                 uid = str(like.user_id)
-                sid = like.yt_video_id
+                sid = getattr(like, 'yt_video_id', None) or getattr(like, 'song_id', None) or getattr(like, 'id', None)
+                if not sid:
+                    continue
                 user_likes[uid].append(sid)
 
                 new_user_taste[uid][sid] += LIKE_AFFINITY_WEIGHT
@@ -254,7 +262,9 @@ class PersonalRecommender:
             clicks_records = clicks_result.scalars().all()
 
             for click in clicks_records:
-                sid = click.yt_video_id
+                sid = getattr(click, 'yt_video_id', None) or getattr(click, 'song_id', None) or getattr(click, 'id', None)
+                if not sid:
+                    continue
                 if sid not in new_catalog:
                     new_catalog[sid] = self._normalize_song_dict(
                         sid, click.title, click.artist, click.cover_url, click.audio_url, getattr(click, 'language', None)

@@ -23,7 +23,9 @@ void main() {
       expect(find.text('Quick Vibes & Eras'), findsOneWidget);
       expect(find.text('90s Melody'), findsOneWidget);
       expect(find.text('Anirudh Vibe'), findsOneWidget);
-      expect(find.text('Trending Artists'), findsOneWidget);
+      // Trending Artists and Recent Searches removed from zero-query search view
+      expect(find.text('Trending Artists'), findsNothing);
+      expect(find.text('Recent Searches'), findsNothing);
     });
 
     testWidgets('State B (Active Typing) displays instant local matches and query completions', (tester) async {

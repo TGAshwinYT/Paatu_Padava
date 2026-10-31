@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:html_unescape/html_unescape.dart';
@@ -105,74 +104,7 @@ class SearchPreContent extends StatelessWidget {
           ),
         ),
 
-        // 2. State A Instant Recall Chips (Last 8 searches: tap-to-fill, long-press-to-delete)
-        ValueListenableBuilder<List<String>>(
-          valueListenable: SearchHistoryManager.historyNotifier,
-          builder: (context, recentQueries, _) {
-            if (recentQueries.isEmpty) return const SizedBox.shrink();
 
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Recent Searches',
-                      style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                    TextButton(
-                      onPressed: () => SearchHistoryManager.clearAll(),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        minimumSize: const Size(48, 32),
-                      ),
-                      child: Text('Clear', style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 12)),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 38,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: recentQueries.length > 8 ? 8 : recentQueries.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 8),
-                    itemBuilder: (context, index) {
-                      final q = recentQueries[index];
-                      final cleanDisplay = _unescape.convert(Song.sanitize(q));
-
-                      return GestureDetector(
-                        onLongPress: () {
-                          HapticFeedback.lightImpact();
-                          SearchHistoryManager.removeQuery(q);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              duration: const Duration(milliseconds: 1200),
-                              backgroundColor: AppColors.surfaceElevated,
-                              content: Text('Removed "$cleanDisplay" from history', style: const TextStyle(fontSize: 12)),
-                            ),
-                          );
-                        },
-                        child: ActionChip(
-                          backgroundColor: AppColors.surfaceElevated,
-                          avatar: const Icon(Icons.history_rounded, size: 14, color: AppColors.textSecondary),
-                          label: Text(cleanDisplay, style: GoogleFonts.outfit(color: Colors.white, fontSize: 12)),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            side: const BorderSide(color: AppColors.surfaceBorder),
-                          ),
-                          onPressed: () => (onSelectExactQuery ?? onSelectQuery)(q),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 18),
-              ],
-            );
-          },
-        ),
 
         // 3. Quick Vibe / Era Collections (Functional starting points)
         Text(
@@ -325,35 +257,7 @@ class SearchPreContent extends StatelessWidget {
           },
         ),
 
-        // 5. Trending Artists
-        Text(
-          'Trending Artists',
-          style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 38,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: trendingArtists.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 8),
-            itemBuilder: (context, i) {
-              final artist = trendingArtists[i];
-              return ActionChip(
-                backgroundColor: AppColors.surfaceElevated,
-                avatar: const Icon(Icons.person_rounded, size: 15, color: AppColors.electricCyan),
-                label: Text(artist, style: GoogleFonts.outfit(color: Colors.white70, fontSize: 12)),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  side: const BorderSide(color: AppColors.surfaceBorder),
-                ),
-                onPressed: () => (onSelectExactQuery ?? onSelectQuery)(artist),
-              );
-            },
-          ),
-        ),
 
-        const SizedBox(height: 24),
 
         // 6. Browse All Category Tiles
         Text(

@@ -17,6 +17,7 @@ import 'fuzzy_search_service.dart';
 import 'error_handler.dart';
 import 'app_logger.dart';
 import 'artist_sanitizer.dart';
+import 'api_client.dart';
 import '../data/repositories/song_repository.dart';
 
 class QueryIntent {
@@ -345,6 +346,191 @@ class SearchService {
       }
     }
     return merged;
+  }
+
+  /// Direct URL / Entity detection: Instant resolution for pasted YouTube URLs or Playlist links
+  static Future<Map<String, dynamic>?> resolveDirectUrlOrEntity(String clean) async {
+    final ytVideoId = YouTubeClient.extractVideoId(clean);
+    final ytPlaylistId = YouTubeClient.extractPlaylistId(clean);
+
+    if ((ytVideoId != null && (clean.contains('youtu') || clean.contains('http'))) ||
+        (ytPlaylistId != null && (clean.contains('list=') || clean.startsWith('PL')))) {
+      if (ytPlaylistId != null && (clean.contains('list=') || clean.startsWith('PL'))) {
+        final playlistTracks = await YouTubeClient.getPlaylistTracks(ytPlaylistId, limit: 40);
+        if (playlistTracks.isNotEmpty) {
+          return {
+            'type': 'playlist',
+            'id': ytPlaylistId,
+            'title': 'YouTube Playlist',
+            'subtitle': '${playlistTracks.length} tracks (Client Resolved)',
+            'image': playlistTracks.first.coverUrl,
+            'tracks': playlistTracks,
+          };
+        }
+      } else if (ytVideoId != null) {
+        final track = await YouTubeClient.resolveTrackFromUrl(clean);
+        if (track != null) {
+          return {
+            'type': 'song',
+            'id': track.id,
+            'title': track.title,
+            'subtitle': track.artist,
+            'image': track.coverUrl,
+            'tracks': [track],
+          };
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Tab search: Songs only
+  static Future<List<Song>> searchSongsTab(String query, {String? language, int limit = 25}) async {
+    try {
+      final songs = await SaavnClient.search(query, limit: limit, language: language)
+          .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[]);
+      final grouped = SongRepository.groupCanonicalSongs(songs, preferredLanguage: language);
+      return SongRepository.deduplicateSongs(grouped);
+    } catch (_) {
+      return <Song>[];
+    }
+  }
+
+  /// Tab search: Albums only
+  static Future<List<Map<String, dynamic>>> searchAlbumsTab(String query, {int limit = 25}) async {
+    try {
+      final albumsFuture = SaavnClient.searchAlbums(query, limit: limit)
+          .timeout(const Duration(seconds: 4), onTimeout: () => <Map<String, dynamic>>[]);
+      final songsFuture = SaavnClient.search(query, limit: 15)
+          .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[]);
+      final res = await Future.wait([albumsFuture, songsFuture]);
+      final directAlbums = res[0] as List<Map<String, dynamic>>;
+      final songs = res[1] as List<Song>;
+
+      final List<Map<String, dynamic>> correlatedAlbums = [];
+      final Set<String> seenAlbumNames = {};
+
+      for (final song in songs) {
+        final albName = song.album.trim();
+        final albId = song.albumId?.trim() ?? '';
+        if (albName.isNotEmpty && albName.toLowerCase() != 'unknown album') {
+          final key = albName.toLowerCase();
+          if (!seenAlbumNames.contains(key)) {
+            seenAlbumNames.add(key);
+            correlatedAlbums.add({
+              'id': albId.isNotEmpty ? albId : 'alb_${song.id}',
+              'title': albName,
+              'image': song.coverUrl,
+              'year': '',
+              'artist': song.artist,
+            });
+          }
+        }
+      }
+
+      for (final alb in directAlbums) {
+        final title = (alb['title'] ?? alb['name'] ?? '').toString().trim();
+        if (title.isNotEmpty && !seenAlbumNames.contains(title.toLowerCase())) {
+          seenAlbumNames.add(title.toLowerCase());
+          correlatedAlbums.add(alb);
+        }
+      }
+
+      return filterGenuineAlbums(correlatedAlbums);
+    } catch (_) {
+      return <Map<String, dynamic>>[];
+    }
+  }
+
+  /// Tab search: Artists only
+  static Future<List<Map<String, dynamic>>> searchArtistsTab(String query, {String? language, int limit = 25}) async {
+    try {
+      final artistsFuture = SaavnClient.searchArtists(query, limit: limit, language: language)
+          .timeout(const Duration(seconds: 4), onTimeout: () => <Map<String, dynamic>>[]);
+      final songsFuture = SaavnClient.search(query, limit: 15, language: language)
+          .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[]);
+      final res = await Future.wait([artistsFuture, songsFuture]);
+      final directArtists = res[0] as List<Map<String, dynamic>>;
+      final songs = res[1] as List<Song>;
+
+      final List<Map<String, dynamic>> correlatedArtists = [];
+      final Set<String> seenArtistNames = {};
+
+      for (final song in songs) {
+        final artName = song.primaryArtist.trim();
+        final artId = song.artistId?.trim() ?? '';
+        if (artName.isNotEmpty && artName.toLowerCase() != 'various artists') {
+          final key = artName.toLowerCase();
+          if (!seenArtistNames.contains(key)) {
+            seenArtistNames.add(key);
+            correlatedArtists.add({
+              'id': artId.isNotEmpty ? artId : 'art_${song.id}',
+              'name': artName,
+              'title': artName,
+              'image': song.coverUrl,
+              'role': 'Singer / Music Director',
+            });
+          }
+        }
+      }
+
+      for (final art in directArtists) {
+        final name = (art['name'] ?? art['title'] ?? '').toString().trim();
+        if (name.isNotEmpty && !seenArtistNames.contains(name.toLowerCase())) {
+          seenArtistNames.add(name.toLowerCase());
+          correlatedArtists.add(art);
+        }
+      }
+
+      return filterArtistsByLanguage(
+        correlatedArtists,
+        language: language,
+        query: query,
+      );
+    } catch (_) {
+      return <Map<String, dynamic>>[];
+    }
+  }
+
+  /// Tab search: YouTube Music tracks
+  static Future<List<Song>> searchYtMusicTab(String query, {String? language, int limit = 25}) async {
+    try {
+      final intent = understandQuery(query);
+      final targetLang = intent.explicitLanguage ?? language;
+      final ytQuery = (targetLang != null && !query.toLowerCase().contains(targetLang.toLowerCase()))
+          ? '$targetLang $query'
+          : query;
+      var yt = await YouTubeClient.search(ytQuery, limit: limit)
+          .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
+      if (yt.isEmpty) {
+        final saavn = await SaavnClient.search(query, limit: limit, language: language);
+        yt = saavn.map((s) => s.copyWith(source: 'youtube')).toList();
+      }
+      final filteredYt = targetLang != null
+          ? SongRepository.filterByLanguage(yt, targetLang)
+          : yt;
+      final groupedYt = SongRepository.groupCanonicalSongs(filteredYt, preferredLanguage: targetLang);
+      return SongRepository.deduplicateSongs(groupedYt);
+    } catch (_) {
+      return <Song>[];
+    }
+  }
+
+  /// Tab search: Audius tracks
+  static Future<List<Song>> searchAudiusTab(String query, {int limit = 25}) async {
+    try {
+      return await AudiusClient.search(query, limit: limit)
+          .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]);
+    } catch (_) {
+      return <Song>[];
+    }
+  }
+
+  /// Records a search click event for telemetry and ranking feedback loop
+  static Future<void> recordSearchClick(Song song) async {
+    try {
+      await ApiClient.recordSearchClick(song);
+    } catch (_) {}
   }
 
   /// Strictly filters search artists by language, purging Bollywood/Hindi leaks,

@@ -4,7 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../services/auth_manager.dart';
 import '../../services/supabase_service.dart';
-import '../../services/saavn_client.dart';
+import '../../data/repositories/song_repository.dart';
 import '../../services/artist_sanitizer.dart';
 import '../../services/error_handler.dart';
 import '../theme/app_theme.dart';
@@ -263,7 +263,7 @@ class _OnboardingArtistsScreenState extends State<OnboardingArtistsScreen> with 
     // from the artist's hit songs (e.g. co-singers / composers) rather than querying the artist's own name.
     if (candidates.isEmpty) {
       try {
-        final querySongs = await SaavnClient.search('$canonicalName Hit Songs', limit: 12);
+        final querySongs = await SongRepository.getArtistSampleSongs(canonicalName, limit: 12);
         final discovered = <Map<String, String>>[];
         final seenDiscovered = <String>{};
 
@@ -294,7 +294,7 @@ class _OnboardingArtistsScreenState extends State<OnboardingArtistsScreen> with 
           candidates = discovered;
         } else {
           // Last resort: Top language artists
-          final topResults = await SaavnClient.searchArtists('Top Tamil Artists', limit: 10);
+          final topResults = await SongRepository.getTopArtists(language: 'Tamil', limit: 10);
           candidates = topResults
               .where((a) {
                 final n = a['name']?.toString() ?? '';

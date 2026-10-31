@@ -5,15 +5,10 @@ import 'package:html_unescape/html_unescape.dart';
 import '../../models/song.dart';
 import '../../domain/models/app_error.dart';
 import '../../services/error_handler.dart';
-import '../../services/saavn_client.dart';
-import '../../services/youtube_client.dart';
-import '../../services/api_client.dart';
 import '../../services/player_handler.dart';
 import '../../services/search_history_manager.dart';
 import '../../services/settings_manager.dart';
 import '../../services/fuzzy_search_service.dart';
-import '../../services/artist_sanitizer.dart';
-import '../../services/audius_client.dart';
 import '../../services/search_service.dart';
 import '../../data/repositories/song_repository.dart';
 import '../../logic/stream_resolver.dart';
@@ -339,46 +334,24 @@ class _SearchScreenState extends State<SearchScreen> {
     final selectedLang = _selectedLanguageNotifier.value;
     final effectiveLangFilter = (selectedLang == 'All' ? null : selectedLang);
 
-    // Direct YouTube Link Detection: Instant resolution for pasted YouTube URLs or Playlist links
-    final ytVideoId = YouTubeClient.extractVideoId(clean);
-    final ytPlaylistId = YouTubeClient.extractPlaylistId(clean);
-    if ((ytVideoId != null && (clean.contains('youtu') || clean.contains('http'))) ||
-        (ytPlaylistId != null && (clean.contains('list=') || clean.startsWith('PL')))) {
-      if (ytPlaylistId != null && (clean.contains('list=') || clean.startsWith('PL'))) {
-        final playlistTracks = await YouTubeClient.getPlaylistTracks(ytPlaylistId, limit: 40);
-        if (!mounted || currentRequestId != _searchRequestId) return;
-        if (playlistTracks.isNotEmpty) {
-          _resultsNotifier.value = SearchResultsState(
-            ytSongs: playlistTracks,
-            topResult: {
-              'type': 'playlist',
-              'id': ytPlaylistId,
-              'title': 'YouTube Playlist',
-              'subtitle': '${playlistTracks.length} tracks (Client Resolved)',
-              'image': playlistTracks.first.coverUrl,
-            },
-          );
-          _isSearchingNotifier.value = false;
-          return;
-        }
-      } else if (ytVideoId != null) {
-        final track = await YouTubeClient.resolveTrackFromUrl(clean);
-        if (!mounted || currentRequestId != _searchRequestId) return;
-        if (track != null) {
-          _resultsNotifier.value = SearchResultsState(
-            ytSongs: [track],
-            topResult: {
-              'type': 'song',
-              'id': track.id,
-              'title': track.title,
-              'subtitle': track.artist,
-              'image': track.coverUrl,
-            },
-          );
-          _isSearchingNotifier.value = false;
-          return;
-        }
-      }
+    // Direct URL / Entity detection: Instant resolution for pasted YouTube URLs or Playlist links
+    final directEntity = await SearchService.resolveDirectUrlOrEntity(clean);
+    if (directEntity != null) {
+      if (!mounted || currentRequestId != _searchRequestId) return;
+      final tracks = (directEntity['tracks'] as List<Song>?) ?? <Song>[];
+      _resultsNotifier.value = SearchResultsState(
+        ytSongs: tracks,
+        songs: tracks,
+        topResult: {
+          'type': directEntity['type'],
+          'id': directEntity['id'],
+          'title': directEntity['title'],
+          'subtitle': directEntity['subtitle'],
+          'image': directEntity['image'],
+        },
+      );
+      _isSearchingNotifier.value = false;
+      return;
     }
 
     try {
@@ -412,153 +385,36 @@ class _SearchScreenState extends State<SearchScreen> {
         _isSearchingNotifier.value = false;
         return;
       } else if (tab == 'Saavn' || tab == 'Songs') {
-        final saavnSongs = await SaavnClient.search(clean, limit: 25, language: effectiveLangFilter)
-            .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
+        final songs = await SearchService.searchSongsTab(clean, language: effectiveLangFilter, limit: 25);
         if (!mounted || currentRequestId != _searchRequestId) return;
-        final grouped = SongRepository.groupCanonicalSongs(saavnSongs);
-        final cleanSaavn = SongRepository.deduplicateSongs(grouped);
         _resultsNotifier.value = SearchResultsState(
-          saavnSongs: cleanSaavn,
-          songs: cleanSaavn,
+          saavnSongs: songs,
+          songs: songs,
         );
         _isSearchingNotifier.value = false;
-        if (cleanSaavn.isNotEmpty) {
-          DefaultStreamResolver.prewarmSongs(cleanSaavn, limit: 3);
+        if (songs.isNotEmpty) {
+          DefaultStreamResolver.prewarmSongs(songs, limit: 3);
         }
       } else if (tab == 'Albums') {
-        final albumsFuture = SaavnClient.searchAlbums(clean, limit: 25)
-            .timeout(const Duration(seconds: 3), onTimeout: () => <Map<String, dynamic>>[]);
-        final songsFuture = SaavnClient.search(clean, limit: 15)
-            .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
-        final res = await Future.wait([albumsFuture, songsFuture]);
+        final albums = await SearchService.searchAlbumsTab(clean, limit: 25);
         if (!mounted || currentRequestId != _searchRequestId) return;
-        final directAlbums = res[0] as List<Map<String, dynamic>>;
-        final songs = res[1] as List<Song>;
-
-        final List<Map<String, dynamic>> correlatedAlbums = [];
-        final Set<String> seenAlbumNames = {};
-
-        // 1. Correlate albums from matched songs (top relevance)
-        for (final song in songs) {
-          final albName = song.album.trim();
-          final albId = song.albumId?.trim() ?? '';
-          if (albName.isNotEmpty && albName.toLowerCase() != 'unknown album') {
-            final key = albName.toLowerCase();
-            if (!seenAlbumNames.contains(key)) {
-              seenAlbumNames.add(key);
-              correlatedAlbums.add({
-                'id': albId.isNotEmpty ? albId : 'alb_${song.id}',
-                'title': albName,
-                'image': song.coverUrl,
-                'year': '',
-                'artist': song.artist,
-              });
-            }
-          }
-        }
-
-        // 2. Append direct album search results
-        for (final alb in directAlbums) {
-          final title = (alb['title'] ?? alb['name'] ?? '').toString().trim();
-          if (title.isNotEmpty && !seenAlbumNames.contains(title.toLowerCase())) {
-            seenAlbumNames.add(title.toLowerCase());
-            correlatedAlbums.add(alb);
-          }
-        }
-
-        final genuineAlbums = SearchService.filterGenuineAlbums(correlatedAlbums);
-        _resultsNotifier.value = SearchResultsState(albums: genuineAlbums);
+        _resultsNotifier.value = SearchResultsState(albums: albums);
         _isSearchingNotifier.value = false;
       } else if (tab == 'Artists') {
-        final artistsFuture = SaavnClient.searchArtists(clean, limit: 25, language: effectiveLangFilter)
-            .timeout(const Duration(seconds: 3), onTimeout: () => <Map<String, dynamic>>[]);
-        final songsFuture = SaavnClient.search(clean, limit: 15, language: effectiveLangFilter)
-            .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
-        final res = await Future.wait([artistsFuture, songsFuture]);
+        final artists = await SearchService.searchArtistsTab(clean, language: effectiveLangFilter, limit: 25);
         if (!mounted || currentRequestId != _searchRequestId) return;
-        final directArtists = res[0] as List<Map<String, dynamic>>;
-        final songs = res[1] as List<Song>;
-
-        final List<Map<String, dynamic>> correlatedArtists = [];
-
-        bool isAlreadyPresent(String candidateName) {
-          return correlatedArtists.any((existing) =>
-              ArtistSanitizer.areSameOrVariantArtists(existing['name']?.toString() ?? '', candidateName));
-        }
-
-        // 1. Correlate genuine musicians from matched songs
-        for (final song in songs) {
-          final genuine = ArtistSanitizer.extractPrimaryGenuineArtist(song.artist);
-          if (genuine.isNotEmpty &&
-              !ArtistSanitizer.isCompositeOrMultiArtist(genuine) &&
-              ArtistSanitizer.isGenuineArtist(genuine)) {
-            final canonical = ArtistSanitizer.canonicalArtistName(genuine);
-            final norm = SongRepository.normalizeArtist(canonical);
-            final avatar = SongRepository.verifiedArtistAvatars[norm];
-            if (!isAlreadyPresent(canonical)) {
-              correlatedArtists.add({
-                'id': song.artistId ?? 'art_${song.id}',
-                'name': canonical,
-                'image': avatar ?? (ArtistSanitizer.isPlaceholderImage(song.coverUrl) ? '' : song.coverUrl),
-                'role': 'Artist',
-              });
-            }
-          }
-        }
-
-        // 2. Append direct artist search results that pass genuine and single-artist check
-        for (final art in directArtists) {
-          final rawName = (art['name'] ?? art['title'] ?? '').toString().trim();
-          if (rawName.isNotEmpty &&
-              !ArtistSanitizer.isCompositeOrMultiArtist(rawName) &&
-              ArtistSanitizer.isGenuineArtist(rawName)) {
-            final canonical = ArtistSanitizer.canonicalArtistName(rawName);
-            final norm = SongRepository.normalizeArtist(canonical);
-            final avatar = SongRepository.verifiedArtistAvatars[norm];
-            final artImg = art['image']?.toString();
-            if (!isAlreadyPresent(canonical)) {
-              correlatedArtists.add({
-                ...art,
-                'name': canonical,
-                'image': avatar ?? (ArtistSanitizer.isPlaceholderImage(artImg) ? '' : (artImg ?? '')),
-              });
-            }
-          }
-        }
-
-        final filteredArtists = SearchService.filterArtistsByLanguage(
-          correlatedArtists,
-          language: effectiveLangFilter,
-          query: clean,
-        );
-        _resultsNotifier.value = SearchResultsState(artists: filteredArtists);
+        _resultsNotifier.value = SearchResultsState(artists: artists);
         _isSearchingNotifier.value = false;
       } else if (tab == 'YT Music' || tab == 'YouTube Music' || tab == 'YouTube') {
-        final intent = SearchService.understandQuery(clean);
-        final targetLang = intent.explicitLanguage ?? effectiveLangFilter;
-        final ytQuery = (targetLang != null && !clean.toLowerCase().contains(targetLang.toLowerCase()))
-            ? '$targetLang $clean'
-            : clean;
-        var yt = await YouTubeClient.search(ytQuery, limit: 25)
-            .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
-        if (yt.isEmpty) {
-          final saavn = await SaavnClient.search(clean, limit: 25, language: effectiveLangFilter);
-          yt = saavn.map((s) => s.copyWith(source: 'youtube')).toList();
-        }
+        final ytSongs = await SearchService.searchYtMusicTab(clean, language: effectiveLangFilter, limit: 25);
         if (!mounted || currentRequestId != _searchRequestId) return;
-        final filteredYt = targetLang != null
-            ? SongRepository.filterByLanguage(yt, targetLang)
-            : yt;
-        final groupedYt = SongRepository.groupCanonicalSongs(filteredYt, preferredLanguage: targetLang);
-        final cleanYt = SongRepository.deduplicateSongs(groupedYt);
-        _resultsNotifier.value = SearchResultsState(ytSongs: cleanYt, songs: cleanYt);
+        _resultsNotifier.value = SearchResultsState(ytSongs: ytSongs, songs: ytSongs);
         _isSearchingNotifier.value = false;
-        if (cleanYt.isNotEmpty) {
-          DefaultStreamResolver.prewarmSongs(cleanYt, limit: 3);
+        if (ytSongs.isNotEmpty) {
+          DefaultStreamResolver.prewarmSongs(ytSongs, limit: 3);
         }
       } else if (tab == 'Audius') {
-        final audiusTracks = await AudiusClient.search(clean, limit: 25)
-            .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
+        final audiusTracks = await SearchService.searchAudiusTab(clean, limit: 25);
         if (!mounted || currentRequestId != _searchRequestId) return;
         _resultsNotifier.value = SearchResultsState(audiusSongs: audiusTracks, songs: audiusTracks);
         _isSearchingNotifier.value = false;
@@ -640,7 +496,7 @@ class _SearchScreenState extends State<SearchScreen> {
     }
     if (song != null) {
       SearchHistoryManager.addSong(song);
-      ApiClient.recordSearchClick(song);
+      SearchService.recordSearchClick(song);
     }
   }
 
@@ -1056,7 +912,7 @@ class _SearchScreenState extends State<SearchScreen> {
                             final q = _searchController.text.trim();
                             if (q.isNotEmpty) {
                               _isSearchingNotifier.value = true;
-                              final results = await YoutubeClient().search(q, limit: 25);
+                              final results = await SearchService.searchYtMusicTab(q, limit: 25);
                               if (mounted && _searchController.text.trim() == q) {
                                 _resultsNotifier.value = SearchResultsState(ytSongs: results, songs: results);
                                 _isSearchingNotifier.value = false;

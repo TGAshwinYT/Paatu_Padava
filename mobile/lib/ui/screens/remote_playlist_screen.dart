@@ -2,12 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../models/song.dart';
-import '../../services/saavn_client.dart';
-import '../../services/youtube_client.dart';
 import '../../services/playlist_manager.dart';
 import '../../services/player_handler.dart';
 import '../../logic/stream_resolver.dart';
-import '../../logic/track_quality_filter.dart';
+import '../../data/repositories/song_repository.dart';
 import '../theme/app_theme.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/batch_download_button.dart';
@@ -49,51 +47,31 @@ class _RemotePlaylistScreenState extends State<RemotePlaylistScreen> {
   Future<void> _loadPlaylistTracks() async {
     setState(() => _isLoading = true);
 
-    List<Song> fetchedSongs = [];
-
     try {
-      if (widget.source == 'auto_album') {
-        final details = await SaavnClient.getAlbumDetails(widget.playlistId);
-        if (details != null && details['songs'] is List<Song>) {
-          fetchedSongs = details['songs'] as List<Song>;
-          final img = details['image']?.toString() ?? '';
-          if (img.isNotEmpty) _currentImageUrl = img;
+      final res = await SongRepository.getRemotePlaylistTracks(
+        playlistId: widget.playlistId,
+        playlistTitle: widget.playlistTitle,
+        source: widget.source,
+      );
+
+      final img = res['image']?.toString() ?? '';
+      if (img.isNotEmpty) _currentImageUrl = img;
+      final songs = res['songs'] as List<Song>? ?? <Song>[];
+
+      if (mounted) {
+        setState(() {
+          _songs = songs;
+          _isLoading = false;
+        });
+        if (songs.isNotEmpty) {
+          DefaultStreamResolver.prewarmSongs(songs, limit: 3);
         }
-      } else if (widget.source == 'youtube') {
-        fetchedSongs = await YouTubeClient.getPlaylistTracks(widget.playlistId, limit: 60);
-      } else {
-        // Default: Saavn playlist
-        final details = await SaavnClient.getPlaylistDetails(widget.playlistId);
-        if (details != null && details['songs'] is List<Song>) {
-          fetchedSongs = details['songs'] as List<Song>;
-          final img = details['image']?.toString() ?? '';
-          if (img.isNotEmpty) _currentImageUrl = img;
-        }
+        return;
       }
     } catch (_) {}
 
-    // Fallback search if provider details returned empty
-    if (fetchedSongs.isEmpty) {
-      try {
-        final searchResults = await SaavnClient.search(widget.playlistTitle, limit: 25);
-        if (searchResults.isNotEmpty) {
-          fetchedSongs = searchResults;
-        } else {
-          fetchedSongs = await YouTubeClient.search(widget.playlistTitle, limit: 25);
-        }
-      } catch (_) {}
-    }
-
-    final cleanSongs = TrackQualityFilter.filterSongs(fetchedSongs);
-
     if (mounted) {
-      setState(() {
-        _songs = cleanSongs;
-        _isLoading = false;
-      });
-      if (cleanSongs.isNotEmpty) {
-        DefaultStreamResolver.prewarmSongs(cleanSongs, limit: 3);
-      }
+      setState(() => _isLoading = false);
     }
   }
 

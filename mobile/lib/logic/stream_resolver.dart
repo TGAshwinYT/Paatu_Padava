@@ -38,6 +38,10 @@ abstract class StreamResolver {
   bool verifyAudioMatch(Song candidate, Song target);
   void invalidate(String songId);
   bool isExpired(String songId);
+
+  /// Static helper for audio match verification (can be used directly across the app)
+  static bool verifyMatch(Song candidate, Song target) =>
+      DefaultStreamResolver.verifyMatch(candidate, target);
 }
 
 /// Production implementation of [StreamResolver] handling multi-tier resolution:
@@ -562,8 +566,62 @@ class DefaultStreamResolver implements StreamResolver {
           return ytUrl;
         }
       }
+
+      // Silent Fallback Rescue: If YouTube returned null / cipher failure, search JioSaavn
+      if (shouldBypassSaavnMatching) {
+        try {
+          final cleanBase = extractCleanBaseTitle(song.title, song.artist);
+          final firstArtist = extractFirstArtist(song.artist);
+          final queryA = '$cleanBase $firstArtist'.trim();
+          if (queryA.isNotEmpty) {
+            AppLogger.log('StreamResolver', 'Silent Fallback Rescue on Saavn (YouTube returned null): "$queryA"');
+            final saavnMatches = await SaavnClient.search(queryA, limit: 5, language: 'all')
+                .timeout(_stageTimeout, onTimeout: () => <Song>[]);
+            for (final match in saavnMatches) {
+              if (match.streamUrl != null && match.streamUrl!.contains('saavncdn.com')) {
+                if (verifyMatch(match, song)) {
+                  AppLogger.log('StreamResolver', 'Silent Fallback Rescue matched for "${song.title}": "${match.title}" -> ${match.streamUrl}');
+                  song.source = 'saavn';
+                  song.streamUrl = match.streamUrl;
+                  cacheStream(song.id, match.streamUrl!, source: 'saavn');
+                  return match.streamUrl;
+                }
+              }
+            }
+          }
+        } catch (saavnErr) {
+          AppLogger.log('StreamResolver', 'Silent Fallback Rescue Saavn notice: $saavnErr');
+        }
+      }
     } catch (e) {
       AppLogger.log('StreamResolver', 'Stage C direct YouTube notice: $e');
+
+      // Silent Fallback Rescue on YouTube 403 / cipher error
+      if (shouldBypassSaavnMatching) {
+        try {
+          final cleanBase = extractCleanBaseTitle(song.title, song.artist);
+          final firstArtist = extractFirstArtist(song.artist);
+          final queryA = '$cleanBase $firstArtist'.trim();
+          if (queryA.isNotEmpty) {
+            AppLogger.log('StreamResolver', 'Silent Fallback Rescue on Saavn (YouTube 403/cipher exception): "$queryA"');
+            final saavnMatches = await SaavnClient.search(queryA, limit: 5, language: 'all')
+                .timeout(_stageTimeout, onTimeout: () => <Song>[]);
+            for (final match in saavnMatches) {
+              if (match.streamUrl != null && match.streamUrl!.contains('saavncdn.com')) {
+                if (verifyMatch(match, song)) {
+                  AppLogger.log('StreamResolver', 'Silent Fallback Rescue matched for "${song.title}": "${match.title}" -> ${match.streamUrl}');
+                  song.source = 'saavn';
+                  song.streamUrl = match.streamUrl;
+                  cacheStream(song.id, match.streamUrl!, source: 'saavn');
+                  return match.streamUrl;
+                }
+              }
+            }
+          }
+        } catch (saavnErr) {
+          AppLogger.log('StreamResolver', 'Silent Fallback Rescue Saavn exception notice: $saavnErr');
+        }
+      }
     }
 
     // ── STAGE D (Backend Stream Proxy fallback) ──

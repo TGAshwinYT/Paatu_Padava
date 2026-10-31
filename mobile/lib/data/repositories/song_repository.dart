@@ -9,6 +9,8 @@ import '../../services/app_logger.dart';
 import '../../services/lyrics_client.dart';
 import '../../services/artist_sanitizer.dart';
 import '../../services/cover_art_resolver.dart';
+import '../../services/youtube_client.dart';
+import '../../logic/track_quality_filter.dart';
 import 'package:flutter/material.dart';
 import '../../domain/models/lyrics_state.dart';
 import '../../domain/models/home_feed_models.dart';
@@ -879,5 +881,197 @@ class SongRepository {
 
     final distinct = ensureDistinctCovers(deduplicateSongs(filterByLanguage(picks, language)));
     return distinct.take(16).toList();
+  }
+
+  /// Fetches album details and songs, shielding UI from low-level API clients.
+  static Future<Map<String, dynamic>?> getAlbumDetails({
+    required String albumId,
+    required String albumTitle,
+  }) async {
+    String targetId = albumId.trim();
+    String? imageUrl;
+
+    if (targetId.isEmpty || !RegExp(r'^\d+$').hasMatch(targetId)) {
+      try {
+        final searchAlbs = await SaavnClient.searchAlbums(albumTitle, limit: 5);
+        if (searchAlbs.isNotEmpty) {
+          final cleanTitle = albumTitle.toLowerCase().trim();
+          final match = searchAlbs.firstWhere(
+            (a) => (a['title'] ?? a['name'] ?? '').toString().toLowerCase().trim() == cleanTitle,
+            orElse: () => searchAlbs.first,
+          );
+          targetId = match['id']?.toString() ?? '';
+          final matchImg = match['image']?.toString() ?? '';
+          if (matchImg.isNotEmpty) {
+            imageUrl = matchImg;
+          }
+        }
+      } catch (_) {}
+    }
+
+    Map<String, dynamic>? details;
+    if (targetId.isNotEmpty && RegExp(r'^\d+$').hasMatch(targetId)) {
+      details = await SaavnClient.getAlbumDetails(targetId);
+    }
+
+    List<Song> songs = [];
+    if (details != null) {
+      final albImage = details['image']?.toString() ?? '';
+      if (albImage.isNotEmpty) {
+        imageUrl = albImage;
+      }
+      if (details['songs'] is List<Song>) {
+        songs = details['songs'] as List<Song>;
+      }
+    }
+
+    if (songs.isEmpty) {
+      final searchResults = await SaavnClient.search(albumTitle, limit: 20);
+      final cleanAlbum = albumTitle.toLowerCase().trim();
+      songs = searchResults.where((s) {
+        return s.album.toLowerCase().trim().contains(cleanAlbum) ||
+            cleanAlbum.contains(s.album.toLowerCase().trim());
+      }).toList();
+      if (songs.isEmpty) {
+        songs = searchResults;
+      }
+    }
+
+    return {
+      'id': targetId,
+      'image': imageUrl ?? '',
+      'songs': deduplicateSongs(songs),
+    };
+  }
+
+  /// Fetches artist discography, shielding UI from direct client calls.
+  static Future<Map<String, dynamic>> getArtistDiscography({
+    required String artistId,
+    required String artistName,
+  }) async {
+    String? resolvedImageUrl;
+
+    try {
+      final saavnArtists = await SaavnClient.searchArtists(artistName, limit: 3);
+      for (final a in saavnArtists) {
+        final img = a['image']?.toString();
+        if (img != null && img.isNotEmpty && !img.contains('default')) {
+          resolvedImageUrl = img;
+          break;
+        }
+      }
+    } catch (_) {}
+
+    final List<Song> gathered = [];
+    try {
+      final futures = <Future<List<Song>>>[];
+
+      if (artistId.trim().isNotEmpty) {
+        futures.add(
+          SaavnClient.getArtistDetails(artistId.trim())
+              .then((d) => (d?['songs'] as List<Song>?) ?? <Song>[])
+              .catchError((_) => <Song>[]),
+        );
+      }
+
+      futures.add(
+        SaavnClient.search('$artistName Hit Songs', limit: 40)
+            .catchError((_) => <Song>[]),
+      );
+
+      futures.add(
+        SaavnClient.search(artistName, limit: 40)
+            .catchError((_) => <Song>[]),
+      );
+
+      futures.add(
+        YouTubeClient.search('$artistName Songs', limit: 25)
+            .catchError((_) => <Song>[]),
+      );
+
+      final results = await Future.wait(futures);
+      for (final list in results) {
+        gathered.addAll(list);
+      }
+    } catch (e) {
+      AppLogger.log('SongRepository', 'Error loading artist discography: $e');
+    }
+
+    var uniqueSongs = deduplicateSongs(gathered);
+    if (uniqueSongs.isEmpty) {
+      try {
+        final fallback = await SaavnClient.search(artistName, limit: 30);
+        uniqueSongs = deduplicateSongs(fallback);
+      } catch (_) {}
+    }
+
+    return {
+      'image': resolvedImageUrl ?? '',
+      'songs': uniqueSongs,
+    };
+  }
+
+  /// Fetches remote playlist tracks across sources (JioSaavn or YouTube).
+  static Future<Map<String, dynamic>> getRemotePlaylistTracks({
+    required String playlistId,
+    required String playlistTitle,
+    required String source,
+  }) async {
+    List<Song> fetchedSongs = [];
+    String? imageUrl;
+
+    try {
+      if (source == 'auto_album') {
+        final details = await SaavnClient.getAlbumDetails(playlistId);
+        if (details != null && details['songs'] is List<Song>) {
+          fetchedSongs = details['songs'] as List<Song>;
+          final img = details['image']?.toString() ?? '';
+          if (img.isNotEmpty) imageUrl = img;
+        }
+      } else if (source == 'youtube') {
+        fetchedSongs = await YouTubeClient.getPlaylistTracks(playlistId, limit: 60);
+      } else {
+        final details = await SaavnClient.getPlaylistDetails(playlistId);
+        if (details != null && details['songs'] is List<Song>) {
+          fetchedSongs = details['songs'] as List<Song>;
+          final img = details['image']?.toString() ?? '';
+          if (img.isNotEmpty) imageUrl = img;
+        }
+      }
+    } catch (_) {}
+
+    if (fetchedSongs.isEmpty) {
+      try {
+        final searchResults = await SaavnClient.search(playlistTitle, limit: 25);
+        if (searchResults.isNotEmpty) {
+          fetchedSongs = searchResults;
+        } else {
+          fetchedSongs = await YouTubeClient.search(playlistTitle, limit: 25);
+        }
+      } catch (_) {}
+    }
+
+    final cleanSongs = TrackQualityFilter.filterSongs(fetchedSongs);
+    return {
+      'image': imageUrl ?? '',
+      'songs': deduplicateSongs(cleanSongs),
+    };
+  }
+
+  /// Fetches onboarding artist sample tracks or top regional artists.
+  static Future<List<Song>> getArtistSampleSongs(String artistName, {int limit = 12}) async {
+    try {
+      return await SaavnClient.search('$artistName Hit Songs', limit: limit);
+    } catch (_) {
+      return <Song>[];
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> getTopArtists({String language = 'tamil', int limit = 10}) async {
+    try {
+      return await SaavnClient.searchArtists('Top $language Artists', limit: limit);
+    } catch (_) {
+      return <Map<String, dynamic>>[];
+    }
   }
 }

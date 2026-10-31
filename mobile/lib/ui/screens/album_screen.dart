@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/song.dart';
-import '../../services/saavn_client.dart';
 import '../../services/player_handler.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/batch_download_button.dart';
@@ -41,72 +40,42 @@ class _AlbumScreenState extends State<AlbumScreen> {
   Future<void> _loadAlbumDetails() async {
     setState(() => _isLoading = true);
 
-    String targetId = widget.albumId.trim();
-    // If albumId is empty or not a numeric Saavn ID (e.g. from an ad-hoc song extraction), resolve authentic ID
-    if (targetId.isEmpty || !RegExp(r'^\d+$').hasMatch(targetId)) {
-      try {
-        final searchAlbs = await SaavnClient.searchAlbums(widget.albumTitle, limit: 5);
-        if (searchAlbs.isNotEmpty) {
-          final cleanTitle = widget.albumTitle.toLowerCase().trim();
-          final match = searchAlbs.firstWhere(
-            (a) => (a['title'] ?? a['name'] ?? '').toString().toLowerCase().trim() == cleanTitle,
-            orElse: () => searchAlbs.first,
-          );
-          targetId = match['id']?.toString() ?? '';
-          final matchImg = match['image']?.toString() ?? '';
-          if (matchImg.isNotEmpty) {
-            _currentImageUrl = matchImg;
-          }
+    try {
+      final details = await SongRepository.getAlbumDetails(
+        albumId: widget.albumId,
+        albumTitle: widget.albumTitle,
+      );
+
+      if (details != null && mounted) {
+        final img = details['image']?.toString() ?? '';
+        if (img.isNotEmpty) {
+          _currentImageUrl = img;
         }
-      } catch (_) {}
-    }
+        var songs = details['songs'] as List<Song>? ?? <Song>[];
+        final prefLang = SettingsManager.preferredLanguages.isNotEmpty
+            ? SettingsManager.preferredLanguages.first.toLowerCase().trim()
+            : 'tamil';
+        final isTamilAlbum = widget.albumTitle.toLowerCase().contains('tamil') ||
+            (details['title'] ?? '').toString().toLowerCase().contains('tamil');
+        if (prefLang == 'tamil' || isTamilAlbum) {
+          songs = SongRepository.filterByLanguage(songs, 'tamil');
+        }
 
-    Map<String, dynamic>? details;
-    if (targetId.isNotEmpty && RegExp(r'^\d+$').hasMatch(targetId)) {
-      details = await SaavnClient.getAlbumDetails(targetId);
-    }
-
-    List<Song> songs = [];
-    if (details != null) {
-      final albImage = details['image']?.toString() ?? '';
-      if (albImage.isNotEmpty) {
-        _currentImageUrl = albImage;
+        if (mounted) {
+          setState(() {
+            _songs = songs;
+            _isLoading = false;
+          });
+          if (songs.isNotEmpty) {
+            DefaultStreamResolver.prewarmSongs(songs, limit: 3);
+          }
+          return;
+        }
       }
-      if (details['songs'] is List<Song>) {
-        songs = details['songs'] as List<Song>;
-      }
-    }
-
-    // Fallback search if album details endpoint is empty
-    if (songs.isEmpty) {
-      final searchResults = await SaavnClient.search(widget.albumTitle, limit: 20);
-      final cleanAlbum = widget.albumTitle.toLowerCase().trim();
-      songs = searchResults.where((s) {
-        return s.album.toLowerCase().trim().contains(cleanAlbum) ||
-            cleanAlbum.contains(s.album.toLowerCase().trim());
-      }).toList();
-      if (songs.isEmpty) {
-        songs = searchResults;
-      }
-    }
-
-    final prefLang = SettingsManager.preferredLanguages.isNotEmpty
-        ? SettingsManager.preferredLanguages.first.toLowerCase().trim()
-        : 'tamil';
-    final isTamilAlbum = widget.albumTitle.toLowerCase().contains('tamil') ||
-        (details != null && (details['title'] ?? '').toString().toLowerCase().contains('tamil'));
-    if (prefLang == 'tamil' || isTamilAlbum) {
-      songs = SongRepository.filterByLanguage(songs, 'tamil');
-    }
+    } catch (_) {}
 
     if (mounted) {
-      setState(() {
-        _songs = songs;
-        _isLoading = false;
-      });
-      if (songs.isNotEmpty) {
-        DefaultStreamResolver.prewarmSongs(songs, limit: 3);
-      }
+      setState(() => _isLoading = false);
     }
   }
 

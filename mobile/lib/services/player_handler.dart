@@ -16,6 +16,7 @@ import '../logic/lyrics/indic_romanizer.dart';
 import 'error_handler.dart';
 import 'api_client.dart';
 import 'history_manager.dart';
+import 'queue_cooldown_manager.dart';
 import 'equalizer_service.dart';
 import 'youtube_client.dart';
 import 'radio_engine.dart';
@@ -651,7 +652,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       _broadcastState();
     });
 
-    // 30-second scrobble threshold (or >= 50% for tracks under 60 seconds)
+    // Telemetry: 50% playback progress milestone
     _throttledPositionSub = _player.positionStream.listen((pos) {
       if (!_hasRecordedListen && pos.inSeconds >= 15 && currentSong != null) {
         _hasRecordedListen = true;
@@ -660,10 +661,14 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       if (!_hasRecordedHistory && currentSong != null) {
         final song = currentSong!;
         final totalSec = _player.duration?.inSeconds ?? song.duration;
-        final thresholdSec = (totalSec > 0 && totalSec < 60) ? (totalSec * 0.5) : 30.0;
-        if (pos.inSeconds >= thresholdSec) {
+        final isFiftyPercent = totalSec > 0
+            ? (pos.inSeconds >= (totalSec * 0.50))
+            : (pos.inSeconds >= 30);
+        if (isFiftyPercent) {
           _hasRecordedHistory = true;
-          HistoryManager.addToHistory(TrackEntity.fromSong(song));
+          final track = TrackEntity.fromSong(song);
+          HistoryManager.addToHistory(track);
+          QueueCooldownManager.recordPlayed(song);
         }
       }
     });

@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../models/song.dart';
-import '../../services/saavn_client.dart';
-import '../../services/youtube_client.dart';
 import '../../services/player_handler.dart';
 import '../../services/download_manager.dart';
 import '../../data/repositories/song_repository.dart';
@@ -67,18 +65,6 @@ class _ArtistScreenState extends State<ArtistScreen> {
         return;
       }
     } catch (_) {}
-
-    // Fallback: JioSaavn genuine music artist search
-    try {
-      final saavnArtists = await SaavnClient.searchArtists(widget.artistName, limit: 3);
-      for (final a in saavnArtists) {
-        final img = a['image']?.toString();
-        if (img != null && img.isNotEmpty && !img.contains('default') && mounted) {
-          setState(() => _resolvedImageUrl = img);
-          return;
-        }
-      }
-    } catch (_) {}
   }
 
   @override
@@ -89,78 +75,49 @@ class _ArtistScreenState extends State<ArtistScreen> {
 
   Future<void> _loadArtistSongs() async {
     setState(() => _isLoading = true);
-    final List<Song> gathered = [];
 
     try {
-      final futures = <Future<List<Song>>>[];
+      final discography = await SongRepository.getArtistDiscography(
+        artistId: widget.artistId,
+        artistName: widget.artistName,
+      );
 
-      // 1. Dedicated artist page details (if artistId is available)
-      if (widget.artistId.trim().isNotEmpty) {
-        futures.add(
-          SaavnClient.getArtistDetails(widget.artistId.trim())
-              .then((d) => (d?['songs'] as List<Song>?) ?? <Song>[])
-              .catchError((_) => <Song>[]),
-        );
+      final discImg = discography['image']?.toString() ?? '';
+      if (_resolvedImageUrl.isEmpty && discImg.isNotEmpty && mounted) {
+        setState(() => _resolvedImageUrl = discImg);
       }
 
-      // 2. JioSaavn Top Hits search
-      futures.add(
-        SaavnClient.search('${widget.artistName} Hit Songs', limit: 40)
-            .catchError((_) => <Song>[]),
-      );
+      var uniqueSongs = (discography['songs'] as List<Song>?) ?? <Song>[];
 
-      // 3. JioSaavn Complete Catalog search
-      futures.add(
-        SaavnClient.search(widget.artistName, limit: 40)
-            .catchError((_) => <Song>[]),
-      );
+      // Prioritize songs in user's preferred language to avoid cross-language contamination
+      final prefLang = SettingsManager.preferredLanguages.isNotEmpty
+          ? SettingsManager.preferredLanguages.first.toLowerCase()
+          : 'tamil';
+      uniqueSongs.sort((a, b) {
+        final aIsMismatch = SongRepository.isLanguageMismatch(a, prefLang);
+        final bIsMismatch = SongRepository.isLanguageMismatch(b, prefLang);
+        if (!aIsMismatch && bIsMismatch) return -1;
+        if (aIsMismatch && !bIsMismatch) return 1;
+        return 0;
+      });
 
-      // 4. YouTube Music Tracks fallback/supplement
-      futures.add(
-        YouTubeClient.search('${widget.artistName} Songs', limit: 25)
-            .catchError((_) => <Song>[]),
-      );
-
-      final results = await Future.wait(futures);
-      for (final list in results) {
-        gathered.addAll(list);
+      if (mounted) {
+        setState(() {
+          _songs = uniqueSongs;
+          _filteredSongs = uniqueSongs;
+          _isLoading = false;
+        });
+        if (uniqueSongs.isNotEmpty) {
+          DefaultStreamResolver.prewarmSongs(uniqueSongs, limit: 3);
+        }
+        return;
       }
     } catch (e) {
       debugPrint('[ArtistScreen] Error loading artist discography: $e');
     }
 
-    // Strict deduplication across multiple sources
-    var uniqueSongs = SongRepository.deduplicateSongs(gathered);
-
-    // Fallback if needed
-    if (uniqueSongs.isEmpty) {
-      try {
-        final fallback = await SaavnClient.search(widget.artistName, limit: 30);
-        uniqueSongs = SongRepository.deduplicateSongs(fallback);
-      } catch (_) {}
-    }
-
-    // Prioritize songs in user's preferred language to avoid cross-language contamination
-    final prefLang = SettingsManager.preferredLanguages.isNotEmpty
-        ? SettingsManager.preferredLanguages.first.toLowerCase()
-        : 'tamil';
-    uniqueSongs.sort((a, b) {
-      final aIsMismatch = SongRepository.isLanguageMismatch(a, prefLang);
-      final bIsMismatch = SongRepository.isLanguageMismatch(b, prefLang);
-      if (!aIsMismatch && bIsMismatch) return -1;
-      if (aIsMismatch && !bIsMismatch) return 1;
-      return 0;
-    });
-
     if (mounted) {
-      setState(() {
-        _songs = uniqueSongs;
-        _filteredSongs = uniqueSongs;
-        _isLoading = false;
-      });
-      if (uniqueSongs.isNotEmpty) {
-        DefaultStreamResolver.prewarmSongs(uniqueSongs, limit: 3);
-      }
+      setState(() => _isLoading = false);
     }
   }
 

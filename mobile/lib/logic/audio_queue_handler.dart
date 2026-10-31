@@ -19,6 +19,7 @@ import '../services/player_handler.dart';
 import '../services/app_logger.dart';
 import '../services/battery_optimization_service.dart';
 import '../services/queue_cooldown_manager.dart';
+import '../services/history_manager.dart';
 import '../services/des_decrypt.dart';
 import '../services/connectivity_service.dart';
 import '../services/smart_cache_service.dart';
@@ -135,7 +136,15 @@ class AudioQueueHandler {
   Timer? _volumeWatchdogTimer;
   bool _hasEnforcedInitialVolume = false;
   bool _isRecovering = false;
-  bool _isLookaheadTriggered = false;
+  bool _hasTriggered25PctRecs = false;
+  bool _hasTriggered50PctHistory = false;
+  bool _hasTriggered70PctPrecache = false;
+
+  void _resetTrackMilestones() {
+    _hasTriggered25PctRecs = false;
+    _hasTriggered50PctHistory = false;
+    _hasTriggered70PctPrecache = false;
+  }
   bool _wasStalledByNetwork = false;
   Duration _networkStallOffset = Duration.zero;
   int _consecutivePlaybackErrors = 0;
@@ -473,27 +482,49 @@ class AudioQueueHandler {
         _handleCrossfade(pos);
       }
 
-      // Lookahead Pre-Resolution & Recommendation Pre-fetch (25% progress or <= 15s remaining)
+      // Unidirectional Data Flow Milestones:
+      // Milestone 1 (25% progress or <= 15s remaining): Candidate Generation Pre-fetch
+      // Milestone 2 (50% progress): Telemetry & Feedback Loop (HistoryManager + QueueCooldownManager)
+      // Milestone 3 (70% progress): JIT Stream Resolution & Header Pre-caching for next track (index + 1)
       final dur = player.duration;
-      if (dur != null && dur.inSeconds > 15 && !_isLookaheadTriggered) {
-        final remainingSec = dur.inSeconds - pos.inSeconds;
+      if (dur != null && dur.inSeconds > 15) {
         final progressRatio = pos.inMilliseconds / dur.inMilliseconds;
-        if (progressRatio >= 0.25 || remainingSec <= 15) {
-          _isLookaheadTriggered = true;
-          AppLogger.log('AudioQueueHandler', 'Lookahead threshold reached (${(progressRatio * 100).toInt()}% / ${remainingSec}s remaining).');
+        final remainingSec = dur.inSeconds - pos.inSeconds;
 
-          if (hasNext) {
-            preloadUpcomingTracks();
-          }
+        // Milestone 1: 25% Progress - Candidate Generation
+        if (!_hasTriggered25PctRecs && (progressRatio >= 0.25 || remainingSec <= 15)) {
+          _hasTriggered25PctRecs = true;
+          AppLogger.log('AudioQueueHandler', '25% milestone reached: Candidate generation check (upcoming count: $upcomingCount).');
 
           final remainingUpcoming = upcomingCount;
           if (remainingUpcoming <= 2 && SettingsManager.isAutoplayEnabled && isAudioHandlerInitialized) {
             final active = currentSong;
             if (active != null) {
               final seed = _lastCompletedSeedSong ?? active;
-              AppLogger.log('AudioQueueHandler', 'Lookahead triggered recommendation pre-fetch for seed "${seed.title}" (upcoming count: $remainingUpcoming)');
+              AppLogger.log('AudioQueueHandler', 'Triggered recommendation pre-fetch for seed "${seed.title}"');
               audioHandler.prefetchNextRecommendations(seed);
             }
+          }
+        }
+
+        // Milestone 2: 50% Progress - Telemetry & Feedback Loop
+        if (!_hasTriggered50PctHistory && progressRatio >= 0.50) {
+          _hasTriggered50PctHistory = true;
+          final active = currentSong;
+          if (active != null) {
+            final track = TrackEntity.fromSong(active);
+            HistoryManager.addToHistory(track);
+            QueueCooldownManager.recordPlayed(active);
+            AppLogger.log('AudioQueueHandler', '50% milestone: Recorded play to HistoryManager and QueueCooldownManager for "${active.title}".');
+          }
+        }
+
+        // Milestone 3: 70% Progress - JIT Pre-caching for next song (index + 1)
+        if (!_hasTriggered70PctPrecache && (progressRatio >= 0.70 || remainingSec <= 15)) {
+          _hasTriggered70PctPrecache = true;
+          AppLogger.log('AudioQueueHandler', '70% milestone: JIT stream pre-cache for index + 1.');
+          if (hasNext) {
+            preloadUpcomingTracks();
           }
         }
       }
@@ -1076,6 +1107,7 @@ class AudioQueueHandler {
       _isAdvancing = false;
       _hasRetriedCurrentTrack = false;
       _hasEnforcedInitialVolume = false;
+      _resetTrackMilestones();
 
       _contextIndex = 0;
       _currentTrack = orderedTracks[0];
@@ -1711,7 +1743,7 @@ class AudioQueueHandler {
     _playlistBaseIndex = currentIndex;
     _hasRetriedCurrentTrack = false;
     _hasEnforcedInitialVolume = false;
-    _isLookaheadTriggered = false;
+    _resetTrackMilestones();
     _syncState();
 
     final song = currentSong;
@@ -1798,7 +1830,7 @@ class AudioQueueHandler {
 
       _playlistBaseIndex = currentIndex;
       _hasRetriedCurrentTrack = false;
-      _isLookaheadTriggered = false;
+      _resetTrackMilestones();
       _syncState();
       onSongChanged?.call(song);
 

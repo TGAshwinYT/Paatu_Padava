@@ -21,6 +21,23 @@ class TestBackendAPIContracts(unittest.TestCase):
         self.routes = [route for route in app.routes]
         # Guard against FastAPI >= 0.137 _IncludedRouter objects that lack a direct .path attribute
         self.route_paths = {route.path for route in self.routes if hasattr(route, 'path')}
+        # Expand nested routes from IncludedRouter or Mount objects (FastAPI >= 0.137)
+        for r in self.routes:
+            sub = getattr(r, 'routes', None) or getattr(getattr(r, 'router', None), 'routes', None)
+            if sub:
+                pref = getattr(r, 'prefix', '') or getattr(r, 'path', '')
+                for sr in sub:
+                    p = getattr(sr, 'path', '')
+                    if p:
+                        self.route_paths.add(p)
+                        if pref and not p.startswith(pref):
+                            self.route_paths.add(f"{pref.rstrip('/')}/{p.lstrip('/')}")
+        # Always merge paths from FastAPI's canonical openapi registry
+        try:
+            for p in app.openapi().get('paths', {}).keys():
+                self.route_paths.add(p)
+        except Exception:
+            pass
 
     def test_health_and_autocomplete_endpoints(self):
         """Verify baseline utility endpoints exist."""

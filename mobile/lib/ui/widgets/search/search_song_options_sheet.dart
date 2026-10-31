@@ -4,6 +4,7 @@ import '../../../models/song.dart';
 import '../../../services/player_handler.dart';
 import '../../../services/download_manager.dart';
 import '../../../services/favorites_manager.dart';
+import '../../../services/blacklist_manager.dart';
 import '../../theme/app_theme.dart';
 import '../add_to_playlist_dialog.dart';
 
@@ -78,6 +79,31 @@ class SearchSongOptionsSheet {
                 Navigator.pop(context);
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.block_rounded, color: Colors.redAccent),
+              title: const Text("Don't play this song", style: TextStyle(color: Colors.white)),
+              subtitle: const Text("Never recommend or autoplay this track", style: TextStyle(color: Colors.white54, fontSize: 12)),
+              onTap: () {
+                Navigator.pop(context);
+                BlacklistManager.blacklistSong(song);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Blocked "${_unescape.convert(Song.sanitize(song.title))}". Won\'t play again.')),
+                );
+              },
+            ),
+            if (song.primaryArtist.isNotEmpty && song.primaryArtist.toLowerCase() != 'various artists')
+              ListTile(
+                leading: const Icon(Icons.person_off_rounded, color: Colors.redAccent),
+                title: Text('Don\'t play "${song.primaryArtist}"', style: const TextStyle(color: Colors.white)),
+                subtitle: const Text("Hide all tracks by this artist", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                onTap: () {
+                  Navigator.pop(context);
+                  BlacklistManager.blacklistArtist(song.primaryArtist);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Blocked artist "${song.primaryArtist}".')),
+                  );
+                },
+              ),
           ],
         ),
       ),

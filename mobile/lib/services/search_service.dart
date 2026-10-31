@@ -19,6 +19,12 @@ import 'app_logger.dart';
 import 'artist_sanitizer.dart';
 import 'api_client.dart';
 import '../data/repositories/song_repository.dart';
+import '../core/dsa/lru_cache.dart';
+import '../domain/models/clustered_track_result.dart';
+import '../logic/track_quality_filter.dart';
+
+
+
 
 class QueryIntent {
   final String rawQuery;
@@ -1288,5 +1294,273 @@ class SearchService {
       lastResult = res;
     }
     return lastResult;
+  }
+
+  static int _searchGenerationId = 0;
+  static int get currentGenerationId => _searchGenerationId;
+  static int nextGenerationId() => ++_searchGenerationId;
+
+  static final LruCache<String, ClassifiedSearchPayload> _classifiedLruCache =
+      LruCache<String, ClassifiedSearchPayload>(capacity: 25);
+  static final LruCache<String, List<Song>> _hydratedCollectionCache =
+      LruCache<String, List<Song>>(capacity: 30);
+
+  /// Clusters raw candidate songs into ClusteredTrackResults.
+  /// Identifies official studio songs and nests fan mixes, slowed+reverb, mashups, and BGMs as alternateVersions.
+  static List<ClusteredTrackResult> clusterAndClassifySongs(
+    List<Song> songs, {
+    required String query,
+    bool isExplicitMixRequest = false,
+  }) {
+    if (songs.isEmpty) return const [];
+
+    final Map<String, List<Song>> groups = {};
+    final Map<String, ContentClassification> classifications = {};
+
+    for (final song in songs) {
+      final classification = TrackQualityFilter.classifyTrack(
+        title: song.title,
+        durationSec: song.duration,
+        source: song.source,
+        artist: song.artist,
+      );
+
+      // Hard-drop non-music reviews/trailers/junk
+      if (classification == ContentClassification.rejectedJunk) {
+        continue;
+      }
+
+      classifications[song.id] = classification;
+
+      // Group key: canonical core title + primary artist
+      final coreTitle = SearchQueryPlanner.extractNormalizedCoreTitle(song.title);
+      final primaryArtist = song.primaryArtist.toLowerCase().trim();
+      final groupKey = '$coreTitle|$primaryArtist';
+
+      groups.putIfAbsent(groupKey, () => []).add(song);
+    }
+
+    final List<ClusteredTrackResult> clusters = [];
+
+    for (final entry in groups.entries) {
+      final candidates = entry.value;
+      if (candidates.isEmpty) continue;
+
+      candidates.sort((a, b) {
+        final classA = classifications[a.id] ?? ContentClassification.officialTrack;
+        final classB = classifications[b.id] ?? ContentClassification.officialTrack;
+
+        if (classA == ContentClassification.officialTrack && classB != ContentClassification.officialTrack) {
+          return -1;
+        }
+        if (classB == ContentClassification.officialTrack && classA != ContentClassification.officialTrack) {
+          return 1;
+        }
+
+        final scoreA = SearchQueryPlanner.calculateRelevanceScore(
+          query: query,
+          song: a,
+          classification: classA,
+          isExplicitMixRequest: isExplicitMixRequest,
+        );
+        final scoreB = SearchQueryPlanner.calculateRelevanceScore(
+          query: query,
+          song: b,
+          classification: classB,
+          isExplicitMixRequest: isExplicitMixRequest,
+        );
+        return scoreB.compareTo(scoreA);
+      });
+
+      final primary = candidates.first;
+      final alternates = candidates.skip(1).toList();
+      final primaryClass = classifications[primary.id] ?? ContentClassification.officialTrack;
+
+      final confidence = SearchQueryPlanner.calculateRelevanceScore(
+        query: query,
+        song: primary,
+        classification: primaryClass,
+        isExplicitMixRequest: isExplicitMixRequest,
+      );
+
+      final hydratedPrimary = primary.copyWith(
+        versions: alternates,
+      );
+
+      clusters.add(ClusteredTrackResult(
+        primaryTrack: hydratedPrimary,
+        category: primaryClass,
+        confidenceScore: confidence,
+        alternateVersions: alternates,
+      ));
+    }
+
+    clusters.sort((a, b) => b.confidenceScore.compareTo(a.confidenceScore));
+    return clusters;
+  }
+
+  /// Evaluates whether the top clustered result meets the threshold (>= 0.85) to be crowned Top Result.
+  static ClusteredTrackResult? evaluateTopResult(
+    List<ClusteredTrackResult> clusters, {
+    required String query,
+    bool isExplicitMixRequest = false,
+  }) {
+    if (clusters.isEmpty) return null;
+    final top = clusters.first;
+
+    if (top.confidenceScore < 0.85) {
+      return null;
+    }
+
+    if (top.category != ContentClassification.officialTrack && !isExplicitMixRequest) {
+      return null;
+    }
+
+    return top;
+  }
+
+  /// Converts raw album maps into lightweight CollectionSummary objects
+  static List<CollectionSummary> parseAlbumSummaries(List<Map<String, dynamic>> rawAlbums) {
+    final List<CollectionSummary> list = [];
+    final Set<String> seen = {};
+    for (final alb in rawAlbums) {
+      final title = alb['title']?.toString() ?? alb['name']?.toString() ?? '';
+      if (title.isEmpty) continue;
+      final key = title.toLowerCase().trim();
+      if (seen.contains(key)) continue;
+      seen.add(key);
+
+      list.add(CollectionSummary(
+        id: alb['id']?.toString() ?? '',
+        title: title,
+        subtitle: alb['artist']?.toString() ?? alb['subtitle']?.toString() ?? 'Album',
+        artworkUrl: alb['image']?.toString() ?? alb['cover_url']?.toString() ?? '',
+        type: CollectionType.album,
+        trackCount: (alb['song_count'] as num?)?.toInt(),
+      ));
+    }
+    return list;
+  }
+
+  /// Converts raw playlist maps into lightweight CollectionSummary objects
+  static List<CollectionSummary> parsePlaylistSummaries(List<Map<String, dynamic>> rawPlaylists) {
+    final List<CollectionSummary> list = [];
+    final Set<String> seen = {};
+    for (final pl in rawPlaylists) {
+      final title = pl['title']?.toString() ?? pl['name']?.toString() ?? '';
+      if (title.isEmpty) continue;
+      final key = title.toLowerCase().trim();
+      if (seen.contains(key)) continue;
+      seen.add(key);
+
+      list.add(CollectionSummary(
+        id: pl['id']?.toString() ?? '',
+        title: title,
+        subtitle: pl['subtitle']?.toString() ?? 'Playlist',
+        artworkUrl: pl['image']?.toString() ?? pl['cover_url']?.toString() ?? '',
+        type: CollectionType.playlist,
+        trackCount: (pl['song_count'] as num?)?.toInt(),
+      ));
+    }
+    return list;
+  }
+
+  /// Lazily hydrates the full tracklist for an album or playlist on demand.
+  static Future<List<Song>> hydrateCollectionTracks(CollectionSummary summary) async {
+    final cached = _hydratedCollectionCache.get(summary.id);
+    if (cached != null) return cached;
+
+    List<Song> songs = [];
+    try {
+      if (summary.type == CollectionType.album) {
+        final details = await SongRepository.getAlbumDetails(
+          albumId: summary.id,
+          albumTitle: summary.title,
+        );
+        if (details != null && details['songs'] is List<Song>) {
+          songs = details['songs'] as List<Song>;
+        }
+      } else {
+        final src = (summary.id.startsWith('VL') || summary.id.startsWith('RD')) ? 'youtube' : 'saavn';
+        final details = await SongRepository.getRemotePlaylistTracks(
+          playlistId: summary.id,
+          playlistTitle: summary.title,
+          source: src,
+        );
+        if (details['tracks'] is List<Song>) {
+          songs = details['tracks'] as List<Song>;
+        }
+      }
+    } catch (e) {
+      AppLogger.log('SearchService', 'Error hydrating collection ${summary.title}: $e');
+    }
+
+    if (songs.isNotEmpty) {
+      _hydratedCollectionCache.put(summary.id, songs);
+    }
+    return songs;
+  }
+
+  /// High-performance classified search returning grouped studio tracks + fan mixes.
+  static Future<ClassifiedSearchPayload> searchClassifiedUnified(
+    String rawQuery, {
+    String? language,
+    int limit = 25,
+    int? generationId,
+  }) async {
+    final clean = rawQuery.trim();
+    if (clean.isEmpty) {
+      return const ClassifiedSearchPayload(query: '');
+    }
+
+    final cacheKey = '${clean.toLowerCase()}__${language?.toLowerCase() ?? ""}';
+    final cached = _classifiedLruCache.get(cacheKey);
+    if (cached != null) {
+      return cached;
+    }
+
+    final intent = SearchQueryPlanner.analyzeQuery(clean, explicitLanguage: language);
+    final rawResults = await searchUnified(clean, language: language, limit: limit);
+
+    if (generationId != null && generationId != _searchGenerationId) {
+      return const ClassifiedSearchPayload(query: '');
+    }
+
+    final allRawSongs = [
+      ...rawResults.songs,
+      ...rawResults.saavnSongs,
+      ...rawResults.ytSongs,
+    ];
+
+    final clusters = clusterAndClassifySongs(
+      allRawSongs,
+      query: clean,
+      isExplicitMixRequest: intent.isExplicitMixRequest,
+    );
+
+    final topResult = evaluateTopResult(
+      clusters,
+      query: clean,
+      isExplicitMixRequest: intent.isExplicitMixRequest,
+    );
+
+    final albums = parseAlbumSummaries(rawResults.albums);
+    final playlists = parsePlaylistSummaries(rawResults.playlists);
+
+    final payload = ClassifiedSearchPayload(
+      query: clean,
+      clusteredSongs: clusters,
+      albums: albums,
+      playlists: playlists,
+      artists: rawResults.artists,
+      topResult: topResult,
+      didYouMean: rawResults.didYouMean,
+    );
+
+    if (!payload.isEmpty) {
+      _classifiedLruCache.put(cacheKey, payload);
+    }
+
+    return payload;
   }
 }

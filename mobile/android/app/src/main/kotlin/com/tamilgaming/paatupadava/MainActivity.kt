@@ -18,6 +18,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity: AudioServiceActivity() {
     private val CHANNEL = "com.tamilgaming.paatupadava/equalizer"
     private val BATTERY_CHANNEL = "com.tamilgaming.paatupadava/battery"
+    private val WIDGET_CHANNEL = "com.tamilgaming.paatupadava/widget"
     private var equalizer: Equalizer? = null
     private var bassBoost: BassBoost? = null
     private var virtualizer: Virtualizer? = null
@@ -136,6 +137,21 @@ class MainActivity: AudioServiceActivity() {
                     } catch (e: Exception) {
                         result.success(false)
                     }
+                }
+                else -> result.notImplemented()
+            }
+        }
+
+        // Home screen AppWidget synchronization channel
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WIDGET_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "updateWidget" -> {
+                    val title = call.argument<String>("title")
+                    val artist = call.argument<String>("artist")
+                    val isPlaying = call.argument<Boolean>("isPlaying") ?: false
+                    val coverBytes = call.argument<ByteArray>("coverBytes")
+                    MusicWidgetProvider.updateAllWidgets(applicationContext, title, artist, isPlaying, coverBytes)
+                    result.success(true)
                 }
                 else -> result.notImplemented()
             }

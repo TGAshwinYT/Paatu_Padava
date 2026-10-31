@@ -7,6 +7,7 @@ import '../../services/player_handler.dart';
 import 'add_to_playlist_dialog.dart';
 
 import '../../services/favorites_manager.dart';
+import '../../services/blacklist_manager.dart';
 
 class SwipeableSongTile extends StatelessWidget {
   final Song song;
@@ -360,6 +361,42 @@ class SwipeableSongTile extends StatelessWidget {
                   AddToPlaylistDialog.show(context, song);
                 } else if (val == 'remove') {
                   onRemove?.call();
+                } else if (val == 'block_song') {
+                  BlacklistManager.blacklistSong(song);
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Row(
+                        children: [
+                          const Icon(Icons.block_rounded, color: Colors.redAccent, size: 18),
+                          const SizedBox(width: 10),
+                          Expanded(child: Text('Blocked "${song.title}". Won\'t play again.')),
+                        ],
+                      ),
+                      backgroundColor: const Color(0xFF1E293B),
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                } else if (val == 'block_artist') {
+                  BlacklistManager.blacklistArtist(song.primaryArtist);
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Row(
+                        children: [
+                          const Icon(Icons.person_off_rounded, color: Colors.redAccent, size: 18),
+                          const SizedBox(width: 10),
+                          Expanded(child: Text('Blocked artist "${song.primaryArtist}".')),
+                        ],
+                      ),
+                      backgroundColor: const Color(0xFF1E293B),
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
                 }
               },
               itemBuilder: (context) => [
@@ -403,6 +440,31 @@ class SwipeableSongTile extends StatelessWidget {
                     ],
                   ),
                 ),
+                const PopupMenuItem(
+                  value: 'block_song',
+                  child: Row(
+                    children: [
+                      Icon(Icons.block_rounded, color: Colors.redAccent, size: 20),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text("Don't play this song", style: TextStyle(color: Colors.redAccent, fontSize: 13), overflow: TextOverflow.ellipsis),
+                      ),
+                    ],
+                  ),
+                ),
+                if (song.primaryArtist.isNotEmpty && song.primaryArtist.toLowerCase() != 'various artists')
+                  PopupMenuItem(
+                    value: 'block_artist',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.person_off_rounded, color: Colors.redAccent, size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text('Don\'t play "${song.primaryArtist}"', style: const TextStyle(color: Colors.redAccent, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ),
+                      ],
+                    ),
+                  ),
                 if (onRemove != null)
                   PopupMenuItem(
                     value: 'remove',

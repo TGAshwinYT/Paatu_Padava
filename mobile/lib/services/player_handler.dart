@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:just_audio/just_audio.dart';
 import '../logic/audio_queue_handler.dart';
@@ -21,12 +23,15 @@ import 'equalizer_service.dart';
 import 'youtube_client.dart';
 import 'radio_engine.dart';
 import 'favorites_manager.dart';
+import 'download_manager.dart';
 import 'playlist_manager.dart';
 import 'app_logger.dart';
 import 'party_sync_coordinator.dart';
 import 'sleep_timer_service.dart';
+import 'blacklist_manager.dart';
 import 'lyrics_client.dart';
 import 'smart_cache_service.dart';
+import 'search_service.dart';
 import '../data/repositories/song_repository.dart';
 
 PaatuAudioHandler? _audioHandlerInstance;
@@ -99,6 +104,22 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   final ValueNotifier<Duration?> sleepTimerRemainingNotifier = ValueNotifier<Duration?>(null);
   final ValueNotifier<bool> isSmartShuffleNotifier = ValueNotifier<bool>(false);
   final ValueNotifier<AppError?> playbackErrorNotifier = ValueNotifier<AppError?>(null);
+
+  static const MethodChannel _widgetChannel = MethodChannel('com.tamilgaming.paatupadava/widget');
+
+  void _syncWidgetState({Song? song, bool? isPlaying}) {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        final active = song ?? currentSong;
+        final playing = isPlaying ?? _player.playing;
+        _widgetChannel.invokeMethod('updateWidget', {
+          'title': active?.title ?? 'Paatu Padava',
+          'artist': active?.artist ?? 'Tap to play',
+          'isPlaying': playing,
+        }).catchError((_) {});
+      } catch (_) {}
+    }
+  }
 
   bool _hasRecordedListen = false;
   bool _hasRecordedHistory = false;
@@ -285,6 +306,16 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       }
     });
 
+    // Auto-skip if current song or artist is blacklisted by user
+    void checkBlacklistOnActive() {
+      final cur = currentSong;
+      if (cur != null && BlacklistManager.isBlacklisted(cur)) {
+        skipToNext();
+      }
+    }
+    BlacklistManager.blacklistedSongsNotifier.addListener(checkBlacklistOnActive);
+    BlacklistManager.blacklistedArtistsNotifier.addListener(checkBlacklistOnActive);
+
     // Connect 5-band equalizer directly to native audio session ID
     int? initialSessionId;
     try {
@@ -382,9 +413,15 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   }
 
   void _onActiveTrackChanged(Song song) {
+    if (BlacklistManager.isBlacklisted(song)) {
+      AppLogger.log('PlayerHandler', 'Active track is blacklisted: "${song.title}". Auto-skipping.');
+      skipToNext();
+      return;
+    }
     AppLogger.log('PlayerHandler', 'Active track changed: "${song.title}" (${song.artist}) [id=${song.id}]');
     // Synchronously update system notification metadata
     mediaItem.add(song.toMediaItem());
+    _syncWidgetState(song: song);
 
     // Update cached favorite status once for new song
     _cachedFavSongId = song.id;
@@ -573,6 +610,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       speed: _player.speed,
       queueIndex: _queueHandler.currentIndex,
     ));
+    _syncWidgetState(isPlaying: playing);
   }
 
   @override
@@ -1271,6 +1309,11 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
           playable: false,
         ),
         const MediaItem(
+          id: 'root_downloads',
+          title: 'Downloaded Songs',
+          playable: false,
+        ),
+        const MediaItem(
           id: 'root_playlists',
           title: 'Playlists',
           playable: false,
@@ -1281,6 +1324,12 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     // 2. Liked Songs
     if (parentMediaId == 'root_liked') {
       final songs = FavoritesManager.getFavorites();
+      return songs.map((s) => s.toMediaItem().copyWith(playable: true)).toList();
+    }
+
+    // 2b. Downloaded Offline Songs
+    if (parentMediaId == 'root_downloads') {
+      final songs = DownloadManager.getDownloadedSongs();
       return songs.map((s) => s.toMediaItem().copyWith(playable: true)).toList();
     }
 
@@ -1363,6 +1412,29 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
         await playSong(pl.tracks[idx], queue: pl.tracks);
         return;
       }
+    }
+
+    // 5. Downloaded
+    final downloaded = DownloadManager.getDownloadedSongs();
+    final dlIdx = downloaded.indexWhere((s) => s.id == mediaId);
+    if (dlIdx != -1) {
+      await playSong(downloaded[dlIdx], queue: downloaded);
+      return;
+    }
+  }
+
+  @override
+  Future<void> playFromSearch(String query, [Map<String, dynamic>? extras]) async {
+    final clean = query.trim();
+    if (clean.isEmpty) return;
+    AppLogger.log('PlayerHandler', 'Android Auto voice search: "$clean"');
+    try {
+      final results = await SearchService.searchSongsTab(clean, limit: 10);
+      if (results.isNotEmpty) {
+        await playSong(results.first, queue: results);
+      }
+    } catch (e) {
+      AppLogger.log('PlayerHandler', 'Android Auto playFromSearch error: $e');
     }
   }
 

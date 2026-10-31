@@ -16,6 +16,7 @@ import 'services/history_manager.dart';
 import 'services/supabase_service.dart';
 import 'services/cache_manager.dart';
 import 'services/battery_optimization_service.dart';
+import 'services/blacklist_manager.dart';
 import 'services/cover_art_resolver.dart';
 import 'services/innertube_config_service.dart';
 import 'services/sync_manager.dart';
@@ -79,6 +80,7 @@ Future<void> main() async {
         CoverArtResolver.init(),
         Hive.openBox('home_feed_cache'),
         AuthManager.initLocalCache(),
+        BlacklistManager.init(),
       ]);
     } catch (e, stack) {
       AppLogger.recordError(e, stack, context: 'Local Hive boxes init');
@@ -151,6 +153,10 @@ Future<void> _initDeferredServices() async {
 
   // Android 13+ runtime notification permission request
   unawaited(BatteryOptimizationService.requestNotificationPermission());
+  unawaited(DownloadManager.triggerSmartDownloads());
+  FavoritesManager.favoritesNotifier.addListener(() {
+    unawaited(DownloadManager.triggerSmartDownloads());
+  });
 }
 
 class AudioFatalErrorApp extends StatelessWidget {

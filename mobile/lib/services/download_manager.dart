@@ -13,6 +13,8 @@ import 'error_handler.dart';
 import '../core/dsa/bloom_filter.dart';
 import 'app_logger.dart';
 import 'des_decrypt.dart';
+import 'connectivity_service.dart';
+import 'favorites_manager.dart';
 
 class DownloadManager {
   static const String boxName = 'offline_songs';
@@ -162,6 +164,34 @@ class DownloadManager {
     }
     queueLengthNotifier.value = _downloadQueue.length;
     _processQueue();
+  }
+
+  /// Automatically downloads liked songs up to the user-configured cap when connected to Wi-Fi
+  static Future<int> triggerSmartDownloads() async {
+    if (!SettingsManager.isSmartDownloadsEnabled) return 0;
+
+    final onWifi = await ConnectivityService.isWifi();
+    if (!onWifi) return 0;
+
+    final likedSongs = FavoritesManager.getFavorites();
+    if (likedSongs.isEmpty) return 0;
+
+    final cap = SettingsManager.smartDownloadsCap;
+    final candidates = likedSongs.take(cap).toList();
+
+    int queued = 0;
+    for (final song in candidates) {
+      if (!isDownloaded(song.id) && !isQueuedOrDownloading(song.id)) {
+        _downloadQueue.add(song);
+        queued++;
+      }
+    }
+    if (queued > 0) {
+      queueLengthNotifier.value = _downloadQueue.length;
+      _processQueue();
+      AppLogger.log('DownloadManager', 'Smart Downloads queued $queued liked songs on Wi-Fi (cap: $cap)');
+    }
+    return queued;
   }
 
   /// Cancels an active or queued download for a single song

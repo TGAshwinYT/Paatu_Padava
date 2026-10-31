@@ -38,6 +38,9 @@ class FavoritesManager {
   }
 
   static bool isFavorite(String songId) {
+    if (!Hive.isBoxOpen(boxName)) {
+      return favoritesNotifier.value.any((s) => s.id == songId);
+    }
     return _box.containsKey(songId);
   }
 

@@ -11,6 +11,7 @@ import '../services/download_manager.dart';
 import '../services/favorites_manager.dart';
 import '../services/history_manager.dart';
 import '../services/app_logger.dart';
+import '../services/blacklist_manager.dart';
 import 'markov_cosine_radio_strategy.dart';
 
 abstract class NextTrackStrategy {
@@ -55,6 +56,7 @@ List<Song> enforceArtistDispersionAndNoBackToBack(
 
   for (final c in candidates) {
     if (result.length >= count) break;
+    if (BlacklistManager.isBlacklisted(c)) continue;
     final a = QueueCooldownManager.normalizeArtistKey(c.primaryArtist);
 
     // 1. Sliding window per-artist cap (max 2 songs per artist in the pool)
@@ -148,6 +150,7 @@ List<Song> getLocalFallbackTracks(
 
   for (final s in pool) {
     if (s.title.trim().isEmpty) continue;
+    if (BlacklistManager.isBlacklisted(s)) continue;
     final bKey = s.canonicalBaseKey;
     final tKey = s.cleanTitleKey;
 

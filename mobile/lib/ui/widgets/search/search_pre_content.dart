@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:html_unescape/html_unescape.dart';
@@ -13,9 +14,6 @@ class SearchPreContent extends StatelessWidget {
   final List<String> trendingArtists;
   final List<Map<String, dynamic>> browseCategories;
   final ValueChanged<String> onSelectQuery;
-
-  /// Used for recent-search and trending-artist chips: searches the text EXACTLY as written
-  /// (no language prefix). Falls back to [onSelectQuery] when not provided.
   final ValueChanged<String>? onSelectExactQuery;
   final void Function(Song song) onPlaySong;
 
@@ -28,12 +26,45 @@ class SearchPreContent extends StatelessWidget {
     required this.onPlaySong,
   });
 
+  static const List<Map<String, dynamic>> _quickVibes = [
+    {
+      'title': '90s Melody',
+      'query': '90s Tamil Melody Hits',
+      'colors': [Color(0xFF0F766E), Color(0xFF14B8A6)],
+      'icon': Icons.radio_rounded,
+    },
+    {
+      'title': 'Anirudh Vibe',
+      'query': 'Anirudh Ravichander Vibe Hits',
+      'colors': [Color(0xFF7C3AED), Color(0xFFC026D3)],
+      'icon': Icons.bolt_rounded,
+    },
+    {
+      'title': 'Late Night Lo-Fi',
+      'query': 'Late Night Lofi Chill Tamil',
+      'colors': [Color(0xFF312E81), Color(0xFF6366F1)],
+      'icon': Icons.nightlight_round,
+    },
+    {
+      'title': 'Workout Kuthu',
+      'query': 'High Energy Tamil Kuthu Bass',
+      'colors': [Color(0xFFC2410C), Color(0xFFF97316)],
+      'icon': Icons.fitness_center_rounded,
+    },
+    {
+      'title': 'Instrumental / BGM',
+      'query': 'Tamil Cinematic BGM Instrumental',
+      'colors': [Color(0xFF0284C7), Color(0xFF06B6D4)],
+      'icon': Icons.piano_rounded,
+    },
+  ];
+
   @override
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 110),
       children: [
-        // Spotify Import Quick Action
+        // 1. Spotify Import Quick Action
         Container(
           margin: const EdgeInsets.only(bottom: 16),
           padding: const EdgeInsets.all(12),
@@ -55,7 +86,7 @@ class SearchPreContent extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Paste a Spotify Link to Import',
+                  'Paste Spotify Link to Import',
                   style: GoogleFonts.outfit(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
                 ),
               ),
@@ -66,7 +97,7 @@ class SearchPreContent extends StatelessWidget {
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  minimumSize: Size.zero,
+                  minimumSize: const Size(48, 36),
                 ),
                 child: Text('Import', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 12)),
               ),
@@ -74,162 +105,227 @@ class SearchPreContent extends StatelessWidget {
           ),
         ),
 
-        // Recent Searched Songs (Spotify & Apple Music style)
-        ValueListenableBuilder<List<Song>>(
-          valueListenable: SearchHistoryManager.recentSongsNotifier,
-          builder: (context, recentSongs, _) {
-            return ValueListenableBuilder<List<String>>(
-              valueListenable: SearchHistoryManager.historyNotifier,
-              builder: (context, recentQueries, _) {
-                final hasSongs = recentSongs.isNotEmpty;
-                final hasQueries = recentQueries.isNotEmpty;
-                if (!hasSongs && !hasQueries) return const SizedBox.shrink();
+        // 2. State A Instant Recall Chips (Last 8 searches: tap-to-fill, long-press-to-delete)
+        ValueListenableBuilder<List<String>>(
+          valueListenable: SearchHistoryManager.historyNotifier,
+          builder: (context, recentQueries, _) {
+            if (recentQueries.isEmpty) return const SizedBox.shrink();
 
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Recent Searches',
-                          style: GoogleFonts.outfit(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
-                        ),
-                        TextButton(
-                          child: Text('Clear All', style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 12)),
-                          onPressed: () => SearchHistoryManager.clearAll(),
-                        ),
-                      ],
+                    Text(
+                      'Recent Searches',
+                      style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
                     ),
-                    const SizedBox(height: 6),
+                    TextButton(
+                      onPressed: () => SearchHistoryManager.clearAll(),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        minimumSize: const Size(48, 32),
+                      ),
+                      child: Text('Clear', style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 12)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 38,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: recentQueries.length > 8 ? 8 : recentQueries.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (context, index) {
+                      final q = recentQueries[index];
+                      final cleanDisplay = _unescape.convert(Song.sanitize(q));
 
-                    // Recent Songs Tiles
-                    if (hasSongs)
-                      ListView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: recentSongs.length > 8 ? 8 : recentSongs.length,
-                        itemBuilder: (context, index) {
-                          final song = recentSongs[index];
-                          final cleanTitle = _unescape.convert(Song.sanitize(song.title));
-                          final cleanArtist = _unescape.convert(Song.sanitize(song.artist));
-
-                          return Container(
-                            margin: const EdgeInsets.symmetric(vertical: 3),
-                            decoration: BoxDecoration(
-                              color: AppColors.surfaceElevated.withValues(alpha: 0.5),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.04)),
-                            ),
-                            child: ListTile(
-                              dense: true,
-                              onTap: () => onPlaySong(song),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                              leading: ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: SizedBox(
-                                  width: 44,
-                                  height: 44,
-                                  child: song.coverUrl.isNotEmpty
-                                      ? CachedNetworkImage(
-                                          imageUrl: song.coverUrl,
-                                          fit: BoxFit.cover,
-                                          memCacheWidth: 150,
-                                          memCacheHeight: 150,
-                                          errorWidget: (_, __, ___) => Container(
-                                            color: AppColors.surfaceDark,
-                                            child: const Icon(Icons.music_note_rounded, color: Colors.white38, size: 20),
-                                          ),
-                                        )
-                                      : Container(
-                                          color: AppColors.surfaceDark,
-                                          child: const Icon(Icons.music_note_rounded, color: Colors.white38, size: 20),
-                                        ),
-                                ),
-                              ),
-                              title: Text(
-                                cleanTitle,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: GoogleFonts.outfit(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 13.5,
-                                ),
-                              ),
-                              subtitle: Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                    margin: const EdgeInsets.only(right: 6),
-                                    decoration: BoxDecoration(
-                                      color: song.source == 'youtube'
-                                          ? AppColors.electricCyan.withValues(alpha: 0.2)
-                                          : AppColors.neonViolet.withValues(alpha: 0.2),
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
-                                      song.source == 'youtube' ? 'YT' : '320K',
-                                      style: TextStyle(
-                                        fontSize: 8.5,
-                                        fontWeight: FontWeight.bold,
-                                        color: song.source == 'youtube' ? AppColors.electricCyan : AppColors.neonViolet,
-                                      ),
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: Text(
-                                      'Song • $cleanArtist',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 11.5),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              trailing: IconButton(
-                                icon: const Icon(Icons.close_rounded, size: 18, color: Colors.white38),
-                                tooltip: 'Remove from history',
-                                onPressed: () => SearchHistoryManager.removeSong(song.id),
-                              ),
+                      return GestureDetector(
+                        onLongPress: () {
+                          HapticFeedback.lightImpact();
+                          SearchHistoryManager.removeQuery(q);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              duration: const Duration(milliseconds: 1200),
+                              backgroundColor: AppColors.surfaceElevated,
+                              content: Text('Removed "$cleanDisplay" from history', style: const TextStyle(fontSize: 12)),
                             ),
                           );
                         },
-                      ),
-
-                    // Recent Queries Chips (if any exist)
-                    if (hasQueries) ...[
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: recentQueries.take(6).map((q) {
-                          final cleanDisplay = _unescape.convert(Song.sanitize(q));
-                          return InputChip(
-                            backgroundColor: AppColors.surfaceElevated,
-                            avatar: const Icon(Icons.history_rounded, size: 14, color: AppColors.textSecondary),
-                            label: Text(cleanDisplay, style: GoogleFonts.outfit(color: AppColors.textWhite, fontSize: 11.5)),
-                            deleteIcon: const Icon(Icons.close_rounded, size: 14, color: AppColors.textSecondary),
-                            onDeleted: () => SearchHistoryManager.removeQuery(q),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                              side: const BorderSide(color: AppColors.surfaceBorder),
-                            ),
-                            onPressed: () => (onSelectExactQuery ?? onSelectQuery)(q),
-                          );
-                        }).toList(),
-                      ),
-                    ],
-
-                    const SizedBox(height: 22),
-                  ],
-                );
-              },
+                        child: ActionChip(
+                          backgroundColor: AppColors.surfaceElevated,
+                          avatar: const Icon(Icons.history_rounded, size: 14, color: AppColors.textSecondary),
+                          label: Text(cleanDisplay, style: GoogleFonts.outfit(color: Colors.white, fontSize: 12)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            side: const BorderSide(color: AppColors.surfaceBorder),
+                          ),
+                          onPressed: () => (onSelectExactQuery ?? onSelectQuery)(q),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 18),
+              ],
             );
           },
         ),
 
-        // Trending Artists
+        // 3. Quick Vibe / Era Collections (Functional starting points)
+        Text(
+          'Quick Vibes & Eras',
+          style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 85,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: _quickVibes.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (context, i) {
+              final vibe = _quickVibes[i];
+              final colors = vibe['colors'] as List<Color>;
+
+              return InkWell(
+                onTap: () => onSelectQuery(vibe['query'] as String),
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  width: 140,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: colors,
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      BoxShadow(
+                        color: colors.first.withValues(alpha: 0.25),
+                        blurRadius: 6,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Stack(
+                    children: [
+                      Align(
+                        alignment: Alignment.topLeft,
+                        child: Text(
+                          vibe['title'] as String,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        right: -4,
+                        bottom: -4,
+                        child: Icon(
+                          vibe['icon'] as IconData,
+                          size: 32,
+                          color: Colors.white.withValues(alpha: 0.35),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+
+        const SizedBox(height: 20),
+
+        // 4. Recently Played / Searched Songs
+        ValueListenableBuilder<List<Song>>(
+          valueListenable: SearchHistoryManager.recentSongsNotifier,
+          builder: (context, recentSongs, _) {
+            if (recentSongs.isEmpty) return const SizedBox.shrink();
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Recently Played',
+                  style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                ...recentSongs.take(6).map((song) {
+                  final cleanTitle = _unescape.convert(Song.sanitize(song.title));
+                  final cleanArtist = _unescape.convert(Song.sanitize(song.artist));
+
+                  return Container(
+                    margin: const EdgeInsets.symmetric(vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceElevated.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.04)),
+                    ),
+                    child: ListTile(
+                      dense: true,
+                      onTap: () => onPlaySong(song),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                      leading: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: SizedBox(
+                          width: 44,
+                          height: 44,
+                          child: CachedNetworkImage(
+                            imageUrl: song.coverUrl,
+                            fit: BoxFit.cover,
+                            memCacheWidth: 120,
+                            memCacheHeight: 120,
+                            errorWidget: (_, __, ___) => Container(
+                              color: AppColors.surfaceDark,
+                              child: const Icon(Icons.music_note_rounded, color: Colors.white38, size: 20),
+                            ),
+                          ),
+                        ),
+                      ),
+                      title: Text(
+                        cleanTitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.outfit(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                      ),
+                      subtitle: Text(
+                        cleanArtist,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 11),
+                      ),
+                      trailing: SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: IconButton(
+                          icon: const Icon(Icons.close_rounded, size: 18, color: Colors.white38),
+                          tooltip: 'Remove from history',
+                          onPressed: () => SearchHistoryManager.removeSong(song.id),
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+                const SizedBox(height: 20),
+              ],
+            );
+          },
+        ),
+
+        // 5. Trending Artists
         Text(
           'Trending Artists',
           style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
@@ -259,7 +355,7 @@ class SearchPreContent extends StatelessWidget {
 
         const SizedBox(height: 24),
 
-        // Browse All Category Tiles with Neon Theme Gradients
+        // 6. Browse All Category Tiles
         Text(
           'Browse All',
           style: GoogleFonts.outfit(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
@@ -307,7 +403,7 @@ class SearchPreContent extends StatelessWidget {
                         cat['title'] as String,
                         style: GoogleFonts.outfit(
                           color: Colors.white,
-                          fontSize: 16,
+                          fontSize: 15,
                           fontWeight: FontWeight.bold,
                         ),
                       ),

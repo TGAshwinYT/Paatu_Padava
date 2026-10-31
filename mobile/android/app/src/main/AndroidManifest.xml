@@ -52,6 +52,21 @@
             </intent-filter>
         </receiver>
 
+        <!-- Home screen music player AppWidget -->
+        <receiver
+            android:name=".MusicWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.tamilgaming.paatupadava.WIDGET_PLAY_PAUSE" />
+                <action android:name="com.tamilgaming.paatupadava.WIDGET_PREV" />
+                <action android:name="com.tamilgaming.paatupadava.WIDGET_NEXT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/music_widget_info" />
+        </receiver>
+
         <meta-data
             android:name="com.google.android.gms.car.application"
             android:resource="@xml/automotive_app_desc" />

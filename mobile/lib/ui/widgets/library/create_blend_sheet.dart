@@ -12,14 +12,12 @@ import '../../screens/playlist_screen.dart';
 class CreateBlendSheet extends StatefulWidget {
   const CreateBlendSheet({super.key});
 
-  static Future<void> show(BuildContext context) {
-    return showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => const CreateBlendSheet(),
-    );
-  }
+  static Future<void> show(BuildContext context) => showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) => const CreateBlendSheet(),
+      );
 
   @override
   State<CreateBlendSheet> createState() => _CreateBlendSheetState();
@@ -386,10 +384,7 @@ class _CreateBlendSheetState extends State<CreateBlendSheet> {
                         children: [
                           const Icon(Icons.bolt_rounded, size: 20),
                           const SizedBox(width: 8),
-                          Text(
-                            'Generate Shared Blend',
-                            style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.bold),
-                          ),
+                          Text('Generate Shared Blend', style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.bold)),
                         ],
                       ),
               ),

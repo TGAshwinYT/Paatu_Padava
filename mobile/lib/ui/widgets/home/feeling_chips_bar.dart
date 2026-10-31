@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../theme/app_theme.dart';
 import '../../../logic/home_feed_provider.dart';
+import 'mood_playlist_sheet.dart';
+
 
 class FeelingChipItem {
   final String id;
@@ -39,10 +41,51 @@ class FeelingChipsBar extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
-        itemCount: chips.length,
+        itemCount: chips.length + 1,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
-          final item = chips[index];
+          if (index == 0) {
+            return GestureDetector(
+              onTap: () {
+                HapticFeedback.lightImpact();
+                MoodPlaylistSheet.show(context);
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF8B5CF6), Color(0xFF06B6D4)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF8B5CF6).withValues(alpha: 0.35),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.auto_awesome, color: Colors.white, size: 14),
+                    SizedBox(width: 6),
+                    Text(
+                      'Mood Mix',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+          final item = chips[index - 1];
           final isSelected = activeFeeling == item.id;
 
           return GestureDetector(

@@ -5,6 +5,8 @@ import '../../../services/playlist_manager.dart';
 import '../../../services/player_handler.dart';
 import '../join_playlist_dialog.dart';
 import 'create_blend_sheet.dart';
+import '../home/mood_playlist_sheet.dart';
+
 import '../../screens/playlist_screen.dart';
 
 class PlaylistsTabView extends StatelessWidget {
@@ -15,31 +17,19 @@ class PlaylistsTabView extends StatelessWidget {
     required this.onCreatePlaylist,
   });
 
-  Widget _buildPlaylistIcon() {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFF312E81), Color(0xFF1E1B4B)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+  Widget _buildPlaylistIcon() => Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(colors: [Color(0xFF312E81), Color(0xFF1E1B4B)], begin: Alignment.topLeft, end: Alignment.bottomRight),
         ),
-      ),
-      child: const Icon(Icons.queue_music_rounded, color: Colors.white54, size: 24),
-    );
-  }
+        child: const Icon(Icons.queue_music_rounded, color: Colors.white54, size: 24),
+      );
 
-  Widget _buildBlendIcon() {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFF6366F1), Color(0xFFEC4899)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+  Widget _buildBlendIcon() => Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(colors: [Color(0xFF6366F1), Color(0xFFEC4899)], begin: Alignment.topLeft, end: Alignment.bottomRight),
         ),
-      ),
-      child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 24),
-    );
-  }
+        child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 24),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -141,7 +131,7 @@ class PlaylistsTabView extends StatelessWidget {
                         onTap: () => CreateBlendSheet.show(context),
                         borderRadius: BorderRadius.circular(16),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
                               colors: [
@@ -162,13 +152,54 @@ class PlaylistsTabView extends StatelessWidget {
                                 backgroundColor: Color(0xFFEC4899),
                                 child: Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 14),
                               ),
-                              const SizedBox(width: 6),
+                              const SizedBox(width: 4),
                               Flexible(
                                 child: Text(
                                   'Blend',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => MoodPlaylistSheet.show(context),
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                const Color(0xFF06B6D4).withValues(alpha: 0.18),
+                                const Color(0xFF131B2E),
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFF06B6D4).withValues(alpha: 0.35)),
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              CircleAvatar(
+                                radius: 13,
+                                backgroundColor: Color(0xFF06B6D4),
+                                child: Icon(Icons.bolt_rounded, color: Colors.black, size: 14),
+                              ),
+                              SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  'Mood',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
                                 ),
                               ),
                             ],

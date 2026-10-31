@@ -124,7 +124,7 @@ void main() {
       final handler = PaatuAudioHandler();
 
       final roots = await handler.getChildren(AudioService.MEDIA_ROOT_ID);
-      expect(roots.length, equals(3));
+      expect(roots.length, equals(4));
       expect(roots[0].id, equals('root_liked'));
       expect(roots[0].title, equals('Liked Songs'));
       expect(roots[0].playable, isFalse);
@@ -133,9 +133,13 @@ void main() {
       expect(roots[1].title, equals('Recently Played'));
       expect(roots[1].playable, isFalse);
 
-      expect(roots[2].id, equals('root_playlists'));
-      expect(roots[2].title, equals('Playlists'));
+      expect(roots[2].id, equals('root_downloads'));
+      expect(roots[2].title, equals('Downloaded Songs'));
       expect(roots[2].playable, isFalse);
+
+      expect(roots[3].id, equals('root_playlists'));
+      expect(roots[3].title, equals('Playlists'));
+      expect(roots[3].playable, isFalse);
     });
 
     test('getChildren root_liked returns playable favorites from FavoritesManager', () async {

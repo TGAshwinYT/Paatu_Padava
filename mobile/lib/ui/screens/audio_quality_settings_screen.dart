@@ -479,6 +479,93 @@ class AudioQualitySettingsScreen extends StatelessWidget {
                       onChanged: (val) => SettingsManager.setCrossfadeSeconds(val.toInt()),
                     ),
                   ),
+                  const Divider(color: Colors.white10, height: 24),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: SettingsManager.beatMatchedTransitionsNotifier,
+                    builder: (context, isBeatMatch, _) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF8B5CF6).withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(Icons.speed_rounded, color: Color(0xFFA78BFA), size: 20),
+                              ),
+                              const SizedBox(width: 12),
+                              const Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'DJ Automix (Beat-Matched)',
+                                      style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                                    ),
+                                    SizedBox(height: 2),
+                                    Text(
+                                      'Harmonically aligns tempo (±3%) and bar phrases for seamless transitions.',
+                                      style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11.5, height: 1.25),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Switch(
+                                value: isBeatMatch,
+                                activeColor: const Color(0xFF8B5CF6),
+                                onChanged: (val) => SettingsManager.setBeatMatchedTransitions(val),
+                              ),
+                            ],
+                          ),
+                          if (isBeatMatch) ...[
+                            const SizedBox(height: 12),
+                            ValueListenableBuilder<int>(
+                              valueListenable: SettingsManager.transitionPhraseBeatsNotifier,
+                              builder: (context, beats, _) {
+                                return Row(
+                                  children: [4, 8, 16].map((b) {
+                                    final isSelected = beats == b;
+                                    final label = b == 4 ? '1 Bar (4b)' : (b == 8 ? '2 Bars (8b)' : '4 Bars (16b)');
+                                    return Expanded(
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 3),
+                                        child: ChoiceChip(
+                                          label: Center(
+                                            child: Text(
+                                              label,
+                                              style: TextStyle(
+                                                color: isSelected ? Colors.white : const Color(0xFF94A3B8),
+                                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                          ),
+                                          selected: isSelected,
+                                          selectedColor: const Color(0xFF6366F1),
+                                          backgroundColor: const Color(0xFF1E293B),
+                                          showCheckmark: false,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(10),
+                                            side: BorderSide(
+                                              color: isSelected ? const Color(0xFF6366F1) : Colors.white10,
+                                            ),
+                                          ),
+                                          onSelected: (_) => SettingsManager.setTransitionPhraseBeats(b),
+                                        ),
+                                      ),
+                                    );
+                                  }).toList(),
+                                );
+                              },
+                            ),
+                          ],
+                        ],
+                      );
+                    },
+                  ),
                 ],
               );
             },

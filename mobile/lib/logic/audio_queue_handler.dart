@@ -129,6 +129,7 @@ class AudioQueueHandler {
   bool _isDisposed = false;
   int _fadeToken = 0;
   int _lastCrossfadeTimeMs = 0;
+  late final CrossfadeEngine _crossfadeEngine = CrossfadeEngine(primaryPlayer: player);
   bool _hasRetriedCurrentTrack = false;
   bool _hasDownscaledCurrentTrack = false;
   Timer? _bufferStallTimer;
@@ -351,24 +352,24 @@ class AudioQueueHandler {
 
   void _handleCrossfade(Duration pos) {
     final crossfadeSec = SettingsManager.crossfadeSeconds;
-    if (crossfadeSec <= 0) return;
+    final isBeatMatch = SettingsManager.isBeatMatchEnabled;
+    if (crossfadeSec <= 0 && !isBeatMatch) return;
     final duration = player.duration;
-    if (duration == null || duration.inSeconds <= crossfadeSec * 2) return;
+    if (duration == null || duration.inSeconds <= (crossfadeSec > 0 ? crossfadeSec * 2 : 6)) return;
 
-    final remaining = duration - pos;
-    if (remaining.inSeconds <= crossfadeSec && remaining.inMilliseconds > 250) {
-      final now = DateTime.now().millisecondsSinceEpoch;
-      if (now - _lastCrossfadeTimeMs < 80) return;
-      _lastCrossfadeTimeMs = now;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastCrossfadeTimeMs < 80) return;
+    _lastCrossfadeTimeMs = now;
 
-      final targetNorm = getEffectiveVolumeForSong(currentSong);
-      final progress = 1.0 - (remaining.inMilliseconds / (crossfadeSec * 1000)).clamp(0.0, 1.0);
-      final (outgoingVolRatio, _) = EqualPowerCurve.calculate(progress);
-      final fadedVolume = (targetNorm * outgoingVolRatio).clamp(0.0, 1.0);
-      try {
-        player.setVolume(fadedVolume);
-      } catch (_) {}
+    final targetNorm = getEffectiveVolumeForSong(currentSong);
+    if (currentSong != null) {
+      _crossfadeEngine.prepareTransition(outgoing: currentSong!, incoming: nextSong);
     }
+    _crossfadeEngine.applyEqualPowerFadeOut(
+      position: pos,
+      duration: duration,
+      baseTargetVolume: targetNorm,
+    );
   }
 
   // ================= Idle Timeout & Battery Management ================= //
@@ -1882,6 +1883,7 @@ class AudioQueueHandler {
         if (token != _sessionToken || activeToken != _activeLoadToken) return;
         await _ensureAudioSessionActive();
         await player.play();
+        _crossfadeEngine.onIncomingTrackStarted(player);
         _consecutivePlaybackErrors = 0; // Playback began successfully
         _hasRetriedCurrentTrack = false;
         _hasDownscaledCurrentTrack = false;

@@ -9,13 +9,7 @@ class SongPlayStat {
   final Song song;
   final int playCount;
   final int totalSeconds;
-
-  SongPlayStat({
-    required this.song,
-    required this.playCount,
-    required this.totalSeconds,
-  });
-
+  SongPlayStat({required this.song, required this.playCount, required this.totalSeconds});
   int get totalMinutes => (totalSeconds / 60).round();
 }
 
@@ -25,14 +19,7 @@ class ArtistPlayStat {
   final int playCount;
   final int totalSeconds;
   final String representativeCoverUrl;
-
-  ArtistPlayStat({
-    required this.artistName,
-    required this.playCount,
-    required this.totalSeconds,
-    required this.representativeCoverUrl,
-  });
-
+  ArtistPlayStat({required this.artistName, required this.playCount, required this.totalSeconds, required this.representativeCoverUrl});
   int get totalMinutes => (totalSeconds / 60).round();
 }
 
@@ -122,9 +109,44 @@ class ListeningRecapService {
       }
     }
 
-    // 2. Fetch local Hive entries
+    // 2. Fetch local Hive entries, reconciling against remote to eliminate double-counting
     final localEntries = HistoryManager.getRawHistoryEntries();
-    combinedEntries.addAll(localEntries);
+    if (combinedEntries.isEmpty) {
+      combinedEntries.addAll(localEntries);
+    } else {
+      final Map<String, Map<String, dynamic>> byId = {
+        for (final e in combinedEntries) (e['id']?.toString() ?? ''): e
+      };
+      for (final local in localEntries) {
+        final id = local['id']?.toString() ?? '';
+        if (id.isEmpty) continue;
+        if (!byId.containsKey(id)) {
+          combinedEntries.add(local);
+        } else {
+          final remoteEntry = byId[id]!;
+          if ((remoteEntry['duration'] as num? ?? 0) <= 0 && (local['duration'] as num? ?? 0) > 0) {
+            remoteEntry['duration'] = local['duration'];
+          }
+          final remoteTs = Set<int>.from(
+            (remoteEntry['timestamps'] as List? ?? []).whereType<num>().map((n) => n.toInt()),
+          );
+          if (local['timestamps'] is List) {
+            for (final t in local['timestamps']) {
+              if (t is num) remoteTs.add(t.toInt());
+            }
+          }
+          final sortedTs = remoteTs.toList()..sort();
+          final cleanTs = <int>[];
+          for (final ts in sortedTs) {
+            if (cleanTs.isEmpty || (ts - cleanTs.last).abs() >= 30000) {
+              cleanTs.add(ts);
+            }
+          }
+          remoteEntry['timestamps'] = cleanTs;
+          remoteEntry['play_count'] = max(cleanTs.length, 1);
+        }
+      }
+    }
 
     return generateRecapFromData(combinedEntries);
   }
@@ -344,12 +366,7 @@ class _SongAccumulator {
   final Song song;
   int playCount;
   int totalSeconds;
-
-  _SongAccumulator({
-    required this.song,
-    required this.playCount,
-    required this.totalSeconds,
-  });
+  _SongAccumulator({required this.song, required this.playCount, required this.totalSeconds});
 }
 
 class _ArtistAccumulator {
@@ -357,23 +374,12 @@ class _ArtistAccumulator {
   int playCount;
   int totalSeconds;
   final String coverUrl;
-
-  _ArtistAccumulator({
-    required this.artistName,
-    required this.playCount,
-    required this.totalSeconds,
-    required this.coverUrl,
-  });
+  _ArtistAccumulator({required this.artistName, required this.playCount, required this.totalSeconds, required this.coverUrl});
 }
 
 class _PersonaInfo {
   final String title;
   final String subtitle;
   final String quote;
-
-  _PersonaInfo({
-    required this.title,
-    required this.subtitle,
-    required this.quote,
-  });
+  _PersonaInfo({required this.title, required this.subtitle, required this.quote});
 }

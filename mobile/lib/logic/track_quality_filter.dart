@@ -1,11 +1,9 @@
+import '../domain/models/clustered_track_result.dart';
 import '../models/song.dart';
 
-/// Decides whether a YouTube result is a real, single "song" or something that
-/// should never appear in search / autoplay: hour-long jukeboxes, non-stop mixes,
-/// full-album uploads, live streams, 24/7 radios and teasers.
-///
-/// Why: these files are 30-120+ MB, cannot be fetched fast enough to play
-/// without stalling (-> auto-skip), have no useful seek bar and pollute radio.
+/// Decides whether a YouTube or streaming result is a real single song,
+/// a fan mix/mashup/BGM, or something that should be dropped immediately:
+/// non-music reviews, public reactions, interviews, press meets, teasers, and streams.
 ///
 /// Pure Dart (no Flutter / network) so it is trivially unit-testable.
 class TrackQualityFilter {
@@ -34,6 +32,65 @@ class TrackQualityFilter {
     caseSensitive: false,
   );
 
+  /// Non-music video junk: movie reviews, audience reactions, interviews, trailers, teasers, shorts.
+  static final RegExp _junkRegex = RegExp(
+    r'\b(review|public\s*review|reaction|interview|press\s*meet|trailer|teaser|'
+    r'making\s*of|speech|shorts|whatsapp\s*status|lyric\s*video\s*status|sneak\s*peek|glimpse)\b',
+    caseSensitive: false,
+  );
+
+  /// Fanbase mixes, slowed+reverb, mashups, instrumental BGMs.
+  static final RegExp _fanMixRegex = RegExp(
+    r'\b(mashup|lo[\s\-]?fi|slowed|reverb|8d|unplugged|cover|bgm|theme|remix|dj|acoustic|reprise|instrumental)\b',
+    caseSensitive: false,
+  );
+
+  /// Evaluates and classifies a track candidate based on title, duration, and origin source.
+  static ContentClassification classifyTrack({
+    required String title,
+    required int durationSec,
+    String? source,
+    String? artist,
+  }) {
+    final cleanTitle = title.trim();
+    if (cleanTitle.isEmpty) return ContentClassification.rejectedJunk;
+
+    // JioSaavn / curated platforms are always music
+    if (source == 'saavn' || source == 'jiosaavn') {
+      if (_fanMixRegex.hasMatch(cleanTitle)) {
+        return ContentClassification.fanMixOrVersion;
+      }
+      return ContentClassification.officialTrack;
+    }
+
+    // 1. YouTube Non-Music Junk Filter
+    if (_junkRegex.hasMatch(cleanTitle)) {
+      return ContentClassification.rejectedJunk;
+    }
+
+    // 2. Teaser / Promo duration lower bound (< 45s)
+    if (durationSec > 0 && durationSec < minSongDurationSec) {
+      return ContentClassification.rejectedJunk;
+    }
+
+    // 3. Streams or multi-hour loops
+    if (_streamKeywords.hasMatch(cleanTitle)) {
+      return ContentClassification.rejectedJunk;
+    }
+
+    // 4. Over 12 minutes (720s) for a single song
+    if (durationSec > 720) {
+      return ContentClassification.rejectedJunk;
+    }
+
+    // 5. Fanbase mix or BGM check
+    if (_fanMixRegex.hasMatch(cleanTitle)) {
+      return ContentClassification.fanMixOrVersion;
+    }
+
+    return ContentClassification.officialTrack;
+  }
+
   /// Returns a short reason when the item must be dropped, or null when it is fine.
   static String? rejectReason({
     required String title,
@@ -43,6 +100,9 @@ class TrackQualityFilter {
     if (durationSec <= 0) {
       if (allowUnknownDuration) return null;
       return 'unknown duration (live stream / premiere)';
+    }
+    if (_junkRegex.hasMatch(title)) {
+      return 'non-music junk (review/reaction/teaser)';
     }
     if (durationSec > maxSongDurationSec) {
       return 'longer than ${maxSongDurationSec ~/ 60} min';

@@ -46,6 +46,11 @@ class ConnectivityService {
   }
 
   /// Probes network interfaces to detect Wi-Fi vs Cellular connection
+  static Future<bool> isWifi() async {
+    final t = await detectNetworkType();
+    return t == 'wifi' || t == 'ethernet';
+  }
+
   static Future<String> detectNetworkType() async {
     try {
       final interfaces = await NetworkInterface.list();

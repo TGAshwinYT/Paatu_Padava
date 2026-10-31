@@ -11,16 +11,24 @@ class SearchTopResultCard extends StatelessWidget {
   final Map<String, dynamic> top;
   final VoidCallback onArtistClick;
   final VoidCallback onPlay;
+  final double? confidenceScore;
 
   const SearchTopResultCard({
     super.key,
     required this.top,
     required this.onArtistClick,
     required this.onPlay,
+    this.confidenceScore,
   });
 
   @override
   Widget build(BuildContext context) {
+    // Smart Crown: Only render hero card if confidence score >= 0.85
+    final score = confidenceScore ?? (top['confidence'] as num?)?.toDouble();
+    if (score != null && score < 0.85) {
+      return const SizedBox.shrink();
+    }
+
     final type = top['type']?.toString() ?? 'song';
     final title = _unescape.convert(Song.sanitize(top['title']?.toString() ?? top['name']?.toString() ?? ''));
     final artist = _unescape.convert(Song.sanitize(top['artist']?.toString() ?? top['subtitle']?.toString() ?? ''));
@@ -122,6 +130,7 @@ class SearchTopResultCard extends StatelessWidget {
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      minimumSize: const Size(48, 48),
                     ),
                     icon: const Icon(Icons.arrow_forward_rounded, size: 16),
                     label: Text('View Artist', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),

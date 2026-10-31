@@ -17,6 +17,8 @@ class SettingsManager {
   static final ValueNotifier<bool> volumeNormalizationNotifier = ValueNotifier<bool>(true);
   static final ValueNotifier<bool> autoplayNotifier = ValueNotifier<bool>(true);
   static final ValueNotifier<int> crossfadeDurationNotifier = ValueNotifier<int>(0);
+  static final ValueNotifier<bool> beatMatchedTransitionsNotifier = ValueNotifier<bool>(true);
+  static final ValueNotifier<int> transitionPhraseBeatsNotifier = ValueNotifier<int>(8);
   static final ValueNotifier<String> eqPresetNotifier = ValueNotifier<String>('flat');
   static final ValueNotifier<List<double>> eqBandsNotifier = ValueNotifier<List<double>>([0.0, 0.0, 0.0, 0.0, 0.0]);
   static final ValueNotifier<double> bassBoostNotifier = ValueNotifier<double>(0.0);
@@ -42,6 +44,8 @@ class SettingsManager {
   static final ValueNotifier<bool> homeRememberFeelingNotifier = ValueNotifier<bool>(false);
   static final ValueNotifier<bool> homeShowQuickPicksNotifier = ValueNotifier<bool>(true);
   static final ValueNotifier<bool> persistentBackgroundPlaybackNotifier = ValueNotifier<bool>(false);
+  static final ValueNotifier<bool> smartDownloadsEnabledNotifier = ValueNotifier<bool>(true);
+  static final ValueNotifier<int> smartDownloadsCapNotifier = ValueNotifier<int>(50);
 
   static String get streamingQuality => streamingQualityNotifier.value;
   /// Returns the resolved bitrate string ('320kbps', '160kbps', '96kbps').
@@ -57,6 +61,8 @@ class SettingsManager {
   static bool get isVolumeNormalizationEnabled => volumeNormalizationNotifier.value;
   static bool get isAutoplayEnabled => autoplayNotifier.value;
   static int get crossfadeSeconds => crossfadeDurationNotifier.value;
+  static bool get isBeatMatchEnabled => beatMatchedTransitionsNotifier.value;
+  static int get transitionPhraseBeats => transitionPhraseBeatsNotifier.value;
   static String get eqPreset => eqPresetNotifier.value;
   static List<double> get eqBands => eqBandsNotifier.value;
   static double get bassBoost => bassBoostNotifier.value;
@@ -79,6 +85,8 @@ class SettingsManager {
   static bool get isHomeRememberFeelingEnabled => homeRememberFeelingNotifier.value;
   static bool get isHomeShowQuickPicksEnabled => homeShowQuickPicksNotifier.value;
   static bool get isPersistentBackgroundPlaybackEnabled => persistentBackgroundPlaybackNotifier.value;
+  static bool get isSmartDownloadsEnabled => smartDownloadsEnabledNotifier.value;
+  static int get smartDownloadsCap => smartDownloadsCapNotifier.value;
 
   /// Single coordinated preferred languages accessor:
   /// Uses AuthManager profile preferences as the source of truth,
@@ -115,6 +123,8 @@ class SettingsManager {
     volumeNormalizationNotifier.value = _box.get('volume_normalization', defaultValue: true) as bool;
     autoplayNotifier.value = _box.get('autoplay', defaultValue: true) as bool;
     crossfadeDurationNotifier.value = (_box.get('crossfade_seconds', defaultValue: 0) as num).toInt().clamp(0, 12);
+    beatMatchedTransitionsNotifier.value = _box.get('beat_match_transitions_enabled', defaultValue: true) as bool;
+    transitionPhraseBeatsNotifier.value = (_box.get('transition_phrase_beats', defaultValue: 8) as num).toInt();
     eqPresetNotifier.value = _box.get('eq_preset', defaultValue: 'flat') as String;
 
     final rawBands = _box.get('eq_bands');
@@ -163,6 +173,8 @@ class SettingsManager {
     homeTop10ChartLayoutNotifier.value = _box.get('home_top10_chart_layout', defaultValue: 'vertical') as String;
     homeRememberFeelingNotifier.value = _box.get('home_remember_feeling', defaultValue: false) as bool;
     homeShowQuickPicksNotifier.value = _box.get('home_show_quick_picks', defaultValue: true) as bool;
+    smartDownloadsEnabledNotifier.value = _box.get('smart_downloads_enabled', defaultValue: true) as bool;
+    smartDownloadsCapNotifier.value = _box.get('smart_downloads_cap', defaultValue: 50) as int;
     persistentBackgroundPlaybackNotifier.value =
         _box.get('persistent_background_playback', defaultValue: false) as bool;
   }
@@ -170,6 +182,16 @@ class SettingsManager {
   static Future<void> setPersistentBackgroundPlayback(bool enabled) async {
     persistentBackgroundPlaybackNotifier.value = enabled;
     await _box.put('persistent_background_playback', enabled);
+  }
+
+  static Future<void> setSmartDownloadsEnabled(bool enabled) async {
+    smartDownloadsEnabledNotifier.value = enabled;
+    await _box.put('smart_downloads_enabled', enabled);
+  }
+
+  static Future<void> setSmartDownloadsCap(int cap) async {
+    smartDownloadsCapNotifier.value = cap;
+    await _box.put('smart_downloads_cap', cap);
   }
 
   static Future<void> setThemeMode(String mode) async {
@@ -278,6 +300,17 @@ class SettingsManager {
     final clamped = seconds.clamp(0, 12);
     crossfadeDurationNotifier.value = clamped;
     await _box.put('crossfade_seconds', clamped);
+  }
+
+  static Future<void> setBeatMatchedTransitions(bool enabled) async {
+    beatMatchedTransitionsNotifier.value = enabled;
+    await _box.put('beat_match_transitions_enabled', enabled);
+  }
+
+  static Future<void> setTransitionPhraseBeats(int beats) async {
+    final clamped = [4, 8, 16].contains(beats) ? beats : 8;
+    transitionPhraseBeatsNotifier.value = clamped;
+    await _box.put('transition_phrase_beats', clamped);
   }
 
   static Future<void> setEqPreset(String presetKey) async {

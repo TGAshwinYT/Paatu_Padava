@@ -6,6 +6,7 @@ import '../logic/next_track_strategy.dart';
 import '../logic/track_quality_filter.dart';
 import '../models/song.dart';
 import 'app_logger.dart';
+import 'blacklist_manager.dart';
 import 'download_manager.dart';
 import 'favorites_manager.dart';
 import 'history_manager.dart';
@@ -285,6 +286,7 @@ class RadioEngine {
 
     for (final c in candidates) {
       if (c.title.trim().isEmpty) continue;
+      if (BlacklistManager.isBlacklisted(c)) continue;
       final id = c.id;
       final baseKey = c.canonicalBaseKey;
       final titleKey = c.cleanTitleKey;

@@ -218,6 +218,8 @@ class _DownloadsSettingsScreenState extends State<DownloadsSettingsScreen> {
               const SizedBox(height: 20),
               _buildNetworkRulesSection(),
               const SizedBox(height: 20),
+              _buildSmartDownloadsSection(),
+              const SizedBox(height: 20),
               _buildStorageLocationSection(),
               const SizedBox(height: 20),
               _buildDangerZoneSection(),
@@ -432,6 +434,132 @@ class _DownloadsSettingsScreenState extends State<DownloadsSettingsScreen> {
                 ],
               );
             },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSmartDownloadsSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader('SMART DOWNLOADS', Icons.auto_awesome_rounded),
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF131B2E),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+          ),
+          child: Column(
+            children: [
+              ValueListenableBuilder<bool>(
+                valueListenable: SettingsManager.smartDownloadsEnabledNotifier,
+                builder: (context, enabled, _) {
+                  return Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF6366F1).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.downloading_rounded, color: Color(0xFF818CF8), size: 20),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            Text(
+                              'Auto-Download Liked Songs',
+                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                            ),
+                            SizedBox(height: 3),
+                            Text(
+                              'Automatically keeps your top liked songs offline when on Wi-Fi.',
+                              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11, height: 1.3),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch(
+                        value: enabled,
+                        activeColor: const Color(0xFF6366F1),
+                        onChanged: (val) {
+                          SettingsManager.setSmartDownloadsEnabled(val);
+                          if (val) DownloadManager.triggerSmartDownloads();
+                        },
+                      ),
+                    ],
+                  );
+                },
+              ),
+              const Divider(color: Colors.white10, height: 24),
+              ValueListenableBuilder<int>(
+                valueListenable: SettingsManager.smartDownloadsCapNotifier,
+                builder: (context, cap, _) {
+                  final options = [25, 50, 100, 200];
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Download Cap',
+                            style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 13, fontWeight: FontWeight.w600),
+                          ),
+                          Text(
+                            '$cap songs',
+                            style: const TextStyle(color: Color(0xFF818CF8), fontSize: 13, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: options.map((opt) {
+                          final isSelected = opt == cap;
+                          return Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 3),
+                              child: InkWell(
+                                onTap: () {
+                                  SettingsManager.setSmartDownloadsCap(opt);
+                                  DownloadManager.triggerSmartDownloads();
+                                },
+                                borderRadius: BorderRadius.circular(8),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: isSelected ? const Color(0xFF6366F1) : const Color(0xFF1E293B),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: isSelected ? const Color(0xFF818CF8) : Colors.transparent,
+                                    ),
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: Text(
+                                    '$opt',
+                                    style: TextStyle(
+                                      color: isSelected ? Colors.white : const Color(0xFF94A3B8),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ],
           ),
         ),
       ],

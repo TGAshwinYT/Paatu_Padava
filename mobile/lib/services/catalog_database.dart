@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import '../domain/models/catalog_entry.dart';
 import '../data/catalog_seed_data.dart';
+import '../data/repositories/song_repository.dart';
+import '../logic/search_query_planner.dart';
 import '../models/song.dart';
 import 'catalog_schema.dart';
 import 'artist_sanitizer.dart';
@@ -57,7 +59,10 @@ class CatalogDatabase {
     _memMovies.clear();
     _memArtists.clear();
     _memSongs.clear();
-    for (final a in CatalogSeedData.initialArtists) { _memArtists[a.id] = a; }
+    for (final a in CatalogSeedData.initialArtists) {
+      _memArtists[a.id] = a;
+      _memArtists[a.name.toLowerCase().trim()] = a;
+    }
     for (final m in CatalogSeedData.initialMovies) { _memMovies[m.id] = m; }
     for (final s in CatalogSeedData.initialSongs) { _memSongs[s.id] = s; }
   }
@@ -211,16 +216,59 @@ class CatalogDatabase {
   static String? getArtistProfileImage(String name) {
     final clean = name.trim().toLowerCase();
     if (clean.isEmpty) return null;
+
+    final fromRepo = SongRepository.verifiedArtistAvatars[clean];
+    if (fromRepo != null && fromRepo.isNotEmpty) return fromRepo;
+
+    final canon = ArtistSanitizer.canonicalArtistName(clean).toLowerCase();
+    final fromCanon = SongRepository.verifiedArtistAvatars[canon];
+    if (fromCanon != null && fromCanon.isNotEmpty) return fromCanon;
+
     if (_memArtists.containsKey(clean)) {
-      return _memArtists[clean]?.imageUrl;
+      final img = _memArtists[clean]?.imageUrl;
+      if (img != null && img.isNotEmpty) return img;
     }
+
     final alpha = clean.replaceAll(RegExp(r'[^a-z0-9]'), '');
-    for (final a in CatalogSeedData.initialArtists) {
-      final aAlpha = a.name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
-      if (aAlpha == alpha || aAlpha.contains(alpha) || alpha.contains(aAlpha)) {
-        return a.imageUrl;
+    if (alpha.isNotEmpty) {
+      for (final a in CatalogSeedData.initialArtists) {
+        final aAlpha = a.name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+        final aIdAlpha = a.id.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+        if (aAlpha == alpha || aIdAlpha == alpha) {
+          if (a.imageUrl.isNotEmpty) return a.imageUrl;
+        }
       }
     }
+    return null;
+  }
+
+  /// Resolves verified high-resolution studio square cover art for a song from seed catalog
+  static String? getSongCoverArt(String title, {String? artist, String? album}) {
+    final clean = SearchQueryPlanner.cleanTitle(title).trim().toLowerCase();
+    if (clean.isEmpty) return null;
+
+    for (final s in CatalogSeedData.initialSongs) {
+      final sTitle = SearchQueryPlanner.cleanTitle(s.title).trim().toLowerCase();
+      if (sTitle == clean || (clean.length >= 4 && sTitle.contains(clean)) || (sTitle.length >= 4 && clean.contains(sTitle))) {
+        if (s.coverUrl.isNotEmpty && !s.coverUrl.contains('default.jpg')) {
+          return s.coverUrl;
+        }
+      }
+    }
+
+    if (album != null && album.isNotEmpty) {
+      final cleanAlb = album.trim().toLowerCase();
+      for (final m in CatalogSeedData.initialMovies) {
+        final mTitle = m.title.trim().toLowerCase();
+        if (mTitle == cleanAlb || (cleanAlb.length >= 4 && cleanAlb.contains(mTitle))) {
+          final cUrl = m.coverUrl;
+          if (cUrl != null && cUrl.isNotEmpty && !cUrl.contains('default.jpg')) {
+            return cUrl;
+          }
+        }
+      }
+    }
+
     return null;
   }
 
@@ -418,41 +466,13 @@ class CatalogDatabase {
       createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
     );
 
-    if (_useInMemoryFallback || _db == null) {
-      _memSongs[catalogSong.id] = catalogSong;
-      if (_memSongs.length > 5000) {
-        final dynamicKeys = _memSongs.entries.where((e) => e.value.isDynamic).map((e) => e.key).toList();
-        if (dynamicKeys.length > maxDynamicSongsLimit) {
-          for (final k in dynamicKeys.take(500)) {
-            _memSongs.remove(k);
-          }
-        }
+    // Cache only in memory to protect device storage from growing
+    _memSongs[catalogSong.id] = catalogSong;
+    if (_memSongs.length > 500) {
+      final dynamicKeys = _memSongs.entries.where((e) => e.value.isDynamic).map((e) => e.key).toList();
+      for (final k in dynamicKeys.take(100)) {
+        _memSongs.remove(k);
       }
-      return;
     }
-
-    try {
-      await _db!.insert('songs', catalogSong.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
-      await _pruneDynamicSongs();
-    } catch (e) {
-      AppLogger.log('CatalogDatabase', 'insertDynamicSong notice: $e');
-    }
-  }
-
-  /// Strictly caps dynamic cache to [maxDynamicSongsLimit] so phone storage never increases unbounded.
-  static Future<void> _pruneDynamicSongs() async {
-    if (_db == null) return;
-    try {
-      final countResult = await _db!.rawQuery('SELECT COUNT(*) as count FROM songs WHERE is_dynamic = 1');
-      final int count = Sqflite.firstIntValue(countResult) ?? 0;
-      if (count > maxDynamicSongsLimit) {
-        final excess = count - maxDynamicSongsLimit + 200;
-        await _db!.execute('''
-          DELETE FROM songs WHERE id IN (
-            SELECT id FROM songs WHERE is_dynamic = 1 ORDER BY created_at ASC LIMIT ?
-          )
-        ''', [excess]);
-      }
-    } catch (_) {}
   }
 }

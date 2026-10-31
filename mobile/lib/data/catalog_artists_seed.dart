@@ -55,7 +55,7 @@ class CatalogArtistsSeed {
       id: 'sp_balasubrahmanyam',
       name: 'S.P. Balasubrahmanyam',
       role: 'Legendary Playback Singer',
-      imageUrl: 'https://c.saavncdn.com/artists/S_P__Balasubrahmanyam_500x500.jpg',
+      imageUrl: 'https://c.saavncdn.com/artists/S_P_Balasubrahmanyam_500x500.jpg',
     ),
     CatalogArtist(
       id: 'ks_chithra',
@@ -139,7 +139,7 @@ class CatalogArtistsSeed {
       id: 'super_subu',
       name: 'Super Subu',
       role: 'Lyricist / Singer',
-      imageUrl: 'https://c.saavncdn.com/artists/Anirudh_Ravichander_500x500.jpg',
+      imageUrl: 'https://c.saavncdn.com/artists/Super_Subu_000_20230809105700_500x500.jpg',
     ),
     CatalogArtist(
       id: 'anthony_daasan',

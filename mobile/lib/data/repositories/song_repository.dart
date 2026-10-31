@@ -463,8 +463,8 @@ class SongRepository {
     'haricharan': 'https://c.saavncdn.com/artists/Haricharan_500x500.jpg',
     'chinmayi': 'https://c.saavncdn.com/artists/Chinmayi_Sripada_500x500.jpg',
     'swetha mohan': 'https://c.saavncdn.com/artists/Shweta_Mohan_500x500.jpg',
-    's.p. balasubrahmanyam': 'https://c.saavncdn.com/artists/S_P__Balasubrahmanyam_500x500.jpg',
-    'spb': 'https://c.saavncdn.com/artists/S_P__Balasubrahmanyam_500x500.jpg',
+    's.p. balasubrahmanyam': 'https://c.saavncdn.com/artists/S_P_Balasubrahmanyam_500x500.jpg',
+    'spb': 'https://c.saavncdn.com/artists/S_P_Balasubrahmanyam_500x500.jpg',
     'k.s. chithra': 'https://c.saavncdn.com/artists/K_S__Chithra_500x500.jpg',
     'chithra': 'https://c.saavncdn.com/artists/K_S__Chithra_500x500.jpg',
     'k.j. yesudas': 'https://c.saavncdn.com/artists/K_J__Yesudas_500x500.jpg',
@@ -488,6 +488,7 @@ class SongRepository {
     'sai abhyankar': 'https://c.saavncdn.com/artists/Sai_Abhyankkar_500x500.jpg',
     'vishal mishra': 'https://c.saavncdn.com/artists/Vishal_Mishra_500x500.jpg',
     'dhanush': 'https://c.saavncdn.com/artists/Dhanush_500x500.jpg',
+    'super subu': 'https://c.saavncdn.com/artists/Super_Subu_000_20230809105700_500x500.jpg',
     'madduri hemanth': 'https://c.saavncdn.com/artists/Madduri_Hemanth_500x500.jpg',
     'hemanth madduri': 'https://c.saavncdn.com/artists/Madduri_Hemanth_500x500.jpg',
   };

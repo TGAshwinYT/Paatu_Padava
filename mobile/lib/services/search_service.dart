@@ -762,8 +762,11 @@ class SearchService {
     if (phoneticVariants.isNotEmpty) {
       universalPhonetic = phoneticVariants.firstWhere(
         (v) => FuzzySearchService.candidateDictionary.any((c) => c.toLowerCase() == v),
-        orElse: () => phoneticVariants.first,
+        orElse: () => '',
       );
+      if (universalPhonetic.isEmpty) {
+        universalPhonetic = null;
+      }
     }
 
     if (transliterated.toLowerCase() == cleanLower && universalPhonetic != null) {
@@ -910,11 +913,17 @@ class SearchService {
     // 1. Liked in favorites -> highest affinity 1.0
     for (final fav in favs) {
       if (fav.id == song.id) return 1.0;
-      if (candAlbum.isNotEmpty && fav.album.toLowerCase() == candAlbum) return 0.95;
       if (candArtist.isNotEmpty &&
           (fav.primaryArtist.toLowerCase() == candArtist ||
            SongRepository.normalizeArtist(fav.artist).toLowerCase() == candArtist)) {
         return 1.0;
+      }
+      if (candAlbum.isNotEmpty &&
+          candAlbum != 'studio album' &&
+          candAlbum != 'single' &&
+          candAlbum != 'unknown' &&
+          fav.album.toLowerCase() == candAlbum) {
+        return 0.95;
       }
     }
 
@@ -922,11 +931,16 @@ class SearchService {
     int playCount = 0;
     for (final h in hist) {
       if (h.id == song.id) return 0.90;
-      if (candAlbum.isNotEmpty && h.album.toLowerCase() == candAlbum) playCount += 2;
       if (candArtist.isNotEmpty &&
           (h.primaryArtist.toLowerCase() == candArtist ||
            SongRepository.normalizeArtist(h.artist).toLowerCase() == candArtist)) {
         playCount++;
+      } else if (candAlbum.isNotEmpty &&
+                 candAlbum != 'studio album' &&
+                 candAlbum != 'single' &&
+                 candAlbum != 'unknown' &&
+                 h.album.toLowerCase() == candAlbum) {
+        playCount += 2;
       }
     }
 
@@ -1043,8 +1057,19 @@ class SearchService {
           canonicalMap[fp] = updated;
         }
       } else {
-        if (fp.isNotEmpty) canonicalMap[fp] = ytSong;
-        deduplicatedPool.add(ytSong);
+        var processedYt = ytSong;
+        if (!processedYt.hasOfficialAlbumArt) {
+          final studioCover = CatalogDatabase.getSongCoverArt(
+            processedYt.title,
+            artist: processedYt.artist,
+            album: processedYt.album,
+          );
+          if (studioCover != null && studioCover.isNotEmpty) {
+            processedYt = processedYt.copyWith(coverUrl: studioCover);
+          }
+        }
+        if (fp.isNotEmpty) canonicalMap[fp] = processedYt;
+        deduplicatedPool.add(processedYt);
       }
     }
 
@@ -1410,7 +1435,11 @@ class SearchService {
           final existingImg = artMap['image']?.toString() ?? '';
           final verifiedImg = existingImg.isNotEmpty && !existingImg.contains('default')
               ? existingImg
-              : (SongRepository.verifiedArtistAvatars[canonLower] ?? '');
+              : (SongRepository.verifiedArtistAvatars[canonLower] ?? CatalogDatabase.getArtistProfileImage(canon) ?? '');
+          
+          final isVerified = verifiedImg.isNotEmpty || SongRepository.isArtistVerified(canon);
+          if (!isVerified) return;
+
           initialArtists.add({
             ...artMap,
             'name': canon,
@@ -1565,7 +1594,11 @@ class SearchService {
             final existingImg = sa['image']?.toString() ?? '';
             final verifiedImg = existingImg.isNotEmpty && !existingImg.contains('default')
                 ? existingImg
-                : (SongRepository.verifiedArtistAvatars[canonLower] ?? '');
+                : (SongRepository.verifiedArtistAvatars[canonLower] ?? CatalogDatabase.getArtistProfileImage(canon) ?? '');
+
+            final isVerified = verifiedImg.isNotEmpty || SongRepository.isArtistVerified(canon);
+            if (!isVerified) continue;
+
             finalArtists.add({
               ...sa,
               'name': canon,

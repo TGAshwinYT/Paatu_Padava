@@ -75,6 +75,8 @@ class _SearchScreenState extends State<SearchScreen> {
       _localSearchTrie.insert(recent[i], weight: 120 - i);
     }
     FuzzySearchService.registerCandidates(recent);
+    final localSongs = [...SearchHistoryManager.recentSongsNotifier.value, ...FavoritesManager.favoritesNotifier.value];
+    if (localSongs.isNotEmpty) FuzzySearchService.registerSongs(localSongs);
   }
 
   @override
@@ -120,8 +122,7 @@ class _SearchScreenState extends State<SearchScreen> {
     final allLocal = [...SearchHistoryManager.recentSongsNotifier.value, ...FavoritesManager.favoritesNotifier.value];
     final matchedSongs = <Song>[];
     for (final s in allLocal) {
-      if ((s.title.toLowerCase().contains(lower) || s.artist.toLowerCase().contains(lower)) &&
-          !matchedSongs.any((m) => m.id == s.id)) {
+      if (FuzzySearchService.matchesSong(s, lower) && !matchedSongs.any((m) => m.id == s.id)) {
         matchedSongs.add(s);
         if (matchedSongs.length >= 3) break;
       }
@@ -382,14 +383,10 @@ class _SearchScreenState extends State<SearchScreen> {
                     audioHandler.playSong(song, queue: state.songs);
                   },
                   onShowOptions: (s) => SearchSongOptionsSheet.show(context, s),
-                  onShowVersions: (s) => SearchVersionsSheet.show(
-                    context,
-                    s,
-                    onSelectSong: (v) {
-                      _recordSearchResultClick(v);
-                      audioHandler.playSong(v);
-                    },
-                  ),
+                  onShowVersions: (s) => SearchVersionsSheet.show(context, s, onSelectSong: (v) {
+                    _recordSearchResultClick(v);
+                    audioHandler.playSong(v);
+                  }),
                 );
               },
             );

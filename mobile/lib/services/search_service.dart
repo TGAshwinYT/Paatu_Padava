@@ -36,6 +36,7 @@ class QueryIntent {
   final String transliteratedQuery;
   final bool isRemixIntent;
   final String? didYouMeanSuggestion;
+  final String? universalPhoneticVariant;
 
   const QueryIntent({
     required this.rawQuery,
@@ -46,6 +47,7 @@ class QueryIntent {
     required this.transliteratedQuery,
     this.isRemixIntent = false,
     this.didYouMeanSuggestion,
+    this.universalPhoneticVariant,
   });
 
   String get effectiveCoreQuery => coreSubject.isNotEmpty ? coreSubject : cleanQuery;
@@ -183,6 +185,78 @@ class SearchService {
                .replaceAll('oorum blood', 'oorum blood');
 
     return text;
+  }
+
+  /// Generates multi-language universal phonetic variants for Romanized search queries.
+  /// Handles common Romanized vowel substitutions (a <-> e, ee <-> i, oo <-> u, ai <-> ay, au <-> ou),
+  /// consonant normalizations (w <-> v), and geminate consonant collapses across all languages.
+  static List<String> generateUniversalPhoneticVariants(String query) {
+    final clean = query.trim().toLowerCase();
+    if (clean.length < 3) return const [];
+
+    final variants = <String>{};
+
+    // 1. Check BK-Tree / Fuzzy dictionary for closest known entry within edit distance <= 1
+    final correction = FuzzySearchService.findCorrection(clean);
+    if (correction != null && correction.corrected.toLowerCase() != clean) {
+      variants.add(correction.corrected.toLowerCase());
+    }
+
+    // 2. Vowel substitutions (universal across Romanized Indian languages & English typos)
+    // a <-> e (e.g. "marsal" <-> "mersal", "chennai" <-> "channai")
+    if (clean.contains('ar') || clean.contains('er')) {
+      variants.add(clean.replaceAll('ar', 'er'));
+      variants.add(clean.replaceAll('er', 'ar'));
+    }
+    if (clean.contains('al') || clean.contains('el')) {
+      variants.add(clean.replaceAll('al', 'el'));
+      variants.add(clean.replaceAll('el', 'al'));
+    }
+    if (clean.contains('a') && !clean.contains('e')) {
+      variants.add(clean.replaceFirst('a', 'e'));
+    } else if (clean.contains('e') && !clean.contains('a')) {
+      variants.add(clean.replaceFirst('e', 'a'));
+    }
+
+    // ee <-> i, i <-> ee (e.g. "neethanae" <-> "nithanae", "veer" <-> "vir")
+    if (clean.contains('ee')) {
+      variants.add(clean.replaceAll('ee', 'i'));
+    } else if (clean.contains('i')) {
+      variants.add(clean.replaceAll('i', 'ee'));
+    }
+
+    // oo <-> u, u <-> oo (e.g. "soorya" <-> "surya", "dhoom" <-> "dhum")
+    if (clean.contains('oo')) {
+      variants.add(clean.replaceAll('oo', 'u'));
+    } else if (clean.contains('u')) {
+      variants.add(clean.replaceAll('u', 'oo'));
+    }
+
+    // ai <-> ay, ei <-> ai (e.g. "ilaiyaraaja" <-> "ilayaraja")
+    if (clean.contains('ai')) {
+      variants.add(clean.replaceAll('ai', 'ay'));
+    } else if (clean.contains('ay')) {
+      variants.add(clean.replaceAll('ay', 'ai'));
+    }
+
+    // w <-> v (e.g. "waseegara" <-> "vaseegara")
+    if (clean.contains('w')) {
+      variants.add(clean.replaceAll('w', 'v'));
+    }
+
+    // Geminate collapse (e.g. "neruppu" -> "nerupu", "kutty" -> "kuty")
+    final collapsed = clean.replaceAllMapped(RegExp(r'([b-df-hj-np-tv-z])\1'), (m) => m[1]!);
+    if (collapsed != clean) {
+      variants.add(collapsed);
+    }
+
+    // Dental / retroflex aspirates (e.g. "aniruth" -> "anirudh")
+    if (clean.endsWith('uth')) {
+      variants.add('${clean.substring(0, clean.length - 3)}udh');
+    }
+
+    variants.remove(clean);
+    return variants.toList();
   }
 
   /// Stage 1: Instant Debounced Typeahead (< 150ms).
@@ -682,6 +756,20 @@ class SearchService {
       }
     }
 
+    // Universal multi-language phonetic fallback
+    String? universalPhonetic;
+    final phoneticVariants = generateUniversalPhoneticVariants(cleanLower);
+    if (phoneticVariants.isNotEmpty) {
+      universalPhonetic = phoneticVariants.firstWhere(
+        (v) => FuzzySearchService.candidateDictionary.any((c) => c.toLowerCase() == v),
+        orElse: () => phoneticVariants.first,
+      );
+    }
+
+    if (transliterated.toLowerCase() == cleanLower && universalPhonetic != null) {
+      transliterated = universalPhonetic;
+    }
+
     if (didYouMean == null && cleanLower != transliterated.toLowerCase()) {
       didYouMean = transliterated;
     }
@@ -698,6 +786,7 @@ class SearchService {
       transliteratedQuery: transliterated,
       isRemixIntent: isRemix,
       didYouMeanSuggestion: didYouMean,
+      universalPhoneticVariant: universalPhonetic,
     );
   }
 
@@ -747,6 +836,16 @@ class SearchService {
         (artistLower.contains(qLower) || qLower.contains(artistLower) ||
          artistLower.contains(coreLower) || coreLower.contains(artistLower))) {
       similarity = math.max(similarity, 0.85);
+    }
+
+    // Album token match bonus (e.g. searching movie/album "mersal" finds songs like "Neethanae")
+    final albumLower = song.album.toLowerCase();
+    if (albumLower.isNotEmpty &&
+        (albumLower.contains(qLower) || albumLower.contains(transLower) ||
+         qLower.contains(albumLower) || transLower.contains(albumLower) ||
+         (qLower.length >= 3 && BkTree.levenshteinDistance(albumLower, qLower, maxDistance: 1) <= 1) ||
+         (transLower.length >= 3 && BkTree.levenshteinDistance(albumLower, transLower, maxDistance: 1) <= 1))) {
+      similarity = math.max(similarity, 0.90);
     }
 
     return similarity.clamp(0.0, 1.0);
@@ -805,12 +904,16 @@ class SearchService {
     final favs = favorites ?? (FavoritesManager.favoritesNotifier.value);
 
     final candArtist = song.primaryArtist.toLowerCase();
-    if (candArtist.isEmpty) return 0.0;
+    final candAlbum = song.album.toLowerCase();
+    if (candArtist.isEmpty && candAlbum.isEmpty) return 0.0;
 
     // 1. Liked in favorites -> highest affinity 1.0
     for (final fav in favs) {
-      if (fav.primaryArtist.toLowerCase() == candArtist ||
-          SongRepository.normalizeArtist(fav.artist).toLowerCase() == candArtist) {
+      if (fav.id == song.id) return 1.0;
+      if (candAlbum.isNotEmpty && fav.album.toLowerCase() == candAlbum) return 0.95;
+      if (candArtist.isNotEmpty &&
+          (fav.primaryArtist.toLowerCase() == candArtist ||
+           SongRepository.normalizeArtist(fav.artist).toLowerCase() == candArtist)) {
         return 1.0;
       }
     }
@@ -818,8 +921,11 @@ class SearchService {
     // 2. Played in history
     int playCount = 0;
     for (final h in hist) {
-      if (h.primaryArtist.toLowerCase() == candArtist ||
-          SongRepository.normalizeArtist(h.artist).toLowerCase() == candArtist) {
+      if (h.id == song.id) return 0.90;
+      if (candAlbum.isNotEmpty && h.album.toLowerCase() == candAlbum) playCount += 2;
+      if (candArtist.isNotEmpty &&
+          (h.primaryArtist.toLowerCase() == candArtist ||
+           SongRepository.normalizeArtist(h.artist).toLowerCase() == candArtist)) {
         playCount++;
       }
     }
@@ -1087,6 +1193,16 @@ class SearchService {
             alb = await SaavnClient.searchAlbums(intent.effectiveCoreQuery, limit: 12)
                 .timeout(const Duration(seconds: 5), onTimeout: () => <Map<String, dynamic>>[]);
           }
+          if (intent.transliteratedQuery != intent.cleanQuery) {
+            final transAlb = await SaavnClient.searchAlbums(intent.transliteratedQuery, limit: 12)
+                .timeout(const Duration(seconds: 5), onTimeout: () => <Map<String, dynamic>>[]);
+            for (final a in transAlb) {
+              final aId = (a['id'] ?? a['name'] ?? a['title'] ?? '').toString();
+              if (aId.isNotEmpty && !alb.any((x) => (x['id'] ?? x['name'] ?? x['title'] ?? '').toString() == aId)) {
+                alb.insert(0, a);
+              }
+            }
+          }
           return alb;
         } catch (e) {
           debugPrint('[SearchService] Upstream Saavn albums search fault isolated: $e');
@@ -1169,13 +1285,26 @@ class SearchService {
             language: effectiveLang,
           );
         }
+        if (catalogSongs.isEmpty && intent.transliteratedQuery != intent.cleanQuery) {
+          catalogSongs = await CatalogDatabase.searchCatalog(
+            intent.transliteratedQuery,
+            limit: limit,
+            language: effectiveLang,
+          );
+        }
         catMovies = await CatalogDatabase.searchMovies(catQuery, limit: 8);
         if (catMovies.isEmpty && catQuery != intent.cleanQuery) {
           catMovies = await CatalogDatabase.searchMovies(intent.cleanQuery, limit: 8);
         }
+        if (catMovies.isEmpty && intent.transliteratedQuery != intent.cleanQuery) {
+          catMovies = await CatalogDatabase.searchMovies(intent.transliteratedQuery, limit: 8);
+        }
         catArtists = await CatalogDatabase.searchArtists(catQuery, limit: 6);
         if (catArtists.isEmpty && catQuery != intent.cleanQuery) {
           catArtists = await CatalogDatabase.searchArtists(intent.cleanQuery, limit: 6);
+        }
+        if (catArtists.isEmpty && intent.transliteratedQuery != intent.cleanQuery) {
+          catArtists = await CatalogDatabase.searchArtists(intent.transliteratedQuery, limit: 6);
         }
       } catch (_) {}
 
@@ -1333,12 +1462,14 @@ class SearchService {
           'score': scoredSaavn.first.key,
           'versions': top.versions.map((v) => v.toMap()).toList(),
         };
+      }
+
+      if (intent.transliteratedQuery.toLowerCase() != intent.cleanQuery.toLowerCase()) {
+        didYouMean = intent.transliteratedQuery;
       } else {
         final correction = FuzzySearchService.findCorrection(intent.cleanQuery);
         if (correction != null && correction.corrected.toLowerCase() != intent.cleanQuery.toLowerCase()) {
           didYouMean = correction.corrected;
-        } else if (intent.transliteratedQuery != intent.cleanQuery) {
-          didYouMean = intent.transliteratedQuery;
         }
       }
 

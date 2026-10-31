@@ -108,6 +108,46 @@ class FuzzySearchService {
     }
   }
 
+  /// Direct accessor for candidate dictionary terms
+  static Set<String> get candidateDictionary {
+    _ensureInitialized();
+    return _candidateDictionary;
+  }
+
+  /// Evaluates whether [song] matches [query] across title, artist, and album.
+  /// Includes full-phrase substring matching and 1-character typo tolerance (Levenshtein distance <= 1).
+  static bool matchesSong(Song song, String query) {
+    final lower = query.trim().toLowerCase();
+    if (lower.isEmpty) return false;
+
+    final tLower = song.title.toLowerCase();
+    final aLower = song.artist.toLowerCase();
+    final albLower = song.album.toLowerCase();
+
+    // 1. Instant full substring containment
+    if (tLower.contains(lower) || aLower.contains(lower) || albLower.contains(lower)) {
+      return true;
+    }
+
+    // 2. Tokenized & typo-tolerant matching (Levenshtein <= 1)
+    final queryWords = lower.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    if (queryWords.isEmpty) return false;
+
+    final fullText = '$tLower $aLower $albLower';
+    final songTokens = fullText.split(RegExp(r'[^a-zA-Z0-9]+')).where((t) => t.isNotEmpty).toList();
+
+    return queryWords.every((qw) {
+      if (songTokens.any((t) => t.contains(qw))) return true;
+      if (qw.length >= 3) {
+        final maxDist = qw.length >= 6 ? 2 : 1;
+        return songTokens.any((t) =>
+            (t.length - qw.length).abs() <= maxDist &&
+            BkTree.levenshteinDistance(t, qw, maxDistance: maxDist) <= maxDist);
+      }
+      return false;
+    });
+  }
+
   /// Direct accessor for the underlying BK-Tree for diagnostic/testing purposes
   static BkTree<String> get bkTree {
     _ensureInitialized();

@@ -19,7 +19,8 @@ class TestBackendAPIContracts(unittest.TestCase):
 
     def setUp(self):
         self.routes = [route for route in app.routes]
-        self.route_paths = {route.path for route in self.routes}
+        # Guard against FastAPI >= 0.137 _IncludedRouter objects that lack a direct .path attribute
+        self.route_paths = {route.path for route in self.routes if hasattr(route, 'path')}
 
     def test_health_and_autocomplete_endpoints(self):
         """Verify baseline utility endpoints exist."""

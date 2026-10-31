@@ -18,6 +18,8 @@ import 'error_handler.dart';
 import 'app_logger.dart';
 import 'artist_sanitizer.dart';
 import 'api_client.dart';
+import 'catalog_database.dart';
+import 'user_preference_matrix.dart';
 import '../data/repositories/song_repository.dart';
 import '../core/dsa/lru_cache.dart';
 import '../domain/models/clustered_track_result.dart';
@@ -421,20 +423,28 @@ class SearchService {
           .timeout(const Duration(seconds: 4), onTimeout: () => <Map<String, dynamic>>[]);
       final songsFuture = SaavnClient.search(query, limit: 15)
           .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[]);
-      final res = await Future.wait([albumsFuture, songsFuture]);
+      final catMoviesFuture = CatalogDatabase.searchMovies(query, limit: limit);
+      final res = await Future.wait([albumsFuture, songsFuture, catMoviesFuture]);
       final directAlbums = res[0] as List<Map<String, dynamic>>;
       final songs = res[1] as List<Song>;
+      final catMovies = res[2] as List<Map<String, dynamic>>;
 
       final List<Map<String, dynamic>> correlatedAlbums = [];
       final Set<String> seenAlbumNames = {};
+
+      for (final m in catMovies) {
+        final title = (m['title'] ?? '').toString().trim();
+        if (title.isNotEmpty && seenAlbumNames.add(title.toLowerCase())) {
+          correlatedAlbums.add(m);
+        }
+      }
 
       for (final song in songs) {
         final albName = song.album.trim();
         final albId = song.albumId?.trim() ?? '';
         if (albName.isNotEmpty && albName.toLowerCase() != 'unknown album') {
           final key = albName.toLowerCase();
-          if (!seenAlbumNames.contains(key)) {
-            seenAlbumNames.add(key);
+          if (seenAlbumNames.add(key)) {
             correlatedAlbums.add({
               'id': albId.isNotEmpty ? albId : 'alb_${song.id}',
               'title': albName,
@@ -448,8 +458,7 @@ class SearchService {
 
       for (final alb in directAlbums) {
         final title = (alb['title'] ?? alb['name'] ?? '').toString().trim();
-        if (title.isNotEmpty && !seenAlbumNames.contains(title.toLowerCase())) {
-          seenAlbumNames.add(title.toLowerCase());
+        if (title.isNotEmpty && seenAlbumNames.add(title.toLowerCase())) {
           correlatedAlbums.add(alb);
         }
       }
@@ -467,35 +476,43 @@ class SearchService {
           .timeout(const Duration(seconds: 4), onTimeout: () => <Map<String, dynamic>>[]);
       final songsFuture = SaavnClient.search(query, limit: 15, language: language)
           .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[]);
-      final res = await Future.wait([artistsFuture, songsFuture]);
+      final catArtistsFuture = CatalogDatabase.searchArtists(query, limit: limit);
+      final res = await Future.wait([artistsFuture, songsFuture, catArtistsFuture]);
       final directArtists = res[0] as List<Map<String, dynamic>>;
       final songs = res[1] as List<Song>;
+      final catArtists = res[2] as List<Map<String, dynamic>>;
 
       final List<Map<String, dynamic>> correlatedArtists = [];
       final Set<String> seenArtistNames = {};
 
+      for (final ca in catArtists) {
+        final name = (ca['name'] ?? '').toString().trim();
+        if (name.isNotEmpty && seenArtistNames.add(name.toLowerCase())) {
+          correlatedArtists.add(ca);
+        }
+      }
+
       for (final song in songs) {
-        final artName = song.primaryArtist.trim();
-        final artId = song.artistId?.trim() ?? '';
-        if (artName.isNotEmpty && artName.toLowerCase() != 'various artists') {
-          final key = artName.toLowerCase();
-          if (!seenArtistNames.contains(key)) {
-            seenArtistNames.add(key);
-            correlatedArtists.add({
-              'id': artId.isNotEmpty ? artId : 'art_${song.id}',
-              'name': artName,
-              'title': artName,
-              'image': song.coverUrl,
-              'role': 'Singer / Music Director',
-            });
+        final genuine = ArtistSanitizer.extractAllGenuineArtists(song.artist);
+        for (final artName in genuine) {
+          if (artName.isNotEmpty && artName.toLowerCase() != 'various artists') {
+            final key = artName.toLowerCase();
+            if (seenArtistNames.add(key)) {
+              correlatedArtists.add({
+                'id': 'art_${song.id}_${key.replaceAll(' ', '_')}',
+                'name': artName,
+                'title': artName,
+                'image': song.coverUrl,
+                'role': 'Singer / Music Director',
+              });
+            }
           }
         }
       }
 
       for (final art in directArtists) {
         final name = (art['name'] ?? art['title'] ?? '').toString().trim();
-        if (name.isNotEmpty && !seenArtistNames.contains(name.toLowerCase())) {
-          seenArtistNames.add(name.toLowerCase());
+        if (name.isNotEmpty && seenArtistNames.add(name.toLowerCase())) {
           correlatedArtists.add(art);
         }
       }
@@ -1133,8 +1150,23 @@ class SearchService {
       final autoPlaylists = generateAutoPlaylistsFromAlbums(rawAlbums);
       final initialPlaylists = mergePlaylists(autoPlaylists, rawPlaylists);
 
+      // Local Master Catalog lookup (0ms)
+      List<Song> catalogSongs = [];
+      try {
+        catalogSongs = await CatalogDatabase.searchCatalog(
+          intent.cleanQuery,
+          limit: limit,
+          language: effectiveLang,
+        );
+      } catch (_) {}
+
       final List<Song> combinedSaavn = [];
-      combinedSaavn.addAll(rawSaavn);
+      combinedSaavn.addAll(catalogSongs);
+      for (final s in rawSaavn) {
+        if (!combinedSaavn.any((x) => x.id == s.id)) {
+          combinedSaavn.add(s);
+        }
+      }
       for (final s in transSaavn) {
         if (!combinedSaavn.any((x) => x.id == s.id)) {
           combinedSaavn.add(s);
@@ -1157,7 +1189,46 @@ class SearchService {
 
       scoredSaavn.sort((a, b) => b.key.compareTo(a.key));
       final rankedSaavn = scoredSaavn.map((e) => e.value).toList();
-      final labeledAlbums = filterGenuineAlbums(rawAlbums);
+
+      // Populate Albums Tab: Merge genuine albums with Master Catalog movies
+      final List<Map<String, dynamic>> initialAlbums = List<Map<String, dynamic>>.from(filterGenuineAlbums(rawAlbums));
+      final Set<String> seenAlbumNames = initialAlbums
+          .map((a) => (a['title'] ?? a['name'] ?? '').toString().toLowerCase().trim())
+          .toSet();
+      try {
+        final catMovies = await CatalogDatabase.searchMovies(intent.cleanQuery, limit: 8);
+        for (final cm in catMovies) {
+          final t = (cm['title'] ?? '').toString().toLowerCase().trim();
+          if (t.isNotEmpty && seenAlbumNames.add(t)) {
+            initialAlbums.add(cm);
+          }
+        }
+      } catch (_) {}
+
+      // Populate Artists Tab: Merge direct artists with Master Catalog artists and song composers/singers
+      final List<Map<String, dynamic>> initialArtists = List<Map<String, dynamic>>.from(artists);
+      final Set<String> seenArtistNames = initialArtists
+          .map((a) => (a['name'] ?? a['title'] ?? '').toString().toLowerCase().trim())
+          .toSet();
+      try {
+        final catArtists = await CatalogDatabase.searchArtists(intent.cleanQuery, limit: 8);
+        for (final ca in catArtists) {
+          final n = (ca['name'] ?? '').toString().toLowerCase().trim();
+          if (n.isNotEmpty && seenArtistNames.add(n)) {
+            initialArtists.add(ca);
+          }
+        }
+      } catch (_) {}
+
+      if (initialArtists.isEmpty) {
+        final songArtists = CatalogDatabase.extractArtistsFromSongs(combinedSaavn, limit: 6);
+        for (final sa in songArtists) {
+          final n = (sa['name'] ?? '').toString().toLowerCase().trim();
+          if (n.isNotEmpty && seenArtistNames.add(n)) {
+            initialArtists.add(sa);
+          }
+        }
+      }
 
       Map<String, dynamic>? initialTopResult;
       String? didYouMean;
@@ -1184,14 +1255,14 @@ class SearchService {
         }
       }
 
-      if (rankedSaavn.isNotEmpty || labeledAlbums.isNotEmpty || artists.isNotEmpty || initialPlaylists.isNotEmpty) {
+      if (rankedSaavn.isNotEmpty || initialAlbums.isNotEmpty || initialArtists.isNotEmpty || initialPlaylists.isNotEmpty) {
         yield SearchResults(
           songs: rankedSaavn,
           ytSongs: const [],
           saavnSongs: rankedSaavn,
           audiusSongs: const [],
-          albums: labeledAlbums,
-          artists: artists,
+          albums: initialAlbums,
+          artists: initialArtists,
           playlists: initialPlaylists,
           topResult: initialTopResult,
           didYouMean: didYouMean,
@@ -1253,20 +1324,41 @@ class SearchService {
         }
       }
 
-      FuzzySearchService.registerSongs(mergedSongs);
+      // Asynchronous Write-Through Ingestion: store newly discovered songs in local CatalogDatabase
+      for (final s in mergedSongs.take(5)) {
+        CatalogDatabase.insertDynamicSong(s);
+      }
+
+      // Dynamic On-Device Personal Preference Matrix re-ranking
+      final userRankedSongs = UserPreferenceMatrix.reRankWithPreferences(
+        mergedSongs,
+        intent.cleanQuery,
+      );
+
+      final List<Map<String, dynamic>> finalArtists = List<Map<String, dynamic>>.from(initialArtists);
+      if (finalArtists.length < 5) {
+        for (final sa in CatalogDatabase.extractArtistsFromSongs(userRankedSongs, limit: 8)) {
+          final n = (sa['name'] ?? '').toString().toLowerCase().trim();
+          if (n.isNotEmpty && seenArtistNames.add(n)) {
+            finalArtists.add(sa);
+          }
+        }
+      }
+
+      FuzzySearchService.registerSongs(userRankedSongs);
 
       AppError? searchError;
-      if (mergedSongs.isEmpty && ytSongs.isEmpty && rawAudius.isEmpty && labeledAlbums.isEmpty && artists.isEmpty && finalPlaylists.isEmpty && (saavnFailed && ytFailed && audiusFailed)) {
+      if (userRankedSongs.isEmpty && ytSongs.isEmpty && rawAudius.isEmpty && initialAlbums.isEmpty && finalArtists.isEmpty && finalPlaylists.isEmpty && (saavnFailed && ytFailed && audiusFailed)) {
         searchError = AppError.offline(debugDetails: 'All upstream providers failed for "${intent.cleanQuery}"');
       }
 
       final finalBundle = SearchResults(
-        songs: mergedSongs,
+        songs: userRankedSongs,
         ytSongs: rankedYt.isNotEmpty ? rankedYt : ytSongs,
         saavnSongs: rankedSaavn,
         audiusSongs: rawAudius,
-        albums: labeledAlbums,
-        artists: artists,
+        albums: initialAlbums,
+        artists: finalArtists,
         playlists: finalPlaylists,
         topResult: finalTopResult,
         didYouMean: didYouMean,

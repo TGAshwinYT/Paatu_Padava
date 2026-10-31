@@ -17,6 +17,7 @@ import 'services/supabase_service.dart';
 import 'services/cache_manager.dart';
 import 'services/battery_optimization_service.dart';
 import 'services/blacklist_manager.dart';
+import 'services/catalog_database.dart';
 import 'services/cover_art_resolver.dart';
 import 'services/innertube_config_service.dart';
 import 'services/sync_manager.dart';
@@ -81,6 +82,7 @@ Future<void> main() async {
         Hive.openBox('home_feed_cache'),
         AuthManager.initLocalCache(),
         BlacklistManager.init(),
+        CatalogDatabase.init(),
       ]);
     } catch (e, stack) {
       AppLogger.recordError(e, stack, context: 'Local Hive boxes init');

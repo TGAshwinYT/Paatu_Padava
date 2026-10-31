@@ -7,6 +7,7 @@ import '../../services/error_handler.dart';
 import '../../services/player_handler.dart';
 import '../../services/search_history_manager.dart';
 import '../../services/favorites_manager.dart';
+import '../../services/catalog_database.dart';
 import '../../services/settings_manager.dart';
 import '../../services/fuzzy_search_service.dart';
 import '../../services/search_service.dart';
@@ -43,10 +44,7 @@ class _SearchScreenState extends State<SearchScreen> {
   final ValueNotifier<bool> _hasSearchedNotifier = ValueNotifier<bool>(false);
   final ValueNotifier<List<Song>> _localMatchesNotifier = ValueNotifier<List<Song>>([]);
   final ValueNotifier<List<String>> _suggestionsNotifier = ValueNotifier<List<String>>([]);
-  final ValueNotifier<SearchResultsState> _resultsNotifier =
-      ValueNotifier<SearchResultsState>(const SearchResultsState());
-
-  // O(K) Prefix Trie for sub-millisecond instant autocomplete on keystroke
+  final ValueNotifier<SearchResultsState> _resultsNotifier = ValueNotifier<SearchResultsState>(const SearchResultsState());
   final PrefixTrie<String> _localSearchTrie = PrefixTrie<String>();
 
   @override
@@ -55,9 +53,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _initTrie();
     SearchHistoryManager.historyNotifier.addListener(_updateTrieWithHistory);
     _searchFocusNode.addListener(() {
-      if (_searchFocusNode.hasFocus && !_isSearchActiveNotifier.value) {
-        _isSearchActiveNotifier.value = true;
-      }
+      if (_searchFocusNode.hasFocus && !_isSearchActiveNotifier.value) _isSearchActiveNotifier.value = true;
     });
   }
 
@@ -88,19 +84,13 @@ class _SearchScreenState extends State<SearchScreen> {
     SearchHistoryManager.historyNotifier.removeListener(_updateTrieWithHistory);
     _searchController.dispose();
     _debounceTimer?.cancel();
-    _isSearchingNotifier.dispose();
-    _hasSearchedNotifier.dispose();
-    _localMatchesNotifier.dispose();
-    _suggestionsNotifier.dispose();
-    _resultsNotifier.dispose();
+    for (final n in [_isSearchingNotifier, _hasSearchedNotifier, _localMatchesNotifier, _suggestionsNotifier, _resultsNotifier]) {
+      n.dispose();
+    }
     super.dispose();
   }
 
-  void _exitActiveSearch() {
-    _debounceTimer?.cancel();
-    _searchFocusNode.unfocus();
-    _searchController.clear();
-    _isSearchActiveNotifier.value = false;
+  void _resetSearchState() {
     _hasSearchedNotifier.value = false;
     _isSearchingNotifier.value = false;
     _localMatchesNotifier.value = [];
@@ -108,16 +98,20 @@ class _SearchScreenState extends State<SearchScreen> {
     _resultsNotifier.value = const SearchResultsState();
   }
 
+  void _exitActiveSearch() {
+    _debounceTimer?.cancel();
+    _searchFocusNode.unfocus();
+    _searchController.clear();
+    _isSearchActiveNotifier.value = false;
+    _resetSearchState();
+  }
+
   void _onQueryChanged(String query) {
     if (!_isSearchActiveNotifier.value) _isSearchActiveNotifier.value = true;
     _debounceTimer?.cancel();
     final clean = query.trim();
     if (clean.isEmpty) {
-      _localMatchesNotifier.value = [];
-      _suggestionsNotifier.value = [];
-      _resultsNotifier.value = const SearchResultsState();
-      _hasSearchedNotifier.value = false;
-      _isSearchingNotifier.value = false;
+      _resetSearchState();
       return;
     }
 
@@ -126,14 +120,24 @@ class _SearchScreenState extends State<SearchScreen> {
     final allLocal = [...SearchHistoryManager.recentSongsNotifier.value, ...FavoritesManager.favoritesNotifier.value];
     final matchedSongs = <Song>[];
     for (final s in allLocal) {
-      if (s.title.toLowerCase().contains(lower) || s.artist.toLowerCase().contains(lower)) {
-        if (!matchedSongs.any((m) => m.id == s.id)) {
-          matchedSongs.add(s);
-          if (matchedSongs.length >= 3) break;
-        }
+      if ((s.title.toLowerCase().contains(lower) || s.artist.toLowerCase().contains(lower)) &&
+          !matchedSongs.any((m) => m.id == s.id)) {
+        matchedSongs.add(s);
+        if (matchedSongs.length >= 3) break;
       }
     }
     _localMatchesNotifier.value = matchedSongs;
+
+    // Supplement with Master Catalog matches (< 5ms)
+    CatalogDatabase.searchCatalog(clean, limit: 3).then((catSongs) {
+      if (mounted && _searchController.text.trim() == clean && !_hasSearchedNotifier.value) {
+        final current = List<Song>.from(_localMatchesNotifier.value);
+        for (final cs in catSongs) {
+          if (!current.any((x) => x.id == cs.id) && current.length < 3) current.add(cs);
+        }
+        _localMatchesNotifier.value = current;
+      }
+    });
 
     // State B: Instant Prefix Trie Suggestions (< 1ms)
     final instant = _localSearchTrie.findByPrefix(clean, limit: 5).map((m) => m.term).toList();
@@ -359,9 +363,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       final q = _searchController.text.trim();
                       if (q.isNotEmpty) _executeSearch(q, saveHistory: false);
                     },
-                    onOpenDownloads: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => const LibraryScreen()));
-                    },
+                    onOpenDownloads: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LibraryScreen())),
                   );
                 }
 

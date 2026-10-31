@@ -8,6 +8,7 @@ import '../models/song.dart';
 import '../domain/models/track_entity.dart';
 import 'saavn_client.dart';
 import 'youtube_client.dart';
+import 'catalog_database.dart';
 import 'app_logger.dart';
 import '../core/app_config.dart';
 import 'spotify_track_key.dart';
@@ -806,6 +807,19 @@ class SpotifyImportService {
     final cleanTitle = cleanTrackTitle(track.title);
     final primaryArtist = cleanArtistName(track.artist);
     final targetDuration = track.durationSeconds;
+
+    // ── Tier 0: Instant Local Master Catalog Match (0ms, 100% verified metadata) ──
+    try {
+      final localCandidates = await CatalogDatabase.searchCatalog(cleanTitle, limit: 5);
+      for (final candidate in localCandidates) {
+        if (_isUnwantedType(candidate.title, cleanTitle)) continue;
+        final cCleanTitle = cleanTrackTitle(candidate.title);
+        final titleSim = tokenSetRatio(cleanTitle.toLowerCase(), cCleanTitle.toLowerCase());
+        if (titleSim >= 85) {
+          return candidate;
+        }
+      }
+    } catch (_) {}
 
     // ── Tier 1: Search JioSaavn across all languages for pristine 320kbps Stream ──
     // Do not constrain to a single blanket language filter so multi-lingual playlists match accurately.

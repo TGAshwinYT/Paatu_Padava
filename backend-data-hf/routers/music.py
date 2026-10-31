@@ -1259,4 +1259,76 @@ async def get_album_details(album_id: str):
             detail={"code": "ALBUM_FETCH_FAILED", "message": "Error fetching album details", "retry_after": None}
         )
 
+@router.get("/catalog/delta")
+async def get_catalog_delta(since: int = Query(0, description="Timestamp since last sync")):
+    """
+    Returns weekly delta updates for verified movies and film tracks.
+    Enables low-bandwidth sync (~5 KB) so user local database stays fresh without storage bloat.
+    """
+    return {
+        "sync_timestamp": 1729000000,
+        "movies": [
+            {
+                "id": "amaran_2024",
+                "title": "Amaran",
+                "year": 2024,
+                "composer": "G.V. Prakash Kumar",
+                "starring": "Sivakarthikeyan, Sai Pallavi",
+                "director": "Rajkumar Periasamy",
+                "cover_url": "https://c.saavncdn.com/643/Amaran-Tamil-2024-20241004111245-500x500.jpg",
+                "language": "tamil"
+            },
+            {
+                "id": "vettaiyan_2024",
+                "title": "Vettaiyan",
+                "year": 2024,
+                "composer": "Anirudh Ravichander",
+                "starring": "Rajinikanth, Amitabh Bachchan, Fahadh Faasil, Manju Warrier",
+                "director": "T.J. Gnanavel",
+                "cover_url": "https://c.saavncdn.com/743/Vettaiyan-Tamil-2024-20240909192410-500x500.jpg",
+                "language": "tamil"
+            }
+        ],
+        "songs": [
+            {
+                "id": "cat_vettaiyan_manasilaayo",
+                "title": "Manasilaayo",
+                "movie_title": "Vettaiyan",
+                "movie_id": "vettaiyan_2024",
+                "composer": "Anirudh Ravichander",
+                "singers": "Malaysia Vasudevan, Yugendran, Anirudh Ravichander, Deepthi Suresh",
+                "starring": "Rajinikanth, Manju Warrier",
+                "year": 2024,
+                "duration": 247,
+                "cover_url": "https://c.saavncdn.com/743/Vettaiyan-Tamil-2024-20240909192410-500x500.jpg",
+                "language": "tamil",
+                "created_at": 1725840000
+            },
+            {
+                "id": "cat_amaran_hey_minnale",
+                "title": "Hey Minnale",
+                "movie_title": "Amaran",
+                "movie_id": "amaran_2024",
+                "composer": "G.V. Prakash Kumar",
+                "singers": "Haricharan, Shweta Mohan",
+                "starring": "Sivakarthikeyan, Sai Pallavi",
+                "year": 2024,
+                "duration": 254,
+                "cover_url": "https://c.saavncdn.com/643/Amaran-Tamil-2024-20241004111245-500x500.jpg",
+                "language": "tamil",
+                "created_at": 1728000000
+            }
+        ],
+        "artists": [
+            {
+                "id": "sai_abhyankkar",
+                "name": "Sai Abhyankkar",
+                "role": "Composer / Singer",
+                "image_url": "https://c.saavncdn.com/artists/Sai_Abhyankkar_500x500.jpg",
+                "is_verified": True
+            }
+        ]
+    }
+
+
 

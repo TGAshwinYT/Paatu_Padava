@@ -6,6 +6,7 @@ import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
 import '../../../services/player_handler.dart';
 import '../../../services/favorites_manager.dart';
+import '../../../services/artist_sanitizer.dart';
 import '../../theme/app_theme.dart';
 
 class SearchSongTile extends StatelessWidget {
@@ -104,6 +105,14 @@ class SearchSongTile extends StatelessWidget {
   Widget _buildTileContent(BuildContext context, {required bool isPlaying}) {
     final cleanTitle = _unescape.convert(Song.sanitize(song.title));
     final cleanArtist = _unescape.convert(Song.sanitize(song.artist));
+    final genuineSingers = ArtistSanitizer.extractAllGenuineArtists(cleanArtist);
+    final displayArtists = genuineSingers.isNotEmpty ? genuineSingers.join(', ') : cleanArtist;
+    final cleanAlbum = _unescape.convert(Song.sanitize(song.album));
+    final hasGenuineAlbum = cleanAlbum.isNotEmpty &&
+        cleanAlbum.toLowerCase() != 'unknown album' &&
+        cleanAlbum.toLowerCase() != 'single' &&
+        cleanAlbum.toLowerCase() != cleanTitle.toLowerCase();
+    final subtitleText = hasGenuineAlbum ? '$displayArtists • $cleanAlbum' : displayArtists;
 
     return ListTile(
       onTap: () {
@@ -219,7 +228,7 @@ class SearchSongTile extends StatelessWidget {
             ),
           Expanded(
             child: Text(
-              cleanArtist,
+              subtitleText,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 12),

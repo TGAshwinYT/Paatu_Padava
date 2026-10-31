@@ -50,6 +50,7 @@ dependencies:
   google_fonts: ^6.1.0
   uuid: ^4.6.0
   palette_generator: ^0.3.3+7
+  sqflite: ^2.4.5
 
 dev_dependencies:
   flutter_test:

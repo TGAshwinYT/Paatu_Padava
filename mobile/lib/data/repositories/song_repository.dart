@@ -10,6 +10,7 @@ import '../../services/lyrics_client.dart';
 import '../../services/artist_sanitizer.dart';
 import '../../services/cover_art_resolver.dart';
 import '../../services/youtube_client.dart';
+import '../../services/catalog_database.dart';
 import '../../logic/track_quality_filter.dart';
 import 'package:flutter/material.dart';
 import '../../domain/models/lyrics_state.dart';
@@ -913,12 +914,24 @@ class SongRepository {
       } catch (_) {}
     }
 
+    List<Song> songs = [];
+
+    // 0. Instant local Movie / Album catalog lookup (0ms)
+    try {
+      final localSongs = await CatalogDatabase.getSongsByMovie(albumTitle);
+      if (localSongs.isNotEmpty) {
+        songs.addAll(localSongs);
+        if (imageUrl == null || imageUrl.isEmpty) {
+          imageUrl = localSongs.first.coverUrl;
+        }
+      }
+    } catch (_) {}
+
     Map<String, dynamic>? details;
-    if (targetId.isNotEmpty && RegExp(r'^\d+$').hasMatch(targetId)) {
+    if (songs.isEmpty && targetId.isNotEmpty && RegExp(r'^\d+$').hasMatch(targetId)) {
       details = await SaavnClient.getAlbumDetails(targetId);
     }
 
-    List<Song> songs = [];
     if (details != null) {
       final albImage = details['image']?.toString() ?? '';
       if (albImage.isNotEmpty) {
@@ -967,6 +980,13 @@ class SongRepository {
     } catch (_) {}
 
     final List<Song> gathered = [];
+
+    // 0. Instant local catalog lookups
+    try {
+      final localSongs = await CatalogDatabase.getSongsByArtist(artistName);
+      gathered.addAll(localSongs);
+    } catch (_) {}
+
     try {
       final futures = <Future<List<Song>>>[];
 
@@ -1007,6 +1027,13 @@ class SongRepository {
         final fallback = await SaavnClient.search(artistName, limit: 30);
         uniqueSongs = deduplicateSongs(fallback);
       } catch (_) {}
+    }
+
+    if (resolvedImageUrl == null || resolvedImageUrl.isEmpty) {
+      final norm = normalizeArtist(artistName);
+      if (_verifiedArtistAvatars.containsKey(norm)) {
+        resolvedImageUrl = _verifiedArtistAvatars[norm];
+      }
     }
 
     return {

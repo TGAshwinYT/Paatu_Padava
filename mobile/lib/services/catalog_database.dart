@@ -98,6 +98,13 @@ class CatalogDatabase {
         if (language != null && language.isNotEmpty && language.toLowerCase() != 'all') {
           if (s.language.toLowerCase() != language.toLowerCase()) return false;
         }
+        if (q.length <= 3) {
+          final tLower = s.title.toLowerCase();
+          final mLower = s.movieTitle.toLowerCase();
+          final tokenRegex = RegExp(r'\b' + RegExp.escape(q) + r'\b');
+          return tLower == q || mLower == q || tLower.startsWith('$q ') || mLower.startsWith('$q ') ||
+              tokenRegex.hasMatch(tLower) || tokenRegex.hasMatch(mLower);
+        }
         final fullText = '${s.title} ${s.movieTitle} ${s.composer} ${s.singers} ${s.starring}'.toLowerCase();
         return fullText.contains(q);
       }).toList();
@@ -122,22 +129,42 @@ class CatalogDatabase {
     }
 
     try {
-      final safeQ = '%$q%';
       final bool hasLang = language != null && language.isNotEmpty && language.toLowerCase() != 'all';
-      final rows = await _db!.rawQuery('''
-        SELECT * FROM songs 
-        WHERE (title LIKE ? OR movie_title LIKE ? OR composer LIKE ? OR singers LIKE ? OR starring LIKE ?)
-        ${hasLang ? 'AND LOWER(language) = ?' : ''}
-        ORDER BY 
-          CASE WHEN LOWER(title) = ? THEN 1
-               WHEN LOWER(title) LIKE ? THEN 2
-               WHEN LOWER(movie_title) LIKE ? THEN 3
-               ELSE 4 END,
-          year DESC
-        LIMIT ?
-      ''', hasLang
-          ? [safeQ, safeQ, safeQ, safeQ, safeQ, language.toLowerCase(), q, '$q%', '$q%', limit]
-          : [safeQ, safeQ, safeQ, safeQ, safeQ, q, '$q%', '$q%', limit]);
+      final List<Map<String, dynamic>> rows;
+      if (q.length <= 3) {
+        final prefixQ = '$q %';
+        rows = await _db!.rawQuery('''
+          SELECT * FROM songs 
+          WHERE (LOWER(title) = ? OR LOWER(title) LIKE ? OR LOWER(movie_title) = ? OR LOWER(movie_title) LIKE ?)
+          ${hasLang ? 'AND LOWER(language) = ?' : ''}
+          ORDER BY 
+            CASE WHEN LOWER(title) = ? THEN 1
+                 WHEN LOWER(title) LIKE ? THEN 2
+                 WHEN LOWER(movie_title) = ? THEN 3
+                 WHEN LOWER(movie_title) LIKE ? THEN 4
+                 ELSE 5 END,
+            year DESC
+          LIMIT ?
+        ''', hasLang
+            ? [q, prefixQ, q, prefixQ, language.toLowerCase(), q, prefixQ, q, prefixQ, limit]
+            : [q, prefixQ, q, prefixQ, q, prefixQ, q, prefixQ, limit]);
+      } else {
+        final safeQ = '%$q%';
+        rows = await _db!.rawQuery('''
+          SELECT * FROM songs 
+          WHERE (title LIKE ? OR movie_title LIKE ? OR composer LIKE ? OR singers LIKE ? OR starring LIKE ?)
+          ${hasLang ? 'AND LOWER(language) = ?' : ''}
+          ORDER BY 
+            CASE WHEN LOWER(title) = ? THEN 1
+                 WHEN LOWER(title) LIKE ? THEN 2
+                 WHEN LOWER(movie_title) LIKE ? THEN 3
+                 ELSE 4 END,
+            year DESC
+          LIMIT ?
+        ''', hasLang
+            ? [safeQ, safeQ, safeQ, safeQ, safeQ, language.toLowerCase(), q, '$q%', '$q%', limit]
+            : [safeQ, safeQ, safeQ, safeQ, safeQ, q, '$q%', '$q%', limit]);
+      }
 
       if (rows.isEmpty) {
         final stripped = _stripSearchNoise(q);
@@ -313,6 +340,10 @@ class CatalogDatabase {
 
     if (_useInMemoryFallback || _db == null) {
       final matches = _memMovies.values.where((m) {
+        final tLower = m.title.toLowerCase();
+        if (q.length <= 3) {
+          return tLower == q || tLower.startsWith('$q ') || RegExp(r'\b' + RegExp.escape(q) + r'\b').hasMatch(tLower);
+        }
         final text = '${m.title} ${m.starring} ${m.composer}'.toLowerCase();
         return text.contains(q);
       }).take(limit).map((m) => {
@@ -335,13 +366,24 @@ class CatalogDatabase {
     }
 
     try {
-      final safeQ = '%$q%';
-      final rows = await _db!.rawQuery('''
-        SELECT * FROM movies 
-        WHERE LOWER(title) LIKE ? OR LOWER(starring) LIKE ? OR LOWER(composer) LIKE ?
-        ORDER BY year DESC
-        LIMIT ?
-      ''', [safeQ, safeQ, safeQ, limit]);
+      final List<Map<String, dynamic>> rows;
+      if (q.length <= 3) {
+        final prefixQ = '$q %';
+        rows = await _db!.rawQuery('''
+          SELECT * FROM movies 
+          WHERE LOWER(title) = ? OR LOWER(title) LIKE ?
+          ORDER BY year DESC
+          LIMIT ?
+        ''', [q, prefixQ, limit]);
+      } else {
+        final safeQ = '%$q%';
+        rows = await _db!.rawQuery('''
+          SELECT * FROM movies 
+          WHERE LOWER(title) LIKE ? OR LOWER(starring) LIKE ? OR LOWER(composer) LIKE ?
+          ORDER BY year DESC
+          LIMIT ?
+        ''', [safeQ, safeQ, safeQ, limit]);
+      }
 
       if (rows.isEmpty) {
         final stripped = _stripSearchNoise(q);

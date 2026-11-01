@@ -323,7 +323,9 @@ class YouTubeClient {
     final Set<String> seenIds = {};
     try {
       final pId = PlaylistId(playlistId);
-      final videoStream = _yt.playlists.getVideos(pId);
+      final videoStream = _yt.playlists.getVideos(pId).handleError((error) {
+        AppLogger.log('YouTubeClient', 'Skipping invalid/restricted video in playlist: $error');
+      });
       await for (final video in videoStream) {
         if (tracks.length >= limit) break;
         final vId = video.id.value;

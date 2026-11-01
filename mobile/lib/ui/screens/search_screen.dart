@@ -111,7 +111,7 @@ class _SearchScreenState extends State<SearchScreen> {
   void _onQueryChanged(String query) {
     if (!_isSearchActiveNotifier.value) _isSearchActiveNotifier.value = true;
     _debounceTimer?.cancel();
-    final clean = query.trim();
+    final clean = query.trim().toLowerCase();
     if (clean.isEmpty) {
       _resetSearchState();
       return;
@@ -157,7 +157,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _executeSearch(String query, {bool saveHistory = false}) async {
-    final clean = query.trim();
+    final clean = query.trim().toLowerCase();
     if (clean.isEmpty) return;
     if (!_isSearchActiveNotifier.value) _isSearchActiveNotifier.value = true;
     final currentRequestId = ++_searchRequestId;
@@ -220,7 +220,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _triggerCategorySearch(String query) {
-    final clean = query.trim();
+    final clean = query.trim().toLowerCase();
     if (clean.isEmpty) return;
     if (!_isSearchActiveNotifier.value) _isSearchActiveNotifier.value = true;
     _searchController.text = clean;
@@ -229,7 +229,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _searchExactQuery(String query) {
-    final exact = SearchQueryPlanner.forExactQuery(query);
+    final exact = SearchQueryPlanner.forExactQuery(query).toLowerCase();
     if (exact.isEmpty) return;
     if (!_isSearchActiveNotifier.value) _isSearchActiveNotifier.value = true;
     _searchController.text = exact;

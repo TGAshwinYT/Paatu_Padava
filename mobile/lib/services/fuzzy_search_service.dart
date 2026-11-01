@@ -187,7 +187,7 @@ class FuzzySearchService {
   /// Evaluate if query contains a typo and locate the best match using O(log N) BK-Tree metric space search
   static FuzzyCorrectionResult? findCorrection(String query) {
     final cleanQuery = Song.sanitize(query).trim();
-    if (cleanQuery.length < 3) return null;
+    if (cleanQuery.length <= 3) return null;
 
     final lowerQuery = cleanQuery.toLowerCase();
 

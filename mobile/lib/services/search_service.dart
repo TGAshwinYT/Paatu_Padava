@@ -878,20 +878,24 @@ class SearchService {
       return 0.95;
     }
 
-    // Levenshtein typo-tolerance using BkTree
-    final int distClean = BkTree.levenshteinDistance(qLower, cleanTitle);
-    final int maxLenClean = math.max(qLower.length, cleanTitle.length);
-    final double levClean = maxLenClean == 0 ? 1.0 : (1.0 - (distClean / maxLenClean)).clamp(0.0, 1.0);
+    double similarity = 0.0;
 
-    final int distNorm = BkTree.levenshteinDistance(qLower, titleNorm);
-    final int maxLenNorm = math.max(qLower.length, titleNorm.length);
-    final double levNorm = maxLenNorm == 0 ? 1.0 : (1.0 - (distNorm / maxLenNorm)).clamp(0.0, 1.0);
+    // Levenshtein typo-tolerance using BkTree: strictly Distance = 0 for <= 3 chars
+    if (qLower.length > 3) {
+      final int distClean = BkTree.levenshteinDistance(qLower, cleanTitle);
+      final int maxLenClean = math.max(qLower.length, cleanTitle.length);
+      final double levClean = maxLenClean == 0 ? 1.0 : (1.0 - (distClean / maxLenClean)).clamp(0.0, 1.0);
 
-    final int distTrans = BkTree.levenshteinDistance(transLower, titleNorm);
-    final int maxLenTrans = math.max(transLower.length, titleNorm.length);
-    final double levTrans = maxLenTrans == 0 ? 1.0 : (1.0 - (distTrans / maxLenTrans)).clamp(0.0, 1.0);
+      final int distNorm = BkTree.levenshteinDistance(qLower, titleNorm);
+      final int maxLenNorm = math.max(qLower.length, titleNorm.length);
+      final double levNorm = maxLenNorm == 0 ? 1.0 : (1.0 - (distNorm / maxLenNorm)).clamp(0.0, 1.0);
 
-    double similarity = math.max(levClean, math.max(levNorm, levTrans));
+      final int distTrans = BkTree.levenshteinDistance(transLower, titleNorm);
+      final int maxLenTrans = math.max(transLower.length, titleNorm.length);
+      final double levTrans = maxLenTrans == 0 ? 1.0 : (1.0 - (distTrans / maxLenTrans)).clamp(0.0, 1.0);
+
+      similarity = math.max(levClean, math.max(levNorm, levTrans));
+    }
 
     bool matchesToken(String text, String token) {
       if (token.isEmpty || text.isEmpty) return false;
@@ -907,12 +911,18 @@ class SearchService {
       similarity = math.max(similarity, tokenBoost);
     }
 
-    // Artist token match bonus (e.g. searching "anirudh" finds his songs)
+    // Artist token match: for <= 3 chars, strictly exact match only (disable partial contains)
     final artistLower = song.primaryArtist.toLowerCase();
     final coreLower = intent.effectiveCoreQuery.toLowerCase();
-    if (artistLower.isNotEmpty &&
-        (artistLower == qLower || matchesToken(artistLower, qLower) || matchesToken(artistLower, coreLower))) {
-      similarity = math.max(similarity, 0.85);
+    if (qLower.length > 3) {
+      if (artistLower.isNotEmpty &&
+          (artistLower == qLower || matchesToken(artistLower, qLower) || matchesToken(artistLower, coreLower))) {
+        similarity = math.max(similarity, 0.85);
+      }
+    } else {
+      if (artistLower.isNotEmpty && (artistLower == qLower || artistLower == coreLower)) {
+        similarity = math.max(similarity, 0.85);
+      }
     }
 
     // Album token match bonus (e.g. searching movie/album "mersal" finds songs like "Neethanae", or searching "Hi" finds songs from album "Hi")
@@ -922,13 +932,16 @@ class SearchService {
           albumLower == coreLower || (albumLower.contains(' - ') && albumLower.split(' - ').first.trim() == qLower);
       if (exactAlbum) {
         similarity = math.max(similarity, 0.98);
-      } else if (matchesToken(albumLower, qLower) || matchesToken(albumLower, transLower) ||
-                 (qLower.length >= 4 && qLower.contains(albumLower)) ||
-                 (qLower.length >= 4 && BkTree.levenshteinDistance(albumLower, qLower, maxDistance: 1) <= 1)) {
+      } else if (qLower.length > 3) {
+        if (matchesToken(albumLower, qLower) || matchesToken(albumLower, transLower) ||
+            (qLower.length >= 4 && qLower.contains(albumLower)) ||
+            (qLower.length >= 4 && BkTree.levenshteinDistance(albumLower, qLower, maxDistance: 1) <= 1)) {
+          similarity = math.max(similarity, 0.90);
+        }
+      } else if (matchesToken(albumLower, qLower)) {
         similarity = math.max(similarity, 0.90);
       }
     }
-
     return similarity.clamp(0.0, 1.0);
   }
 
@@ -1050,6 +1063,22 @@ class SearchService {
     // Multi-factor formula
     double score = (0.45 * stringSim) + (0.35 * popularity) + (0.20 * affinity);
 
+    // Album unpack promotion: if song belongs to an album matching query, promote it directly to Songs top rank
+    final qLower = intent.cleanQuery.toLowerCase();
+    final albLower = song.album.toLowerCase();
+    if (qLower.isNotEmpty && albLower.isNotEmpty) {
+      if (albLower == qLower || (albLower.contains(' - ') && albLower.split(' - ').first.trim() == qLower)) {
+        score = (score + 0.30).clamp(0.0, 1.0);
+      } else if (albLower.startsWith('$qLower ') || albLower.startsWith('$qLower-')) {
+        score = (score + 0.20).clamp(0.0, 1.0);
+      }
+    }
+
+    // Harsh suppression for unrelated items when query is short (<= 3 chars)
+    if (qLower.length <= 3 && stringSim < 0.80) {
+      score = score * 0.30;
+    }
+
     // Subtle language match boost if preferred languages provided
     if (preferredLanguages != null && preferredLanguages.isNotEmpty) {
       final pLang = preferredLanguages.first.toLowerCase().trim();
@@ -1081,6 +1110,38 @@ class SearchService {
 
   /// Stage 3 & 4: Normalization, Cross-Source Canonical Fingerprint Deduplication,
   /// and Unified Multi-Factor Relevance Ranking.
+  /// Deterministic 5-tier ranking comparison:
+  /// 1. Composite Relevance Score (descending)
+  /// 2. Exact Title Equality
+  /// 3. Studio Source Authority (Saavn 320k vs YT)
+  /// 4. Release Year (newer first)
+  /// 5. Stable Canonical ID
+  static int compareRankedEntries(
+    MapEntry<double, Song> a,
+    MapEntry<double, Song> b,
+    String queryLower,
+  ) {
+    final scoreCmp = b.key.compareTo(a.key);
+    if (scoreCmp != 0) return scoreCmp;
+
+    final songA = a.value;
+    final songB = b.value;
+
+    final aExact = (songA.title.toLowerCase().trim() == queryLower) ? 1 : 0;
+    final bExact = (songB.title.toLowerCase().trim() == queryLower) ? 1 : 0;
+    if (aExact != bExact) return bExact.compareTo(aExact);
+
+    final aStudio = (songA.source.toLowerCase() == 'saavn') ? 1 : 0;
+    final bStudio = (songB.source.toLowerCase() == 'saavn') ? 1 : 0;
+    if (aStudio != bStudio) return bStudio.compareTo(aStudio);
+
+    final aArt = songA.hasOfficialAlbumArt ? 1 : 0;
+    final bArt = songB.hasOfficialAlbumArt ? 1 : 0;
+    if (aArt != bArt) return bArt.compareTo(aArt);
+
+    return songA.id.compareTo(songB.id);
+  }
+
   static List<Song> deduplicateAndRankUnified({
     required List<Song> saavnSongs,
     required List<Song> ytSongs,
@@ -1164,7 +1225,7 @@ class SearchService {
     }).where((e) => e.key > 0.0).toList();
 
     // 5. Sort descending by Multi-Factor Relevance Score
-    scored.sort((a, b) => b.key.compareTo(a.key));
+    scored.sort((a, b) => compareRankedEntries(a, b, intent.cleanQuery.toLowerCase()));
 
     return scored.map((e) => e.value).toList();
   }
@@ -1217,7 +1278,8 @@ class SearchService {
     String? language,
     int limit = 25,
   }) async* {
-    final intent = understandQuery(rawQuery);
+    final normalizedRaw = rawQuery.trim().toLowerCase();
+    final intent = understandQuery(normalizedRaw);
     if (intent.cleanQuery.isEmpty) {
       yield SearchResults();
       return;
@@ -1241,8 +1303,8 @@ class SearchService {
       // Preserve explicit language in search query so providers don't default to Bollywood Hindi
       final saavnSearchQuery = (intent.explicitLanguage != null &&
               !intent.cleanQuery.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
-          ? '${intent.explicitLanguage!} ${intent.cleanQuery}'
-          : intent.cleanQuery;
+          ? '${intent.explicitLanguage!.toLowerCase()} ${intent.cleanQuery.toLowerCase()}'
+          : intent.cleanQuery.toLowerCase();
 
       final Future<List<Song>> saavnFuture = () async {
         try {
@@ -1354,8 +1416,8 @@ class SearchService {
 
       final ytSearchQuery = (intent.explicitLanguage != null &&
               !intent.cleanQuery.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
-          ? '${intent.explicitLanguage!} ${intent.cleanQuery}'
-          : intent.cleanQuery;
+          ? '${intent.explicitLanguage!.toLowerCase()} ${intent.cleanQuery.toLowerCase()}'
+          : intent.cleanQuery.toLowerCase();
 
       final Future<List<Song>> ytFuture = () async {
         try {
@@ -1463,25 +1525,34 @@ class SearchService {
 
       // If the query matches an album/movie (e.g. "Hi", "Hi Nanna", "Leo"),
       // fetch all soundtrack tracks of that album so they are directly presented in song search.
-      Map<String, dynamic>? matchingAlbum;
+      final List<Map<String, dynamic>> matchingAlbums = [];
       for (final a in rawAlbums) {
         final t = (a['title'] ?? a['name'] ?? '').toString().toLowerCase().trim();
-        if (t == qClean || t == qCore || (qClean.length >= 3 && t.startsWith(qClean))) {
-          matchingAlbum = a;
-          break;
+        final baseT = t.contains(' - ') ? t.split(' - ').first.trim() : t;
+        if (t == qClean || t == qCore || baseT == qClean || (qClean.length >= 3 && t.startsWith(qClean))) {
+          matchingAlbums.add(a);
+        }
+      }
+      for (final cm in catMovies) {
+        final t = (cm['title'] ?? '').toString().toLowerCase().trim();
+        final baseT = t.contains(' - ') ? t.split(' - ').first.trim() : t;
+        if ((t == qClean || t == qCore || baseT == qClean) && !matchingAlbums.any((x) => (x['title'] ?? '').toString().toLowerCase().trim() == t)) {
+          matchingAlbums.add(cm);
         }
       }
 
       List<Song> albumSoundtrackSongs = [];
-      if (matchingAlbum != null) {
-        final albId = matchingAlbum['id']?.toString() ?? '';
-        final albTitle = (matchingAlbum['title'] ?? matchingAlbum['name'] ?? '').toString();
-        if (albId.isNotEmpty) {
+      for (final alb in matchingAlbums.take(2)) {
+        final albId = alb['id']?.toString() ?? '';
+        final albTitle = (alb['title'] ?? alb['name'] ?? '').toString();
+        if (albId.isNotEmpty || albTitle.isNotEmpty) {
           try {
             final details = await SongRepository.getAlbumDetails(albumId: albId, albumTitle: albTitle);
             final albSongs = details?['songs'] as List<Song>? ?? [];
-            if (albSongs.isNotEmpty) {
-              albumSoundtrackSongs = albSongs;
+            for (final asong in albSongs) {
+              if (!albumSoundtrackSongs.any((x) => x.id == asong.id)) {
+                albumSoundtrackSongs.add(asong);
+              }
             }
           } catch (_) {}
         }
@@ -1517,7 +1588,7 @@ class SearchService {
         return MapEntry(score, s);
       }).where((e) => e.key > 0.0).toList();
 
-      scoredSaavn.sort((a, b) => b.key.compareTo(a.key));
+      scoredSaavn.sort((a, b) => compareRankedEntries(a, b, qClean));
       final rankedSaavn = scoredSaavn.map((e) => e.value).toList();
 
       // If the search query targets an artist (e.g. "Anirudh Ravichander", "A.R. Rahman"),
@@ -1707,7 +1778,7 @@ class SearchService {
         final score = scoreSong(s, intent, preferredLanguages: prefLangs);
         return MapEntry(score, s);
       }).where((e) => e.key > 0.0).toList();
-      scoredYt.sort((a, b) => b.key.compareTo(a.key));
+      scoredYt.sort((a, b) => compareRankedEntries(a, b, qClean));
       final rankedYt = scoredYt.map((e) => e.value).toList();
 
       final List<Song> mergedSongs = deduplicateAndRankUnified(

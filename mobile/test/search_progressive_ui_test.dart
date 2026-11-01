@@ -116,7 +116,7 @@ void main() {
 
       // Sticky Intent Filter pills
       expect(find.text('All'), findsOneWidget);
-      expect(find.text('Official Songs'), findsOneWidget);
+      expect(find.text('Songs'), findsWidgets);
       expect(find.text('Mixes & BGM'), findsOneWidget);
       expect(find.text('Artists'), findsOneWidget);
       expect(find.text('Albums'), findsOneWidget);

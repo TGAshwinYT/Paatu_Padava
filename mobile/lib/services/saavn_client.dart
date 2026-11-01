@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -285,6 +286,10 @@ class SaavnClient {
           language.toLowerCase().trim() != 'all' &&
           language.toLowerCase().trim() != 'any';
 
+      // Fetch larger batch (at least 35) because JioSaavn indexes promotional single releases first,
+      // while full multi-track soundtrack albums are placed at indices 20-30.
+      final fetchCount = math.max(limit * 2, 35);
+
       final uri = Uri.parse(baseUrl).replace(queryParameters: {
         '__call': 'search.getAlbumResults',
         '_format': 'json',
@@ -292,7 +297,7 @@ class SaavnClient {
         'api_version': '4',
         'ctx': 'web6dot0',
         'p': '1',
-        'n': limit.toString(),
+        'n': fetchCount.toString(),
         'q': query.trim(),
         if (isSpecificLang) 'languages': language.toLowerCase().trim(),
       });
@@ -302,23 +307,21 @@ class SaavnClient {
 
       final data = json.decode(response.body);
       final results = data['results'] as List<dynamic>? ?? [];
-      final validAlbums = <Map<String, dynamic>>[];
+      final List<Map<String, dynamic>> multiSongAlbums = [];
+      final List<Map<String, dynamic>> otherAlbums = [];
 
       for (final item in results) {
         if (item is! Map) continue;
         final more = item['more_info'] ?? {};
-        final songCount = int.tryParse(more['song_count']?.toString() ?? '0') ?? 0;
-        final title = (item['title'] ?? '').toString().toLowerCase();
-
-        // Strictly exclude single-song releases (song_count <= 1) from Albums view
-        if (songCount <= 1 || title.contains('single')) {
-          continue;
-        }
+        final songCount = int.tryParse(more['song_count']?.toString() ?? '0') ??
+            int.tryParse(item['song_count']?.toString() ?? '0') ?? 0;
+        final rawTitle = (item['title'] ?? '').toString();
+        final title = rawTitle.toLowerCase();
 
         // When a specific language was requested (e.g. from language tab), apply language match
         if (isSpecificLang) {
           final targetLang = language.toLowerCase().trim();
-          if (targetLang == 'tamil' && RegExp(r'[\u0900-\u097F]').hasMatch(title)) {
+          if (targetLang == 'tamil' && RegExp(r'[ऀ-ॿ]').hasMatch(title)) {
             continue;
           }
         }
@@ -334,17 +337,26 @@ class SaavnClient {
         }
         final artistName = genuineArtists.isNotEmpty ? genuineArtists.join(', ') : rawArtistStr;
 
-        validAlbums.add({
+        final albumEntry = {
           'id': item['id']?.toString() ?? '',
           'title': Song.sanitize(item['title'], fallback: 'Unknown Album'),
           'artist': artistName,
           'image': _extractHighResImage(item['image']?.toString()),
           'year': item['year']?.toString() ?? more['year']?.toString() ?? '',
           'song_count': songCount,
-        });
+          'language': item['language']?.toString() ?? more['language']?.toString() ?? '',
+        };
+
+        if (songCount > 1) {
+          multiSongAlbums.add(albumEntry);
+        } else if (!title.contains('single') && !title.contains('teaser') && !title.contains('trailer')) {
+          otherAlbums.add(albumEntry);
+        }
       }
 
-      return validAlbums;
+      // Prioritize full multi-track albums first, then relevant promotional releases as fallback
+      final validAlbums = [...multiSongAlbums, ...otherAlbums];
+      return validAlbums.take(limit).toList();
     } catch (e) {
       return [];
     }

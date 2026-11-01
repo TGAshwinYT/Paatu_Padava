@@ -57,8 +57,11 @@ class _AlbumScreenState extends State<AlbumScreen> {
             : 'tamil';
         final isTamilAlbum = widget.albumTitle.toLowerCase().contains('tamil') ||
             (details['title'] ?? '').toString().toLowerCase().contains('tamil');
-        if (prefLang == 'tamil' || isTamilAlbum) {
-          songs = SongRepository.filterByLanguage(songs, 'tamil');
+        if (!isTamilAlbum && prefLang == 'tamil') {
+          final filtered = SongRepository.filterByLanguage(songs, 'tamil');
+          if (filtered.isNotEmpty) {
+            songs = filtered;
+          }
         }
 
         if (mounted) {

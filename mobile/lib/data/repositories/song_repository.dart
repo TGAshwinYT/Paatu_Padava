@@ -491,6 +491,16 @@ class SongRepository {
     'super subu': 'https://c.saavncdn.com/artists/Super_Subu_000_20230809105700_500x500.jpg',
     'madduri hemanth': 'https://c.saavncdn.com/artists/Madduri_Hemanth_500x500.jpg',
     'hemanth madduri': 'https://c.saavncdn.com/artists/Madduri_Hemanth_500x500.jpg',
+    'hesham abdul wahab': 'https://c.saavncdn.com/artists/Hesham_Abdul_Wahab_001_20220919094035_500x500.jpg',
+    'hesham': 'https://c.saavncdn.com/artists/Hesham_Abdul_Wahab_001_20220919094035_500x500.jpg',
+    'dhruv vikram': 'https://c.saavncdn.com/498/Adithya-Varma-Tamil-2019-20191127090744-500x500.jpg',
+    'dhruv': 'https://c.saavncdn.com/498/Adithya-Varma-Tamil-2019-20191127090744-500x500.jpg',
+    'shruti haasan': 'https://c.saavncdn.com/artists/Shruti_Haasan_500x500.jpg',
+    'shruti hassan': 'https://c.saavncdn.com/artists/Shruti_Haasan_500x500.jpg',
+    'anurag kulkarni': 'https://c.saavncdn.com/artists/Anurag_Kulkarni_004_20251029091123_500x500.jpg',
+    'shakthisree gopalan': 'https://c.saavncdn.com/artists/Shakthisree_Gopalan_500x500.jpg',
+    'vineeth sreenivasan': 'https://c.saavncdn.com/artists/Vineeth_Sreenivasan_003_20240508103358_500x500.jpg',
+    'bhadra rajin': 'https://c.saavncdn.com/artists/Bhadra_Rajin_000_20240209123141_500x500.jpg',
   };
 
   static const Map<String, String> _verifiedArtistAvatars = verifiedArtistAvatars;
@@ -908,11 +918,14 @@ class SongRepository {
 
     if (targetId.isEmpty || !RegExp(r'^\d+$').hasMatch(targetId)) {
       try {
-        final searchAlbs = await SaavnClient.searchAlbums(albumTitle, limit: 5);
+        final searchAlbs = await SaavnClient.searchAlbums(albumTitle, limit: 15);
         if (searchAlbs.isNotEmpty) {
           final cleanTitle = albumTitle.toLowerCase().trim();
           final match = searchAlbs.firstWhere(
-            (a) => (a['title'] ?? a['name'] ?? '').toString().toLowerCase().trim() == cleanTitle,
+            (a) {
+              final t = (a['title'] ?? a['name'] ?? '').toString().toLowerCase().trim();
+              return t == cleanTitle || t.contains(cleanTitle) || cleanTitle.contains(t);
+            },
             orElse: () => searchAlbs.first,
           );
           targetId = match['id']?.toString() ?? '';

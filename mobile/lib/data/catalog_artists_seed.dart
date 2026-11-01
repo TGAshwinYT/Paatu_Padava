@@ -165,5 +165,23 @@ class CatalogArtistsSeed {
       role: 'Playback Singer / Lyricist',
       imageUrl: 'https://c.saavncdn.com/artists/Dhanush_500x500.jpg',
     ),
+    CatalogArtist(
+      id: 'hesham_abdul_wahab',
+      name: 'Hesham Abdul Wahab',
+      role: 'Music Director / Singer',
+      imageUrl: 'https://c.saavncdn.com/artists/Hesham_Abdul_Wahab_001_20220919094035_500x500.jpg',
+    ),
+    CatalogArtist(
+      id: 'dhruv_vikram',
+      name: 'Dhruv Vikram',
+      role: 'Actor / Playback Singer',
+      imageUrl: 'https://c.saavncdn.com/498/Adithya-Varma-Tamil-2019-20191127090744-500x500.jpg',
+    ),
+    CatalogArtist(
+      id: 'shruti_haasan',
+      name: 'Shruti Haasan',
+      role: 'Playback Singer / Actress',
+      imageUrl: 'https://c.saavncdn.com/artists/Shruti_Haasan_500x500.jpg',
+    ),
   ];
 }

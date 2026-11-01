@@ -83,10 +83,10 @@ class UserPreferenceMatrix {
 
       // Base Query Relevance (0.0 to 1.0)
       double relevance = 0.0;
-      if (titleLower == qLower) {
-        relevance = 1.0;
-      } else if (albumLower == qLower || (albumLower.contains(' - ') && albumLower.split(' - ').first.trim() == qLower)) {
+      if (albumLower == qLower || (albumLower.contains(' - ') && albumLower.split(' - ').first.trim() == qLower) || albumLower.startsWith('$qLower (') || albumLower.startsWith('$qLower -')) {
         // Direct album / movie match promotes soundtrack tracks to top tier
+        relevance = 1.0;
+      } else if (titleLower == qLower) {
         relevance = 0.98;
       } else if (titleLower.startsWith('$qLower ') || titleLower.startsWith('$qLower-') || (qLower.length > 3 && titleLower.startsWith(qLower))) {
         relevance = 0.88;
@@ -132,6 +132,18 @@ class UserPreferenceMatrix {
 
       final sA = a.value;
       final sB = b.value;
+
+      final albA = sA.album.toLowerCase().trim();
+      final albB = sB.album.toLowerCase().trim();
+      final aAlbumMatch = (albA == qLower ||
+          (albA.contains(' - ') && albA.split(' - ').first.trim() == qLower) ||
+          albA.startsWith('$qLower (') ||
+          albA.startsWith('$qLower -')) ? 1 : 0;
+      final bAlbumMatch = (albB == qLower ||
+          (albB.contains(' - ') && albB.split(' - ').first.trim() == qLower) ||
+          albB.startsWith('$qLower (') ||
+          albB.startsWith('$qLower -')) ? 1 : 0;
+      if (aAlbumMatch != bAlbumMatch) return bAlbumMatch.compareTo(aAlbumMatch);
 
       final aExact = (sA.title.toLowerCase().trim() == qLower) ? 1 : 0;
       final bExact = (sB.title.toLowerCase().trim() == qLower) ? 1 : 0;

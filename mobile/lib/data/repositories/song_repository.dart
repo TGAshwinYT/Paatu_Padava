@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:html_unescape/html_unescape.dart';
 import '../../models/song.dart';
 import '../../services/saavn_client.dart';
+import '../../services/settings_manager.dart';
 import '../../services/api_client.dart';
 import '../../services/history_manager.dart';
 import '../../services/supabase_service.dart';
@@ -978,25 +979,65 @@ class SongRepository {
       }
     }
 
-    // Incomplete single-song / regional dub release expansion (e.g. "Hi Nanna - Tamil")
+    // Incomplete single-song / regional dub release expansion (e.g. "Hi Nanna - Tamil", "Kannaadi Kannaadi (From "Hi Nanna")")
     if (songs.length <= 2) {
       try {
-        final cleanMovieName = albumTitle
-            .replaceAll(RegExp(r'\s*-\s*(Tamil|Telugu|Hindi|Malayalam|Kannada).*$', caseSensitive: false), '')
-            .replaceAll(RegExp(r'\s*\((From|OST|Original|Soundtrack).*\)', caseSensitive: false), '')
-            .trim();
-        if (cleanMovieName.isNotEmpty) {
-          final isTamil = albumTitle.toLowerCase().contains('tamil');
-          final isTelugu = albumTitle.toLowerCase().contains('telugu');
-          final isHindi = albumTitle.toLowerCase().contains('hindi');
-          final langQuery = isTamil ? 'Tamil' : (isTelugu ? 'Telugu' : (isHindi ? 'Hindi' : ''));
-          final searchQ = '$cleanMovieName $langQuery'.trim();
-          final extraSongs = await SaavnClient.search(searchQ, limit: 25);
+        // 1. Extract movie name: check (From "...") or (From '...') in title, album, or child track
+        String cleanMovieName = '';
+        final fromPattern = RegExp(r'(?:from|ost|soundtrack)\s*["\u201C\u2018\x27]?([^"\x27\)\u201D\u2019]+)', caseSensitive: false);
+        final matchInTitle = fromPattern.firstMatch(albumTitle);
+        if (matchInTitle != null) {
+          cleanMovieName = matchInTitle.group(1)?.trim() ?? '';
+        }
+        if (cleanMovieName.isEmpty && songs.isNotEmpty) {
+          final firstAlbum = songs.first.album;
+          final matchInAlbum = fromPattern.firstMatch(firstAlbum);
+          if (matchInAlbum != null) {
+            cleanMovieName = matchInAlbum.group(1)?.trim() ?? '';
+          }
+          if (cleanMovieName.isEmpty) {
+            final matchInSongTitle = fromPattern.firstMatch(songs.first.title);
+            if (matchInSongTitle != null) {
+              cleanMovieName = matchInSongTitle.group(1)?.trim() ?? '';
+            }
+          }
+        }
+        if (cleanMovieName.isEmpty) {
+          cleanMovieName = albumTitle
+              .replaceAll(RegExp(r'\s*-\s*(Tamil|Telugu|Hindi|Malayalam|Kannada).*$', caseSensitive: false), '')
+              .replaceAll(RegExp(r'\s*\((From|OST|Original|Soundtrack).*\)', caseSensitive: false), '')
+              .trim();
+        }
+
+        if (cleanMovieName.isNotEmpty && cleanMovieName.length >= 2) {
+          // 2. Resolve language
+          String detectedLang = (details?['language'] ?? '').toString().toLowerCase().trim();
+          if (detectedLang.isEmpty && songs.isNotEmpty && songs.first.language != null) {
+            detectedLang = songs.first.language!.toLowerCase().trim();
+          }
+          if (detectedLang.isEmpty) {
+            final lowerTitle = albumTitle.toLowerCase();
+            for (final l in ['tamil', 'telugu', 'hindi', 'malayalam', 'kannada']) {
+              if (lowerTitle.contains(l)) {
+                detectedLang = l;
+                break;
+              }
+            }
+          }
+          if (detectedLang.isEmpty) {
+            detectedLang = SettingsManager.preferredLanguages.isNotEmpty
+                ? SettingsManager.preferredLanguages.first.toLowerCase().trim()
+                : 'tamil';
+          }
+
+          final searchQ = '$cleanMovieName $detectedLang'.trim();
+          final extraSongs = await SaavnClient.search(searchQ, limit: 30);
           final cleanBase = cleanMovieName.toLowerCase();
           for (final es in extraSongs) {
             final tLower = es.title.toLowerCase();
             final aLower = es.album.toLowerCase();
-            if ((tLower.contains(cleanBase) || aLower.contains(cleanBase)) && !songs.any((x) => x.id == es.id)) {
+            final matchesLang = !isLanguageMismatch(es, detectedLang);
+            if (matchesLang && (tLower.contains(cleanBase) || aLower.contains(cleanBase)) && !songs.any((x) => x.id == es.id)) {
               songs.add(es);
             }
           }

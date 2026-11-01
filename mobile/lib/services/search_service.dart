@@ -1056,6 +1056,21 @@ class SearchService {
       return 0.0;
     }
 
+    // Purge non-Indian foreign language songs (Arabic, Spanish, French, etc.)
+    // unless the user explicitly searched for that language or query (e.g. "Arabic Kuthu")
+    final qLower = intent.cleanQuery.toLowerCase();
+    final songLang = song.language?.toLowerCase().trim() ?? '';
+    const nonRegionalLanguages = {
+      'arabic', 'spanish', 'french', 'turkish', 'russian', 'korean', 'chinese', 'german', 'italian', 'persian', 'japanese'
+    };
+    if (songLang.isNotEmpty && nonRegionalLanguages.contains(songLang)) {
+      final isExplicitForeign = intent.explicitLanguage != null && nonRegionalLanguages.contains(intent.explicitLanguage!.toLowerCase());
+      final isForeignInQuery = nonRegionalLanguages.any((l) => qLower.contains(l));
+      if (!isExplicitForeign && !isForeignInQuery) {
+        return 0.0;
+      }
+    }
+
     final stringSim = calculateStringSimilarity(song, intent);
     final popularity = calculateSourcePopularity(song);
     final affinity = calculateUserAffinity(song, history: history, favorites: favorites);
@@ -1064,13 +1079,12 @@ class SearchService {
     double score = (0.45 * stringSim) + (0.35 * popularity) + (0.20 * affinity);
 
     // Album unpack promotion: if song belongs to an album matching query, promote it directly to Songs top rank
-    final qLower = intent.cleanQuery.toLowerCase();
     final albLower = song.album.toLowerCase();
     if (qLower.isNotEmpty && albLower.isNotEmpty) {
       if (albLower == qLower || (albLower.contains(' - ') && albLower.split(' - ').first.trim() == qLower)) {
-        score = (score + 0.30).clamp(0.0, 1.0);
-      } else if (albLower.startsWith('$qLower ') || albLower.startsWith('$qLower-')) {
-        score = (score + 0.20).clamp(0.0, 1.0);
+        score = 1.0;
+      } else if (albLower.startsWith('$qLower ') || albLower.startsWith('$qLower-') || albLower.startsWith('$qLower (')) {
+        score = (score + 0.35).clamp(0.0, 1.0);
       }
     }
 
@@ -1126,6 +1140,19 @@ class SearchService {
 
     final songA = a.value;
     final songB = b.value;
+
+    // 1. Movie Soundtrack Match Precedence: Child tracks of matched film entity outrank standalone singles
+    final albA = songA.album.toLowerCase().trim();
+    final albB = songB.album.toLowerCase().trim();
+    final aAlbumMatch = (albA == queryLower ||
+        (albA.contains(' - ') && albA.split(' - ').first.trim() == queryLower) ||
+        albA.startsWith('$queryLower (') ||
+        albA.startsWith('$queryLower -')) ? 1 : 0;
+    final bAlbumMatch = (albB == queryLower ||
+        (albB.contains(' - ') && albB.split(' - ').first.trim() == queryLower) ||
+        albB.startsWith('$queryLower (') ||
+        albB.startsWith('$queryLower -')) ? 1 : 0;
+    if (aAlbumMatch != bAlbumMatch) return bAlbumMatch.compareTo(aAlbumMatch);
 
     final aExact = (songA.title.toLowerCase().trim() == queryLower) ? 1 : 0;
     final bExact = (songB.title.toLowerCase().trim() == queryLower) ? 1 : 0;
@@ -1727,7 +1754,9 @@ class SearchService {
         };
       }
 
-      if (intent.transliteratedQuery.toLowerCase() != intent.cleanQuery.toLowerCase()) {
+      if (exactMovieMatch != null || initialAlbums.any((a) => (a['title'] ?? '').toString().toLowerCase().trim() == intent.cleanQuery.toLowerCase().trim())) {
+        didYouMean = null;
+      } else if (intent.transliteratedQuery.toLowerCase() != intent.cleanQuery.toLowerCase()) {
         didYouMean = intent.transliteratedQuery;
       } else {
         final correction = FuzzySearchService.findCorrection(intent.cleanQuery);

@@ -591,6 +591,57 @@ class SaavnClient {
     }
   }
 
+  /// Fetches albums in an artist's discography directly with verified artwork
+  static Future<List<Map<String, dynamic>>> getArtistAlbums(String artistId, {int limit = 50}) async {
+    if (artistId.trim().isEmpty) return const [];
+    try {
+      final uri = Uri.parse(baseUrl).replace(queryParameters: {
+        '__call': 'artist.getArtistPageDetails',
+        '_format': 'json',
+        '_marker': '0',
+        'api_version': '4',
+        'ctx': 'web6dot0',
+        'artistId': artistId,
+        'n_song': '10',
+        'n_album': limit.toString(),
+      });
+
+      final response = await http.get(uri, headers: getHeaders()).timeout(const Duration(seconds: 5));
+      if (response.statusCode != 200) return const [];
+
+      var body = response.body.trim();
+      if (body.contains('{')) {
+        body = body.substring(body.indexOf('{'));
+        if (body.endsWith(')')) body = body.substring(0, body.length - 1);
+      }
+      final data = json.decode(body);
+      final rawAlbs = (data['topAlbums'] ?? data['albums']) as List<dynamic>? ?? [];
+      final List<Map<String, dynamic>> albums = [];
+      final artistName = Song.sanitize(data['name'], fallback: 'Artist');
+
+      for (final a in rawAlbs) {
+        if (a is Map) {
+          final id = a['id']?.toString() ?? '';
+          final title = (a['title'] ?? a['name'] ?? '').toString();
+          if (id.isNotEmpty && title.isNotEmpty) {
+            albums.add({
+              'id': id,
+              'title': Song.sanitize(title),
+              'artist': artistName,
+              'image': _extractHighResImage(a['image']?.toString()),
+              'year': a['year']?.toString() ?? '',
+              'song_count': a['more_info']?['song_count'] ?? a['song_count'] ?? 0,
+              'source': 'saavn',
+            });
+          }
+        }
+      }
+      return albums;
+    } catch (_) {
+      return const [];
+    }
+  }
+
   /// Fetches extensive songs for an artist across top hits and catalog
   static Future<List<Song>> getArtistSongs(String artistName, {int limit = 50}) async {
     final clean = artistName.trim();

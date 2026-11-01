@@ -141,9 +141,12 @@ class _RemotePlaylistScreenState extends State<RemotePlaylistScreen> {
                     ),
                 ],
                 flexibleSpace: FlexibleSpaceBar(
+                  centerTitle: true,
+                  titlePadding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
                   title: Text(
                     widget.playlistTitle,
-                    maxLines: 1,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.outfit(
                       color: Colors.white,
@@ -250,9 +253,20 @@ class _RemotePlaylistScreenState extends State<RemotePlaylistScreen> {
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                    child: Text(
-                      '${_songs.length} Tracks • ${(widget.subtitle ?? (widget.source == "youtube" ? "YouTube Music" : "JioSaavn")).replaceAll(RegExp(r'^\d+\s*Tracks\s*•\s*', caseSensitive: false), '')}',
-                      style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 13),
+                    child: Builder(
+                      builder: (context) {
+                        final rawSub = (widget.subtitle ?? '')
+                            .replaceAll(RegExp(r'\b\d+\s*(tracks?|songs?)\b', caseSensitive: false), '')
+                            .replaceAll(RegExp(r'^[•\s\-,|]+|[•\s\-,|]+$'), '')
+                            .trim();
+                        final displaySub = rawSub.isNotEmpty
+                            ? rawSub
+                            : (widget.source == "youtube" ? "YouTube Music" : "JioSaavn");
+                        return Text(
+                          '${_songs.length} Tracks • $displaySub',
+                          style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 13),
+                        );
+                      },
                     ),
                   ),
                 ),

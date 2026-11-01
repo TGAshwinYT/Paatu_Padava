@@ -27,6 +27,7 @@ import '../logic/track_quality_filter.dart';
 
 
 
+
 class QueryIntent {
   final String rawQuery;
   final String cleanQuery;
@@ -892,8 +893,16 @@ class SearchService {
 
     double similarity = math.max(levClean, math.max(levNorm, levTrans));
 
+    bool matchesToken(String text, String token) {
+      if (token.isEmpty || text.isEmpty) return false;
+      if (token.length <= 3) {
+        return RegExp(r'\b' + RegExp.escape(token) + r'\b', caseSensitive: false).hasMatch(text);
+      }
+      return text.contains(token);
+    }
+
     // Word token containment (e.g. query "hukum" inside "Hukum - Thalaivar Alappara")
-    if (cleanTitle.contains(qLower) || titleNorm.contains(qLower) || titleNorm.contains(transLower)) {
+    if (matchesToken(cleanTitle, qLower) || matchesToken(titleNorm, qLower) || matchesToken(titleNorm, transLower)) {
       final tokenBoost = 0.80 + (0.15 * (qLower.length / math.max(1, titleNorm.length)));
       similarity = math.max(similarity, tokenBoost);
     }
@@ -902,19 +911,22 @@ class SearchService {
     final artistLower = song.primaryArtist.toLowerCase();
     final coreLower = intent.effectiveCoreQuery.toLowerCase();
     if (artistLower.isNotEmpty &&
-        (artistLower.contains(qLower) || qLower.contains(artistLower) ||
-         artistLower.contains(coreLower) || coreLower.contains(artistLower))) {
+        (artistLower == qLower || matchesToken(artistLower, qLower) || matchesToken(artistLower, coreLower))) {
       similarity = math.max(similarity, 0.85);
     }
 
-    // Album token match bonus (e.g. searching movie/album "mersal" finds songs like "Neethanae")
+    // Album token match bonus (e.g. searching movie/album "mersal" finds songs like "Neethanae", or searching "Hi" finds songs from album "Hi")
     final albumLower = song.album.toLowerCase();
-    if (albumLower.isNotEmpty &&
-        (albumLower.contains(qLower) || albumLower.contains(transLower) ||
-         qLower.contains(albumLower) || transLower.contains(albumLower) ||
-         (qLower.length >= 3 && BkTree.levenshteinDistance(albumLower, qLower, maxDistance: 1) <= 1) ||
-         (transLower.length >= 3 && BkTree.levenshteinDistance(albumLower, transLower, maxDistance: 1) <= 1))) {
-      similarity = math.max(similarity, 0.90);
+    if (albumLower.isNotEmpty) {
+      final exactAlbum = albumLower == qLower || albumLower == transLower ||
+          albumLower == coreLower || (albumLower.contains(' - ') && albumLower.split(' - ').first.trim() == qLower);
+      if (exactAlbum) {
+        similarity = math.max(similarity, 0.98);
+      } else if (matchesToken(albumLower, qLower) || matchesToken(albumLower, transLower) ||
+                 (qLower.length >= 4 && qLower.contains(albumLower)) ||
+                 (qLower.length >= 4 && BkTree.levenshteinDistance(albumLower, qLower, maxDistance: 1) <= 1)) {
+        similarity = math.max(similarity, 0.90);
+      }
     }
 
     return similarity.clamp(0.0, 1.0);
@@ -1446,7 +1458,39 @@ class SearchService {
       final artists = saavnResults[3] as List<Map<String, dynamic>>;
       final rawPlaylists = saavnResults[4] as List<Map<String, dynamic>>;
 
+      final qClean = intent.cleanQuery.toLowerCase().trim();
+      final qCore = intent.effectiveCoreQuery.toLowerCase().trim();
+
+      // If the query matches an album/movie (e.g. "Hi", "Hi Nanna", "Leo"),
+      // fetch all soundtrack tracks of that album so they are directly presented in song search.
+      Map<String, dynamic>? matchingAlbum;
+      for (final a in rawAlbums) {
+        final t = (a['title'] ?? a['name'] ?? '').toString().toLowerCase().trim();
+        if (t == qClean || t == qCore || (qClean.length >= 3 && t.startsWith(qClean))) {
+          matchingAlbum = a;
+          break;
+        }
+      }
+
+      List<Song> albumSoundtrackSongs = [];
+      if (matchingAlbum != null) {
+        final albId = matchingAlbum['id']?.toString() ?? '';
+        final albTitle = (matchingAlbum['title'] ?? matchingAlbum['name'] ?? '').toString();
+        if (albId.isNotEmpty) {
+          try {
+            final details = await SongRepository.getAlbumDetails(albumId: albId, albumTitle: albTitle);
+            final albSongs = details?['songs'] as List<Song>? ?? [];
+            if (albSongs.isNotEmpty) {
+              albumSoundtrackSongs = albSongs;
+            }
+          } catch (_) {}
+        }
+      }
+
       final List<Song> combinedSaavn = [];
+      for (final s in albumSoundtrackSongs) {
+        combinedSaavn.add(s);
+      }
       combinedSaavn.addAll(catalogSongs);
       for (final s in rawSaavn) {
         if (!combinedSaavn.any((x) => x.id == s.id)) {
@@ -1476,19 +1520,57 @@ class SearchService {
       scoredSaavn.sort((a, b) => b.key.compareTo(a.key));
       final rankedSaavn = scoredSaavn.map((e) => e.value).toList();
 
-      // Populate Albums Tab: Merge genuine albums with Master Catalog movies
-      final List<Map<String, dynamic>> initialAlbums = List<Map<String, dynamic>>.from(
-        filterGenuineAlbums(rawAlbums, query: intent.cleanQuery),
-      );
-      final Set<String> seenAlbumNames = initialAlbums
-          .map((a) => (a['title'] ?? a['name'] ?? '').toString().toLowerCase().trim())
-          .toSet();
+      // If the search query targets an artist (e.g. "Anirudh Ravichander", "A.R. Rahman"),
+      // fetch their full official discography of albums with verified artwork.
+      Map<String, dynamic>? matchingArtist;
+      for (final a in artists) {
+        final aName = (a['name'] ?? '').toString().toLowerCase().trim();
+        final canon = ArtistSanitizer.canonicalArtistName(aName).toLowerCase();
+        if (aName == qClean || canon == qClean || aName.contains(qCore) || qClean.contains(canon)) {
+          matchingArtist = a;
+          break;
+        }
+      }
+
+      List<Map<String, dynamic>> artistOfficialAlbums = [];
+      if (matchingArtist != null) {
+        final artId = matchingArtist['id']?.toString() ?? '';
+        if (artId.isNotEmpty) {
+          try {
+            artistOfficialAlbums = await SaavnClient.getArtistAlbums(artId, limit: 40);
+          } catch (_) {}
+        }
+      }
+
+      // Populate Albums Tab: Merge genuine albums with artist discography and Master Catalog movies
+      final List<Map<String, dynamic>> initialAlbums = [];
+      final Set<String> seenAlbumNames = {};
+
+      for (final alb in artistOfficialAlbums) {
+        final t = (alb['title'] ?? alb['name'] ?? '').toString().toLowerCase().trim();
+        if (t.isNotEmpty && seenAlbumNames.add(t)) {
+          initialAlbums.add(alb);
+        }
+      }
+
+      for (final alb in filterGenuineAlbums(rawAlbums, query: intent.cleanQuery)) {
+        final t = (alb['title'] ?? alb['name'] ?? '').toString().toLowerCase().trim();
+        if (t.isNotEmpty && seenAlbumNames.add(t)) {
+          initialAlbums.add(alb);
+        }
+      }
+
       for (final cm in catMovies) {
         final t = (cm['title'] ?? '').toString().toLowerCase().trim();
         if (t.isNotEmpty && seenAlbumNames.add(t)) {
+          var img = cm['image'] ?? cm['cover_url'] ?? '';
+          if (img.toString().isEmpty || img.toString().contains('default')) {
+            img = CatalogDatabase.getMoviePoster(cm['title']?.toString() ?? '') ?? '';
+          }
           initialAlbums.add({
             ...cm,
-            'image': cm['image'] ?? cm['cover_url'] ?? '',
+            'image': img,
+            'artist': cm['artist'] ?? cm['composer'] ?? '',
           });
         }
       }

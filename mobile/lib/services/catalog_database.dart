@@ -272,6 +272,21 @@ class CatalogDatabase {
     return null;
   }
 
+  /// Resolves verified high-resolution movie poster from seed catalog
+  static String? getMoviePoster(String movieTitle) {
+    final clean = movieTitle.trim().toLowerCase();
+    if (clean.isEmpty) return null;
+    for (final m in CatalogSeedData.initialMovies) {
+      final mTitle = m.title.trim().toLowerCase();
+      if (mTitle == clean || (clean.length >= 4 && mTitle.contains(clean)) || (mTitle.length >= 4 && clean.contains(mTitle))) {
+        if (m.coverUrl != null && m.coverUrl!.isNotEmpty && !m.coverUrl!.contains('default.jpg')) {
+          return m.coverUrl;
+        }
+      }
+    }
+    return null;
+  }
+
   static void _extractAndAddArtists(CatalogSong s, Map<String, Map<String, dynamic>> results) {
     if (s.composer.isNotEmpty) {
       final comp = s.composer.trim();
@@ -335,14 +350,22 @@ class CatalogDatabase {
         }
       }
 
-      return rows.map((r) => {
-        'id': r['id']?.toString() ?? '',
-        'title': r['title']?.toString() ?? '',
-        'year': r['year'],
-        'composer': r['composer']?.toString() ?? '',
-        'starring': r['starring']?.toString() ?? '',
-        'image': r['cover_url']?.toString() ?? '',
-        'type': 'Movie / Album',
+      return rows.map((r) {
+        final rId = r['id']?.toString() ?? '';
+        final rTitle = r['title']?.toString() ?? '';
+        var img = r['cover_url']?.toString() ?? '';
+        if (img.isEmpty || img.contains('default')) {
+          img = _memMovies[rId]?.coverUrl ?? getMoviePoster(rTitle) ?? '';
+        }
+        return {
+          'id': rId,
+          'title': rTitle,
+          'year': r['year'],
+          'composer': r['composer']?.toString() ?? '',
+          'starring': r['starring']?.toString() ?? '',
+          'image': img,
+          'type': 'Movie / Album',
+        };
       }).toList();
     } catch (e) {
       AppLogger.log('CatalogDatabase', 'searchMovies error: $e');

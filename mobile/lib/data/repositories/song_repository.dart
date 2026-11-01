@@ -978,9 +978,40 @@ class SongRepository {
       }
     }
 
+    // Incomplete single-song / regional dub release expansion (e.g. "Hi Nanna - Tamil")
+    if (songs.length <= 2) {
+      try {
+        final cleanMovieName = albumTitle
+            .replaceAll(RegExp(r'\s*-\s*(Tamil|Telugu|Hindi|Malayalam|Kannada).*$', caseSensitive: false), '')
+            .replaceAll(RegExp(r'\s*\((From|OST|Original|Soundtrack).*\)', caseSensitive: false), '')
+            .trim();
+        if (cleanMovieName.isNotEmpty) {
+          final isTamil = albumTitle.toLowerCase().contains('tamil');
+          final isTelugu = albumTitle.toLowerCase().contains('telugu');
+          final isHindi = albumTitle.toLowerCase().contains('hindi');
+          final langQuery = isTamil ? 'Tamil' : (isTelugu ? 'Telugu' : (isHindi ? 'Hindi' : ''));
+          final searchQ = '$cleanMovieName $langQuery'.trim();
+          final extraSongs = await SaavnClient.search(searchQ, limit: 25);
+          final cleanBase = cleanMovieName.toLowerCase();
+          for (final es in extraSongs) {
+            final tLower = es.title.toLowerCase();
+            final aLower = es.album.toLowerCase();
+            if ((tLower.contains(cleanBase) || aLower.contains(cleanBase)) && !songs.any((x) => x.id == es.id)) {
+              songs.add(es);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+
+    imageUrl = (imageUrl != null && imageUrl.isNotEmpty && !imageUrl.contains('default'))
+        ? imageUrl
+        : (CatalogDatabase.getMoviePoster(albumTitle) ?? (songs.isNotEmpty ? songs.first.coverUrl : ''));
+
     return {
       'id': targetId,
-      'image': imageUrl ?? '',
+      'image': imageUrl,
       'songs': deduplicateSongs(songs),
     };
   }
@@ -1143,7 +1174,7 @@ class SongRepository {
     }
 
     return {
-      'image': imageUrl ?? '',
+      'image': imageUrl,
       'songs': distinctTracks,
     };
   }

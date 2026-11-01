@@ -6,6 +6,7 @@ import '../../theme/app_theme.dart';
 import '../../screens/artist_screen.dart';
 import '../../screens/album_screen.dart';
 import '../../screens/remote_playlist_screen.dart';
+import '../../../services/catalog_database.dart';
 
 /// Clean Spotify-style vertical list tile for an Artist
 class SearchArtistTile extends StatelessWidget {
@@ -108,11 +109,14 @@ class SearchAlbumTile extends StatelessWidget {
     final id = album['id']?.toString() ?? '';
     final rawTitle = album['title']?.toString() ?? album['name']?.toString() ?? '';
     final title = _unescape.convert(Song.sanitize(rawTitle));
-    final rawArtist = album['artist']?.toString() ?? album['subtitle']?.toString() ?? '';
+    final rawArtist = album['artist']?.toString() ?? album['subtitle']?.toString() ?? album['composer']?.toString() ?? '';
     final artist = _unescape.convert(Song.sanitize(rawArtist));
     final songCount = int.tryParse(album['song_count']?.toString() ?? '0') ?? 0;
     final year = album['year']?.toString() ?? '';
-    final img = album['image']?.toString() ?? album['cover_url']?.toString() ?? '';
+    var img = album['image']?.toString() ?? album['cover_url']?.toString() ?? '';
+    if (img.isEmpty || img.contains('default')) {
+      img = CatalogDatabase.getMoviePoster(title) ?? CatalogDatabase.getSongCoverArt(title, album: title) ?? '';
+    }
 
     // Build subtitle metadata
     String subtitle = 'Album';

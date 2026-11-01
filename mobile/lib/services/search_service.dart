@@ -334,10 +334,7 @@ class SearchService {
       final title = (alb['title'] ?? '').toString().toLowerCase();
       final artist = (alb['artist'] ?? '').toString().toLowerCase();
 
-      final titleMatchesQuery = cleanQuery.isNotEmpty &&
-          (title.contains(cleanQuery) || cleanQuery.contains(title));
-
-      if (!titleMatchesQuery && (songCount == 1 && (title.contains('single') || title.contains('teaser')))) {
+      if (songCount <= 1 || title.contains('single') || title.contains('teaser')) {
         continue;
       }
 
@@ -358,7 +355,7 @@ class SearchService {
       valid.add({
         ...alb,
         'type': 'Album',
-        'is_single': songCount <= 1,
+        'is_single': false,
       });
     }
 

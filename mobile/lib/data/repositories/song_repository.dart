@@ -11,7 +11,6 @@ import '../../services/artist_sanitizer.dart';
 import '../../services/cover_art_resolver.dart';
 import '../../services/youtube_client.dart';
 import '../../services/catalog_database.dart';
-import '../../logic/track_quality_filter.dart';
 import 'package:flutter/material.dart';
 import '../../domain/models/lyrics_state.dart';
 import '../../domain/models/home_feed_models.dart';
@@ -938,31 +937,33 @@ class SongRepository {
     }
 
     List<Song> songs = [];
+    Map<String, dynamic>? details;
 
-    // 0. Instant local Movie / Album catalog lookup (0ms)
-    try {
-      final localSongs = await CatalogDatabase.getSongsByMovie(albumTitle);
-      if (localSongs.isNotEmpty) {
-        songs.addAll(localSongs);
-        if (imageUrl == null || imageUrl.isEmpty) {
-          imageUrl = localSongs.first.coverUrl;
+    // 1. Direct upstream Album Details lookup for numeric album IDs
+    if (targetId.isNotEmpty && RegExp(r'^\d+$').hasMatch(targetId)) {
+      details = await SaavnClient.getAlbumDetails(targetId);
+      if (details != null) {
+        final albImage = details['image']?.toString() ?? '';
+        if (albImage.isNotEmpty) {
+          imageUrl = albImage;
+        }
+        if (details['songs'] is List<Song>) {
+          songs = details['songs'] as List<Song>;
         }
       }
-    } catch (_) {}
-
-    Map<String, dynamic>? details;
-    if (songs.isEmpty && targetId.isNotEmpty && RegExp(r'^\d+$').hasMatch(targetId)) {
-      details = await SaavnClient.getAlbumDetails(targetId);
     }
 
-    if (details != null) {
-      final albImage = details['image']?.toString() ?? '';
-      if (albImage.isNotEmpty) {
-        imageUrl = albImage;
-      }
-      if (details['songs'] is List<Song>) {
-        songs = details['songs'] as List<Song>;
-      }
+    // 2. Instant local Movie / Album catalog fallback
+    if (songs.isEmpty) {
+      try {
+        final localSongs = await CatalogDatabase.getSongsByMovie(albumTitle);
+        if (localSongs.isNotEmpty) {
+          songs.addAll(localSongs);
+          if (imageUrl == null || imageUrl.isEmpty) {
+            imageUrl = localSongs.first.coverUrl;
+          }
+        }
+      } catch (_) {}
     }
 
     if (songs.isEmpty) {
@@ -1090,16 +1091,7 @@ class SongRepository {
     String? imageUrl;
 
     try {
-      final cleanTitle = playlistTitle.replaceAll(RegExp(r'\s*\((All Songs|Full Album|Original Motion Picture Soundtrack)\)', caseSensitive: false), '').trim();
-      final localSongs = await CatalogDatabase.getSongsByMovie(cleanTitle);
-      if (localSongs.isNotEmpty) {
-        fetchedSongs.addAll(localSongs);
-        imageUrl = localSongs.first.coverUrl;
-      }
-    } catch (_) {}
-
-    try {
-      if (fetchedSongs.isEmpty && source == 'auto_album') {
+      if (source == 'auto_album') {
         final details = await SaavnClient.getAlbumDetails(playlistId);
         if (details != null && details['songs'] is List<Song>) {
           fetchedSongs = details['songs'] as List<Song>;
@@ -1107,7 +1099,7 @@ class SongRepository {
           if (img.isNotEmpty) imageUrl = img;
         }
       } else if (source == 'youtube') {
-        fetchedSongs = await YouTubeClient.getPlaylistTracks(playlistId, limit: 60);
+        fetchedSongs = await YouTubeClient.getPlaylistTracks(playlistId, limit: 150);
       } else {
         final details = await SaavnClient.getPlaylistDetails(playlistId);
         if (details != null && details['songs'] is List<Song>) {
@@ -1117,6 +1109,18 @@ class SongRepository {
         }
       }
     } catch (_) {}
+
+    // Fallback: Local catalog if remote playlist had no tracks
+    if (fetchedSongs.isEmpty) {
+      try {
+        final cleanTitle = playlistTitle.replaceAll(RegExp(r'\s*\((All Songs|Full Album|Original Motion Picture Soundtrack)\)', caseSensitive: false), '').trim();
+        final localSongs = await CatalogDatabase.getSongsByMovie(cleanTitle);
+        if (localSongs.isNotEmpty) {
+          fetchedSongs.addAll(localSongs);
+          imageUrl = localSongs.first.coverUrl;
+        }
+      } catch (_) {}
+    }
 
     if (fetchedSongs.isEmpty) {
       try {
@@ -1129,10 +1133,18 @@ class SongRepository {
       } catch (_) {}
     }
 
-    final cleanSongs = TrackQualityFilter.filterSongs(fetchedSongs);
+    // Preserve all distinct curated tracks by unique ID (do not strip titles/durations)
+    final List<Song> distinctTracks = [];
+    final Set<String> seenIds = {};
+    for (final s in fetchedSongs) {
+      if (s.id.isNotEmpty && seenIds.add(s.id)) {
+        distinctTracks.add(s);
+      }
+    }
+
     return {
       'image': imageUrl ?? '',
-      'songs': deduplicateSongs(cleanSongs),
+      'songs': distinctTracks,
     };
   }
 

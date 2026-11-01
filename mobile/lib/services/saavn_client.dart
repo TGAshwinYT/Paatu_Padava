@@ -527,9 +527,10 @@ class SaavnClient {
 
       final data = json.decode(response.body);
       final albumImage = _extractHighResImage(data['image']?.toString());
-      final list = data['list'] as List<dynamic>? ?? [];
+      final list = (data['songs'] as List<dynamic>?) ?? (data['list'] as List<dynamic>?) ?? [];
       final List<Song> songs = [];
       for (final item in list) {
+        if (item is! Map) continue;
         final parsed = _parseSongItem(Map<String, dynamic>.from(item));
         if (parsed.coverUrl.isEmpty && albumImage.isNotEmpty) {
           songs.add(parsed.copyWith(coverUrl: albumImage));
@@ -539,7 +540,7 @@ class SaavnClient {
       }
 
       return {
-        'id': data['id']?.toString() ?? albumId,
+        'id': data['id']?.toString() ?? data['albumid']?.toString() ?? albumId,
         'title': Song.sanitize(data['title'] ?? data['name'], fallback: 'Unknown Album'),
         'artist': Song.sanitize(data['primary_artists'], fallback: 'Various Artists'),
         'image': albumImage,

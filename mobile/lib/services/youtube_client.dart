@@ -315,28 +315,37 @@ class YouTubeClient {
 
   /// Client-side YouTube Playlist importer.
   /// Given a playlist URL or ID, extracts metadata and all playable tracks directly on-device.
-  static Future<List<Song>> getPlaylistTracks(String playlistIdOrUrl, {int limit = 50}) async {
+  static Future<List<Song>> getPlaylistTracks(String playlistIdOrUrl, {int limit = 150}) async {
     final playlistId = extractPlaylistId(playlistIdOrUrl) ?? playlistIdOrUrl.trim();
     if (playlistId.isEmpty) return [];
 
     final List<Song> tracks = [];
+    final Set<String> seenIds = {};
     try {
       final pId = PlaylistId(playlistId);
       final videoStream = _yt.playlists.getVideos(pId);
-      await for (final video in videoStream.take(limit)) {
+      await for (final video in videoStream) {
+        if (tracks.length >= limit) break;
+        final vId = video.id.value;
+        if (vId.isEmpty || !seenIds.add(vId)) continue;
+
         final dur = video.duration?.inSeconds ?? 0;
-        if (!TrackQualityFilter.shouldKeep(title: video.title, durationSec: dur)) {
-          continue;
-        }
+        final titleLower = video.title.toLowerCase();
+        // Drop non-music videos (e.g. full movies, press meets, interviews, reactions)
+        final isNonMusic = RegExp(
+          r'\b(full movie|interview|press meet|public review|reaction video|speech|full press meet)\b',
+          caseSensitive: false,
+        ).hasMatch(titleLower);
+        if (isNonMusic) continue;
 
         final cleanAuthor = ArtistSanitizer.extractArtistFromVideo(video.title, video.author);
         final highThumb = video.thumbnails.highResUrl;
         final safeThumb = (highThumb.isNotEmpty && highThumb.startsWith('http'))
             ? (highThumb.startsWith('http://') ? highThumb.replaceFirst('http://', 'https://') : highThumb)
-            : 'https://img.youtube.com/vi/${video.id.value}/hqdefault.jpg';
+            : 'https://img.youtube.com/vi/$vId/hqdefault.jpg';
 
         tracks.add(Song(
-          id: video.id.value,
+          id: vId,
           title: cleanTitle(video.title),
           artist: Song.sanitize(cleanAuthor),
           album: 'YouTube Playlist',
@@ -346,12 +355,11 @@ class YouTubeClient {
         ));
       }
     } catch (e) {
-      AppLogger.recordError(e, null, context: 'YouTubeClient.getPlaylistTracks("$playlistId")');
+      AppLogger.recordError(e, null, context: 'YouTubeClient.getPlaylistTracks("\$playlistId")');
     }
     return tracks;
   }
 
-  /// Searches YouTube for curated and user playlists.
   static Future<List<Map<String, dynamic>>> searchPlaylists(String query, {int limit = 15}) async {
     final clean = query.trim();
     if (clean.isEmpty) return [];

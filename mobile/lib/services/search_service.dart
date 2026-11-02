@@ -1768,24 +1768,89 @@ class SearchService {
         );
       }
 
-      // ── PHASE 1: Progressive Early Yield (~300ms) ──
-      // JioSaavn results return ultra-fast. Yield them immediately without waiting for YouTube.
-      final saavnResults = await Future.wait([
-        saavnFuture,
+      // ── PHASE 1A: Ultra-Fast Saavn Songs Yield (~200-300ms) ──
+      // Yield primary JioSaavn songs immediately as soon as saavnFuture completes!
+      // Do NOT block songs on transliteration, albums, artists, or playlists.
+      rawSaavn = await saavnFuture;
+
+      final qClean = intent.cleanQuery.toLowerCase().trim();
+      final qCore = intent.effectiveCoreQuery.toLowerCase().trim();
+
+      final List<Song> combinedSaavnEarly = [...catalogSongs];
+      for (final s in rawSaavn) {
+        if (!combinedSaavnEarly.any((x) => x.id == s.id)) combinedSaavnEarly.add(s);
+      }
+
+      final canonicalSaavnEarly = SongRepository.groupCanonicalSongs(
+        combinedSaavnEarly,
+        preferredLanguage: effectiveLang,
+      );
+
+      List<Song> candidateSaavnEarly = intent.explicitLanguage != null
+          ? SongRepository.filterByLanguage(canonicalSaavnEarly, intent.explicitLanguage!)
+          : canonicalSaavnEarly;
+      bool bypassedExplicitLangSaavnEarly = false;
+      if (candidateSaavnEarly.isEmpty && canonicalSaavnEarly.isNotEmpty && intent.explicitLanguage != null) {
+        candidateSaavnEarly = canonicalSaavnEarly;
+        bypassedExplicitLangSaavnEarly = true;
+      }
+
+      final scoredSaavnEarly = candidateSaavnEarly.map((s) {
+        final score = scoreSong(
+          s,
+          bypassedExplicitLangSaavnEarly ? intent.copyWith(explicitLanguage: null) : intent,
+          preferredLanguages: prefLangs,
+        );
+        return MapEntry(score, s);
+      }).where((e) => e.key > 0.0).toList();
+      scoredSaavnEarly.sort((a, b) => compareRankedEntries(a, b, qClean));
+      final rankedSaavnEarly = scoredSaavnEarly.map((e) => e.value).toList();
+
+      Map<String, dynamic>? initialTopResultEarly;
+      if (scoredSaavnEarly.isNotEmpty && scoredSaavnEarly.first.key >= 0.70) {
+        final top = scoredSaavnEarly.first.value;
+        initialTopResultEarly = {
+          'type': 'song',
+          'id': top.id,
+          'title': top.title,
+          'artist': top.artist,
+          'cover_url': top.coverUrl,
+          'duration': top.duration,
+          'source': top.source,
+          'score': scoredSaavnEarly.first.key,
+          'versions': top.versions.map((v) => v.toMap()).toList(),
+        };
+      }
+
+      if (rankedSaavnEarly.isNotEmpty) {
+        lastEmittedBundle = SearchResults(
+          songs: rankedSaavnEarly,
+          ytSongs: const [],
+          saavnSongs: rankedSaavnEarly,
+          audiusSongs: const [],
+          albums: phase0Albums,
+          artists: catArtists,
+          playlists: phase0Playlists,
+          topResult: initialTopResultEarly,
+          didYouMean: null,
+          error: null,
+        );
+        yield lastEmittedBundle;
+      }
+
+      // ── PHASE 1B: Metadata & Tabs Enrichment (~400-600ms) ──
+      // Now await remaining Saavn endpoints for transliterated variants, albums, artists, playlists
+      final saavnMeta = await Future.wait([
         transliteratedSaavnFuture,
         albumsFuture,
         artistsFuture,
         playlistsFuture,
       ]);
 
-      rawSaavn = saavnResults[0] as List<Song>;
-      final transSaavn = saavnResults[1] as List<Song>;
-      final rawAlbums = saavnResults[2] as List<Map<String, dynamic>>;
-      final artists = saavnResults[3] as List<Map<String, dynamic>>;
-      final rawPlaylists = saavnResults[4] as List<Map<String, dynamic>>;
-
-      final qClean = intent.cleanQuery.toLowerCase().trim();
-      final qCore = intent.effectiveCoreQuery.toLowerCase().trim();
+      final transSaavn = saavnMeta[0] as List<Song>;
+      final rawAlbums = saavnMeta[1] as List<Map<String, dynamic>>;
+      final artists = saavnMeta[2] as List<Map<String, dynamic>>;
+      final rawPlaylists = saavnMeta[3] as List<Map<String, dynamic>>;
 
       // If the query matches an album/movie (e.g. "Hi", "Hi Nanna", "Leo", "Mersal"),
       // fetch all soundtrack tracks of that album so they are directly presented in song search.
@@ -2042,17 +2107,20 @@ class SearchService {
       }
 
       // ── PHASE 2: Merge YouTube Results & Background Soundtracks ──
-      final remainingResults = await Future.wait([
+      // Await YouTube songs and soundtrack songs concurrently
+      final ytAndSoundtrack = await Future.wait([
         ytFuture,
-        ytPlaylistsFuture,
         soundtrackFuture,
+      ]);
+      final rawYt = ytAndSoundtrack[0];
+      final albumSoundtrackSongs = ytAndSoundtrack[1];
+
+      final extraMeta = await Future.wait([
+        ytPlaylistsFuture,
         artistOfficialAlbumsFuture,
       ]);
-
-      final rawYt = remainingResults[0] as List<Song>;
-      final rawYtPlaylists = remainingResults[1] as List<Map<String, dynamic>>;
-      final albumSoundtrackSongs = remainingResults[2] as List<Song>;
-      final artistOfficialAlbums = remainingResults[3] as List<Map<String, dynamic>>;
+      final rawYtPlaylists = extraMeta[0];
+      final artistOfficialAlbums = extraMeta[1];
 
       for (final alb in artistOfficialAlbums) {
         final t = (alb['title'] ?? alb['name'] ?? '').toString().toLowerCase().trim();

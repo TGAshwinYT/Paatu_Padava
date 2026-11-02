@@ -227,12 +227,13 @@ class _SearchScreenState extends State<SearchScreen> {
           saavnSongs: unified.saavnSongs, audiusSongs: unified.audiusSongs, albums: unified.albums,
           artists: unified.artists, playlists: unified.playlists, didYouMean: unified.didYouMean, error: unified.error,
         );
-
-        if (commit && unified.songs.isNotEmpty) {
-          DefaultStreamResolver.prewarmSongs(unified.songs, limit: 3);
+      }
+      if (mounted && currentRequestId == _searchRequestId) {
+        _isSearchingNotifier.value = false;
+        if (_hasSearchedNotifier.value && _resultsNotifier.value.songs.isNotEmpty) {
+          DefaultStreamResolver.prewarmSongs(_resultsNotifier.value.songs, limit: 3);
         }
       }
-      if (mounted && currentRequestId == _searchRequestId) _isSearchingNotifier.value = false;
     } catch (e, stack) {
       if (mounted && currentRequestId == _searchRequestId) {
         if (commit && _resultsNotifier.value.isEmpty) {

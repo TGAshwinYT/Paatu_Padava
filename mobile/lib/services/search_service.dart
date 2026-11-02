@@ -59,6 +59,30 @@ class QueryIntent {
   String get effectiveCoreQuery => coreSubject.isNotEmpty ? coreSubject : cleanQuery;
   String? get detectedLanguage => detectedScript;
   String? get explicitLanguageOverride => explicitLanguage?.toLowerCase();
+
+  QueryIntent copyWith({
+    String? rawQuery,
+    String? cleanQuery,
+    String? coreSubject,
+    String? detectedScript,
+    String? explicitLanguage,
+    String? transliteratedQuery,
+    bool? isRemixIntent,
+    String? didYouMeanSuggestion,
+    String? universalPhoneticVariant,
+  }) {
+    return QueryIntent(
+      rawQuery: rawQuery ?? this.rawQuery,
+      cleanQuery: cleanQuery ?? this.cleanQuery,
+      coreSubject: coreSubject ?? this.coreSubject,
+      detectedScript: detectedScript ?? this.detectedScript,
+      explicitLanguage: explicitLanguage,
+      transliteratedQuery: transliteratedQuery ?? this.transliteratedQuery,
+      isRemixIntent: isRemixIntent ?? this.isRemixIntent,
+      didYouMeanSuggestion: didYouMeanSuggestion ?? this.didYouMeanSuggestion,
+      universalPhoneticVariant: universalPhoneticVariant ?? this.universalPhoneticVariant,
+    );
+  }
 }
 
 class SearchResults {
@@ -624,9 +648,11 @@ class SearchService {
     final ytVideoId = YouTubeClient.extractVideoId(clean);
     final ytPlaylistId = YouTubeClient.extractPlaylistId(clean);
 
-    if ((ytVideoId != null && (clean.contains('youtu') || clean.contains('http'))) ||
-        (ytPlaylistId != null && (clean.contains('list=') || clean.startsWith('PL')))) {
-      if (ytPlaylistId != null && (clean.contains('list=') || clean.startsWith('PL'))) {
+    final isExplicitPlaylist = ytPlaylistId != null &&
+        (clean.contains('list=') || RegExp(r'^(?:PL|UU|LL|FL|RD)[a-zA-Z0-9_-]{16,}$').hasMatch(clean) || clean.startsWith('OLAK5uy_'));
+
+    if ((ytVideoId != null && (clean.contains('youtu') || clean.contains('http'))) || isExplicitPlaylist) {
+      if (isExplicitPlaylist) {
         final playlistTracks = await YouTubeClient.getPlaylistTracks(ytPlaylistId, limit: 40);
         if (playlistTracks.isNotEmpty) {
           return {
@@ -1210,10 +1236,13 @@ class SearchService {
     List<Song>? favorites,
     List<String>? preferredLanguages,
   }) {
-    // If query has explicit language override, strictly reject any cross-language mismatch
+    // If query has explicit language override, strictly reject any cross-language mismatch unless exact match
     if (intent.explicitLanguage != null &&
         SongRepository.isLanguageMismatch(song, intent.explicitLanguage!)) {
-      return 0.0;
+      final sim = calculateStringSimilarity(song, intent);
+      if (sim < 0.95) {
+        return 0.0;
+      }
     }
 
     final stringSim = calculateStringSimilarity(song, intent);
@@ -1814,12 +1843,21 @@ class SearchService {
         preferredLanguage: effectiveLang,
       );
 
-      final candidateSaavn = intent.explicitLanguage != null
+      List<Song> candidateSaavn = intent.explicitLanguage != null
           ? SongRepository.filterByLanguage(canonicalSaavn, intent.explicitLanguage!)
           : canonicalSaavn;
+      bool bypassedExplicitLangSaavn = false;
+      if (candidateSaavn.isEmpty && canonicalSaavn.isNotEmpty && intent.explicitLanguage != null) {
+        candidateSaavn = canonicalSaavn;
+        bypassedExplicitLangSaavn = true;
+      }
 
       final scoredSaavn = candidateSaavn.map((s) {
-        final score = scoreSong(s, intent, preferredLanguages: prefLangs);
+        final score = scoreSong(
+          s,
+          bypassedExplicitLangSaavn ? intent.copyWith(explicitLanguage: null) : intent,
+          preferredLanguages: prefLangs,
+        );
         return MapEntry(score, s);
       }).where((e) => e.key > 0.0).toList();
 
@@ -2024,13 +2062,22 @@ class SearchService {
 
       final groupedYt = SongRepository.groupCanonicalSongs(rawYt, preferredLanguage: effectiveLang);
       final deduplicatedYt = SongRepository.deduplicateSongs(groupedYt);
-      final candidateYt = intent.explicitLanguage != null
+      List<Song> candidateYt = intent.explicitLanguage != null
           ? SongRepository.filterByLanguage(deduplicatedYt, intent.explicitLanguage!)
           : deduplicatedYt;
+      bool bypassedExplicitLangYt = false;
+      if (candidateYt.isEmpty && deduplicatedYt.isNotEmpty && intent.explicitLanguage != null) {
+        candidateYt = deduplicatedYt;
+        bypassedExplicitLangYt = true;
+      }
       final ytSongs = candidateYt;
 
       final scoredYt = candidateYt.map((s) {
-        final score = scoreSong(s, intent, preferredLanguages: prefLangs);
+        final score = scoreSong(
+          s,
+          bypassedExplicitLangYt ? intent.copyWith(explicitLanguage: null) : intent,
+          preferredLanguages: prefLangs,
+        );
         return MapEntry(score, s);
       }).where((e) => e.key > 0.0).toList();
       scoredYt.sort((a, b) => compareRankedEntries(a, b, qClean));
@@ -2124,6 +2171,14 @@ class SearchService {
       }
 
       FuzzySearchService.registerSongs(userRankedSongs.where((s) => s.source == 'saavn' && s.title.length <= 40).toList());
+
+      if (didYouMean != null) {
+        final hasStrongMatchPhase2 = (finalTopResult != null && (finalTopResult['score'] as num? ?? 0.0) >= 0.80) ||
+            (userRankedSongs.isNotEmpty && calculateStringSimilarity(userRankedSongs.first, intent) >= 0.85);
+        if (hasStrongMatchPhase2) {
+          didYouMean = null;
+        }
+      }
 
       AppError? searchError;
       if (userRankedSongs.isEmpty && ytSongs.isEmpty && initialAlbums.isEmpty && finalArtists.isEmpty && finalPlaylists.isEmpty && (saavnFailed && ytFailed)) {

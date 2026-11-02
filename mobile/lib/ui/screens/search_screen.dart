@@ -53,19 +53,14 @@ class _SearchScreenState extends State<SearchScreen> {
     super.initState();
     _initTrie();
     SearchHistoryManager.historyNotifier.addListener(_updateTrieWithHistory);
+    SearchHistoryManager.recentSongsNotifier.addListener(_updateTrieWithHistory);
+    FavoritesManager.favoritesNotifier.addListener(_updateTrieWithHistory);
     _searchFocusNode.addListener(() {
       if (_searchFocusNode.hasFocus && !_isSearchActiveNotifier.value) _isSearchActiveNotifier.value = true;
     });
   }
 
   void _initTrie() {
-    for (int i = 0; i < SearchConstants.trendingArtists.length; i++) {
-      _localSearchTrie.insert(SearchConstants.trendingArtists[i], weight: 100 - i);
-    }
-    for (int i = 0; i < SearchConstants.browseCategories.length; i++) {
-      final t = SearchConstants.browseCategories[i]['title'] as String?;
-      if (t != null) _localSearchTrie.insert(t, weight: 80 - i);
-    }
     FuzzySearchService.registerCandidates(SearchConstants.trendingArtists);
     _updateTrieWithHistory();
   }
@@ -80,9 +75,7 @@ class _SearchScreenState extends State<SearchScreen> {
       final t = SearchConstants.browseCategories[i]['title'] as String?;
       if (t != null) _localSearchTrie.insert(t, weight: 80 - i);
     }
-    for (int i = 0; i < recent.length; i++) {
-      _localSearchTrie.insert(recent[i], weight: 120 - i);
-    }
+    for (int i = 0; i < recent.length; i++) { _localSearchTrie.insert(recent[i], weight: 120 - i); }
     FuzzySearchService.registerCandidates(recent);
     final localSongs = [...SearchHistoryManager.recentSongsNotifier.value, ...FavoritesManager.favoritesNotifier.value];
     if (localSongs.isNotEmpty) FuzzySearchService.registerSongs(localSongs);
@@ -93,6 +86,8 @@ class _SearchScreenState extends State<SearchScreen> {
     _searchFocusNode.dispose();
     _isSearchActiveNotifier.dispose();
     SearchHistoryManager.historyNotifier.removeListener(_updateTrieWithHistory);
+    SearchHistoryManager.recentSongsNotifier.removeListener(_updateTrieWithHistory);
+    FavoritesManager.favoritesNotifier.removeListener(_updateTrieWithHistory);
     _searchController.dispose();
     _debounceTimer?.cancel();
     _typeaheadDebounceTimer?.cancel();
@@ -244,14 +239,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _executeSearch(clean, saveHistory: true);
   }
 
-  void _searchExactQuery(String query) {
-    final exact = SearchQueryPlanner.forExactQuery(query);
-    if (exact.isEmpty) return;
-    if (!_isSearchActiveNotifier.value) _isSearchActiveNotifier.value = true;
-    _searchController.text = exact;
-    _searchController.selection = TextSelection.collapsed(offset: exact.length);
-    _executeSearch(exact, saveHistory: true);
-  }
+  void _searchExactQuery(String query) => _triggerCategorySearch(SearchQueryPlanner.forExactQuery(query));
 
   void _recordSearchResultClick([Song? song]) {
     final clean = _searchController.text.trim();
@@ -374,9 +362,7 @@ class _SearchScreenState extends State<SearchScreen> {
             return ValueListenableBuilder<bool>(
               valueListenable: _isSearchingNotifier,
               builder: (context, isSearching, _) {
-                if (state.isEmpty && isSearching) {
-                  return const Center(child: CircularProgressIndicator(color: AppColors.neonViolet));
-                }
+                if (state.isEmpty && isSearching) return const Center(child: CircularProgressIndicator(color: AppColors.neonViolet));
 
                 if (state.hasError && state.isEmpty && !isSearching) {
                   return SearchErrorView(

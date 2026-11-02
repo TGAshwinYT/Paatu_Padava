@@ -44,7 +44,8 @@ class YouTubeTitleCleaner {
     final regExp = RegExp(r'[?&]list=([a-zA-Z0-9_-]+)', caseSensitive: false);
     final match = regExp.firstMatch(clean);
     if (match != null) return match.group(1);
-    if (clean.startsWith('PL') || clean.startsWith('RD') || clean.startsWith('OLAK5uy_')) {
+    if (RegExp(r'^(?:PL|UU|LL|FL|RD)[a-zA-Z0-9_-]{16,}$').hasMatch(clean) ||
+        (clean.startsWith('OLAK5uy_') && clean.length >= 24)) {
       return clean;
     }
     return null;

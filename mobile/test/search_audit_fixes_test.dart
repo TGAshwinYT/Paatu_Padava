@@ -3,6 +3,7 @@ import 'package:paatu_padava_mobile/models/song.dart';
 import 'package:paatu_padava_mobile/services/search_service.dart';
 import 'package:paatu_padava_mobile/services/user_preference_matrix.dart';
 import 'package:paatu_padava_mobile/services/catalog_database.dart';
+import 'package:paatu_padava_mobile/services/youtube/youtube_title_cleaner.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -191,6 +192,53 @@ void main() {
       );
       SearchCache.put('test query', emptyResults);
       expect(SearchCache.get('test query'), isNull);
+    });
+
+    test('12. YouTubeTitleCleaner strictly discriminates playlist IDs from normal typed words', () {
+      expect(YouTubeTitleCleaner.extractPlaylistId('Play'), isNull);
+      expect(YouTubeTitleCleaner.extractPlaylistId('Planet'), isNull);
+      expect(YouTubeTitleCleaner.extractPlaylistId('Platinum'), isNull);
+      expect(YouTubeTitleCleaner.extractPlaylistId('PL'), isNull);
+      expect(
+        YouTubeTitleCleaner.extractPlaylistId('PL1234567890ABCDEF'),
+        'PL1234567890ABCDEF',
+      );
+      expect(
+        YouTubeTitleCleaner.extractPlaylistId('https://www.youtube.com/playlist?list=PL1234567890ABCDEF'),
+        'PL1234567890ABCDEF',
+      );
+    });
+
+    test('13. QueryIntent copyWith allows overriding explicitLanguage', () {
+      const intent = QueryIntent(
+        rawQuery: 'hindi arijit',
+        cleanQuery: 'arijit',
+        explicitLanguage: 'Hindi',
+        transliteratedQuery: 'arijit',
+      );
+      final fallback = intent.copyWith(explicitLanguage: null);
+      expect(fallback.explicitLanguage, isNull);
+      expect(fallback.cleanQuery, 'arijit');
+    });
+
+    test('14. calculateCompositeRelevance allows exact match to bypass language mismatch', () {
+      final song = Song(
+        id: 'cross_lang_exact',
+        title: 'Arabic Kuthu',
+        artist: 'Anirudh',
+        album: 'Beast',
+        duration: 240,
+        coverUrl: '',
+        language: 'Tamil',
+      );
+      const hindiIntent = QueryIntent(
+        rawQuery: 'arabic kuthu',
+        cleanQuery: 'arabic kuthu',
+        explicitLanguage: 'Hindi',
+        transliteratedQuery: 'arabic kuthu',
+      );
+      final score = SearchService.calculateCompositeRelevance(song, hindiIntent);
+      expect(score, greaterThan(0.0));
     });
   });
 }

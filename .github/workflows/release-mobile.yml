@@ -157,11 +157,30 @@ jobs:
           cat SHA256SUMS.txt
           cd ..
 
+      - name: Prepare Release Notes
+        run: |
+          TAG="${{ steps.version_step.outputs.VERSION }}"
+          if [ -f "RELEASE_NOTES.md" ]; then
+            echo "✅ Found custom RELEASE_NOTES.md"
+          else
+            echo "Creating default release notes for $TAG..."
+            cat <<EOF > RELEASE_NOTES.md
+          # 🎵 Paatu Padava Mobile $TAG
+
+          Official production release of Paatu Padava Mobile.
+
+          ## 📱 Installation Guide
+          - **\`Paatu-Padava-$TAG-arm64-v8a.apk\`**: Recommended for most modern Android devices.
+          - **\`Paatu-Padava-$TAG-universal.apk\`**: Universal build compatible with all devices.
+          EOF
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version_step.outputs.VERSION }}
           name: Paatu Padava Mobile ${{ steps.version_step.outputs.VERSION }}
+          body_path: RELEASE_NOTES.md
           draft: false
           prerelease: ${{ github.event.inputs.prerelease || false }}
           generate_release_notes: true

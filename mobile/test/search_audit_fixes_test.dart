@@ -132,5 +132,65 @@ void main() {
       // Legitimate Tamil indie artist without avatar must NOT be dropped!
       expect(tamilFiltered.any((a) => a['name'] == 'Budding Indie Artist'), isTrue);
     });
+
+    test('7. "English Vinglish" does not set explicit language to English', () {
+      final intent = SearchService.understandQuery('English Vinglish');
+      expect(intent.cleanQuery.toLowerCase(), contains('english'));
+      expect(intent.cleanQuery.toLowerCase(), contains('vinglish'));
+      expect(intent.explicitLanguage, isNull);
+    });
+
+    test('8. Foreign language song with exact title match scores > 0.0 and is not dropped', () {
+      final despacito = Song(
+        id: 'despacito_1',
+        title: 'Despacito',
+        artist: 'Luis Fonsi',
+        album: 'Vida',
+        coverUrl: '',
+        language: 'spanish',
+      );
+      final intent = SearchService.understandQuery('Despacito');
+      final score = SearchService.calculateCompositeRelevance(despacito, intent);
+      expect(score, greaterThan(0.0));
+      expect(score, greaterThanOrEqualTo(0.75));
+    });
+
+    test('9. Exact title containing "Scene" is not rejected by dialogue regex', () {
+      final sceneTrack = Song(
+        id: 'scene_track_1',
+        title: 'Behind The Scene',
+        artist: 'Music Producer',
+        album: 'The Album',
+        coverUrl: '',
+      );
+      final intent = SearchService.understandQuery('Behind The Scene');
+      final score = SearchService.calculateCompositeRelevance(sceneTrack, intent);
+      expect(score, greaterThan(0.0));
+    });
+
+    test('10. Urdu language song is exempted from Middle-Eastern Arabic drop', () {
+      final urduSong = Song(
+        id: 'urdu_1',
+        title: 'Tajdar-e-Haram',
+        artist: 'Atif Aslam',
+        album: 'Coke Studio',
+        coverUrl: '',
+        language: 'urdu',
+      );
+      final intent = SearchService.understandQuery('Tajdar-e-Haram');
+      final score = SearchService.calculateCompositeRelevance(urduSong, intent);
+      expect(score, greaterThan(0.0));
+    });
+
+    test('11. SearchCache does not cache degraded results with zero songs', () {
+      SearchCache.clear();
+      final emptyResults = SearchResults(
+        songs: const [],
+        saavnSongs: const [],
+        ytSongs: const [],
+      );
+      SearchCache.put('test query', emptyResults);
+      expect(SearchCache.get('test query'), isNull);
+    });
   });
 }

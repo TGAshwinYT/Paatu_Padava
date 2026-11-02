@@ -72,6 +72,14 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _updateTrieWithHistory() {
     final recent = SearchHistoryManager.historyNotifier.value;
+    _localSearchTrie.clear();
+    for (int i = 0; i < SearchConstants.trendingArtists.length; i++) {
+      _localSearchTrie.insert(SearchConstants.trendingArtists[i], weight: 100 - i);
+    }
+    for (int i = 0; i < SearchConstants.browseCategories.length; i++) {
+      final t = SearchConstants.browseCategories[i]['title'] as String?;
+      if (t != null) _localSearchTrie.insert(t, weight: 80 - i);
+    }
     for (int i = 0; i < recent.length; i++) {
       _localSearchTrie.insert(recent[i], weight: 120 - i);
     }
@@ -95,6 +103,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _resetSearchState() {
+    ++_searchRequestId;
     _hasSearchedNotifier.value = false;
     _isSearchingNotifier.value = false;
     _localMatchesNotifier.value = [];
@@ -105,6 +114,7 @@ class _SearchScreenState extends State<SearchScreen> {
   void _exitActiveSearch() {
     _debounceTimer?.cancel();
     _typeaheadDebounceTimer?.cancel();
+    ++_searchRequestId;
     _searchFocusNode.unfocus();
     _searchController.clear();
     _isSearchActiveNotifier.value = false;
@@ -148,7 +158,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
     // State B: Instant Prefix Trie Suggestions (< 1ms)
     final instant = _localSearchTrie.findByPrefix(clean, limit: 5).map((m) => m.term).toList();
-    if (instant.isNotEmpty) _suggestionsNotifier.value = instant;
+    _suggestionsNotifier.value = instant;
 
     // State B: Asynchronous Live Typeahead Fetch (< 120ms, debounced 150ms)
     _typeaheadDebounceTimer = Timer(const Duration(milliseconds: 150), () {
@@ -160,42 +170,45 @@ class _SearchScreenState extends State<SearchScreen> {
     });
 
     _debounceTimer = Timer(const Duration(milliseconds: 450), () {
-      if (mounted) _executeSearch(clean, saveHistory: false);
+      if (mounted) _executeSearch(clean, commit: false, saveHistory: false);
     });
   }
 
-  Future<void> _executeSearch(String query, {bool saveHistory = false}) async {
+  Future<void> _executeSearch(String query, {bool commit = true, bool saveHistory = false}) async {
+    _debounceTimer?.cancel();
+    _typeaheadDebounceTimer?.cancel();
     final clean = query.trim();
     if (clean.isEmpty) return;
     if (!_isSearchActiveNotifier.value) _isSearchActiveNotifier.value = true;
     final currentRequestId = ++_searchRequestId;
 
-    if (saveHistory && query.trim().isNotEmpty) SearchHistoryManager.addQuery(query.trim());
+    if (saveHistory && clean.isNotEmpty) SearchHistoryManager.addQuery(clean);
     _isSearchingNotifier.value = true;
-    _hasSearchedNotifier.value = true;
-
-    final direct = await SearchService.resolveDirectUrlOrEntity(clean);
-    if (direct != null) {
-      if (!mounted || currentRequestId != _searchRequestId) return;
-      final tracks = (direct['tracks'] as List<Song>?) ?? <Song>[];
-      _resultsNotifier.value = SearchResultsState(
-        ytSongs: tracks,
-        songs: tracks,
-        topResult: {'type': direct['type'], 'id': direct['id'], 'title': direct['title'], 'subtitle': direct['subtitle'], 'image': direct['image']},
-      );
-      _isSearchingNotifier.value = false;
-      return;
+    if (commit) {
+      _searchFocusNode.unfocus();
+      _hasSearchedNotifier.value = true;
+      _resultsNotifier.value = const SearchResultsState();
     }
 
     try {
+      final direct = await SearchService.resolveDirectUrlOrEntity(clean);
+      if (direct != null) {
+        if (!mounted || currentRequestId != _searchRequestId) return;
+        final tracks = (direct['tracks'] as List<Song>?) ?? <Song>[];
+        _resultsNotifier.value = SearchResultsState(
+          ytSongs: tracks,
+          songs: tracks,
+          topResult: {'type': direct['type'], 'id': direct['id'], 'title': direct['title'], 'subtitle': direct['subtitle'], 'image': direct['image']},
+        );
+        _isSearchingNotifier.value = false;
+        return;
+      }
+
       await for (final unified in SearchService.searchProgressive(clean, language: null, limit: 25)) {
         if (!mounted || currentRequestId != _searchRequestId) return;
-        final clustered = SearchService.clusterAndClassifySongs(unified.songs, query: clean);
-        final clusteredTracks = clustered.map((c) => c.primaryTrack).toList();
-
         _resultsNotifier.value = SearchResultsState(
           topResult: unified.topResult,
-          songs: clusteredTracks.isNotEmpty ? clusteredTracks : unified.songs,
+          songs: unified.songs,
           ytSongs: unified.ytSongs,
           saavnSongs: unified.saavnSongs,
           audiusSongs: unified.audiusSongs,
@@ -206,14 +219,14 @@ class _SearchScreenState extends State<SearchScreen> {
           error: unified.error,
         );
 
-        if (saveHistory && clusteredTracks.isNotEmpty) {
-          DefaultStreamResolver.prewarmSongs(clusteredTracks, limit: 3);
+        if (commit && unified.songs.isNotEmpty) {
+          DefaultStreamResolver.prewarmSongs(unified.songs, limit: 3);
         }
       }
       if (mounted && currentRequestId == _searchRequestId) _isSearchingNotifier.value = false;
     } catch (e, stack) {
       if (mounted && currentRequestId == _searchRequestId) {
-        if (_resultsNotifier.value.isEmpty) {
+        if (commit && _resultsNotifier.value.isEmpty) {
           final err = ErrorHandler.resolve(e, stackTrace: stack, context: 'SearchScreen._executeSearch');
           _resultsNotifier.value = SearchResultsState(error: err);
         }
@@ -331,12 +344,16 @@ class _SearchScreenState extends State<SearchScreen> {
                     localSongMatches: localMatches,
                     queryCompletions: completions,
                     onPlaySong: (song) {
-                      _recordSearchResultClick(song);
+                      SearchHistoryManager.addSong(song);
+                      SearchService.recordSearchClick(song);
                       audioHandler.playSong(song);
                     },
                     onSelectQuery: (q) {
+                      _debounceTimer?.cancel();
+                      _typeaheadDebounceTimer?.cancel();
                       _searchController.text = q;
-                      _executeSearch(q, saveHistory: true);
+                      _searchController.selection = TextSelection.collapsed(offset: q.length);
+                      _executeSearch(q, commit: true, saveHistory: true);
                     },
                     onAppendQuery: (q) {
                       _searchController.text = q;

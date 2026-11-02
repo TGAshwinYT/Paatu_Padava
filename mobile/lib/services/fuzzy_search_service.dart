@@ -114,6 +114,7 @@ class FuzzySearchService {
   static final SymSpell _symSpell = SymSpell(maxEditDistance: 2);
   static final TrigramIndex<String> _trigramIndex = TrigramIndex<String>();
   static final Map<String, String> _normalizedToOriginal = {};
+  static final Set<String> _lowercaseCandidateSet = <String>{};
   static bool _bkTreeInitialized = false;
 
   static String _normKey(String s) => s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
@@ -122,6 +123,7 @@ class FuzzySearchService {
     if (!_bkTreeInitialized) {
       _bkTree.insertAll(_candidateDictionary);
       for (final term in _candidateDictionary) {
+        _lowercaseCandidateSet.add(term.toLowerCase().trim());
         _normalizedToOriginal[_normKey(term)] = term;
         _symSpell.insert(term);
         _trigramIndex.insert(term, payload: term);
@@ -183,6 +185,7 @@ class FuzzySearchService {
       final sanitized = Song.sanitize(term).trim();
       if (sanitized.length >= 3) {
         if (_candidateDictionary.add(sanitized)) {
+          _lowercaseCandidateSet.add(sanitized.toLowerCase());
           _normalizedToOriginal[_normKey(sanitized)] = sanitized;
           _bkTree.insert(sanitized);
           _symSpell.insert(sanitized);
@@ -217,7 +220,7 @@ class FuzzySearchService {
     _ensureInitialized();
 
     // If exact case-insensitive match already exists, no typo correction is needed
-    if (_candidateDictionary.any((c) => c.toLowerCase() == lowerQuery)) {
+    if (_lowercaseCandidateSet.contains(lowerQuery)) {
       return null;
     }
 

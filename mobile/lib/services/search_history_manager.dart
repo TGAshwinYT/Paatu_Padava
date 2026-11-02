@@ -76,8 +76,8 @@ class SearchHistoryManager {
       current.removeRange(12, current.length);
     }
 
-    await _box.put('recent_searches', current);
     historyNotifier.value = current;
+    await _box.put('recent_searches', current);
   }
 
   /// Adds a clicked song to search history with strict deduplication by ID,
@@ -110,8 +110,8 @@ class SearchHistoryManager {
     final clean = query.trim().toLowerCase();
     final current = List<String>.from(historyNotifier.value);
     current.removeWhere((item) => item.trim().toLowerCase() == clean);
-    await _box.put('recent_searches', current);
     historyNotifier.value = current;
+    await _box.put('recent_searches', current);
   }
 
   static Future<void> clearSongs() async {

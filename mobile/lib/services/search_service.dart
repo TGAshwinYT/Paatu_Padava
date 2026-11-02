@@ -97,31 +97,48 @@ class SearchResults {
   bool get hasError => error != null;
 }
 
+class _SearchCacheEntry {
+  final SearchResults results;
+  final DateTime createdAt;
+  _SearchCacheEntry(this.results) : createdAt = DateTime.now();
+  bool get isExpired => DateTime.now().difference(createdAt).inMinutes > 15;
+}
+
 class SearchCache {
   static const int _maxEntries = 60;
-  static final Map<String, SearchResults> _cache = {};
+  static final Map<String, _SearchCacheEntry> _cache = {};
   static final List<String> _lruOrder = [];
 
   static SearchResults? get(String query, {String? language}) {
-    final key = '${query.trim().toLowerCase()}__${(language == null || language.isEmpty || language.toLowerCase() == "all") ? "all" : language.toLowerCase()}';
-    if (_cache.containsKey(key)) {
+    final prefLangs = SettingsManager.preferredLanguages.join(',');
+    final key = '${query.trim().toLowerCase()}__${(language == null || language.isEmpty || language.toLowerCase() == "all") ? "all" : language.toLowerCase()}__$prefLangs';
+    final entry = _cache[key];
+    if (entry != null) {
+      if (entry.isExpired) {
+        _cache.remove(key);
+        _lruOrder.remove(key);
+        return null;
+      }
       _lruOrder.remove(key);
       _lruOrder.add(key);
-      return _cache[key];
+      return entry.results;
     }
     return null;
   }
 
   static void put(String query, SearchResults results, {String? language}) {
     if (results.isEmpty || results.hasError) return;
-    final key = '${query.trim().toLowerCase()}__${(language == null || language.isEmpty || language.toLowerCase() == "all") ? "all" : language.toLowerCase()}';
+    if (results.songs.isEmpty && results.saavnSongs.isEmpty && results.ytSongs.isEmpty) return;
+
+    final prefLangs = SettingsManager.preferredLanguages.join(',');
+    final key = '${query.trim().toLowerCase()}__${(language == null || language.isEmpty || language.toLowerCase() == "all") ? "all" : language.toLowerCase()}__$prefLangs';
     if (_cache.containsKey(key)) {
       _lruOrder.remove(key);
     } else if (_lruOrder.length >= _maxEntries) {
       final oldest = _lruOrder.removeAt(0);
       _cache.remove(oldest);
     }
-    _cache[key] = results;
+    _cache[key] = _SearchCacheEntry(results);
     _lruOrder.add(key);
   }
 
@@ -132,6 +149,18 @@ class SearchCache {
 }
 
 class SearchService {
+  static final RegExp _dialogueRegex = RegExp(
+    r'\b(dialogues?|punch\s*dialogues?|mass\s*dialogues?|movie\s*scenes?|comedy\s*scenes?|audio\s*scenes?|dialogue\s*mix|scenes?|ringtones?|bgm\s*ringtones?)\b',
+    caseSensitive: false,
+  );
+  static final RegExp _arabicScriptRegex = RegExp(
+    r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]',
+  );
+  static final RegExp _knownIndianArtistsRegex = RegExp(
+    r'\b(anirudh|rahman|yuvan|harris|santhosh|hiphop|ilaiyaraaja|sid\s*sriram|pradeep|spb|jen\s*martin|hesham|dhanush|karthik|shreya|jonita|chinmayi|vijay|ajith|surya|rajini|kamal|nani|keerthy)\b',
+    caseSensitive: false,
+  );
+
   static const List<String> _knownLanguages = [
     'tamil',
     'telugu',
@@ -303,9 +332,11 @@ class SearchService {
     try {
       final remoteFutures = await Future.wait([
         YouTubeClient.getSearchSuggestions(clean)
-            .timeout(const Duration(milliseconds: 750), onTimeout: () => <String>[]),
+            .timeout(const Duration(milliseconds: 750), onTimeout: () => <String>[])
+            .catchError((_) => <String>[]),
         SaavnClient.getSearchSuggestions(clean)
-            .timeout(const Duration(milliseconds: 750), onTimeout: () => <String>[]),
+            .timeout(const Duration(milliseconds: 750), onTimeout: () => <String>[])
+            .catchError((_) => <String>[]),
       ]);
 
       final ytSuggestions = remoteFutures[0];
@@ -885,9 +916,11 @@ class SearchService {
     for (final lang in _knownLanguages) {
       final langPattern = RegExp('\\b$lang\\b', caseSensitive: false);
       if (langPattern.hasMatch(lower)) {
-        // Special case: Movie titles like "Hindi Medium" where the language name is an integral part of the title
-        if (lower == 'hindi medium' || lower.startsWith('hindi medium ') || lower.endsWith(' hindi medium')) {
-          explicitLang = lang[0].toUpperCase() + lang.substring(1);
+        // Special case: Movie titles like "Hindi Medium" or "English Vinglish" where the language name is an integral part of the title
+        final isTitleEntity = lower == 'hindi medium' || lower.startsWith('hindi medium ') || lower.endsWith(' hindi medium') ||
+            lower == 'english vinglish' || lower.startsWith('english vinglish ') || lower.endsWith(' english vinglish');
+        if (isTitleEntity) {
+          explicitLang = null;
           clean = trimmed;
           break;
         }
@@ -1019,7 +1052,15 @@ class SearchService {
     bool matchesToken(String text, String token) {
       if (token.isEmpty || text.isEmpty) return false;
       if (token.length <= 3) {
-        return RegExp(r'\b' + RegExp.escape(token) + r'\b', caseSensitive: false).hasMatch(text);
+        int idx = text.indexOf(token);
+        while (idx != -1) {
+          final isStartWord = idx == 0 || !((text.codeUnitAt(idx - 1) >= 48 && text.codeUnitAt(idx - 1) <= 57) || (text.codeUnitAt(idx - 1) >= 65 && text.codeUnitAt(idx - 1) <= 90) || (text.codeUnitAt(idx - 1) >= 97 && text.codeUnitAt(idx - 1) <= 122));
+          final end = idx + token.length;
+          final isEndWord = end == text.length || !((text.codeUnitAt(end) >= 48 && text.codeUnitAt(end) <= 57) || (text.codeUnitAt(end) >= 65 && text.codeUnitAt(end) <= 90) || (text.codeUnitAt(end) >= 97 && text.codeUnitAt(end) <= 122));
+          if (isStartWord && isEndWord) return true;
+          idx = text.indexOf(token, idx + 1);
+        }
+        return false;
       }
       return text.contains(token);
     }
@@ -1175,36 +1216,37 @@ class SearchService {
       return 0.0;
     }
 
-    // Purge non-Indian foreign language songs (Arabic, Spanish, French, etc.)
-    // unless the user explicitly searched for that language or query (e.g. "Arabic Kuthu")
+    final stringSim = calculateStringSimilarity(song, intent);
     final qLower = intent.cleanQuery.toLowerCase();
     final songLang = song.language?.toLowerCase().trim() ?? '';
+    final isArtistTarget = song.primaryArtist.isNotEmpty &&
+        (qLower.contains(song.primaryArtist.toLowerCase()) || song.primaryArtist.toLowerCase().contains(qLower));
+    final isExactOrArtistTarget = stringSim >= 0.95 || isArtistTarget;
+
+    // Purge non-Indian foreign language songs unless explicit foreign query OR exact match/artist match
     const nonRegionalLanguages = {
       'arabic', 'spanish', 'french', 'turkish', 'russian', 'korean', 'chinese', 'german', 'italian', 'persian', 'japanese'
     };
     final isExplicitForeign = intent.explicitLanguage != null && nonRegionalLanguages.contains(intent.explicitLanguage!.toLowerCase());
     final isForeignInQuery = nonRegionalLanguages.any((l) => qLower.contains(l));
 
-    if (!isExplicitForeign && !isForeignInQuery) {
+    if (!isExplicitForeign && !isForeignInQuery && !isExactOrArtistTarget) {
       if (songLang.isNotEmpty && nonRegionalLanguages.contains(songLang)) {
         return 0.0;
       }
-      // Check Arabic script or foreign Middle-Eastern/international artist markers on YouTube/Saavn tracks
-      if (ArtistSanitizer.isMiddleEasternOrForeignArtist(song.artist) ||
-          ArtistSanitizer.isMiddleEasternOrForeignArtist(song.title) ||
-          RegExp(r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]').hasMatch('${song.title} ${song.artist}')) {
-        return 0.0;
+      // Check Arabic script or foreign Middle-Eastern markers (exempt Urdu which uses Perso-Arabic script)
+      if (songLang != 'urdu') {
+        if (ArtistSanitizer.isMiddleEasternOrForeignArtist(song.artist) ||
+            ArtistSanitizer.isMiddleEasternOrForeignArtist(song.title) ||
+            _arabicScriptRegex.hasMatch('${song.title} ${song.artist}')) {
+          return 0.0;
+        }
       }
     }
 
-    // Spoken dialogue / movie scene rejection:
-    // If query does not explicitly ask for dialogue/scene/ringtone, reject spoken dialogue tracks
+    // Spoken dialogue / movie scene rejection (bypassed on exact title match)
     final titleLower = song.title.toLowerCase();
-    final dialogueRegex = RegExp(
-      r'\b(dialogues?|punch\s*dialogues?|mass\s*dialogues?|movie\s*scenes?|comedy\s*scenes?|audio\s*scenes?|dialogue\s*mix|scenes?|ringtones?|bgm\s*ringtones?)\b',
-      caseSensitive: false,
-    );
-    if (dialogueRegex.hasMatch(titleLower)) {
+    if (!isExactOrArtistTarget && _dialogueRegex.hasMatch(titleLower)) {
       final queryAsksDialogue = qLower.contains('dialogue') || qLower.contains('scene') || qLower.contains('ringtone');
       if (!queryAsksDialogue) {
         return 0.0;
@@ -1212,25 +1254,19 @@ class SearchService {
     }
 
     // For very short queries (<= 3 chars, e.g. "hi"), reject non-Indian English bedroom-pop noise
-    if (qLower.length <= 3) {
+    if (qLower.length <= 3 && !isExactOrArtistTarget) {
       final userPrefLangs = (preferredLanguages != null && preferredLanguages.isNotEmpty) ? preferredLanguages.map((l) => l.toLowerCase().trim()).toSet() : {'tamil'};
 
       final hasRegionalMatch = song.source == 'saavn' ||
           userPrefLangs.contains(song.language?.toLowerCase().trim()) ||
           userPrefLangs.any((l) => song.title.toLowerCase().contains(l) || song.album.toLowerCase().contains(l));
       if (song.source == 'youtube' && !hasRegionalMatch) {
-        final knownIndianArtists = RegExp(
-          r'\b(anirudh|rahman|yuvan|harris|santhosh|hiphop|ilaiyaraaja|sid\s*sriram|pradeep|spb|jen\s*martin|hesham|dhanush|karthik|shreya|jonita|chinmayi|vijay|ajith|surya|rajini|kamal|nani|keerthy)\b',
-          caseSensitive: false,
-        );
         final titleAndArtist = '${song.title} ${song.artist} ${song.album}'.toLowerCase();
-        if (!knownIndianArtists.hasMatch(titleAndArtist) && !userPrefLangs.any((l) => titleAndArtist.contains(l))) {
+        if (!_knownIndianArtistsRegex.hasMatch(titleAndArtist) && !userPrefLangs.any((l) => titleAndArtist.contains(l))) {
           return 0.0;
         }
       }
     }
-
-    final stringSim = calculateStringSimilarity(song, intent);
     final popularity = calculateSourcePopularity(song);
     final affinity = calculateUserAffinity(song, history: history, favorites: favorites);
 
@@ -1491,6 +1527,7 @@ class SearchService {
     List<Map<String, dynamic>> initialAlbums = [];
     List<Map<String, dynamic>> initialArtists = [];
     List<Map<String, dynamic>> initialPlaylists = [];
+    SearchResults? lastEmittedBundle;
 
     try {
       bool saavnFailed = false;
@@ -1508,7 +1545,11 @@ class SearchService {
             saavnSearchQuery,
             limit: limit,
             language: effectiveLang,
-          ).timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]);
+          ).timeout(const Duration(seconds: 5), onTimeout: () {
+            saavnFailed = true;
+            return <Song>[];
+          });
+          if (results.isNotEmpty) saavnFailed = false;
           if (results.isEmpty && intent.effectiveCoreQuery != intent.cleanQuery) {
             final coreSearch = (intent.explicitLanguage != null &&
                     !intent.effectiveCoreQuery.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
@@ -1549,14 +1590,14 @@ class SearchService {
       final Future<List<Map<String, dynamic>>> albumsFuture = () async {
         try {
           var alb = await SaavnClient.searchAlbums(saavnSearchQuery, limit: 16)
-              .timeout(const Duration(milliseconds: 3500), onTimeout: () => <Map<String, dynamic>>[]);
-          if (alb.isEmpty && intent.effectiveCoreQuery != intent.cleanQuery) {
+              .timeout(const Duration(milliseconds: 2500), onTimeout: () => <Map<String, dynamic>>[]);
+          if (alb.isEmpty && intent.effectiveCoreQuery != intent.cleanQuery && intent.effectiveCoreQuery != saavnSearchQuery) {
             alb = await SaavnClient.searchAlbums(intent.effectiveCoreQuery, limit: 16)
-                .timeout(const Duration(milliseconds: 3500), onTimeout: () => <Map<String, dynamic>>[]);
+                .timeout(const Duration(milliseconds: 2500), onTimeout: () => <Map<String, dynamic>>[]);
           }
-          if (alb.isEmpty) {
+          if (alb.isEmpty && intent.cleanQuery.toLowerCase() != saavnSearchQuery.toLowerCase()) {
             final cleanAlbs = await SaavnClient.searchAlbums(intent.cleanQuery, limit: 16)
-                .timeout(const Duration(milliseconds: 3500), onTimeout: () => <Map<String, dynamic>>[]);
+                .timeout(const Duration(milliseconds: 2500), onTimeout: () => <Map<String, dynamic>>[]);
             alb.addAll(cleanAlbs);
           }
           return alb;
@@ -1602,8 +1643,13 @@ class SearchService {
 
       final Future<List<Song>> ytFuture = () async {
         try {
-          return await YouTubeClient.search(ytSearchQuery, limit: limit)
-              .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
+          final res = await YouTubeClient.search(ytSearchQuery, limit: limit)
+              .timeout(const Duration(seconds: 6), onTimeout: () {
+            ytFailed = true;
+            return <Song>[];
+          });
+          if (res.isNotEmpty) ytFailed = false;
+          return res;
         } catch (e, stack) {
           ytFailed = true;
           AppLogger.recordError(e, stack, context: 'SearchService: YouTube search failed for query "$ytSearchQuery"');
@@ -1786,14 +1832,21 @@ class SearchService {
       for (final a in artists) {
         final aName = (a['name'] ?? '').toString().toLowerCase().trim();
         final canon = ArtistSanitizer.canonicalArtistName(aName).toLowerCase();
-        if (aName == qClean || canon == qClean || aName.contains(qCore) || qClean.contains(canon)) {
-          matchingArtist = a;
-          break;
+        if (qClean.length <= 2) {
+          if (aName == qClean || canon == qClean || aName.startsWith(qClean) || canon.startsWith(qClean)) {
+            matchingArtist = a;
+            break;
+          }
+        } else {
+          if (aName == qClean || canon == qClean || aName.contains(qCore) || qClean.contains(canon)) {
+            matchingArtist = a;
+            break;
+          }
         }
       }
 
       final Future<List<Map<String, dynamic>>> artistOfficialAlbumsFuture = () async {
-        if (matchingArtist == null) return <Map<String, dynamic>>[];
+        if (matchingArtist == null || qClean.length < 3) return <Map<String, dynamic>>[];
         final artId = matchingArtist['id']?.toString() ?? '';
         if (artId.isEmpty) return <Map<String, dynamic>>[];
         try {
@@ -1927,7 +1980,7 @@ class SearchService {
       }
 
       if (rankedSaavn.isNotEmpty || initialAlbums.isNotEmpty || initialArtists.isNotEmpty || initialPlaylists.isNotEmpty) {
-        yield SearchResults(
+        lastEmittedBundle = SearchResults(
           songs: rankedSaavn,
           ytSongs: const [],
           saavnSongs: rankedSaavn,
@@ -1939,6 +1992,7 @@ class SearchService {
           didYouMean: didYouMean,
           error: null,
         );
+        yield lastEmittedBundle;
       }
 
       // ── PHASE 2: Merge YouTube Results & Background Soundtracks ──
@@ -1982,8 +2036,14 @@ class SearchService {
       scoredYt.sort((a, b) => compareRankedEntries(a, b, qClean));
       final rankedYt = scoredYt.map((e) => e.value).toList();
 
-      // Elevate all soundtrack songs of matched album to top of Saavn tracks
+      // Elevate exact singles first, then soundtrack songs, then remaining Saavn tracks
       final List<Song> enrichedSaavn = [];
+      for (final s in rankedSaavn) {
+        final sim = calculateStringSimilarity(s, intent);
+        if (sim >= 0.95 && !enrichedSaavn.any((x) => x.id == s.id)) {
+          enrichedSaavn.add(s);
+        }
+      }
       for (final s in albumSoundtrackSongs) {
         if (!enrichedSaavn.any((x) => x.id == s.id)) {
           enrichedSaavn.add(s);
@@ -2003,11 +2063,24 @@ class SearchService {
         preferredLanguages: prefLangs,
       );
 
+      // Asynchronous Write-Through Ingestion: store newly discovered songs in local CatalogDatabase
+      for (final s in mergedSongs.take(5)) {
+        CatalogDatabase.insertDynamicSong(s);
+      }
+
+      // Dynamic On-Device Personal Preference Matrix re-ranking
+      final userRankedSongs = UserPreferenceMatrix.reRankWithPreferences(
+        mergedSongs,
+        intent.cleanQuery,
+        intent: intent,
+      );
+
+      // Crown Top Result from userRankedSongs.first AFTER preference re-ranking
       Map<String, dynamic>? finalTopResult = initialTopResult;
       if (exactMovieMatch != null) {
         finalTopResult = initialTopResult;
-      } else if (mergedSongs.isNotEmpty) {
-        final top = mergedSongs.first;
+      } else if (userRankedSongs.isNotEmpty) {
+        final top = userRankedSongs.first;
         final topScore = calculateCompositeRelevance(top, intent, preferredLanguages: prefLangs);
         if (topScore >= 0.70) {
           finalTopResult = {
@@ -2023,18 +2096,6 @@ class SearchService {
           };
         }
       }
-
-      // Asynchronous Write-Through Ingestion: store newly discovered songs in local CatalogDatabase
-      for (final s in mergedSongs.take(5)) {
-        CatalogDatabase.insertDynamicSong(s);
-      }
-
-      // Dynamic On-Device Personal Preference Matrix re-ranking
-      final userRankedSongs = UserPreferenceMatrix.reRankWithPreferences(
-        mergedSongs,
-        intent.cleanQuery,
-        intent: intent,
-      );
 
       final List<Map<String, dynamic>> finalArtists = List<Map<String, dynamic>>.from(initialArtists);
       if (finalArtists.length < 5) {
@@ -2062,7 +2123,7 @@ class SearchService {
         }
       }
 
-      FuzzySearchService.registerSongs(userRankedSongs);
+      FuzzySearchService.registerSongs(userRankedSongs.where((s) => s.source == 'saavn' && s.title.length <= 40).toList());
 
       AppError? searchError;
       if (userRankedSongs.isEmpty && ytSongs.isEmpty && initialAlbums.isEmpty && finalArtists.isEmpty && finalPlaylists.isEmpty && (saavnFailed && ytFailed)) {
@@ -2086,10 +2147,12 @@ class SearchService {
       yield finalBundle;
     } catch (e, stack) {
       debugPrint('[SearchService] Search error: $e');
-      if (catalogSongs.isNotEmpty || rawSaavn.isNotEmpty) {
+      if (lastEmittedBundle != null && !lastEmittedBundle.isEmpty) {
+        yield lastEmittedBundle;
+      } else if (catalogSongs.isNotEmpty) {
         yield SearchResults(
-          songs: catalogSongs.isNotEmpty ? catalogSongs : rawSaavn,
-          saavnSongs: rawSaavn,
+          songs: catalogSongs,
+          saavnSongs: catalogSongs,
           albums: initialAlbums,
           artists: initialArtists,
           playlists: initialPlaylists,
@@ -2203,19 +2266,28 @@ class SearchService {
         isExplicitMixRequest: isExplicitMixRequest,
       );
 
+      final combinedVersions = <Song>[
+        ...primary.versions,
+        ...alternates.where((alt) => !primary.versions.any((v) => v.id == alt.id && v.source == alt.source)),
+      ];
+
       final hydratedPrimary = primary.copyWith(
-        versions: alternates,
+        versions: combinedVersions,
       );
 
       clusters.add(ClusteredTrackResult(
         primaryTrack: hydratedPrimary,
         category: primaryClass,
         confidenceScore: confidence,
-        alternateVersions: alternates,
+        alternateVersions: combinedVersions,
       ));
     }
 
-    clusters.sort((a, b) => b.confidenceScore.compareTo(a.confidenceScore));
+    clusters.sort((a, b) {
+      final cmp = b.confidenceScore.compareTo(a.confidenceScore);
+      if (cmp != 0) return cmp;
+      return a.primaryTrack.id.compareTo(b.primaryTrack.id);
+    });
     return clusters;
   }
 

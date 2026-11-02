@@ -58,3 +58,9 @@ Welcome to **Paatu Padava v2.4.0**! This major release brings a high-performance
 ## 🔐 Checksums & Verification
 
 All release binaries are signed and provided with SHA-256 integrity hashes in `SHA256SUMS.txt`.
+
+---
+
+## ⚖️ Disclaimer
+
+Paatu Padava is a free, non-commercial, open-source educational project licensed under MIT. It does not host, store, or distribute copyrighted music files. All media is retrieved client-side from public third-party endpoints. All copyrights and trademarks belong to their respective owners.

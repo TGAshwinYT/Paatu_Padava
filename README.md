@@ -834,6 +834,15 @@ Paatu_Padava/
 
 ---
 
+## ⚖️ Legal Disclaimer & Fair Use Notice
+
+* **Non-Commercial & Educational**: Paatu Padava is an open-source project created strictly for personal, educational, and research purposes. It is 100% free, non-monetized, carries zero advertisements, and charges no subscription fees.
+* **No Content Hosting**: **This project does NOT host, store, or distribute any copyrighted media files, MP3s, or audio tracks on any server.** All media streams, metadata, and lyrics are fetched client-side in real time directly from publicly available third-party endpoints and decentralized networks (including JioSaavn public CDN, YouTube, Audius, and LRCLIB).
+* **Intellectual Property**: All song titles, album art, audio recordings, and artist names are the property and copyright of their respective record labels, artists, and rights holders. Paatu Padava claims no ownership over any third-party content.
+* **DMCA Inquiries**: If you are a copyright owner and have questions or concerns regarding client-side public indexing, please open an issue on the GitHub repository or contact the maintainer directly.
+
+---
+
 ## 📄 License
 
 This project is open-source and licensed under the [MIT License](LICENSE).

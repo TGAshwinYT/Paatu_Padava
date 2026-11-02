@@ -1,0 +1,169 @@
+name: Release Mobile App (Main Versions)
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release Tag (e.g. v2.4.0)'
+        required: true
+        default: 'v2.4.0'
+      prerelease:
+        description: 'Mark as pre-release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Mobile Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine Version Tag
+        id: version_step
+        run: |
+          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            TAG="${{ github.event.inputs.tag_name }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "VERSION=$TAG" >> $GITHUB_OUTPUT
+          echo "Building official release for version tag: $TAG"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Get Dependencies
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Static Analysis
+        working-directory: mobile
+        run: flutter analyze
+
+      - name: Run Unit Tests
+        working-directory: mobile
+        run: flutter test --exclude-tags golden
+
+      - name: Validate Supabase Secrets
+        run: |
+          RAW_URL="${{ secrets.SUPABASE_URL }}"
+          RAW_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
+
+          URL=$(printf '%s' "$RAW_URL" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KEY=$(printf '%s' "$RAW_KEY" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+          FAILED=0
+          if [ -z "$URL" ] || [ -z "$KEY" ]; then
+            echo "::error::SUPABASE_URL or SUPABASE_ANON_KEY secret is missing in GitHub repository secrets!"
+            exit 1
+          fi
+          echo "✅ Supabase secrets validated."
+
+      - name: Setup Android Signing Keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 || secrets.RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "Decoding release keystore from repository secrets into upload-keystore.jks..."
+            echo "$KEYSTORE_BASE64" | base64 -d > mobile/android/app/upload-keystore.jks
+            printf "storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=app/upload-keystore.jks\n" \
+              "$STORE_PASSWORD" "$KEY_PASSWORD" "$KEY_ALIAS" > mobile/android/key.properties
+            echo "✅ Configured release keystore."
+          else
+            echo "⚠️ KEYSTORE_BASE64 is not configured; using debug signing fallback."
+          fi
+
+      - name: Build Split-per-ABI & Universal Release APKs
+        working-directory: mobile
+        run: |
+          GIT_SHA="${{ github.sha }}"
+          SHORT_SHA="${GIT_SHA:0:7}"
+          BUILD_TIME=$(date -u +'%Y-%m-%d %H:%M UTC')
+
+          CLEAN_URL=$(printf '%s' "${{ secrets.SUPABASE_URL }}" | tr -d '\r\n "' | sed "s/'//g" | sed 's:/*$::')
+          CLEAN_KEY=$(printf '%s' "${{ secrets.SUPABASE_ANON_KEY }}" | tr -d '\r\n "' | sed "s/'//g")
+          SPOTIFY_ID=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_ID }}" | tr -d '\r\n "' | sed "s/'//g")
+          SPOTIFY_SECRET=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_SECRET }}" | tr -d '\r\n "' | sed "s/'//g")
+
+          echo "1. Building ABI-split release APKs..."
+          flutter build apk --release -t lib/main.dart --android-skip-build-dependency-validation \
+            --split-per-abi \
+            --obfuscate \
+            --split-debug-info=symbols \
+            --dart-define=SUPABASE_URL="$CLEAN_URL" \
+            --dart-define=SUPABASE_ANON_KEY="$CLEAN_KEY" \
+            --dart-define=SPOTIFY_CLIENT_ID="$SPOTIFY_ID" \
+            --dart-define=SPOTIFY_CLIENT_SECRET="$SPOTIFY_SECRET" \
+            --dart-define=GIT_COMMIT="$SHORT_SHA" \
+            --dart-define=BUILD_TIME="$BUILD_TIME"
+
+          echo "2. Building Universal release APK..."
+          flutter build apk --release -t lib/main.dart --android-skip-build-dependency-validation \
+            --obfuscate \
+            --split-debug-info=symbols \
+            --dart-define=SUPABASE_URL="$CLEAN_URL" \
+            --dart-define=SUPABASE_ANON_KEY="$CLEAN_KEY" \
+            --dart-define=SPOTIFY_CLIENT_ID="$SPOTIFY_ID" \
+            --dart-define=SPOTIFY_CLIENT_SECRET="$SPOTIFY_SECRET" \
+            --dart-define=GIT_COMMIT="$SHORT_SHA" \
+            --dart-define=BUILD_TIME="$BUILD_TIME"
+
+      - name: Package & Prepare Release Binaries
+        id: package_step
+        run: |
+          TAG="${{ steps.version_step.outputs.VERSION }}"
+          mkdir -p release-assets
+
+          APK_DIR="mobile/build/app/outputs/flutter-apk"
+
+          if [ -f "$APK_DIR/app-arm64-v8a-release.apk" ]; then
+            cp "$APK_DIR/app-arm64-v8a-release.apk" "release-assets/Paatu-Padava-${TAG}-arm64-v8a.apk"
+          fi
+
+          if [ -f "$APK_DIR/app-armeabi-v7a-release.apk" ]; then
+            cp "$APK_DIR/app-armeabi-v7a-release.apk" "release-assets/Paatu-Padava-${TAG}-armeabi-v7a.apk"
+          fi
+
+          if [ -f "$APK_DIR/app-release.apk" ]; then
+            cp "$APK_DIR/app-release.apk" "release-assets/Paatu-Padava-${TAG}-universal.apk"
+          fi
+
+          cd release-assets
+          sha256sum *.apk > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          cd ..
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version_step.outputs.VERSION }}
+          name: Paatu Padava Mobile ${{ steps.version_step.outputs.VERSION }}
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease || false }}
+          generate_release_notes: true
+          files: |
+            release-assets/*

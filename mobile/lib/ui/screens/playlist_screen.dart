@@ -408,13 +408,13 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                       ),
                     ],
                     flexibleSpace: FlexibleSpaceBar(
-                      centerTitle: true,
-                      titlePadding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
+                      centerTitle: false,
+                      titlePadding: const EdgeInsetsDirectional.only(start: 72, end: 56, bottom: 16),
                       title: Text(
                         playlist.title,
-                        textAlign: TextAlign.center,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.start,
+                        maxLines: 3,
+                        softWrap: true,
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,

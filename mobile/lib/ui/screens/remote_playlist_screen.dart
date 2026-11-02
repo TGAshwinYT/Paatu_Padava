@@ -141,13 +141,13 @@ class _RemotePlaylistScreenState extends State<RemotePlaylistScreen> {
                     ),
                 ],
                 flexibleSpace: FlexibleSpaceBar(
-                  centerTitle: true,
-                  titlePadding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
+                  centerTitle: false,
+                  titlePadding: const EdgeInsetsDirectional.only(start: 72, end: 56, bottom: 16),
                   title: Text(
                     widget.playlistTitle,
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.start,
+                    maxLines: 3,
+                    softWrap: true,
                     style: GoogleFonts.outfit(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,

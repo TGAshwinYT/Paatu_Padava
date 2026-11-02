@@ -87,13 +87,13 @@ class _AlbumScreenState extends State<AlbumScreen> {
                   onPressed: () => Navigator.pop(context),
                 ),
                 flexibleSpace: FlexibleSpaceBar(
-                  centerTitle: true,
-                  titlePadding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
+                  centerTitle: false,
+                  titlePadding: const EdgeInsetsDirectional.only(start: 72, end: 24, bottom: 16),
                   title: Text(
                     widget.albumTitle,
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.start,
+                    maxLines: 3,
+                    softWrap: true,
                     style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,

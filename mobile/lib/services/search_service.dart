@@ -322,6 +322,35 @@ class SearchService {
   }
 
   /// Strictly filters out single-song releases, fake albums, and unrelated compilations
+  /// Returns true if an album title or song.album matches a film entity query
+  /// (e.g. "Hi Nanna" matches "Samayama (From \"Hi Nanna\")", "Odiyamma (From \"Hi Nanna\") - Tamil",
+  /// or "Mersal" matches "Mersal", "Mersal (Original Motion Picture Soundtrack)").
+  static bool isAlbumOrMovieEntityMatch(String title, String query) {
+    final t = title.toLowerCase().trim();
+    final q = query.toLowerCase().trim();
+    if (q.isEmpty || t.isEmpty) return false;
+    if (t == q) return true;
+
+    final baseT = t.contains(' - ') ? t.split(' - ').first.trim() : t;
+    if (baseT == q) return true;
+    if (q.length >= 3 && (t.startsWith(q) || baseT.startsWith(q))) return true;
+
+    // Check "(From <movie>)", "(From \"<movie>\")", "[From <movie>]", "From <movie>"
+    final fromMovieRegex = RegExp(
+      r'[\(\[\-]\s*(?:from|ost|movie|soundtrack)\s*[\":\s]*' + RegExp.escape(q),
+      caseSensitive: false,
+    );
+    if (fromMovieRegex.hasMatch(t)) return true;
+
+    // Direct containment with word boundaries for queries >= 3 chars
+    if (q.length >= 3) {
+      final qWordRegex = RegExp(r'\b' + RegExp.escape(q) + r'\b', caseSensitive: false);
+      if (qWordRegex.hasMatch(t)) return true;
+    }
+
+    return false;
+  }
+
   static List<Map<String, dynamic>> filterGenuineAlbums(
     List<Map<String, dynamic>> rawAlbums, {
     String? query,
@@ -339,7 +368,7 @@ class SearchService {
       // preserve it as a genuine movie entity even if song_count is reported as 1 or single!
       final cleanBaseTitle = title.split(' - ').first.replaceAll(RegExp(r'\s*\((From|OST|Original).*\)', caseSensitive: false), '').trim();
       final isDirectEntityMatch = cleanQuery.length >= 2 &&
-          (cleanBaseTitle == cleanQuery || title.startsWith(cleanQuery) || cleanQuery.startsWith(cleanBaseTitle));
+          (isAlbumOrMovieEntityMatch(title, cleanQuery) || cleanBaseTitle == cleanQuery || title.startsWith(cleanQuery));
 
       if (!isDirectEntityMatch && (songCount <= 1 || title.contains('single') || title.contains('teaser'))) {
         continue;
@@ -371,9 +400,13 @@ class SearchService {
     valid.sort((a, b) {
       final tA = (a['title'] ?? '').toString().toLowerCase().trim();
       final tB = (b['title'] ?? '').toString().toLowerCase().trim();
-      final matchA = cleanQuery.isNotEmpty && (tA == cleanQuery || tA.startsWith(cleanQuery));
-      final matchB = cleanQuery.isNotEmpty && (tB == cleanQuery || tB.startsWith(cleanQuery));
+      final matchA = cleanQuery.isNotEmpty && isAlbumOrMovieEntityMatch(tA, cleanQuery);
+      final matchB = cleanQuery.isNotEmpty && isAlbumOrMovieEntityMatch(tB, cleanQuery);
       if (matchA != matchB) return matchA ? -1 : 1;
+
+      final eqA = cleanQuery.isNotEmpty && (tA == cleanQuery || (tA.contains(' - ') && tA.split(' - ').first.trim() == cleanQuery));
+      final eqB = cleanQuery.isNotEmpty && (tB == cleanQuery || (tB.contains(' - ') && tB.split(' - ').first.trim() == cleanQuery));
+      if (eqA != eqB) return eqA ? -1 : 1;
 
       final scA = int.tryParse(a['song_count']?.toString() ?? '0') ?? 0;
       final scB = int.tryParse(b['song_count']?.toString() ?? '0') ?? 0;
@@ -1077,10 +1110,17 @@ class SearchService {
     const nonRegionalLanguages = {
       'arabic', 'spanish', 'french', 'turkish', 'russian', 'korean', 'chinese', 'german', 'italian', 'persian', 'japanese'
     };
-    if (songLang.isNotEmpty && nonRegionalLanguages.contains(songLang)) {
-      final isExplicitForeign = intent.explicitLanguage != null && nonRegionalLanguages.contains(intent.explicitLanguage!.toLowerCase());
-      final isForeignInQuery = nonRegionalLanguages.any((l) => qLower.contains(l));
-      if (!isExplicitForeign && !isForeignInQuery) {
+    final isExplicitForeign = intent.explicitLanguage != null && nonRegionalLanguages.contains(intent.explicitLanguage!.toLowerCase());
+    final isForeignInQuery = nonRegionalLanguages.any((l) => qLower.contains(l));
+
+    if (!isExplicitForeign && !isForeignInQuery) {
+      if (songLang.isNotEmpty && nonRegionalLanguages.contains(songLang)) {
+        return 0.0;
+      }
+      // Check Arabic script or foreign Middle-Eastern/international artist markers on YouTube/Saavn tracks
+      if (ArtistSanitizer.isMiddleEasternOrForeignArtist(song.artist) ||
+          ArtistSanitizer.isMiddleEasternOrForeignArtist(song.title) ||
+          RegExp(r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]').hasMatch('${song.title} ${song.artist}')) {
         return 0.0;
       }
     }
@@ -1089,7 +1129,7 @@ class SearchService {
     // If query does not explicitly ask for dialogue/scene/ringtone, reject spoken dialogue tracks
     final titleLower = song.title.toLowerCase();
     final dialogueRegex = RegExp(
-      r'\b(dialogues?|punch\s*dialogues?|mass\s*dialogues?|movie\s*scenes?|comedy\s*scenes?|audio\s*scenes?|ringtones?)\b',
+      r'\b(dialogues?|punch\s*dialogues?|mass\s*dialogues?|movie\s*scenes?|comedy\s*scenes?|audio\s*scenes?|dialogue\s*mix|scenes?|ringtones?|bgm\s*ringtones?)\b',
       caseSensitive: false,
     );
     if (dialogueRegex.hasMatch(titleLower)) {
@@ -1128,9 +1168,9 @@ class SearchService {
     double score = (0.45 * stringSim) + (0.35 * popularity) + (0.20 * affinity);
 
     // Album unpack promotion: if song belongs to an album matching query, promote it directly to Songs top rank
-    final albLower = song.album.toLowerCase();
+    final albLower = song.album.toLowerCase().trim();
     if (qLower.isNotEmpty && albLower.isNotEmpty) {
-      if (albLower == qLower || (albLower.contains(' - ') && albLower.split(' - ').first.trim() == qLower)) {
+      if (isAlbumOrMovieEntityMatch(albLower, qLower) || (intent.effectiveCoreQuery.isNotEmpty && isAlbumOrMovieEntityMatch(albLower, intent.effectiveCoreQuery))) {
         score = 1.0;
       } else if (albLower.startsWith('$qLower ') || albLower.startsWith('$qLower-') || albLower.startsWith('$qLower (')) {
         score = (score + 0.35).clamp(0.0, 1.0);
@@ -1193,14 +1233,8 @@ class SearchService {
     // 1. Movie Soundtrack Match Precedence: Child tracks of matched film entity outrank standalone singles
     final albA = songA.album.toLowerCase().trim();
     final albB = songB.album.toLowerCase().trim();
-    final aAlbumMatch = (albA == queryLower ||
-        (albA.contains(' - ') && albA.split(' - ').first.trim() == queryLower) ||
-        albA.startsWith('$queryLower (') ||
-        albA.startsWith('$queryLower -')) ? 1 : 0;
-    final bAlbumMatch = (albB == queryLower ||
-        (albB.contains(' - ') && albB.split(' - ').first.trim() == queryLower) ||
-        albB.startsWith('$queryLower (') ||
-        albB.startsWith('$queryLower -')) ? 1 : 0;
+    final aAlbumMatch = isAlbumOrMovieEntityMatch(albA, queryLower) ? 1 : 0;
+    final bAlbumMatch = isAlbumOrMovieEntityMatch(albB, queryLower) ? 1 : 0;
     if (aAlbumMatch != bAlbumMatch) return bAlbumMatch.compareTo(aAlbumMatch);
 
     final aExact = (songA.title.toLowerCase().trim() == queryLower) ? 1 : 0;
@@ -1435,30 +1469,15 @@ class SearchService {
       final Future<List<Map<String, dynamic>>> albumsFuture = () async {
         try {
           var alb = await SaavnClient.searchAlbums(saavnSearchQuery, limit: 16)
-              .timeout(const Duration(seconds: 5), onTimeout: () => <Map<String, dynamic>>[]);
+              .timeout(const Duration(milliseconds: 3500), onTimeout: () => <Map<String, dynamic>>[]);
           if (alb.isEmpty && intent.effectiveCoreQuery != intent.cleanQuery) {
             alb = await SaavnClient.searchAlbums(intent.effectiveCoreQuery, limit: 16)
-                .timeout(const Duration(seconds: 5), onTimeout: () => <Map<String, dynamic>>[]);
+                .timeout(const Duration(milliseconds: 3500), onTimeout: () => <Map<String, dynamic>>[]);
           }
-          if (alb.isEmpty || !alb.any((a) => (int.tryParse(a['song_count']?.toString() ?? '0') ?? 0) > 1)) {
+          if (alb.isEmpty) {
             final cleanAlbs = await SaavnClient.searchAlbums(intent.cleanQuery, limit: 16)
-                .timeout(const Duration(seconds: 5), onTimeout: () => <Map<String, dynamic>>[]);
-            for (final a in cleanAlbs) {
-              final aId = (a['id'] ?? a['name'] ?? a['title'] ?? '').toString();
-              if (aId.isNotEmpty && !alb.any((x) => (x['id'] ?? x['name'] ?? x['title'] ?? '').toString() == aId)) {
-                alb.add(a);
-              }
-            }
-          }
-          if (intent.transliteratedQuery != intent.cleanQuery) {
-            final transAlb = await SaavnClient.searchAlbums(intent.transliteratedQuery, limit: 12)
-                .timeout(const Duration(seconds: 5), onTimeout: () => <Map<String, dynamic>>[]);
-            for (final a in transAlb) {
-              final aId = (a['id'] ?? a['name'] ?? a['title'] ?? '').toString();
-              if (aId.isNotEmpty && !alb.any((x) => (x['id'] ?? x['name'] ?? x['title'] ?? '').toString() == aId)) {
-                alb.insert(0, a);
-              }
-            }
+                .timeout(const Duration(milliseconds: 3500), onTimeout: () => <Map<String, dynamic>>[]);
+            alb.addAll(cleanAlbs);
           }
           return alb;
         } catch (e) {
@@ -1608,41 +1627,47 @@ class SearchService {
       final qClean = intent.cleanQuery.toLowerCase().trim();
       final qCore = intent.effectiveCoreQuery.toLowerCase().trim();
 
-      // If the query matches an album/movie (e.g. "Hi", "Hi Nanna", "Leo"),
+      // If the query matches an album/movie (e.g. "Hi", "Hi Nanna", "Leo", "Mersal"),
       // fetch all soundtrack tracks of that album so they are directly presented in song search.
       final List<Map<String, dynamic>> matchingAlbums = [];
       for (final a in rawAlbums) {
-        final t = (a['title'] ?? a['name'] ?? '').toString().toLowerCase().trim();
-        final baseT = t.contains(' - ') ? t.split(' - ').first.trim() : t;
-        if (t == qClean || t == qCore || baseT == qClean || (qClean.length >= 3 && t.startsWith(qClean))) {
+        final t = (a['title'] ?? a['name'] ?? '').toString();
+        if (isAlbumOrMovieEntityMatch(t, qClean) || (qCore.isNotEmpty && isAlbumOrMovieEntityMatch(t, qCore))) {
           matchingAlbums.add(a);
         }
       }
       for (final cm in catMovies) {
-        final t = (cm['title'] ?? '').toString().toLowerCase().trim();
-        final baseT = t.contains(' - ') ? t.split(' - ').first.trim() : t;
-        if ((t == qClean || t == qCore || baseT == qClean) && !matchingAlbums.any((x) => (x['title'] ?? '').toString().toLowerCase().trim() == t)) {
+        final t = (cm['title'] ?? '').toString();
+        if ((isAlbumOrMovieEntityMatch(t, qClean) || (qCore.isNotEmpty && isAlbumOrMovieEntityMatch(t, qCore))) &&
+            !matchingAlbums.any((x) => (x['title'] ?? '').toString().toLowerCase().trim() == t.toLowerCase().trim())) {
           matchingAlbums.add(cm);
         }
       }
 
-      // Asynchronously fetch soundtrack songs for matching albums in parallel (does not block Phase 1 yield!)
+      // Parallel async fetch of soundtrack songs for matching albums
       final Future<List<Song>> soundtrackFuture = () async {
         final List<Song> results = [];
-        for (final alb in matchingAlbums.take(2)) {
+        final targetAlbums = matchingAlbums.take(3).toList();
+        final detailFutures = targetAlbums.map((alb) async {
           final albId = alb['id']?.toString() ?? '';
           final albTitle = (alb['title'] ?? alb['name'] ?? '').toString();
           if (albId.isNotEmpty || albTitle.isNotEmpty) {
             try {
               final details = await SongRepository.getAlbumDetails(albumId: albId, albumTitle: albTitle)
-                  .timeout(const Duration(seconds: 4), onTimeout: () => null);
-              final albSongs = details?['songs'] as List<Song>? ?? [];
-              for (final asong in albSongs) {
-                if (!results.any((x) => x.id == asong.id)) {
-                  results.add(asong);
-                }
-              }
-            } catch (_) {}
+                  .timeout(const Duration(milliseconds: 2500), onTimeout: () => null);
+              return details?['songs'] as List<Song>? ?? <Song>[];
+            } catch (_) {
+              return <Song>[];
+            }
+          }
+          return <Song>[];
+        });
+        final allLists = await Future.wait(detailFutures);
+        for (final list in allLists) {
+          for (final asong in list) {
+            if (!results.any((x) => x.id == asong.id)) {
+              results.add(asong);
+            }
           }
         }
         return results;
@@ -1809,7 +1834,11 @@ class SearchService {
         };
       }
 
-      if (exactMovieMatch != null || initialAlbums.any((a) => (a['title'] ?? '').toString().toLowerCase().trim() == intent.cleanQuery.toLowerCase().trim())) {
+      final hasStrongMatch = (initialTopResult != null && (initialTopResult['score'] as num? ?? 0.0) >= 0.80) ||
+          exactMovieMatch != null ||
+          initialAlbums.any((a) => isAlbumOrMovieEntityMatch((a['title'] ?? '').toString(), intent.cleanQuery));
+
+      if (hasStrongMatch) {
         didYouMean = null;
       } else if (intent.transliteratedQuery.toLowerCase() != intent.cleanQuery.toLowerCase()) {
         didYouMean = intent.transliteratedQuery;

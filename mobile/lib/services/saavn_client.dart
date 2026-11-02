@@ -317,6 +317,17 @@ class SaavnClient {
             int.tryParse(item['song_count']?.toString() ?? '0') ?? 0;
         final rawTitle = (item['title'] ?? '').toString();
         final title = rawTitle.toLowerCase();
+        final albLang = (item['language']?.toString() ?? more['language']?.toString() ?? '').toLowerCase().trim();
+
+        // Purge non-Indian foreign language albums (Arabic, Persian, etc.) unless explicitly queried
+        const nonRegionalLanguages = {
+          'arabic', 'spanish', 'french', 'turkish', 'russian', 'korean', 'chinese', 'german', 'italian', 'persian', 'japanese'
+        };
+        if (albLang.isNotEmpty && nonRegionalLanguages.contains(albLang)) {
+          if (!query.toLowerCase().contains(albLang)) {
+            continue;
+          }
+        }
 
         // When a specific language was requested (e.g. from language tab), apply language match
         if (isSpecificLang) {
@@ -526,17 +537,22 @@ class SaavnClient {
       if (response.statusCode != 200) return null;
 
       final data = json.decode(response.body);
+      final albumTitle = Song.sanitize(data['title'] ?? data['name'], fallback: 'Unknown Album');
       final albumImage = _extractHighResImage(data['image']?.toString());
+      final albumLang = data['language']?.toString() ?? '';
+      final resolvedAlbumId = data['id']?.toString() ?? data['albumid']?.toString() ?? albumId;
       final list = (data['songs'] as List<dynamic>?) ?? (data['list'] as List<dynamic>?) ?? [];
       final List<Song> songs = [];
       for (final item in list) {
         if (item is! Map) continue;
         final parsed = _parseSongItem(Map<String, dynamic>.from(item));
-        if (parsed.coverUrl.isEmpty && albumImage.isNotEmpty) {
-          songs.add(parsed.copyWith(coverUrl: albumImage));
-        } else {
-          songs.add(parsed);
-        }
+        final enriched = parsed.copyWith(
+          album: (parsed.album.isEmpty || parsed.album == 'Unknown Album') ? albumTitle : parsed.album,
+          albumId: (parsed.albumId == null || parsed.albumId!.isEmpty) ? resolvedAlbumId : parsed.albumId,
+          coverUrl: (parsed.coverUrl.isEmpty && albumImage.isNotEmpty) ? albumImage : parsed.coverUrl,
+          language: (parsed.language == null || parsed.language!.isEmpty) ? albumLang : parsed.language,
+        );
+        songs.add(enriched);
       }
 
       return {

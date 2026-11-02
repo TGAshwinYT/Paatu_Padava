@@ -133,7 +133,19 @@ class SearchSongTile extends StatelessWidget {
                 fit: BoxFit.cover,
                 memCacheWidth: 120,
                 memCacheHeight: 120,
-                errorWidget: (_, __, ___) => Container(color: AppColors.surfaceDark),
+                fadeInDuration: const Duration(milliseconds: 200),
+                placeholder: (_, __) => Container(
+                  color: AppColors.surfaceDark,
+                  child: const Center(
+                    child: Icon(Icons.music_note_rounded, color: AppColors.textSecondary, size: 20),
+                  ),
+                ),
+                errorWidget: (_, __, ___) => Container(
+                  color: AppColors.surfaceDark,
+                  child: const Center(
+                    child: Icon(Icons.music_note_rounded, color: AppColors.textSecondary, size: 20),
+                  ),
+                ),
               ),
             ),
           ),

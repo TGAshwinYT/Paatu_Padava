@@ -596,5 +596,18 @@ class ArtistSanitizer {
 
     return result;
   }
+
+  /// Checks if an artist name belongs to non-Indian foreign language pop/folk
+  /// (e.g. Arabic, Turkish, Middle Eastern) that accidentally matches Indian movie transliterations.
+  static bool isMiddleEasternOrForeignArtist(String name) {
+    final lower = name.toLowerCase().trim();
+    if (lower.isEmpty) return false;
+    if (RegExp(r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]').hasMatch(name)) return true;
+    final foreignMarkers = RegExp(
+      r'\b(alaa\s*abd|mario\s*el\s*hajj|wadi\s*al\s*safi|momen\s*shaweesh|cafe\s*de\s*anatolia|el\s*hajj|al\s*safi|abdel\s*khalek|abd\s*el\s*khaleq|el\s*hawa)\b',
+      caseSensitive: false,
+    );
+    return foreignMarkers.hasMatch(lower);
+  }
 }
 

@@ -236,4 +236,95 @@ void main() {
     final regionalScore = SearchService.calculateCompositeRelevance(regionalSong, intent, preferredLanguages: ['tamil']);
     expect(regionalScore, greaterThan(0.70), reason: 'Regional Tamil track matching Hi album must score high');
   });
+  test('Mersal soundtrack tracks outrank Arabic tracks and Arabic tracks get score 0.0', () {
+    final intent = SearchService.understandQuery('Mersal');
+
+    final aalaporan = Song(
+      id: 'mersal_1',
+      title: 'Aalaporaan Thamizhan',
+      artist: 'A.R. Rahman, Kailash Kher',
+      album: 'Mersal',
+      coverUrl: 'https://example.com/cover.jpg',
+      source: 'saavn',
+      language: 'tamil',
+      duration: 348,
+    );
+
+    final neethanae = Song(
+      id: 'mersal_2',
+      title: 'Neethanae',
+      artist: 'A.R. Rahman, Shreya Ghoshal',
+      album: 'Mersal',
+      coverUrl: 'https://example.com/cover.jpg',
+      source: 'saavn',
+      language: 'tamil',
+      duration: 269,
+    );
+
+    final alaaArabic = Song(
+      id: 'arabic_saavn_1',
+      title: 'Mersal',
+      artist: 'Alaa Abdel Khalek',
+      album: 'Mersal',
+      coverUrl: 'https://example.com/cover.jpg',
+      source: 'saavn',
+      language: 'arabic',
+      duration: 210,
+    );
+
+    final marioArabicYt = Song(
+      id: 'arabic_yt_1',
+      title: 'Mersal',
+      artist: 'Mario El Hajj',
+      album: 'Mersal',
+      coverUrl: 'https://example.com/cover.jpg',
+      source: 'youtube',
+      duration: 230,
+    );
+
+    // 1. Arabic tracks must be purged with 0.0 score
+    final alaaScore = SearchService.calculateCompositeRelevance(alaaArabic, intent, preferredLanguages: ['tamil']);
+    expect(alaaScore, 0.0, reason: 'Arabic Saavn track must be rejected');
+
+    final marioScore = SearchService.calculateCompositeRelevance(marioArabicYt, intent, preferredLanguages: ['tamil']);
+    expect(marioScore, 0.0, reason: 'Arabic YouTube track must be rejected');
+
+    // 2. Mersal tracks must score 1.0 due to album entity match
+    final aalaporanScore = SearchService.calculateCompositeRelevance(aalaporan, intent, preferredLanguages: ['tamil']);
+    final neethanaeScore = SearchService.calculateCompositeRelevance(neethanae, intent, preferredLanguages: ['tamil']);
+    expect(aalaporanScore, 1.0, reason: 'Aalaporaan Thamizhan from Mersal album must score 1.0');
+    expect(neethanaeScore, 1.0, reason: 'Neethanae from Mersal album must score 1.0');
+  });
+
+  test('Hi Nanna single-track EP releases like Samayama (From "Hi Nanna") are preserved and matched', () {
+    final rawAlbums = [
+      {
+        'id': 'hn_1',
+        'title': 'Samayama (From "Hi Nanna")',
+        'song_count': '1',
+        'artist': 'Hesham Abdul Wahab, Anurag Kulkarni',
+      },
+      {
+        'id': 'hn_2',
+        'title': 'Odiyamma (From "Hi Nanna") - Tamil',
+        'song_count': '1',
+        'artist': 'Hesham Abdul Wahab, Dhruv Vikram',
+      },
+      {
+        'id': 'hn_3',
+        'title': 'Random 1-Track Single',
+        'song_count': '1',
+        'artist': 'Unknown',
+      },
+    ];
+
+    expect(SearchService.isAlbumOrMovieEntityMatch('Samayama (From "Hi Nanna")', 'Hi Nanna'), isTrue);
+    expect(SearchService.isAlbumOrMovieEntityMatch('Odiyamma (From "Hi Nanna") - Tamil', 'Hi Nanna'), isTrue);
+
+    final filtered = SearchService.filterGenuineAlbums(rawAlbums, query: 'Hi Nanna');
+    final titles = filtered.map((a) => a['title']).toList();
+    expect(titles.contains('Samayama (From "Hi Nanna")'), isTrue);
+    expect(titles.contains('Odiyamma (From "Hi Nanna") - Tamil'), isTrue);
+    expect(titles.contains('Random 1-Track Single'), isFalse);
+  });
 }

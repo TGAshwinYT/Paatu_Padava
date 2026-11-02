@@ -1,3 +1,4 @@
+import 'package:paatu_padava_mobile/services/search_service.dart';
 import '../models/song.dart';
 import 'favorites_manager.dart';
 import 'history_manager.dart';
@@ -83,7 +84,7 @@ class UserPreferenceMatrix {
 
       // Base Query Relevance (0.0 to 1.0)
       double relevance = 0.0;
-      if (albumLower == qLower || (albumLower.contains(' - ') && albumLower.split(' - ').first.trim() == qLower) || albumLower.startsWith('$qLower (') || albumLower.startsWith('$qLower -')) {
+      if (SearchService.isAlbumOrMovieEntityMatch(albumLower, qLower)) {
         // Direct album / movie match promotes soundtrack tracks to top tier
         relevance = 1.0;
       } else if (titleLower == qLower) {
@@ -135,14 +136,8 @@ class UserPreferenceMatrix {
 
       final albA = sA.album.toLowerCase().trim();
       final albB = sB.album.toLowerCase().trim();
-      final aAlbumMatch = (albA == qLower ||
-          (albA.contains(' - ') && albA.split(' - ').first.trim() == qLower) ||
-          albA.startsWith('$qLower (') ||
-          albA.startsWith('$qLower -')) ? 1 : 0;
-      final bAlbumMatch = (albB == qLower ||
-          (albB.contains(' - ') && albB.split(' - ').first.trim() == qLower) ||
-          albB.startsWith('$qLower (') ||
-          albB.startsWith('$qLower -')) ? 1 : 0;
+      final aAlbumMatch = SearchService.isAlbumOrMovieEntityMatch(albA, qLower) ? 1 : 0;
+      final bAlbumMatch = SearchService.isAlbumOrMovieEntityMatch(albB, qLower) ? 1 : 0;
       if (aAlbumMatch != bAlbumMatch) return bAlbumMatch.compareTo(aAlbumMatch);
 
       final aExact = (sA.title.toLowerCase().trim() == qLower) ? 1 : 0;

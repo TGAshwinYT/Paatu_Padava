@@ -53,6 +53,8 @@ class SearchArtistTile extends StatelessWidget {
                   fit: BoxFit.cover,
                   memCacheWidth: 96,
                   memCacheHeight: 96,
+                  fadeInDuration: const Duration(milliseconds: 200),
+                  placeholder: (_, __) => _buildAvatarFallback(),
                   errorWidget: (_, __, ___) => _buildAvatarFallback(),
                 )
               : _buildAvatarFallback(),
@@ -154,6 +156,8 @@ class SearchAlbumTile extends StatelessWidget {
                   fit: BoxFit.cover,
                   memCacheWidth: 96,
                   memCacheHeight: 96,
+                  fadeInDuration: const Duration(milliseconds: 200),
+                  placeholder: (_, __) => _buildAlbumFallback(),
                   errorWidget: (_, __, ___) => _buildAlbumFallback(),
                 )
               : _buildAlbumFallback(),
@@ -250,6 +254,8 @@ class SearchPlaylistTile extends StatelessWidget {
                   fit: BoxFit.cover,
                   memCacheWidth: 96,
                   memCacheHeight: 96,
+                  fadeInDuration: const Duration(milliseconds: 200),
+                  placeholder: (_, __) => _buildPlaylistFallback(),
                   errorWidget: (_, __, ___) => _buildPlaylistFallback(),
                 )
               : _buildPlaylistFallback(),

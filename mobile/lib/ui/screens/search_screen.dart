@@ -8,7 +8,7 @@ import '../../services/player_handler.dart';
 import '../../services/search_history_manager.dart';
 import '../../services/favorites_manager.dart';
 import '../../services/catalog_database.dart';
-import '../../services/settings_manager.dart';
+// import '../../services/settings_manager.dart';
 import '../../services/fuzzy_search_service.dart';
 import '../../services/search_service.dart';
 import '../../logic/stream_resolver.dart';

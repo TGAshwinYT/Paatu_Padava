@@ -7,14 +7,14 @@ import 'artist_sanitizer.dart';
 /// Dynamic On-Device User Preference Matrix for Paatu Padava.
 /// Re-ranks search results and recommended queues by learning the user's personal
 /// affinity vectors from Liked Songs (`FavoritesManager`) and Play History (`HistoryManager`).
-class _UserPreferenceIndex {
+class UserPreferenceIndex {
   final Set<String> likedSongIds;
   final Set<String> likedDedupKeys;
   final Map<String, int> likedArtistCounts;
   final Map<String, int> histSongCounts;
   final Map<String, int> histArtistCounts;
 
-  const _UserPreferenceIndex({
+  const UserPreferenceIndex({
     required this.likedSongIds,
     required this.likedDedupKeys,
     required this.likedArtistCounts,
@@ -22,7 +22,7 @@ class _UserPreferenceIndex {
     required this.histArtistCounts,
   });
 
-  factory _UserPreferenceIndex.fromSongs(List<Song> favs, List<Song> hist) {
+  factory UserPreferenceIndex.fromSongs(List<Song> favs, List<Song> hist) {
     final likedSongIds = <String>{};
     final likedDedupKeys = <String>{};
     final likedArtistCounts = <String, int>{};
@@ -49,7 +49,7 @@ class _UserPreferenceIndex {
       }
     }
 
-    return _UserPreferenceIndex(
+    return UserPreferenceIndex(
       likedSongIds: likedSongIds,
       likedDedupKeys: likedDedupKeys,
       likedArtistCounts: likedArtistCounts,
@@ -61,7 +61,7 @@ class _UserPreferenceIndex {
 
 class UserPreferenceMatrix {
   /// Computes personalized user affinity using pre-indexed preference sets/maps for O(1) lookups.
-  static double computeAffinityWithIndex(Song song, _UserPreferenceIndex index) {
+  static double computeAffinityWithIndex(Song song, UserPreferenceIndex index) {
     double affinity = 0.0;
 
     // 1. Liked Song Direct Match (+0.40) - O(1)
@@ -115,7 +115,7 @@ class UserPreferenceMatrix {
   }) {
     final favs = likedSongs ?? (FavoritesManager.favoritesNotifier.value);
     final hist = historySongs ?? (HistoryManager.historyNotifier.value);
-    final index = _UserPreferenceIndex.fromSongs(favs, hist);
+    final index = UserPreferenceIndex.fromSongs(favs, hist);
     return computeAffinityWithIndex(song, index);
   }
 
@@ -156,7 +156,7 @@ class UserPreferenceMatrix {
 
     final favs = likedSongs ?? (FavoritesManager.favoritesNotifier.value);
     final hist = historySongs ?? (HistoryManager.historyNotifier.value);
-    final prefIndex = _UserPreferenceIndex.fromSongs(favs, hist);
+    final prefIndex = UserPreferenceIndex.fromSongs(favs, hist);
 
     final scored = candidates.map((song) {
       final titleLower = song.title.toLowerCase();

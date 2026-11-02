@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 /// Represents a match result returned by [TrigramIndex].
 class TrigramMatch<T> {
   final String term;
@@ -44,7 +42,7 @@ class TrigramIndex<T> {
     final clean = text.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
     if (clean.isEmpty) return const {};
 
-    final padded = '$$clean\$';
+    final padded = '\$\$$clean\$';
     final Set<String> ngrams = <String>{};
     for (int i = 0; i <= padded.length - 3; i++) {
       ngrams.add(padded.substring(i, i + 3));

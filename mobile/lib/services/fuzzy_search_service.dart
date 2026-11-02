@@ -6,7 +6,7 @@ import '../core/dsa/bk_tree.dart';
 import '../core/dsa/symspell.dart';
 import '../core/dsa/trigram_index.dart';
 import 'saavn_client.dart';
-import 'settings_manager.dart';
+// removed
 import 'app_logger.dart';
 
 class FuzzyCorrectionResult {

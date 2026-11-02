@@ -41,7 +41,7 @@ void main() {
 
     test('SongRepository.deduplicateByMinHash filters near-identical tracks across providers', () {
       final songs = [
-        const Song(
+        Song(
           id: 'saavn_1',
           title: 'Arabic Kuthu',
           artist: 'Anirudh Ravichander, Jonita Gandhi',
@@ -49,7 +49,7 @@ void main() {
           coverUrl: 'https://c.saavncdn.com/123/500x500.jpg',
           source: 'saavn',
         ),
-        const Song(
+        Song(
           id: 'yt_1',
           title: 'Arabic Kuthu',
           artist: 'Anirudh Ravichander, Jonita Gandhi',
@@ -57,7 +57,7 @@ void main() {
           coverUrl: 'https://img.youtube.com/vi/abc/hqdefault.jpg',
           source: 'youtube',
         ),
-        const Song(
+        Song(
           id: 'saavn_2',
           title: 'Hukum - Thalaivar Alappara',
           artist: 'Anirudh Ravichander',
@@ -94,7 +94,7 @@ void main() {
     test('Cosine similarity scores matching mood tracks higher', () {
       final sadQueryVec = SemanticSearchService.instance.projectQuery('heartbreak sad crying')!;
 
-      const sadSong = Song(
+      final sadSong = Song(
         id: 's_1',
         title: 'Po Nee Po (The Pain of Love)',
         artist: 'Anirudh Ravichander, Mohit Chauhan',
@@ -102,7 +102,7 @@ void main() {
         coverUrl: '',
       );
 
-      const partySong = Song(
+      final partySong = Song(
         id: 's_2',
         title: 'Aaluma Doluma Party Dance Beat',
         artist: 'Anirudh Ravichander, Badshah',
@@ -118,14 +118,14 @@ void main() {
 
     test('rankBySemanticIntent re-ranks songs when query specifies vibe', () {
       final songs = [
-        const Song(
+        Song(
           id: 's_1',
           title: 'Aaluma Doluma Party Dance Beat',
           artist: 'Anirudh Ravichander',
           album: 'Vedalam',
           coverUrl: '',
         ),
-        const Song(
+        Song(
           id: 's_2',
           title: 'Po Nee Po (The Pain of Love)',
           artist: 'Anirudh Ravichander',

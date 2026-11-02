@@ -173,7 +173,7 @@ class SemanticSearchService {
 
   /// Projects a [Song] metadata and attributes into an 8D [SemanticVector].
   SemanticVector projectSong(Song song) {
-    final text = '${song.title} ${song.artist} ${song.album ?? ""} ${song.matchedLyricSnippet ?? ""}'.toLowerCase();
+    final text = '${song.title} ${song.artist} ${song.album} ${song.matchedLyricSnippet ?? ""}'.toLowerCase();
     final clean = text.replaceAll(RegExp(r'[^a-z0-9\s]'), ' ');
     final tokens = clean.split(RegExp(r'\s+')).where((t) => t.isNotEmpty);
 

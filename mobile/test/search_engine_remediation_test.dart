@@ -26,7 +26,7 @@ void main() {
 
     test('2. SearchCache: Default searches with null language match "all" and avoid 100% cache miss', () {
       SearchCache.clear();
-      const testSong = Song(
+      final testSong = Song(
         id: 's1',
         title: 'Master The Blaster',
         artist: 'Anirudh Ravichander',
@@ -53,9 +53,9 @@ void main() {
     });
 
     test('3. SemanticSearchService: Partition sorting maintains strict order without TimSort contract violation', () {
-      const songA = Song(id: '1', title: 'Energetic Dance Beat', artist: 'Artist A', album: 'Album A', coverUrl: '');
-      const songB = Song(id: '2', title: 'Soothing Sleep Lullaby', artist: 'Artist B', album: 'Album B', coverUrl: '');
-      const songC = Song(id: '3', title: 'Gym Workout Bass', artist: 'Artist C', album: 'Album C', coverUrl: '');
+      final songA = Song(id: '1', title: 'Energetic Dance Beat', artist: 'Artist A', album: 'Album A', coverUrl: '');
+      final songB = Song(id: '2', title: 'Soothing Sleep Lullaby', artist: 'Artist B', album: 'Album B', coverUrl: '');
+      final songC = Song(id: '3', title: 'Gym Workout Bass', artist: 'Artist C', album: 'Album C', coverUrl: '');
 
       // Query with mood intent 'gym workout party'
       final ranked = SemanticSearchService.instance.rankBySemanticIntent(
@@ -70,7 +70,7 @@ void main() {
     });
 
     test('4. UserPreferenceMatrix: Re-ranking scores favorites and query matches via O(1) indexed lookup', () {
-      const exactMatch = Song(
+      final exactMatch = Song(
         id: 'exact_1',
         title: 'Vaathi Coming',
         artist: 'Anirudh Ravichander',
@@ -78,7 +78,7 @@ void main() {
         coverUrl: '',
       );
 
-      const unrelatedFav = Song(
+      final unrelatedFav = Song(
         id: 'fav_1',
         title: 'Random Track',
         artist: 'Other Singer',

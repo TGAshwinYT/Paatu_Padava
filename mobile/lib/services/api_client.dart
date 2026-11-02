@@ -118,7 +118,7 @@ class ApiClient {
     final targetLang = (language != null && language.isNotEmpty && language.toLowerCase() != 'all') ? language.toLowerCase() : null;
     try {
       final uri = Uri.parse('$baseUrl/api/music/for-you').replace(queryParameters: {
-        if (targetLang != null) 'language': targetLang,
+        'language': targetLang,
       });
       final response = await UnifiedHttpClient.get(uri, headers: _headers, timeout: const Duration(seconds: 8));
       if (response.statusCode == 200) {
@@ -151,7 +151,7 @@ class ApiClient {
       final uri = Uri.parse('$baseUrl/api/music/recommendations/$songId').replace(queryParameters: {
         if (artist != null && artist.isNotEmpty) 'artist': artist,
         'lang': targetLang.toLowerCase(),
-        if (targetLang != null) 'language': targetLang,
+        'language': targetLang,
         'limit': '25',
       });
 
@@ -189,7 +189,7 @@ class ApiClient {
     try {
       final uri = Uri.parse('$baseUrl/api/music/search').replace(queryParameters: {
         'query': clean,
-        if (targetLang != null) 'language': targetLang,
+        'language': targetLang,
       });
       final response = await UnifiedHttpClient.get(uri, headers: _headers, timeout: const Duration(seconds: 8));
 

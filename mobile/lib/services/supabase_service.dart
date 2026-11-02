@@ -248,8 +248,6 @@ class SupabaseService {
     if (c == null || user == null) return [];
     final targetId = (userId != null && userId.isNotEmpty && userId != 'guest') ? userId : user.id;
 
-
-
     try {
       final data = await c
           .from('profiles')
@@ -276,8 +274,6 @@ class SupabaseService {
     if (c == null || user == null) return [];
     final targetId = (userId != null && userId.isNotEmpty && userId != 'guest') ? userId : user.id;
 
-
-
     try {
       final List<dynamic> data = await c
           .from('user_favorite_artists')
@@ -302,8 +298,6 @@ class SupabaseService {
     final targetId = (userId != null && userId.isNotEmpty && userId != 'guest') ? userId : user?.id;
     if (targetId == null || targetId.isEmpty) return;
 
-
-
     try {
       final rows = artists.map((a) => {
         'user_id': targetId,
@@ -312,7 +306,7 @@ class SupabaseService {
       }).where((r) => (r['artist_name'] as String).isNotEmpty).toList();
 
       if (rows.isNotEmpty) {
-        await c.from('user_favorite_artists').upsert(
+        await c!.from('user_favorite_artists').upsert(
           rows,
           onConflict: 'user_id, artist_name',
         );
@@ -333,8 +327,6 @@ class SupabaseService {
     final targetId = (userId != null && userId.isNotEmpty && userId != 'guest') ? userId : user?.id;
     if (targetId == null || targetId.isEmpty) return;
 
-
-
     try {
       if (c == null) throw Exception('Supabase offline');
       // 1. Upsert profile preferences
@@ -346,11 +338,9 @@ class SupabaseService {
 
       // 2. Insert favorite artists into user_favorite_artists
       if (artistNames.isNotEmpty) {
-        final artistRows = artistNames.map((name) => {'user_id': targetId, 'artist_name': name}).toList(); await c.from('user_favorite_artists').upsert(artistRows, onConflict: 'user_id, artist_name'); } if (false) {
-          'user_id': targetId,
-          'artist_name': name,
-        }).toList();
-
+        final artistRows = artistNames
+            .map((name) => {'user_id': targetId, 'artist_name': name})
+            .toList();
         await c.from('user_favorite_artists').upsert(
           artistRows,
           onConflict: 'user_id, artist_name',
@@ -358,10 +348,22 @@ class SupabaseService {
       }
     } catch (e) {
       debugPrint('[SupabaseService] saveUserTaste offline notice: $e');
-      try { if (Hive.isBoxOpen('auth_box')) await Hive.box('auth_box').put('pending_user_taste', {'user_id': targetId, 'languages': languages, 'artists': artistNames}); } catch (_) {}
+      try {
+        if (Hive.isBoxOpen('auth_box')) {
+          await Hive.box('auth_box').put('pending_user_taste', {
+            'user_id': targetId,
+            'languages': languages,
+            'artists': artistNames,
+          });
+        }
+      } catch (_) {}
       return;
     }
-    try { if (Hive.isBoxOpen('auth_box')) await Hive.box('auth_box').delete('pending_user_taste'); } catch (_) {}
+    try {
+      if (Hive.isBoxOpen('auth_box')) {
+        await Hive.box('auth_box').delete('pending_user_taste');
+      }
+    } catch (_) {}
   }
 
   static Future<void> syncPendingUserTaste() async {
@@ -372,10 +374,15 @@ class SupabaseService {
         final m = Map<String, dynamic>.from(p);
         final langs = (m['languages'] as List?)?.map((e) => e.toString()).toList() ?? [];
         final artists = (m['artists'] as List?)?.map((e) => e.toString()).toList() ?? [];
-        if (langs.isNotEmpty || artists.isNotEmpty) await saveUserTaste(userId: m['user_id']?.toString(), languages: langs, artistNames: artists);
+        if (langs.isNotEmpty || artists.isNotEmpty) {
+          await saveUserTaste(
+            userId: m['user_id']?.toString(),
+            languages: langs,
+            artistNames: artists,
+          );
+        }
       }
     } catch (_) {}
-    }
   }
 
 
@@ -385,17 +392,15 @@ class SupabaseService {
     final targetId = (userId != null && userId.isNotEmpty && userId != 'guest') ? userId : user?.id;
     if (targetId == null || targetId.isEmpty) return;
 
-
-
     try {
-      await c.from('user_history').insert({
+      await c!.from('user_history').insert({
         'user_id': targetId,
-        'song_id': song.id, 'title': song.title, 'artist': song.artist,
-
-
+        'song_id': song.id,
+        'title': song.title,
+        'artist': song.artist,
         'cover_url': song.coverUrl,
-        'source': song.source, 'played_at': DateTime.now().toIso8601String(),
-
+        'source': song.source,
+        'played_at': DateTime.now().toIso8601String(),
       });
     } catch (e) {
       debugPrint('[SupabaseService] recordUserHistory error: $e');

@@ -2,7 +2,7 @@ import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+// import 'package:cached_network_image/cached_network_image.dart';
 import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
 import '../../../services/player_handler.dart';
@@ -324,7 +324,7 @@ class SearchSongTile extends StatelessWidget {
       ),
     );
   }
-  static Widget _buildThumbHashPlaceholder(String seed, {double radius = 10, double iconSize = 20}) {
+  /* static Widget _buildThumbHashPlaceholder(String seed, {double radius = 10, double iconSize = 20}) {
     final hash = seed.hashCode.abs();
     final hue1 = (hash % 360).toDouble();
     final hue2 = ((hash ~/ 360 + 50) % 360).toDouble();
@@ -348,5 +348,5 @@ class SearchSongTile extends StatelessWidget {
         ),
       ),
     );
-  }
+  } */
 }

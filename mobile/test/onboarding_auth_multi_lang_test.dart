@@ -1,10 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hive/hive.dart';
 import 'package:paatu_padava_mobile/models/song.dart';
 import 'package:paatu_padava_mobile/services/search_service.dart';
-import 'package:paatu_padava_mobile/services/settings_manager.dart';
 import 'package:paatu_padava_mobile/services/auth_manager.dart';
-import 'package:paatu_padava_mobile/services/supabase_service.dart';
 import 'package:paatu_padava_mobile/data/repositories/song_repository.dart';
 
 void main() {
@@ -12,7 +9,7 @@ void main() {
 
   group('Onboarding, Auth & Multi-Language Coherence Tests', () {
     test('1. Multi-language relevance: secondary preferred language receives equal boost as primary', () {
-      const hindiSong = Song(
+      final hindiSong = Song(
         id: 'h1',
         title: 'Kesariya',
         artist: 'Arijit Singh',
@@ -22,7 +19,7 @@ void main() {
         source: 'saavn',
       );
 
-      const tamilSong = Song(
+      final tamilSong = Song(
         id: 't1',
         title: 'Naa Ready',
         artist: 'Anirudh Ravichander',
@@ -54,7 +51,7 @@ void main() {
     });
 
     test('2. Artist screen multi-language sorting: tracks in secondary preferred languages are not demoted as mismatches', () {
-      const arrTamilSong = Song(
+      final arrTamilSong = Song(
         id: 'arr_tam',
         title: 'Chinna Chinna Aasai',
         artist: 'A.R. Rahman',
@@ -63,7 +60,7 @@ void main() {
         coverUrl: '',
       );
 
-      const arrHindiSong = Song(
+      final arrHindiSong = Song(
         id: 'arr_hin',
         title: 'Kun Faya Kun',
         artist: 'A.R. Rahman',
@@ -72,7 +69,7 @@ void main() {
         coverUrl: '',
       );
 
-      const arrSpanishSong = Song(
+      final arrSpanishSong = Song(
         id: 'arr_spa',
         title: 'Random Dub',
         artist: 'A.R. Rahman',

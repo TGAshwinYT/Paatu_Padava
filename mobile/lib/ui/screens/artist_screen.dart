@@ -91,7 +91,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
 
       // Prioritize songs in user's preferred language to avoid cross-language contamination
       final effectivePrefLangs = SettingsManager.preferredLanguages.map((l) => l.toLowerCase()).toList();
-      final prefLang = effectivePrefLangs.firstOrNull ?? 'tamil';
+
       // Coordinated multi-language preference priority
       // Retains support for all preferred languages
       uniqueSongs.sort((a, b) {

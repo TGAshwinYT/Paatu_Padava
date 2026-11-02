@@ -6,10 +6,10 @@ import '../domain/models/app_error.dart';
 import '../domain/models/track_entity.dart';
 import '../core/dsa/bk_tree.dart';
 import '../core/dsa/trigram_index.dart';
-import '../core/dsa/symspell.dart';
+// import '../core/dsa/symspell.dart';
 import 'lyrics_search_service.dart';
 import 'semantic_search_service.dart';
-import '../core/dsa/minhash.dart';
+// import '../core/dsa/minhash.dart';
 import '../core/dsa/prefix_trie.dart';
 import '../logic/search_query_planner.dart';
 import 'saavn_client.dart';
@@ -919,7 +919,7 @@ class SearchService {
     }
 
     if (didYouMean == null) {
-      final typoOrTanglish = FuzzySearchService.suggestCorrection(cleanLower);
+      final typoOrTanglish = FuzzySearchService.findCorrection(cleanLower);
       if (typoOrTanglish != null && typoOrTanglish.corrected.toLowerCase() != cleanLower) {
         transliterated = typoOrTanglish.corrected;
         didYouMean = typoOrTanglish.corrected;
@@ -1212,7 +1212,7 @@ class SearchService {
     // For very short queries (<= 3 chars, e.g. "hi"), reject non-Indian English bedroom-pop noise
     if (qLower.length <= 3) {
       final userPrefLangs = (preferredLanguages != null && preferredLanguages.isNotEmpty) ? preferredLanguages.map((l) => l.toLowerCase().trim()).toSet() : {'tamil'};
-      final pLang = userPrefLangs.first;
+
       final hasRegionalMatch = song.source == 'saavn' ||
           userPrefLangs.contains(song.language?.toLowerCase().trim()) ||
           userPrefLangs.any((l) => song.title.toLowerCase().contains(l) || song.album.toLowerCase().contains(l));

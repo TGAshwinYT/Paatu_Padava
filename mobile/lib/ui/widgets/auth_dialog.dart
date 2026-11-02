@@ -153,7 +153,21 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
     }
   }
 
-  void _onAuthSuccessNav(BuildContext context) { final user = AuthManager.currentUser; final hasTaste = user != null && user.preferredLanguages.isNotEmpty && user.favoriteArtists.length >= 3; Navigator.pop(context); if (hasTaste) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Welcome back, ${user.username}!'), backgroundColor: const Color(0xFF9333EA))); } else { Navigator.push(context, MaterialPageRoute(builder: (_) => const OnboardingScreen())); } }
+  void _onAuthSuccessNav(BuildContext context) {
+    final user = AuthManager.currentUser;
+    final hasTaste = user != null && user.preferredLanguages.isNotEmpty && user.favoriteArtists.length >= 3;
+    Navigator.pop(context);
+    if (hasTaste) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Welcome back, ${user.username}!'),
+          backgroundColor: const Color(0xFF9333EA),
+        ),
+      );
+    } else {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const OnboardingScreen()));
+    }
+  }
 
   Future<void> _handleGoogleSignIn() async {
     setState(() {
@@ -165,16 +179,11 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
       final success = await AuthManager.loginWithGoogle();
       if (!mounted) return;
       setState(() => _isLoading = false);
-      if (success) { _onAuthSuccessNav(context); return; } else { setState(() => _errorMessage = 'Google sign in failed.'); return; }
-      if (!mounted) return;
-      setState(() => _isLoading = false);
 
       if (success) {
-        Navigator.pop(context);
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const OnboardingScreen()),
-        );
+        _onAuthSuccessNav(context);
+      } else {
+        setState(() => _errorMessage = 'Google sign in failed.');
       }
     } catch (e) {
       if (!mounted) return;
@@ -227,298 +236,298 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
 
               // If already logged in, show User Profile Card
               if (currentUser != null && !currentUser.isGuest) ...[
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 28,
-                  backgroundColor: const Color(0xFF9333EA),
-                  child: Text(
-                    currentUser.username.isNotEmpty ? currentUser.username[0].toUpperCase() : 'U',
-                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+                Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 28,
+                      backgroundColor: const Color(0xFF9333EA),
+                      child: Text(
+                        currentUser.username.isNotEmpty ? currentUser.username[0].toUpperCase() : 'U',
+                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            currentUser.username,
+                            style: GoogleFonts.outfit(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            currentUser.email,
+                            style: GoogleFonts.outfit(color: Colors.white54, fontSize: 13),
+                          ),
+                          if (currentUser.preferredLanguages.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                'Languages: ${currentUser.preferredLanguages.join(", ")}',
+                                style: GoogleFonts.outfit(color: const Color(0xFF1DB954), fontSize: 11),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const OnboardingScreen()),
+                    );
+                  },
+                  icon: const Icon(Icons.tune_rounded, color: Color(0xFF1DB954), size: 18),
+                  label: Text('Edit Music Taste (Languages & Artists)', style: GoogleFonts.outfit(color: Colors.white)),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: const Color(0xFF1DB954).withValues(alpha: 0.4)),
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   ),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                const SizedBox(height: 10),
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    await AuthManager.logout();
+                    if (context.mounted) Navigator.pop(context);
+                  },
+                  icon: const Icon(Icons.logout, color: Colors.white70, size: 18),
+                  label: Text('Sign Out', style: GoogleFonts.outfit(color: Colors.white)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.redAccent.withValues(alpha: 0.2),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    elevation: 0,
+                  ),
+                ),
+              ] else ...[
+                // Brand Logo & Heading
+                Center(
+                  child: Container(
+                    width: 54,
+                    height: 54,
+                    margin: const EdgeInsets.only(bottom: 8),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF9333EA).withValues(alpha: 0.35),
+                          blurRadius: 14,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Image.asset('assets/logo.png', fit: BoxFit.cover),
+                    ),
+                  ),
+                ),
+                Center(
+                  child: Text(
+                    'Paatu Padava',
+                    style: GoogleFonts.outfit(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                Center(
+                  child: Text(
+                    'Sync playlists, favorites & personalized recommendations',
+                    style: GoogleFonts.outfit(color: Colors.white54, fontSize: 12),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                if (currentUser != null && currentUser.isGuest) ...[
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 14),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.person_outline_rounded, color: Colors.white70, size: 16),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Currently in Guest Mode (Offline Playlists)',
+                          style: GoogleFonts.outfit(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
+                if (_enableGoogleSignIn) ...[
+                  // Google Sign In Button
+                  OutlinedButton.icon(
+                    onPressed: _isLoading ? null : _handleGoogleSignIn,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
+                      backgroundColor: const Color(0xFF0A0E1A),
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                    icon: const Icon(Icons.g_mobiledata_rounded, color: Colors.white, size: 26),
+                    label: Text(
+                      'Continue with Google',
+                      style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  Row(
                     children: [
-                      Text(
-                        currentUser.username,
-                        style: GoogleFonts.outfit(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                      Expanded(child: Divider(color: Colors.white.withValues(alpha: 0.08))),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Text('OR', style: GoogleFonts.outfit(color: Colors.white38, fontSize: 11)),
                       ),
-                      Text(
-                        currentUser.email,
-                        style: GoogleFonts.outfit(color: Colors.white54, fontSize: 13),
-                      ),
-                      if (currentUser.preferredLanguages.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text(
-                            'Languages: ${currentUser.preferredLanguages.join(", ")}',
-                            style: GoogleFonts.outfit(color: const Color(0xFF1DB954), fontSize: 11),
+                      Expanded(child: Divider(color: Colors.white.withValues(alpha: 0.08))),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                ],
+
+                // Animated Neon Sliding Control (Tabs: Sign In / Create Account)
+                Container(
+                  height: 48,
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0A0E1A),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () {
+                            if (_tabController.index != 0) {
+                              _tabController.animateTo(0);
+                            }
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            curve: Curves.easeOutCubic,
+                            decoration: BoxDecoration(
+                              color: _tabController.index == 0 ? const Color(0xFF9333EA) : Colors.transparent,
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: _tabController.index == 0
+                                  ? [
+                                      BoxShadow(
+                                        color: const Color(0xFF9333EA).withValues(alpha: 0.4),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ]
+                                  : null,
+                            ),
+                            child: Center(
+                              child: Text(
+                                'Sign In',
+                                style: GoogleFonts.outfit(
+                                  color: _tabController.index == 0 ? Colors.white : Colors.white60,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
                           ),
                         ),
+                      ),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () {
+                            if (_tabController.index != 1) {
+                              _tabController.animateTo(1);
+                            }
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            curve: Curves.easeOutCubic,
+                            decoration: BoxDecoration(
+                              color: _tabController.index == 1 ? const Color(0xFF9333EA) : Colors.transparent,
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: _tabController.index == 1
+                                  ? [
+                                      BoxShadow(
+                                        color: const Color(0xFF9333EA).withValues(alpha: 0.4),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ]
+                                  : null,
+                            ),
+                            child: Center(
+                              child: Text(
+                                'Create Account',
+                                style: GoogleFonts.outfit(
+                                  color: _tabController.index == 1 ? Colors.white : Colors.white60,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
+                const SizedBox(height: 16),
+
+                if (_errorMessage != null)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      _errorMessage!,
+                      style: GoogleFonts.outfit(color: Colors.redAccent, fontSize: 12),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  child: _tabController.index == 0
+                      ? _buildSignInForm()
+                      : _buildSignUpForm(),
+                ),
+
+                const SizedBox(height: 12),
+
+                // Continue as Guest Option
+                Center(
+                  child: TextButton(
+                    onPressed: () async {
+                      await AuthManager.loginAsGuest();
+                      if (context.mounted) Navigator.pop(context);
+                    },
+                    child: Text(
+                      'Continue in Guest Mode',
+                      style: GoogleFonts.outfit(color: Colors.white38, fontSize: 13),
+                    ),
+                  ),
+                ),
               ],
-            ),
-            const SizedBox(height: 20),
-            OutlinedButton.icon(
-              onPressed: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const OnboardingScreen()),
-                );
-              },
-              icon: const Icon(Icons.tune_rounded, color: Color(0xFF1DB954), size: 18),
-              label: Text('Edit Music Taste (Languages & Artists)', style: GoogleFonts.outfit(color: Colors.white)),
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(color: const Color(0xFF1DB954).withValues(alpha: 0.4)),
-                padding: const EdgeInsets.symmetric(vertical: 13),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              ),
-            ),
-            const SizedBox(height: 10),
-            ElevatedButton.icon(
-              onPressed: () async {
-                await AuthManager.logout();
-                if (context.mounted) Navigator.pop(context);
-              },
-              icon: const Icon(Icons.logout, color: Colors.white70, size: 18),
-              label: Text('Sign Out', style: GoogleFonts.outfit(color: Colors.white)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.redAccent.withValues(alpha: 0.2),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                elevation: 0,
-              ),
-            ),
-          ] else ...[
-            // Brand Logo & Heading
-            Center(
-              child: Container(
-                width: 54,
-                height: 54,
-                margin: const EdgeInsets.only(bottom: 8),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF9333EA).withValues(alpha: 0.35),
-                      blurRadius: 14,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Image.asset('assets/logo.png', fit: BoxFit.cover),
-                ),
-              ),
-            ),
-            Center(
-              child: Text(
-                'Paatu Padava',
-                style: GoogleFonts.outfit(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-            ),
-            Center(
-              child: Text(
-                'Sync playlists, favorites & personalized recommendations',
-                style: GoogleFonts.outfit(color: Colors.white54, fontSize: 12),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            if (currentUser != null && currentUser.isGuest) ...[
-              Container(
-                margin: const EdgeInsets.only(bottom: 14),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.06),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white12),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.person_outline_rounded, color: Colors.white70, size: 16),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Currently in Guest Mode (Offline Playlists)',
-                      style: GoogleFonts.outfit(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
-                    ),
-                  ],
-                ),
-              ),
+              const SizedBox(height: 8),
             ],
-
-            if (_enableGoogleSignIn) ...[
-              // Google Sign In Button
-              OutlinedButton.icon(
-                onPressed: _isLoading ? null : _handleGoogleSignIn,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
-                  backgroundColor: const Color(0xFF0A0E1A),
-                  padding: const EdgeInsets.symmetric(vertical: 13),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                ),
-                icon: const Icon(Icons.g_mobiledata_rounded, color: Colors.white, size: 26),
-                label: Text(
-                  'Continue with Google',
-                  style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w600),
-                ),
-              ),
-              const SizedBox(height: 14),
-
-              Row(
-                children: [
-                  Expanded(child: Divider(color: Colors.white.withValues(alpha: 0.08))),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Text('OR', style: GoogleFonts.outfit(color: Colors.white38, fontSize: 11)),
-                  ),
-                  Expanded(child: Divider(color: Colors.white.withValues(alpha: 0.08))),
-                ],
-              ),
-              const SizedBox(height: 14),
-            ],
-
-            // Animated Neon Sliding Control (Tabs: Sign In / Create Account)
-            Container(
-              height: 48,
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: const Color(0xFF0A0E1A),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () {
-                        if (_tabController.index != 0) {
-                          _tabController.animateTo(0);
-                        }
-                      },
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        curve: Curves.easeOutCubic,
-                        decoration: BoxDecoration(
-                          color: _tabController.index == 0 ? const Color(0xFF9333EA) : Colors.transparent,
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: _tabController.index == 0
-                              ? [
-                                  BoxShadow(
-                                    color: const Color(0xFF9333EA).withValues(alpha: 0.4),
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ]
-                              : null,
-                        ),
-                        child: Center(
-                          child: Text(
-                            'Sign In',
-                            style: GoogleFonts.outfit(
-                              color: _tabController.index == 0 ? Colors.white : Colors.white60,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () {
-                        if (_tabController.index != 1) {
-                          _tabController.animateTo(1);
-                        }
-                      },
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        curve: Curves.easeOutCubic,
-                        decoration: BoxDecoration(
-                          color: _tabController.index == 1 ? const Color(0xFF9333EA) : Colors.transparent,
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: _tabController.index == 1
-                              ? [
-                                  BoxShadow(
-                                    color: const Color(0xFF9333EA).withValues(alpha: 0.4),
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ]
-                              : null,
-                        ),
-                        child: Center(
-                          child: Text(
-                            'Create Account',
-                            style: GoogleFonts.outfit(
-                              color: _tabController.index == 1 ? Colors.white : Colors.white60,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            if (_errorMessage != null)
-              Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.redAccent.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  _errorMessage!,
-                  style: GoogleFonts.outfit(color: Colors.redAccent, fontSize: 12),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 200),
-              child: _tabController.index == 0
-                  ? _buildSignInForm()
-                  : _buildSignUpForm(),
-            ),
-
-            const SizedBox(height: 12),
-
-            // Continue as Guest Option
-            Center(
-              child: TextButton(
-                onPressed: () async {
-                  await AuthManager.loginAsGuest();
-                  if (context.mounted) Navigator.pop(context);
-                },
-                child: Text(
-                  'Continue in Guest Mode',
-                  style: GoogleFonts.outfit(color: Colors.white38, fontSize: 13),
-                ),
-              ),
-            ),
-          ],
-          const SizedBox(height: 8),
-        ],
+          ),
+        ),
       ),
-    ),
-  ),
-);
+    );
   }
 
   Widget _buildSignInForm() {

@@ -15,7 +15,8 @@ void main() {
         artist: 'Arijit Singh',
         album: 'Brahmastra',
         language: 'Hindi',
-        coverUrl: '',
+        coverUrl: 'https://c.saavncdn.com/123/500x500.jpg',
+        duration: 268,
         source: 'saavn',
       );
 
@@ -25,7 +26,8 @@ void main() {
         artist: 'Anirudh Ravichander',
         album: 'Leo',
         language: 'Tamil',
-        coverUrl: '',
+        coverUrl: 'https://c.saavncdn.com/456/500x500.jpg',
+        duration: 248,
         source: 'saavn',
       );
 

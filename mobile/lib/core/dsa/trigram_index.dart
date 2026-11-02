@@ -118,12 +118,26 @@ class TrigramIndex<T> {
       final intersection = entry.value;
       final docGramCount = _termTrigrams[docId].length;
       final union = queryGramCount + docGramCount - intersection;
-      final similarity = union > 0 ? intersection / union : 0.0;
+      double similarity = union > 0 ? intersection / union : 0.0;
+
+      // Evaluate word-level similarity for multi-word terms
+      final term = _terms[docId];
+      if (term.contains(' ')) {
+        final words = term.split(RegExp(r'\s+'));
+        for (final w in words) {
+          if (w.length >= 3) {
+            final wSim = jaccard(clean, w);
+            if (wSim > similarity) {
+              similarity = wSim;
+            }
+          }
+        }
+      }
 
       if (similarity >= threshold) {
         matches.add(
           TrigramMatch<T>(
-            term: _terms[docId],
+            term: term,
             payload: _payloads[docId],
             similarity: similarity,
           ),

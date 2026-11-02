@@ -72,8 +72,8 @@ void main() {
       expect(results.first.distance, equals(1));
     });
 
-    test('corrects transposition "merals" -> "mersal"', () {
-      final results = symSpell.lookup('merals');
+    test('corrects transposition "merasl" -> "mersal"', () {
+      final results = symSpell.lookup('merasl');
       expect(results.isNotEmpty, isTrue);
       expect(results.first.term, equals('mersal'));
       expect(results.first.distance, equals(1));

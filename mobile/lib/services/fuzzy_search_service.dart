@@ -113,12 +113,16 @@ class FuzzySearchService {
   static final BkTree<String> _bkTree = BkTree<String>();
   static final SymSpell _symSpell = SymSpell(maxEditDistance: 2);
   static final TrigramIndex<String> _trigramIndex = TrigramIndex<String>();
+  static final Map<String, String> _normalizedToOriginal = {};
   static bool _bkTreeInitialized = false;
+
+  static String _normKey(String s) => s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
 
   static void _ensureInitialized() {
     if (!_bkTreeInitialized) {
       _bkTree.insertAll(_candidateDictionary);
       for (final term in _candidateDictionary) {
+        _normalizedToOriginal[_normKey(term)] = term;
         _symSpell.insert(term);
         _trigramIndex.insert(term, payload: term);
       }
@@ -179,6 +183,7 @@ class FuzzySearchService {
       final sanitized = Song.sanitize(term).trim();
       if (sanitized.length >= 3) {
         if (_candidateDictionary.add(sanitized)) {
+          _normalizedToOriginal[_normKey(sanitized)] = sanitized;
           _bkTree.insert(sanitized);
           _symSpell.insert(sanitized);
           _trigramIndex.insert(sanitized, payload: sanitized);
@@ -221,14 +226,15 @@ class FuzzySearchService {
       final symSpellMatches = _symSpell.lookup(cleanQuery, maxDistance: 2, limit: 3);
       if (symSpellMatches.isNotEmpty) {
         final best = symSpellMatches.first;
-        if (best.distance > 0 && best.term.toLowerCase() != lowerQuery) {
-          final tokenScore = tokenSetRatio(cleanQuery, best.term);
-          final weightScore = weightedRatio(cleanQuery, best.term);
+        final resolved = _normalizedToOriginal[best.term] ?? best.term;
+        if (best.distance > 0 && resolved.toLowerCase() != lowerQuery) {
+          final tokenScore = tokenSetRatio(cleanQuery, resolved);
+          final weightScore = weightedRatio(cleanQuery, resolved);
           final combinedScore = (((1.0 - (best.distance / cleanQuery.length)) * 100).toInt() + tokenScore + weightScore) ~/ 3;
           if (combinedScore >= 65) {
             return FuzzyCorrectionResult(
               original: cleanQuery,
-              corrected: Song.sanitize(best.term),
+              corrected: resolved,
               score: combinedScore,
             );
           }
@@ -239,10 +245,11 @@ class FuzzySearchService {
       final triMatches = _trigramIndex.search(cleanQuery, threshold: 0.50, limit: 3);
       if (triMatches.isNotEmpty) {
         final best = triMatches.first;
-        if (best.term.toLowerCase() != lowerQuery && best.similarity >= 0.55) {
+        final resolved = best.payload ?? _normalizedToOriginal[_normKey(best.term)] ?? best.term;
+        if (resolved.toLowerCase() != lowerQuery && best.similarity >= 0.55) {
           return FuzzyCorrectionResult(
             original: cleanQuery,
-            corrected: Song.sanitize(best.term),
+            corrected: resolved,
             score: (best.similarity * 100).toInt(),
           );
         }
@@ -253,15 +260,16 @@ class FuzzySearchService {
 
       if (bkMatches.isNotEmpty) {
         final best = bkMatches.first;
-        final tokenScore = tokenSetRatio(cleanQuery, best.term);
-        final weightScore = weightedRatio(cleanQuery, best.term);
+        final resolved = _normalizedToOriginal[_normKey(best.term)] ?? best.term;
+        final tokenScore = tokenSetRatio(cleanQuery, resolved);
+        final weightScore = weightedRatio(cleanQuery, resolved);
         final similarityPct = (best.similarity * 100).toInt();
         final combinedScore = (similarityPct + tokenScore + weightScore) ~/ 3;
 
-        if (combinedScore >= 65 && best.term.toLowerCase() != lowerQuery) {
+        if (combinedScore >= 65 && resolved.toLowerCase() != lowerQuery) {
           return FuzzyCorrectionResult(
             original: cleanQuery,
-            corrected: Song.sanitize(best.term),
+            corrected: resolved,
             score: combinedScore,
           );
         }
@@ -301,7 +309,6 @@ class FuzzySearchService {
 
     return null;
   }
-
 
   /// Execute fallback search using fuzzy corrected query if primary search produced 0 results
   static Future<List<Song>> executeFallbackSearch(

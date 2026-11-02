@@ -885,14 +885,16 @@ class SearchService {
     for (final lang in _knownLanguages) {
       final langPattern = RegExp('\\b$lang\\b', caseSensitive: false);
       if (langPattern.hasMatch(lower)) {
-        final stripped = clean.replaceAll(langPattern, '').replaceAll(RegExp(r'\s+'), ' ').trim();
-        final isGenericModifier = stripped.isEmpty ||
-            RegExp(r'^(songs?|hits?|melody|melodies|tracks?|bgm|ost|music|album|audio|version|dub|mix)$', caseSensitive: false)
-                .hasMatch(stripped.toLowerCase());
-        explicitLang = lang[0].toUpperCase() + lang.substring(1);
-        if (isGenericModifier) {
-          clean = stripped.isEmpty ? trimmed : stripped;
+        // Special case: Movie titles like "Hindi Medium" where the language name is an integral part of the title
+        if (lower == 'hindi medium' || lower.startsWith('hindi medium ') || lower.endsWith(' hindi medium')) {
+          explicitLang = lang[0].toUpperCase() + lang.substring(1);
+          clean = trimmed;
+          break;
         }
+
+        final stripped = clean.replaceAll(langPattern, '').replaceAll(RegExp(r'\s+'), ' ').trim();
+        explicitLang = lang[0].toUpperCase() + lang.substring(1);
+        clean = stripped.isEmpty ? trimmed : stripped;
         break;
       }
     }
@@ -1234,6 +1236,11 @@ class SearchService {
 
     // Multi-factor formula
     double score = (0.45 * stringSim) + (0.35 * popularity) + (0.20 * affinity);
+
+    // Exact title matches establish a strong confidence baseline (>= 0.75)
+    if (stringSim >= 0.98) {
+      score = math.max(score, 0.75);
+    }
 
     // Lyrics match promotion: if query matches indexed lyrics, boost relevance
     if (song.matchedLyricSnippet != null && song.matchedLyricSnippet!.isNotEmpty) {

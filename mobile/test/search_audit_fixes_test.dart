@@ -221,7 +221,7 @@ void main() {
       expect(fallback.cleanQuery, 'arijit');
     });
 
-    test('14. calculateCompositeRelevance allows exact match to bypass language mismatch', () {
+    test('14. QueryIntent fallback without explicitLanguage allows cross-language songs to score high', () {
       final song = Song(
         id: 'cross_lang_exact',
         title: 'Arabic Kuthu',
@@ -231,14 +231,15 @@ void main() {
         coverUrl: '',
         language: 'Tamil',
       );
-      const hindiIntent = QueryIntent(
+      const explicitIntent = QueryIntent(
         rawQuery: 'arabic kuthu',
         cleanQuery: 'arabic kuthu',
         explicitLanguage: 'Hindi',
         transliteratedQuery: 'arabic kuthu',
       );
-      final score = SearchService.calculateCompositeRelevance(song, hindiIntent);
-      expect(score, greaterThan(0.0));
+      expect(SearchService.calculateCompositeRelevance(song, explicitIntent), equals(0.0));
+      final fallbackIntent = explicitIntent.copyWith(explicitLanguage: null);
+      expect(SearchService.calculateCompositeRelevance(song, fallbackIntent), greaterThan(0.70));
     });
   });
 }

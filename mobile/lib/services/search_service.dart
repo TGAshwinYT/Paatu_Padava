@@ -1236,34 +1236,33 @@ class SearchService {
     List<Song>? favorites,
     List<String>? preferredLanguages,
   }) {
-    // If query has explicit language override, strictly reject any cross-language mismatch unless exact match
+    // If query has explicit language override, strictly reject any cross-language mismatch
     if (intent.explicitLanguage != null &&
         SongRepository.isLanguageMismatch(song, intent.explicitLanguage!)) {
-      final sim = calculateStringSimilarity(song, intent);
-      if (sim < 0.95) {
-        return 0.0;
-      }
+      return 0.0;
     }
 
     final stringSim = calculateStringSimilarity(song, intent);
     final qLower = intent.cleanQuery.toLowerCase();
     final songLang = song.language?.toLowerCase().trim() ?? '';
+    final cleanTitle = SearchQueryPlanner.cleanTitle(song.title).toLowerCase();
+    final isExactTitleMatch = cleanTitle == qLower || song.normalizedTitle == qLower;
     final isArtistTarget = song.primaryArtist.isNotEmpty &&
-        (qLower.contains(song.primaryArtist.toLowerCase()) || song.primaryArtist.toLowerCase().contains(qLower));
-    final isExactOrArtistTarget = stringSim >= 0.95 || isArtistTarget;
+        (qLower == song.primaryArtist.toLowerCase() || song.primaryArtist.toLowerCase().contains(qLower));
 
-    // Purge non-Indian foreign language songs unless explicit foreign query OR exact match/artist match
+    // Purge non-Indian foreign language songs (Arabic, Spanish, French, etc.)
+    // unless explicit foreign query, exact global hit match (e.g. "Despacito"), or artist match (e.g. "BTS")
     const nonRegionalLanguages = {
       'arabic', 'spanish', 'french', 'turkish', 'russian', 'korean', 'chinese', 'german', 'italian', 'persian', 'japanese'
     };
     final isExplicitForeign = intent.explicitLanguage != null && nonRegionalLanguages.contains(intent.explicitLanguage!.toLowerCase());
     final isForeignInQuery = nonRegionalLanguages.any((l) => qLower.contains(l));
 
-    if (!isExplicitForeign && !isForeignInQuery && !isExactOrArtistTarget) {
-      if (songLang.isNotEmpty && nonRegionalLanguages.contains(songLang)) {
+    if (!isExplicitForeign && !isForeignInQuery) {
+      // Arabic, Turkish, and Persian tracks or Arabic script are strictly purged unless Urdu
+      if (songLang == 'arabic' || songLang == 'turkish' || songLang == 'persian') {
         return 0.0;
       }
-      // Check Arabic script or foreign Middle-Eastern markers (exempt Urdu which uses Perso-Arabic script)
       if (songLang != 'urdu') {
         if (ArtistSanitizer.isMiddleEasternOrForeignArtist(song.artist) ||
             ArtistSanitizer.isMiddleEasternOrForeignArtist(song.title) ||
@@ -1271,19 +1270,28 @@ class SearchService {
           return 0.0;
         }
       }
+      // Other non-regional foreign languages (Spanish, Korean, Japanese, French, etc.)
+      // are purged unless the user searched for the exact global song title or artist
+      if (songLang.isNotEmpty && nonRegionalLanguages.contains(songLang)) {
+        if (!isExactTitleMatch && !isArtistTarget) {
+          return 0.0;
+        }
+      }
     }
 
-    // Spoken dialogue / movie scene rejection (bypassed on exact title match)
+    // Spoken dialogue / movie scene rejection:
+    // If query does not explicitly ask for dialogue/scene/ringtone, reject spoken dialogue tracks
+    // (Bypassed ONLY when user explicitly typed the exact song title or artist)
     final titleLower = song.title.toLowerCase();
-    if (!isExactOrArtistTarget && _dialogueRegex.hasMatch(titleLower)) {
+    if (_dialogueRegex.hasMatch(titleLower)) {
       final queryAsksDialogue = qLower.contains('dialogue') || qLower.contains('scene') || qLower.contains('ringtone');
-      if (!queryAsksDialogue) {
+      if (!queryAsksDialogue && !isExactTitleMatch && !isArtistTarget) {
         return 0.0;
       }
     }
 
     // For very short queries (<= 3 chars, e.g. "hi"), reject non-Indian English bedroom-pop noise
-    if (qLower.length <= 3 && !isExactOrArtistTarget) {
+    if (qLower.length <= 3) {
       final userPrefLangs = (preferredLanguages != null && preferredLanguages.isNotEmpty) ? preferredLanguages.map((l) => l.toLowerCase().trim()).toSet() : {'tamil'};
 
       final hasRegionalMatch = song.source == 'saavn' ||

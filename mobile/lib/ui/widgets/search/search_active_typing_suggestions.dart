@@ -31,7 +31,55 @@ class SearchActiveTypingSuggestions extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
       children: [
-        // Top 3 items: Instant Local Song Matches with 1-tap playback
+        // 1. Search Suggestions (Autocomplete) - Always displayed FIRST right under search bar (Spotify & YouTube Music benchmark)
+        if (queryCompletions.isNotEmpty) ...[
+          const Padding(
+            padding: EdgeInsets.fromLTRB(8, 4, 8, 6),
+            child: Text(
+              'SEARCH SUGGESTIONS',
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.8,
+              ),
+            ),
+          ),
+          ...queryCompletions.take(5).map((query) {
+            final clean = _unescape.convert(Song.sanitize(query));
+            return Container(
+              margin: const EdgeInsets.symmetric(vertical: 2),
+              child: Material(
+                color: AppColors.surfaceElevated.withValues(alpha: 0.35),
+                borderRadius: BorderRadius.circular(10),
+                child: ListTile(
+                  dense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                  leading: const Icon(Icons.search_rounded, color: AppColors.neonViolet, size: 20),
+                  title: Text(
+                    clean,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w500),
+                  ),
+                  trailing: SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: IconButton(
+                      icon: const Icon(Icons.north_west_rounded, color: Colors.white38, size: 18),
+                      tooltip: 'Insert to search',
+                      onPressed: () => onAppendQuery(query),
+                    ),
+                  ),
+                  onTap: () => onSelectQuery(query),
+                ),
+              ),
+            );
+          }),
+          const SizedBox(height: 12),
+        ],
+
+        // 2. Direct Song Matches - Shown below suggestions only when song title genuinely matches
         if (localSongMatches.isNotEmpty) ...[
           const Padding(
             padding: EdgeInsets.fromLTRB(8, 4, 8, 6),
@@ -107,54 +155,6 @@ class SearchActiveTypingSuggestions extends StatelessWidget {
                       onPressed: () => onPlaySong(song),
                     ),
                   ),
-                ),
-              ),
-            );
-          }),
-          const SizedBox(height: 10),
-        ],
-
-        // Next 5 items: Live Query Completions with ↖ append arrow
-        if (queryCompletions.isNotEmpty) ...[
-          const Padding(
-            padding: EdgeInsets.fromLTRB(8, 4, 8, 4),
-            child: Text(
-              'SEARCH SUGGESTIONS',
-              style: TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 0.8,
-              ),
-            ),
-          ),
-          ...queryCompletions.take(5).map((query) {
-            final clean = _unescape.convert(Song.sanitize(query));
-            return Container(
-              margin: const EdgeInsets.symmetric(vertical: 2),
-              child: Material(
-                color: AppColors.surfaceElevated.withValues(alpha: 0.35),
-                borderRadius: BorderRadius.circular(10),
-                child: ListTile(
-                  dense: true,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
-                  leading: const Icon(Icons.search_rounded, color: AppColors.neonViolet, size: 18),
-                  title: Text(
-                    clean,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontSize: 13.5),
-                  ),
-                  trailing: SizedBox(
-                    width: 48,
-                    height: 48,
-                    child: IconButton(
-                      icon: const Icon(Icons.north_west_rounded, color: Colors.white38, size: 18),
-                      tooltip: 'Insert to search',
-                      onPressed: () => onAppendQuery(query),
-                    ),
-                  ),
-                  onTap: () => onSelectQuery(query),
                 ),
               ),
             );

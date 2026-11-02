@@ -99,8 +99,7 @@ class _SearchScreenState extends State<SearchScreen> {
   void _resetSearchState() {
     ++_searchRequestId;
     _activeSearchQuery = null;
-    _hasSearchedNotifier.value = false;
-    _isSearchingNotifier.value = false;
+    _hasSearchedNotifier.value = _isSearchingNotifier.value = false;
     _localMatchesNotifier.value = [];
     _suggestionsNotifier.value = [];
     _resultsNotifier.value = const SearchResultsState();
@@ -128,28 +127,33 @@ class _SearchScreenState extends State<SearchScreen> {
 
     _hasSearchedNotifier.value = false;
 
-    // State B: Instant Local Song Matches (< 5ms)
+    // State B: Instant Local Song Matches (< 5ms) - Only match songs whose TITLE starts with or matches query
     final lower = clean.toLowerCase();
     final allLocal = [...SearchHistoryManager.recentSongsNotifier.value, ...FavoritesManager.favoritesNotifier.value];
     final matchedSongs = <Song>[];
     for (final s in allLocal) {
-      if (FuzzySearchService.matchesSong(s, lower) && !matchedSongs.any((m) => m.id == s.id)) {
+      final t = SearchQueryPlanner.cleanTitle(s.title).toLowerCase();
+      if ((t.startsWith(lower) || t.split(RegExp(r'\s+')).any((w) => w.startsWith(lower))) && !matchedSongs.any((m) => m.id == s.id)) {
         matchedSongs.add(s);
         if (matchedSongs.length >= 3) break;
       }
     }
     _localMatchesNotifier.value = matchedSongs;
 
-    // Supplement with Master Catalog matches (< 5ms)
-    CatalogDatabase.searchCatalog(clean, limit: 3).then((catSongs) {
-      if (mounted && _searchController.text.trim() == clean && !_hasSearchedNotifier.value) {
+    // Supplement with Master Catalog matches only if song title genuinely matches
+    if (matchedSongs.length < 3) {
+      CatalogDatabase.searchCatalog(clean, limit: 5).then((catSongs) {
+        if (!mounted || _searchController.text.trim() != clean || _hasSearchedNotifier.value) return;
         final current = List<Song>.from(_localMatchesNotifier.value);
         for (final cs in catSongs) {
-          if (!current.any((x) => x.id == cs.id) && current.length < 3) current.add(cs);
+          final ct = SearchQueryPlanner.cleanTitle(cs.title).toLowerCase();
+          if ((ct.startsWith(lower) || ct.split(RegExp(r'\s+')).any((w) => w.startsWith(lower))) && !current.any((x) => x.id == cs.id) && current.length < 3) {
+            current.add(cs);
+          }
         }
         _localMatchesNotifier.value = current;
-      }
-    });
+      });
+    }
 
     // State B: Instant Prefix Trie Suggestions (smooth, no flash on empty)
     final instant = _localSearchTrie.findByPrefix(clean, limit: 5).map((m) => m.term).toList();

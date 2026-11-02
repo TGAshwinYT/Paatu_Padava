@@ -151,7 +151,7 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     });
 
-    _debounceTimer = Timer(const Duration(milliseconds: 350), () {
+    _debounceTimer = Timer(const Duration(milliseconds: 200), () {
       if (mounted) _executeSearch(clean, saveHistory: false);
     });
   }
@@ -212,8 +212,10 @@ class _SearchScreenState extends State<SearchScreen> {
       if (mounted && currentRequestId == _searchRequestId) _isSearchingNotifier.value = false;
     } catch (e, stack) {
       if (mounted && currentRequestId == _searchRequestId) {
-        final err = ErrorHandler.resolve(e, stackTrace: stack, context: 'SearchScreen._executeSearch');
-        _resultsNotifier.value = SearchResultsState(error: err);
+        if (_resultsNotifier.value.isEmpty) {
+          final err = ErrorHandler.resolve(e, stackTrace: stack, context: 'SearchScreen._executeSearch');
+          _resultsNotifier.value = SearchResultsState(error: err);
+        }
         _isSearchingNotifier.value = false;
       }
     }

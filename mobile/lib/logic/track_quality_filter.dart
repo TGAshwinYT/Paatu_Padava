@@ -32,6 +32,13 @@ class TrackQualityFilter {
     caseSensitive: false,
   );
 
+  /// Non-music spoken dialogue, punch dialogues, movie scenes, comedy tracks, ringtones.
+  static final RegExp _dialogueRegex = RegExp(
+    r'\b(dialogues?|punch\s*dialogues?|mass\s*dialogues?|movie\s*scenes?|'
+    r'comedy\s*scenes?|audio\s*scenes?|scenes?|ringtones?|bgm\s*ringtones?)\b',
+    caseSensitive: false,
+  );
+
   /// Non-music video junk: movie reviews, audience reactions, interviews, trailers, teasers, shorts.
   static final RegExp _junkRegex = RegExp(
     r'\b(review|public\s*review|reaction|interview|press\s*meet|trailer|teaser|'
@@ -51,9 +58,19 @@ class TrackQualityFilter {
     required int durationSec,
     String? source,
     String? artist,
+    String? query,
   }) {
     final cleanTitle = title.trim();
     if (cleanTitle.isEmpty) return ContentClassification.rejectedJunk;
+
+    final qLower = (query ?? '').toLowerCase().trim();
+    final queryExplicitlyRequestsDialogue = qLower.contains('dialogue') ||
+        qLower.contains('scene') ||
+        qLower.contains('ringtone');
+
+    if (!queryExplicitlyRequestsDialogue && _dialogueRegex.hasMatch(cleanTitle)) {
+      return ContentClassification.rejectedJunk;
+    }
 
     // JioSaavn / curated platforms are always music
     if (source == 'saavn' || source == 'jiosaavn') {
@@ -96,7 +113,16 @@ class TrackQualityFilter {
     required String title,
     required int durationSec,
     bool allowUnknownDuration = false,
+    String? query,
   }) {
+    final qLower = (query ?? '').toLowerCase().trim();
+    final queryExplicitlyRequestsDialogue = qLower.contains('dialogue') ||
+        qLower.contains('scene') ||
+        qLower.contains('ringtone');
+
+    if (!queryExplicitlyRequestsDialogue && _dialogueRegex.hasMatch(title)) {
+      return 'non-music spoken dialogue/scene';
+    }
     if (durationSec <= 0) {
       if (allowUnknownDuration) return null;
       return 'unknown duration (live stream / premiere)';
@@ -123,23 +149,37 @@ class TrackQualityFilter {
     required String title,
     required int durationSec,
     bool allowUnknownDuration = false,
+    String? query,
   }) =>
       rejectReason(
         title: title,
         durationSec: durationSec,
         allowUnknownDuration: allowUnknownDuration,
+        query: query,
       ) ==
       null;
 
-  /// Filters a list of songs. Only YouTube-sourced items are judged; JioSaavn /
-  /// local / Audius tracks are always real songs and pass through untouched.
-  static List<Song> filterSongs(Iterable<Song> songs, {bool allowUnknownDuration = true}) {
+  /// Filters a list of songs. Spoken dialogue is filtered globally unless explicitly searched.
+  static List<Song> filterSongs(
+    Iterable<Song> songs, {
+    bool allowUnknownDuration = true,
+    String? query,
+  }) {
+    final qLower = (query ?? '').toLowerCase().trim();
+    final queryExplicitlyRequestsDialogue = qLower.contains('dialogue') ||
+        qLower.contains('scene') ||
+        qLower.contains('ringtone');
+
     return songs.where((s) {
+      if (!queryExplicitlyRequestsDialogue && _dialogueRegex.hasMatch(s.title)) {
+        return false;
+      }
       if (s.source != 'youtube') return true;
       return shouldKeep(
         title: s.title,
         durationSec: s.duration,
         allowUnknownDuration: allowUnknownDuration,
+        query: query,
       );
     }).toList();
   }

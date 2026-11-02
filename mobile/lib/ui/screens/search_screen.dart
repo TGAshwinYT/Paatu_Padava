@@ -47,6 +47,7 @@ class _SearchScreenState extends State<SearchScreen> {
   final ValueNotifier<List<String>> _suggestionsNotifier = ValueNotifier<List<String>>([]);
   final ValueNotifier<SearchResultsState> _resultsNotifier = ValueNotifier<SearchResultsState>(const SearchResultsState());
   final PrefixTrie<String> _localSearchTrie = PrefixTrie<String>();
+  String? _activeSearchQuery;
 
   @override
   void initState() {
@@ -68,9 +69,7 @@ class _SearchScreenState extends State<SearchScreen> {
   void _updateTrieWithHistory() {
     final recent = SearchHistoryManager.historyNotifier.value;
     _localSearchTrie.clear();
-    for (int i = 0; i < SearchConstants.trendingArtists.length; i++) {
-      _localSearchTrie.insert(SearchConstants.trendingArtists[i], weight: 100 - i);
-    }
+    for (int i = 0; i < SearchConstants.trendingArtists.length; i++) { _localSearchTrie.insert(SearchConstants.trendingArtists[i], weight: 100 - i); }
     for (int i = 0; i < SearchConstants.browseCategories.length; i++) {
       final t = SearchConstants.browseCategories[i]['title'] as String?;
       if (t != null) _localSearchTrie.insert(t, weight: 80 - i);
@@ -99,6 +98,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _resetSearchState() {
     ++_searchRequestId;
+    _activeSearchQuery = null;
     _hasSearchedNotifier.value = false;
     _isSearchingNotifier.value = false;
     _localMatchesNotifier.value = [];
@@ -151,9 +151,14 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     });
 
-    // State B: Instant Prefix Trie Suggestions (< 1ms)
+    // State B: Instant Prefix Trie Suggestions (smooth, no flash on empty)
     final instant = _localSearchTrie.findByPrefix(clean, limit: 5).map((m) => m.term).toList();
-    _suggestionsNotifier.value = instant;
+    if (instant.isNotEmpty) {
+      _suggestionsNotifier.value = instant;
+    } else {
+      final retained = _suggestionsNotifier.value.where((s) => s.toLowerCase().contains(lower)).toList();
+      if (retained.isNotEmpty) _suggestionsNotifier.value = retained;
+    }
 
     // State B: Asynchronous Live Typeahead Fetch (< 120ms, debounced 150ms)
     _typeaheadDebounceTimer = Timer(const Duration(milliseconds: 150), () {
@@ -175,15 +180,28 @@ class _SearchScreenState extends State<SearchScreen> {
     final clean = query.trim();
     if (clean.isEmpty) return;
     if (!_isSearchActiveNotifier.value) _isSearchActiveNotifier.value = true;
-    final currentRequestId = ++_searchRequestId;
 
     if (saveHistory && clean.isNotEmpty) SearchHistoryManager.addQuery(clean);
-    _isSearchingNotifier.value = true;
+
     if (commit) {
       _searchFocusNode.unfocus();
       _hasSearchedNotifier.value = true;
+
+      // If results for this query are already fetched, display instantly without wiping or spinner!
+      if (_activeSearchQuery == clean && !_resultsNotifier.value.isEmpty) {
+        _isSearchingNotifier.value = false;
+        if (_resultsNotifier.value.songs.isNotEmpty) DefaultStreamResolver.prewarmSongs(_resultsNotifier.value.songs, limit: 3);
+        return;
+      }
+      // If search for this exact query is already streaming, don't restart or wipe
+      if (_activeSearchQuery == clean && _isSearchingNotifier.value) return;
+
       _resultsNotifier.value = const SearchResultsState();
+      _isSearchingNotifier.value = true;
     }
+
+    _activeSearchQuery = clean;
+    final currentRequestId = ++_searchRequestId;
 
     try {
       final direct = await SearchService.resolveDirectUrlOrEntity(clean);
@@ -191,8 +209,7 @@ class _SearchScreenState extends State<SearchScreen> {
         if (!mounted || currentRequestId != _searchRequestId) return;
         final tracks = (direct['tracks'] as List<Song>?) ?? <Song>[];
         _resultsNotifier.value = SearchResultsState(
-          ytSongs: tracks,
-          songs: tracks,
+          ytSongs: tracks, songs: tracks,
           topResult: {'type': direct['type'], 'id': direct['id'], 'title': direct['title'], 'subtitle': direct['subtitle'], 'image': direct['image']},
         );
         _isSearchingNotifier.value = false;
@@ -202,16 +219,9 @@ class _SearchScreenState extends State<SearchScreen> {
       await for (final unified in SearchService.searchProgressive(clean, language: null, limit: 25)) {
         if (!mounted || currentRequestId != _searchRequestId) return;
         _resultsNotifier.value = SearchResultsState(
-          topResult: unified.topResult,
-          songs: unified.songs,
-          ytSongs: unified.ytSongs,
-          saavnSongs: unified.saavnSongs,
-          audiusSongs: unified.audiusSongs,
-          albums: unified.albums,
-          artists: unified.artists,
-          playlists: unified.playlists,
-          didYouMean: unified.didYouMean,
-          error: unified.error,
+          topResult: unified.topResult, songs: unified.songs, ytSongs: unified.ytSongs,
+          saavnSongs: unified.saavnSongs, audiusSongs: unified.audiusSongs, albums: unified.albums,
+          artists: unified.artists, playlists: unified.playlists, didYouMean: unified.didYouMean, error: unified.error,
         );
 
         if (commit && unified.songs.isNotEmpty) {
@@ -280,13 +290,14 @@ class _SearchScreenState extends State<SearchScreen> {
                     onSubmitted: (q) => _executeSearch(q, saveHistory: true),
                   ),
                   ValueListenableBuilder<bool>(
-                    valueListenable: _isSearchingNotifier,
-                    builder: (context, isSearching, _) {
-                      if (!isSearching) return const SizedBox(height: 2);
-                      return const LinearProgressIndicator(
-                        minHeight: 2,
-                        color: AppColors.electricCyan,
-                        backgroundColor: Colors.transparent,
+                    valueListenable: _hasSearchedNotifier,
+                    builder: (context, hasSearched, _) {
+                      return ValueListenableBuilder<bool>(
+                        valueListenable: _isSearchingNotifier,
+                        builder: (context, isSearching, _) {
+                          if (!isSearching || !hasSearched) return const SizedBox(height: 2);
+                          return const LinearProgressIndicator(minHeight: 2, color: AppColors.electricCyan, backgroundColor: Colors.transparent);
+                        },
                       );
                     },
                   ),
@@ -331,23 +342,9 @@ class _SearchScreenState extends State<SearchScreen> {
                   return SearchActiveTypingSuggestions(
                     localSongMatches: localMatches,
                     queryCompletions: completions,
-                    onPlaySong: (song) {
-                      SearchHistoryManager.addSong(song);
-                      SearchService.recordSearchClick(song);
-                      audioHandler.playSong(song);
-                    },
-                    onSelectQuery: (q) {
-                      _debounceTimer?.cancel();
-                      _typeaheadDebounceTimer?.cancel();
-                      _searchController.text = q;
-                      _searchController.selection = TextSelection.collapsed(offset: q.length);
-                      _executeSearch(q, commit: true, saveHistory: true);
-                    },
-                    onAppendQuery: (q) {
-                      _searchController.text = q;
-                      _searchController.selection = TextSelection.collapsed(offset: q.length);
-                      _onQueryChanged(q);
-                    },
+                    onPlaySong: (song) { SearchHistoryManager.addSong(song); SearchService.recordSearchClick(song); audioHandler.playSong(song); },
+                    onSelectQuery: _triggerCategorySearch,
+                    onAppendQuery: (q) { _searchController.text = q; _searchController.selection = TextSelection.collapsed(offset: q.length); _onQueryChanged(q); },
                   );
                 },
               );

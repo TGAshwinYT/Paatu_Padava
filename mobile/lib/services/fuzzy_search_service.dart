@@ -3,6 +3,8 @@ import 'package:fuzzywuzzy/fuzzywuzzy.dart';
 import 'package:fuzzywuzzy/model/extracted_result.dart';
 import '../models/song.dart';
 import '../core/dsa/bk_tree.dart';
+import '../core/dsa/symspell.dart';
+import '../core/dsa/trigram_index.dart';
 import 'saavn_client.dart';
 import 'settings_manager.dart';
 import 'app_logger.dart';
@@ -109,11 +111,17 @@ class FuzzySearchService {
   };
 
   static final BkTree<String> _bkTree = BkTree<String>();
+  static final SymSpell _symSpell = SymSpell(maxEditDistance: 2);
+  static final TrigramIndex<String> _trigramIndex = TrigramIndex<String>();
   static bool _bkTreeInitialized = false;
 
   static void _ensureInitialized() {
     if (!_bkTreeInitialized) {
       _bkTree.insertAll(_candidateDictionary);
+      for (final term in _candidateDictionary) {
+        _symSpell.insert(term);
+        _trigramIndex.insert(term, payload: term);
+      }
       _bkTreeInitialized = true;
     }
   }
@@ -172,6 +180,8 @@ class FuzzySearchService {
       if (sanitized.length >= 3) {
         if (_candidateDictionary.add(sanitized)) {
           _bkTree.insert(sanitized);
+          _symSpell.insert(sanitized);
+          _trigramIndex.insert(sanitized, payload: sanitized);
         }
       }
     }
@@ -207,6 +217,37 @@ class FuzzySearchService {
     }
 
     try {
+      // 0a. Ultra-fast O(1) SymSpell typo lookup (< 0.2ms)
+      final symSpellMatches = _symSpell.lookup(cleanQuery, maxDistance: 2, limit: 3);
+      if (symSpellMatches.isNotEmpty) {
+        final best = symSpellMatches.first;
+        if (best.distance > 0 && best.term.toLowerCase() != lowerQuery) {
+          final tokenScore = tokenSetRatio(cleanQuery, best.term);
+          final weightScore = weightedRatio(cleanQuery, best.term);
+          final combinedScore = (((1.0 - (best.distance / cleanQuery.length)) * 100).toInt() + tokenScore + weightScore) ~/ 3;
+          if (combinedScore >= 65) {
+            return FuzzyCorrectionResult(
+              original: cleanQuery,
+              corrected: Song.sanitize(best.term),
+              score: combinedScore,
+            );
+          }
+        }
+      }
+
+      // 0b. Tri-Gram Tanglish phonetic transliteration lookup (< 1.5ms)
+      final triMatches = _trigramIndex.search(cleanQuery, threshold: 0.50, limit: 3);
+      if (triMatches.isNotEmpty) {
+        final best = triMatches.first;
+        if (best.term.toLowerCase() != lowerQuery && best.similarity >= 0.55) {
+          return FuzzyCorrectionResult(
+            original: cleanQuery,
+            corrected: Song.sanitize(best.term),
+            score: (best.similarity * 100).toInt(),
+          );
+        }
+      }
+
       // 1. Fast O(log N) metric space search using Burkhard-Keller Tree (max edit distance <= 2)
       final bkMatches = _bkTree.search(cleanQuery, maxDistance: 2, limit: 5);
 
@@ -270,7 +311,7 @@ class FuzzySearchService {
     final correction = findCorrection(originalQuery);
     if (correction == null) return [];
 
-    final prefLang = language ?? SettingsManager.preferredLanguages.firstOrNull ?? 'tamil';
-    return await SaavnClient.search(correction.corrected, limit: 20, language: prefLang);
+    final effectiveLang = (language != null && language.isNotEmpty && language.toLowerCase() != 'all') ? language : null;
+    return await SaavnClient.search(correction.corrected, limit: 20, language: effectiveLang);
   }
 }

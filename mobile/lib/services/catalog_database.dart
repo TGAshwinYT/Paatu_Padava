@@ -510,8 +510,8 @@ class CatalogDatabase {
     if (song.title.trim().isEmpty || song.id.isEmpty) return;
 
     final resolvedSingers = singers ?? ArtistSanitizer.extractAllGenuineArtists(song.artist).join(', ');
-    final resolvedComposer = composer ?? song.primaryArtist;
-    final resolvedMovie = movie ?? (song.album.isNotEmpty ? song.album : song.title);
+    final resolvedComposer = composer ?? '';
+    final resolvedMovie = movie ?? ((song.album.isNotEmpty && song.album.toLowerCase() != 'unknown album' && song.album.toLowerCase() != 'single') ? song.album : '');
 
     final catalogSong = CatalogSong(
       id: song.id,
@@ -521,12 +521,12 @@ class CatalogDatabase {
       composer: resolvedComposer,
       singers: resolvedSingers.isNotEmpty ? resolvedSingers : resolvedComposer,
       starring: starring ?? '',
-      year: DateTime.now().year,
+      year: int.tryParse(RegExp(r'\b(19\d{2}|20\d{2})\b').firstMatch('${song.album} ${song.title}')?.group(1) ?? '') ?? 0,
       duration: song.duration,
       coverUrl: song.coverUrl,
-      audioUrl: song.streamUrl,
+      audioUrl: null, // Avoid caching temporary expiring CDN URLs
       source: song.source,
-      language: song.language ?? 'tamil',
+      language: song.language ?? '',
       isDynamic: true,
       createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
     );

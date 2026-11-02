@@ -177,7 +177,7 @@ class SaavnClient {
     return [];
   }
 
-  static Future<List<Song>> search(String query, {int limit = 10, String? language}) async {
+  static Future<List<Song>> search(String query, {int limit = 10, int page = 1, String? language}) async {
     final clean = query.trim();
     if (clean.isEmpty) return [];
 
@@ -190,7 +190,7 @@ class SaavnClient {
       final langParam = isSpecificLang
           ? '&languages=${Uri.encodeComponent(language.toLowerCase().trim())}'
           : '';
-      final url = 'https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&_marker=0&api_version=4&ctx=web6dot0&n=$limit&p=1&q=${Uri.encodeComponent(clean)}$langParam';
+      final url = 'https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&_marker=0&api_version=4&ctx=web6dot0&n=$limit&p=$page&q=${Uri.encodeComponent(clean)}$langParam';
       final uri = Uri.parse(url);
       final response = await http.get(uri, headers: getHeaders(language)).timeout(const Duration(seconds: 5));
       if (response.statusCode != 200) return [];

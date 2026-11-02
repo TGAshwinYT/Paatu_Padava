@@ -5,6 +5,11 @@ import '../models/song.dart';
 import '../domain/models/app_error.dart';
 import '../domain/models/track_entity.dart';
 import '../core/dsa/bk_tree.dart';
+import '../core/dsa/trigram_index.dart';
+import '../core/dsa/symspell.dart';
+import 'lyrics_search_service.dart';
+import 'semantic_search_service.dart';
+import '../core/dsa/minhash.dart';
 import '../core/dsa/prefix_trie.dart';
 import '../logic/search_query_planner.dart';
 import 'saavn_client.dart';
@@ -98,7 +103,7 @@ class SearchCache {
   static final List<String> _lruOrder = [];
 
   static SearchResults? get(String query, {String? language}) {
-    final key = '${query.trim().toLowerCase()}__${language?.toLowerCase() ?? ""}';
+    final key = '${query.trim().toLowerCase()}__${(language == null || language.isEmpty || language.toLowerCase() == "all") ? "all" : language.toLowerCase()}';
     if (_cache.containsKey(key)) {
       _lruOrder.remove(key);
       _lruOrder.add(key);
@@ -109,7 +114,7 @@ class SearchCache {
 
   static void put(String query, SearchResults results, {String? language}) {
     if (results.isEmpty || results.hasError) return;
-    final key = '${query.trim().toLowerCase()}__${language?.toLowerCase() ?? ""}';
+    final key = '${query.trim().toLowerCase()}__${(language == null || language.isEmpty || language.toLowerCase() == "all") ? "all" : language.toLowerCase()}';
     if (_cache.containsKey(key)) {
       _lruOrder.remove(key);
     } else if (_lruOrder.length >= _maxEntries) {
@@ -397,25 +402,27 @@ class SearchService {
     }
 
     // Sort: Exact title match first, then multi-track soundtrack albums, then song count
-    valid.sort((a, b) {
-      final tA = (a['title'] ?? '').toString().toLowerCase().trim();
-      final tB = (b['title'] ?? '').toString().toLowerCase().trim();
-      final matchA = cleanQuery.isNotEmpty && isAlbumOrMovieEntityMatch(tA, cleanQuery);
-      final matchB = cleanQuery.isNotEmpty && isAlbumOrMovieEntityMatch(tB, cleanQuery);
-      if (matchA != matchB) return matchA ? -1 : 1;
+    // Only sort if a query is provided to preserve original upstream order for untargeted requests
+    if (cleanQuery.isNotEmpty) {
+      valid.sort((a, b) {
+        final tA = (a['title'] ?? '').toString().toLowerCase().trim();
+        final tB = (b['title'] ?? '').toString().toLowerCase().trim();
+        final matchA = isAlbumOrMovieEntityMatch(tA, cleanQuery);
+        final matchB = isAlbumOrMovieEntityMatch(tB, cleanQuery);
+        if (matchA != matchB) return matchA ? -1 : 1;
 
-      final eqA = cleanQuery.isNotEmpty && (tA == cleanQuery || (tA.contains(' - ') && tA.split(' - ').first.trim() == cleanQuery));
-      final eqB = cleanQuery.isNotEmpty && (tB == cleanQuery || (tB.contains(' - ') && tB.split(' - ').first.trim() == cleanQuery));
-      if (eqA != eqB) return eqA ? -1 : 1;
+        final eqA = tA == cleanQuery || (tA.contains(' - ') && tA.split(' - ').first.trim() == cleanQuery);
+        final eqB = tB == cleanQuery || (tB.contains(' - ') && tB.split(' - ').first.trim() == cleanQuery);
+        if (eqA != eqB) return eqA ? -1 : 1;
 
-      final scA = int.tryParse(a['song_count']?.toString() ?? '0') ?? 0;
-      final scB = int.tryParse(b['song_count']?.toString() ?? '0') ?? 0;
-      if ((scA > 1) != (scB > 1)) {
-        return (scB > 1) ? 1 : -1;
-      }
-      return scB.compareTo(scA);
-    });
-
+        final scA = int.tryParse(a['song_count']?.toString() ?? '0') ?? 0;
+        final scB = int.tryParse(b['song_count']?.toString() ?? '0') ?? 0;
+        if ((scA > 1) != (scB > 1)) {
+          return (scB > 1) ? 1 : -1;
+        }
+        return scB.compareTo(scA);
+      });
+    }
     return valid;
   }
 
@@ -617,13 +624,43 @@ class SearchService {
     return null;
   }
 
-  /// Tab search: Songs only
-  static Future<List<Song>> searchSongsTab(String query, {String? language, int limit = 25}) async {
+  /// Tab search: Songs only with progressive pagination and semantic ranking
+  static Future<List<Song>> searchSongsTab(String query, {String? language, int limit = 25, int page = 1}) async {
     try {
-      final songs = await SaavnClient.search(query, limit: limit, language: language)
+      final songs = await SaavnClient.search(query, limit: limit, page: page, language: language)
           .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[]);
-      final grouped = SongRepository.groupCanonicalSongs(songs, preferredLanguage: language);
-      return SongRepository.deduplicateSongs(grouped);
+      for (final s in songs) {
+        if (s.lyrics != null && s.lyrics!.isNotEmpty) {
+          LyricsSearchService.instance.indexLyrics(s, s.lyrics!);
+        }
+      }
+
+      final lyricHits = LyricsSearchService.instance.searchLyrics(query);
+      final List<Song> enrichedSongs = [];
+      for (final s in songs) {
+        final hit = lyricHits.cast<LyricSearchResult?>().firstWhere(
+          (h) => h?.songId == s.id,
+          orElse: () => null,
+        );
+        if (hit != null) {
+          enrichedSongs.add(s.copyWith(matchedLyricSnippet: hit.matchingSnippet));
+        } else {
+          enrichedSongs.add(s);
+        }
+      }
+
+      for (final hit in lyricHits) {
+        if (!enrichedSongs.any((s) => s.id == hit.songId)) {
+          final matched = LyricsSearchService.instance.getSong(hit.songId);
+          if (matched != null) {
+            enrichedSongs.insert(0, matched.copyWith(matchedLyricSnippet: hit.matchingSnippet));
+          }
+        }
+      }
+
+      final grouped = SongRepository.groupCanonicalSongs(enrichedSongs, preferredLanguage: language);
+      final deduped = SongRepository.deduplicateSongs(grouped);
+      return SemanticSearchService.instance.rankBySemanticIntent(deduped, query);
     } catch (_) {
       return <Song>[];
     }
@@ -784,22 +821,35 @@ class SearchService {
     required String query,
   }) {
     final filtered = <Map<String, dynamic>>[];
+    final cleanLang = (language != null && language.isNotEmpty && language.toLowerCase() != 'all')
+        ? language.toLowerCase().trim()
+        : null;
+    final qLower = query.toLowerCase().trim();
+
     for (final item in artists) {
       final name = (item['name'] ?? item['title'] ?? '').toString().trim();
       final norm = SongRepository.normalizeArtist(name);
       if (norm.isEmpty) continue;
 
-      // Filter out accidental spam or false substring hits (e.g. Tamilia, Tamil Nambi)
+      // Filter out accidental spam or false substring hits
       if (!ArtistSanitizer.isGenuineArtist(name)) continue;
 
-      // Filter out generic placeholder images with camera or mic icons unless officially verified
-      final img = item['image']?.toString();
-      if (ArtistSanitizer.isPlaceholderImage(img) && !SongRepository.isArtistVerified(name)) {
-        continue;
+      // Language alignment check when a specific language is requested
+      if (cleanLang != null) {
+        final artistLang = (item['language'] ?? item['more_info']?['language'] ?? '').toString().toLowerCase().trim();
+        final isDirectNameMatch = name.toLowerCase() == qLower || name.toLowerCase().contains(qLower);
+        if (!isDirectNameMatch && artistLang.isNotEmpty && artistLang != cleanLang) {
+          continue;
+        }
       }
 
-      // If genuine artist matches criteria, keep it
-      filtered.add(item);
+      final img = item['image']?.toString();
+      final hasRealImage = !ArtistSanitizer.isPlaceholderImage(img) || SongRepository.isArtistVerified(name);
+
+      filtered.add({
+        ...item,
+        'image': hasRealImage ? (img ?? '') : '',
+      });
     }
     return filtered;
   }
@@ -835,8 +885,14 @@ class SearchService {
     for (final lang in _knownLanguages) {
       final langPattern = RegExp('\\b$lang\\b', caseSensitive: false);
       if (langPattern.hasMatch(lower)) {
+        final stripped = clean.replaceAll(langPattern, '').replaceAll(RegExp(r'\s+'), ' ').trim();
+        final isGenericModifier = stripped.isEmpty ||
+            RegExp(r'^(songs?|hits?|melody|melodies|tracks?|bgm|ost|music|album|audio|version|dub|mix)$', caseSensitive: false)
+                .hasMatch(stripped.toLowerCase());
         explicitLang = lang[0].toUpperCase() + lang.substring(1);
-        clean = clean.replaceAll(langPattern, '').replaceAll(RegExp(r'\s+'), ' ').trim();
+        if (isGenericModifier) {
+          clean = stripped.isEmpty ? trimmed : stripped;
+        }
         break;
       }
     }
@@ -859,6 +915,14 @@ class SearchService {
           didYouMean = transliterated;
           break;
         }
+      }
+    }
+
+    if (didYouMean == null) {
+      final typoOrTanglish = FuzzySearchService.suggestCorrection(cleanLower);
+      if (typoOrTanglish != null && typoOrTanglish.corrected.toLowerCase() != cleanLower) {
+        transliterated = typoOrTanglish.corrected;
+        didYouMean = typoOrTanglish.corrected;
       }
     }
 
@@ -942,6 +1006,12 @@ class SearchService {
       final double levTrans = maxLenTrans == 0 ? 1.0 : (1.0 - (distTrans / maxLenTrans)).clamp(0.0, 1.0);
 
       similarity = math.max(levClean, math.max(levNorm, levTrans));
+
+      // Tri-Gram Jaccard similarity for Tanglish phonetic transliteration
+      final double jaccardScore = TrigramIndex.jaccard(qLower, cleanTitle);
+      if (jaccardScore > 0.50) {
+        similarity = math.max(similarity, jaccardScore * 0.95);
+      }
     }
 
     bool matchesToken(String text, String token) {
@@ -1141,20 +1211,18 @@ class SearchService {
 
     // For very short queries (<= 3 chars, e.g. "hi"), reject non-Indian English bedroom-pop noise
     if (qLower.length <= 3) {
-      final pLang = (preferredLanguages != null && preferredLanguages.isNotEmpty)
-          ? preferredLanguages.first.toLowerCase().trim()
-          : 'tamil';
-      final hasRegionalMatch = song.language?.toLowerCase() == pLang ||
-          song.title.toLowerCase().contains(pLang) ||
-          song.album.toLowerCase().contains(pLang) ||
-          song.source == 'saavn';
+      final userPrefLangs = (preferredLanguages != null && preferredLanguages.isNotEmpty) ? preferredLanguages.map((l) => l.toLowerCase().trim()).toSet() : {'tamil'};
+      final pLang = userPrefLangs.first;
+      final hasRegionalMatch = song.source == 'saavn' ||
+          userPrefLangs.contains(song.language?.toLowerCase().trim()) ||
+          userPrefLangs.any((l) => song.title.toLowerCase().contains(l) || song.album.toLowerCase().contains(l));
       if (song.source == 'youtube' && !hasRegionalMatch) {
         final knownIndianArtists = RegExp(
           r'\b(anirudh|rahman|yuvan|harris|santhosh|hiphop|ilaiyaraaja|sid\s*sriram|pradeep|spb|jen\s*martin|hesham|dhanush|karthik|shreya|jonita|chinmayi|vijay|ajith|surya|rajini|kamal|nani|keerthy)\b',
           caseSensitive: false,
         );
         final titleAndArtist = '${song.title} ${song.artist} ${song.album}'.toLowerCase();
-        if (!knownIndianArtists.hasMatch(titleAndArtist) && !titleAndArtist.contains(pLang)) {
+        if (!knownIndianArtists.hasMatch(titleAndArtist) && !userPrefLangs.any((l) => titleAndArtist.contains(l))) {
           return 0.0;
         }
       }
@@ -1166,6 +1234,11 @@ class SearchService {
 
     // Multi-factor formula
     double score = (0.45 * stringSim) + (0.35 * popularity) + (0.20 * affinity);
+
+    // Lyrics match promotion: if query matches indexed lyrics, boost relevance
+    if (song.matchedLyricSnippet != null && song.matchedLyricSnippet!.isNotEmpty) {
+      score = math.max(score, 0.90);
+    }
 
     // Album unpack promotion: if song belongs to an album matching query, promote it directly to Songs top rank
     final albLower = song.album.toLowerCase().trim();
@@ -1184,9 +1257,9 @@ class SearchService {
 
     // Subtle language match boost if preferred languages provided
     if (preferredLanguages != null && preferredLanguages.isNotEmpty) {
-      final pLang = preferredLanguages.first.toLowerCase().trim();
+      final userLangs = preferredLanguages.map((l) => l.toLowerCase().trim()).toSet();
       final songLang = song.language?.toLowerCase().trim() ?? '';
-      if (pLang.isNotEmpty && (songLang == pLang || song.title.toLowerCase().contains(pLang))) {
+      if (userLangs.contains(songLang) || userLangs.any((l) => song.title.toLowerCase().contains(l))) {
         score = (score + 0.05).clamp(0.0, 1.0);
       }
     }
@@ -1400,7 +1473,7 @@ class SearchService {
         (language != null && language.isNotEmpty && language.toLowerCase() != 'all' && language.toLowerCase() != 'any' ? language : null);
 
     // Check fast LRU in-memory cache first (0ms)
-    final cached = SearchCache.get(rawQuery, language: effectiveLang ?? 'all');
+    final cached = SearchCache.get(rawQuery, language: effectiveLang);
     if (cached != null) {
       yield cached;
       return;
@@ -1515,13 +1588,10 @@ class SearchService {
         }
       }();
 
-      final effectivePrefLang = effectiveLang ?? (prefLangs.isNotEmpty ? prefLangs.first.toLowerCase() : 'tamil');
       final ytSearchQuery = (intent.explicitLanguage != null &&
               !intent.cleanQuery.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
           ? '${intent.explicitLanguage!.toLowerCase()} ${intent.cleanQuery.toLowerCase()}'
-          : ((intent.cleanQuery.length <= 3 && !intent.cleanQuery.toLowerCase().contains(effectivePrefLang))
-              ? '${intent.cleanQuery.toLowerCase()} $effectivePrefLang'
-              : intent.cleanQuery.toLowerCase());
+          : intent.cleanQuery.toLowerCase();
 
       final Future<List<Song>> ytFuture = () async {
         try {
@@ -1779,12 +1849,12 @@ class SearchService {
               : (SongRepository.verifiedArtistAvatars[canonLower] ?? CatalogDatabase.getArtistProfileImage(canon) ?? '');
           
           final isVerified = verifiedImg.isNotEmpty || SongRepository.isArtistVerified(canon);
-          if (!isVerified) return;
 
           initialArtists.add({
             ...artMap,
             'name': canon,
             'image': verifiedImg,
+            'is_verified': isVerified,
           });
         }
       }
@@ -1956,6 +2026,7 @@ class SearchService {
       final userRankedSongs = UserPreferenceMatrix.reRankWithPreferences(
         mergedSongs,
         intent.cleanQuery,
+        intent: intent,
       );
 
       final List<Map<String, dynamic>> finalArtists = List<Map<String, dynamic>>.from(initialArtists);
@@ -1973,12 +2044,12 @@ class SearchService {
                 : (SongRepository.verifiedArtistAvatars[canonLower] ?? CatalogDatabase.getArtistProfileImage(canon) ?? '');
 
             final isVerified = verifiedImg.isNotEmpty || SongRepository.isArtistVerified(canon);
-            if (!isVerified) continue;
 
             finalArtists.add({
               ...sa,
               'name': canon,
               'image': verifiedImg,
+              'is_verified': isVerified,
             });
           }
         }

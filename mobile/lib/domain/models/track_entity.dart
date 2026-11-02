@@ -41,6 +41,7 @@ class TrackEntity {
   String source; // 'saavn', 'youtube', 'offline'
   String? lyrics;
   final String? language;
+  final String? matchedLyricSnippet;
   final bool isSmartRecommended;
   final bool isUserEnqueued;
   final String? addedBy;
@@ -61,6 +62,7 @@ class TrackEntity {
     this.source = 'saavn',
     this.lyrics,
     this.language,
+    this.matchedLyricSnippet,
     this.isSmartRecommended = false,
     this.isUserEnqueued = false,
     this.addedBy,
@@ -303,6 +305,7 @@ class TrackEntity {
         'isDownloaded': isDownloaded,
         'localFilePath': localFilePath,
         'language': language,
+      'matchedLyricSnippet': matchedLyricSnippet,
         'isSmartRecommended': isSmartRecommended,
         'isUserEnqueued': isUserEnqueued,
         'addedBy': addedBy,
@@ -348,6 +351,7 @@ class TrackEntity {
       'source': source,
       'lyrics': lyrics,
       'language': language,
+      'matchedLyricSnippet': matchedLyricSnippet,
       'isSmartRecommended': isSmartRecommended,
       'isUserEnqueued': isUserEnqueued,
       'addedBy': addedBy,
@@ -372,6 +376,7 @@ class TrackEntity {
       source: map['source']?.toString() ?? 'saavn',
       lyrics: map['lyrics'] != null ? sanitize(map['lyrics']) : null,
       language: map['language']?.toString(),
+      matchedLyricSnippet: map['matchedLyricSnippet']?.toString(),
       isSmartRecommended: map['isSmartRecommended'] == true || map['is_smart_recommended'] == true,
       isUserEnqueued: map['isUserEnqueued'] == true || map['is_user_enqueued'] == true,
       addedBy: map['addedBy']?.toString() ?? map['added_by']?.toString(),
@@ -398,6 +403,7 @@ class TrackEntity {
     String? source,
     String? lyrics,
     String? language,
+    String? matchedLyricSnippet,
     bool? isSmartRecommended,
     bool? isUserEnqueued,
     String? addedBy,
@@ -419,6 +425,7 @@ class TrackEntity {
       source: source ?? this.source,
       lyrics: lyrics ?? this.lyrics,
       language: language ?? this.language,
+      matchedLyricSnippet: matchedLyricSnippet ?? this.matchedLyricSnippet,
       isSmartRecommended: isSmartRecommended ?? this.isSmartRecommended,
       isUserEnqueued: isUserEnqueued ?? this.isUserEnqueued,
       addedBy: addedBy ?? this.addedBy,

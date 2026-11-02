@@ -90,12 +90,13 @@ class _ArtistScreenState extends State<ArtistScreen> {
       var uniqueSongs = (discography['songs'] as List<Song>?) ?? <Song>[];
 
       // Prioritize songs in user's preferred language to avoid cross-language contamination
-      final prefLang = SettingsManager.preferredLanguages.isNotEmpty
-          ? SettingsManager.preferredLanguages.first.toLowerCase()
-          : 'tamil';
+      final effectivePrefLangs = SettingsManager.preferredLanguages.map((l) => l.toLowerCase()).toList();
+      final prefLang = effectivePrefLangs.firstOrNull ?? 'tamil';
+      // Coordinated multi-language preference priority
+      // Retains support for all preferred languages
       uniqueSongs.sort((a, b) {
-        final aIsMismatch = SongRepository.isLanguageMismatch(a, prefLang);
-        final bIsMismatch = SongRepository.isLanguageMismatch(b, prefLang);
+        final aIsMismatch = effectivePrefLangs.isNotEmpty && !effectivePrefLangs.any((l) => !SongRepository.isLanguageMismatch(a, l));
+        final bIsMismatch = effectivePrefLangs.isNotEmpty && !effectivePrefLangs.any((l) => !SongRepository.isLanguageMismatch(b, l));
         if (!aIsMismatch && bIsMismatch) return -1;
         if (aIsMismatch && !bIsMismatch) return 1;
         return 0;

@@ -8,6 +8,7 @@ import '../../theme/app_theme.dart';
 import 'search_song_tile.dart';
 import 'search_entity_tiles.dart';
 import 'search_filter_bar.dart';
+import 'search_paginated_songs_view.dart';
 
 /// Clean Spotify-style unified vertical list search results view
 class SearchAllResultsView extends StatefulWidget {
@@ -124,11 +125,20 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
           },
         ),
 
-        // 2. Main Vertical Unified Results List
+        // 2. Main Vertical Unified Results List OR Dedicated Paginated Songs View
         Expanded(
-          child: ListView(
-            padding: const EdgeInsets.only(bottom: 120),
-            children: [
+          child: _selectedFilter == 'Songs'
+              ? SearchPaginatedSongsView(
+                  initialSongs: allSongs,
+                  query: widget.query,
+                  onSongTap: widget.onSongTap,
+                  onShowOptions: widget.onShowOptions,
+                  onShowVersions: widget.onShowVersions,
+                  onRecordClick: widget.onRecordClick,
+                )
+              : ListView(
+                  padding: const EdgeInsets.only(bottom: 120),
+                  children: [
               // Typo / Did You Mean Banner
               if (state.didYouMean != null && _selectedFilter == 'All')
                 _buildDidYouMeanBanner(state.didYouMean!),
@@ -170,11 +180,6 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
                 ],
               ],
 
-              // Tab: Songs
-              if (_selectedFilter == 'Songs') ...[
-                _buildSectionHeader('Songs'),
-                ...allSongs.map((song) => _buildSongTile(song)),
-              ],
 
               // Tab: Mixes & BGM
               if (_selectedFilter == 'Mixes & BGM') ...[

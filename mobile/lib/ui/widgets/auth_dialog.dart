@@ -153,6 +153,8 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
     }
   }
 
+  void _onAuthSuccessNav(BuildContext context) { final user = AuthManager.currentUser; final hasTaste = user != null && user.preferredLanguages.isNotEmpty && user.favoriteArtists.length >= 3; Navigator.pop(context); if (hasTaste) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Welcome back, ${user.username}!'), backgroundColor: const Color(0xFF9333EA))); } else { Navigator.push(context, MaterialPageRoute(builder: (_) => const OnboardingScreen())); } }
+
   Future<void> _handleGoogleSignIn() async {
     setState(() {
       _isLoading = true;
@@ -161,6 +163,9 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
 
     try {
       final success = await AuthManager.loginWithGoogle();
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      if (success) { _onAuthSuccessNav(context); return; } else { setState(() => _errorMessage = 'Google sign in failed.'); return; }
       if (!mounted) return;
       setState(() => _isLoading = false);
 

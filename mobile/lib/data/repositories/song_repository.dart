@@ -15,6 +15,7 @@ import '../../services/catalog_database.dart';
 import 'package:flutter/material.dart';
 import '../../domain/models/lyrics_state.dart';
 import '../../domain/models/home_feed_models.dart';
+import '../../core/dsa/minhash.dart';
 
 /// Centralized repository for fetching, merging, and strictly deduplicating music feeds.
 class SongRepository {
@@ -246,6 +247,34 @@ class SongRepository {
 
       recordSongKeys(song);
       result.add(song);
+    }
+    return result;
+  }
+
+  /// Deduplicates songs using 64-permutation MinHash sketch signatures for O(1) cross-source fingerprinting.
+  static List<Song> deduplicateByMinHash(Iterable<Song> songs, {double threshold = 0.85}) {
+    final List<Song> result = [];
+    final List<MinHashSignature> signatures = [];
+
+    for (final song in songs) {
+      final sig = MinHash.instance.computeTrackSignature(
+        title: song.title,
+        artist: song.artist,
+        album: song.album,
+      );
+
+      bool isDupe = false;
+      for (final existing in signatures) {
+        if (sig.isDuplicate(existing, threshold: threshold)) {
+          isDupe = true;
+          break;
+        }
+      }
+
+      if (!isDupe) {
+        signatures.add(sig);
+        result.add(song);
+      }
     }
     return result;
   }

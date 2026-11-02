@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import '../models/song.dart';
 import 'app_logger.dart';
+import 'package:hive/hive.dart';
 
 class SupabaseService {
   // Raw credentials injected via --dart-define in CI/CD or local runs
@@ -240,13 +241,14 @@ class SupabaseService {
     }
   }
 
-  /// Fetch user preferences (e.g. preferred languages) from table `profiles`
+
   static Future<List<String>> fetchUserPreferences([String? userId]) async {
     final c = client;
     final user = currentUser;
     if (c == null || user == null) return [];
-
     final targetId = (userId != null && userId.isNotEmpty && userId != 'guest') ? userId : user.id;
+
+
 
     try {
       final data = await c
@@ -267,13 +269,14 @@ class SupabaseService {
     return [];
   }
 
-  /// Fetch favorite artists from table `user_favorite_artists`
+
   static Future<List<Map<String, dynamic>>> fetchFavoriteArtists([String? userId]) async {
     final c = client;
     final user = currentUser;
     if (c == null || user == null) return [];
-
     final targetId = (userId != null && userId.isNotEmpty && userId != 'guest') ? userId : user.id;
+
+
 
     try {
       final List<dynamic> data = await c
@@ -289,16 +292,17 @@ class SupabaseService {
     return [];
   }
 
-  /// Save user favorite artists directly to Supabase table `user_favorite_artists`
+
   static Future<void> saveUserFavoriteArtists({
     String? userId,
     required List<Map<String, String>> artists,
   }) async {
     final c = client;
     final user = currentUser;
-    if (c == null || user == null) return;
+    final targetId = (userId != null && userId.isNotEmpty && userId != 'guest') ? userId : user?.id;
+    if (targetId == null || targetId.isEmpty) return;
 
-    final targetId = (userId != null && userId.isNotEmpty && userId != 'guest') ? userId : user.id;
+
 
     try {
       final rows = artists.map((a) => {
@@ -318,7 +322,7 @@ class SupabaseService {
     }
   }
 
-  /// Save / Upsert user music preferences and favorite artists
+
   static Future<void> saveUserTaste({
     String? userId,
     required List<String> languages,
@@ -326,21 +330,23 @@ class SupabaseService {
   }) async {
     final c = client;
     final user = currentUser;
-    if (c == null || user == null) return;
+    final targetId = (userId != null && userId.isNotEmpty && userId != 'guest') ? userId : user?.id;
+    if (targetId == null || targetId.isEmpty) return;
 
-    final targetId = (userId != null && userId.isNotEmpty && userId != 'guest') ? userId : user.id;
+
 
     try {
+      if (c == null) throw Exception('Supabase offline');
       // 1. Upsert profile preferences
       await c.from('profiles').upsert({
         'id': targetId,
-        'email': user.email ?? '',
+        'email': user?.email ?? '',
         'preferred_languages': languages,
       });
 
       // 2. Insert favorite artists into user_favorite_artists
       if (artistNames.isNotEmpty) {
-        final artistRows = artistNames.map((name) => {
+        final artistRows = artistNames.map((name) => {'user_id': targetId, 'artist_name': name}).toList(); await c.from('user_favorite_artists').upsert(artistRows, onConflict: 'user_id, artist_name'); } if (false) {
           'user_id': targetId,
           'artist_name': name,
         }).toList();
@@ -351,27 +357,45 @@ class SupabaseService {
         );
       }
     } catch (e) {
-      debugPrint('[SupabaseService] saveUserTaste error: $e');
+      debugPrint('[SupabaseService] saveUserTaste offline notice: $e');
+      try { if (Hive.isBoxOpen('auth_box')) await Hive.box('auth_box').put('pending_user_taste', {'user_id': targetId, 'languages': languages, 'artists': artistNames}); } catch (_) {}
+      return;
+    }
+    try { if (Hive.isBoxOpen('auth_box')) await Hive.box('auth_box').delete('pending_user_taste'); } catch (_) {}
+  }
+
+  static Future<void> syncPendingUserTaste() async {
+    try {
+      if (!Hive.isBoxOpen('auth_box')) return;
+      final p = Hive.box('auth_box').get('pending_user_taste');
+      if (p is Map) {
+        final m = Map<String, dynamic>.from(p);
+        final langs = (m['languages'] as List?)?.map((e) => e.toString()).toList() ?? [];
+        final artists = (m['artists'] as List?)?.map((e) => e.toString()).toList() ?? [];
+        if (langs.isNotEmpty || artists.isNotEmpty) await saveUserTaste(userId: m['user_id']?.toString(), languages: langs, artistNames: artists);
+      }
+    } catch (_) {}
     }
   }
 
-  /// Record playback event to table `user_history` (strictly requiring authenticated Supabase session)
+
   static Future<void> recordUserHistory(String? userId, Song song) async {
     final c = client;
     final user = currentUser;
-    if (c == null || user == null) return;
+    final targetId = (userId != null && userId.isNotEmpty && userId != 'guest') ? userId : user?.id;
+    if (targetId == null || targetId.isEmpty) return;
 
-    final targetId = (userId != null && userId.isNotEmpty && userId != 'guest') ? userId : user.id;
+
 
     try {
       await c.from('user_history').insert({
         'user_id': targetId,
-        'song_id': song.id,
-        'title': song.title,
-        'artist': song.artist,
+        'song_id': song.id, 'title': song.title, 'artist': song.artist,
+
+
         'cover_url': song.coverUrl,
-        'source': song.source,
-        'played_at': DateTime.now().toIso8601String(),
+        'source': song.source, 'played_at': DateTime.now().toIso8601String(),
+
       });
     } catch (e) {
       debugPrint('[SupabaseService] recordUserHistory error: $e');

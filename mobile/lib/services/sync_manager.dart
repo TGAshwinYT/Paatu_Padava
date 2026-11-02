@@ -55,6 +55,7 @@ class SyncManager {
       }
 
       debugPrint('[SyncManager] Syncing library via joined query for user ${supaUser.id}...');
+      await SupabaseService.syncPendingUserTaste();
 
       // ================= 1. Sync User Favorite Artists ================= //
       try {

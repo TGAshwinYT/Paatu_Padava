@@ -7,35 +7,79 @@ import 'artist_sanitizer.dart';
 /// Dynamic On-Device User Preference Matrix for Paatu Padava.
 /// Re-ranks search results and recommended queues by learning the user's personal
 /// affinity vectors from Liked Songs (`FavoritesManager`) and Play History (`HistoryManager`).
-class UserPreferenceMatrix {
-  /// Computes a personalized user affinity score between 0.0 and 1.0 for a song.
-  static double computeAffinity(
-    Song song, {
-    List<Song>? likedSongs,
-    List<Song>? historySongs,
-  }) {
-    final favs = likedSongs ?? (FavoritesManager.favoritesNotifier.value);
-    final hist = historySongs ?? (HistoryManager.historyNotifier.value);
+class _UserPreferenceIndex {
+  final Set<String> likedSongIds;
+  final Set<String> likedDedupKeys;
+  final Map<String, int> likedArtistCounts;
+  final Map<String, int> histSongCounts;
+  final Map<String, int> histArtistCounts;
 
+  const _UserPreferenceIndex({
+    required this.likedSongIds,
+    required this.likedDedupKeys,
+    required this.likedArtistCounts,
+    required this.histSongCounts,
+    required this.histArtistCounts,
+  });
+
+  factory _UserPreferenceIndex.fromSongs(List<Song> favs, List<Song> hist) {
+    final likedSongIds = <String>{};
+    final likedDedupKeys = <String>{};
+    final likedArtistCounts = <String, int>{};
+
+    for (final fav in favs) {
+      if (fav.id.isNotEmpty) likedSongIds.add(fav.id);
+      if (fav.deduplicationKey.isNotEmpty) likedDedupKeys.add(fav.deduplicationKey);
+      final primary = fav.primaryArtist.toLowerCase().trim();
+      if (primary.isNotEmpty) {
+        likedArtistCounts[primary] = (likedArtistCounts[primary] ?? 0) + 1;
+      }
+    }
+
+    final histSongCounts = <String, int>{};
+    final histArtistCounts = <String, int>{};
+
+    for (final h in hist) {
+      if (h.id.isNotEmpty) {
+        histSongCounts[h.id] = (histSongCounts[h.id] ?? 0) + 1;
+      }
+      final primary = h.primaryArtist.toLowerCase().trim();
+      if (primary.isNotEmpty) {
+        histArtistCounts[primary] = (histArtistCounts[primary] ?? 0) + 1;
+      }
+    }
+
+    return _UserPreferenceIndex(
+      likedSongIds: likedSongIds,
+      likedDedupKeys: likedDedupKeys,
+      likedArtistCounts: likedArtistCounts,
+      histSongCounts: histSongCounts,
+      histArtistCounts: histArtistCounts,
+    );
+  }
+}
+
+class UserPreferenceMatrix {
+  /// Computes personalized user affinity using pre-indexed preference sets/maps for O(1) lookups.
+  static double computeAffinityWithIndex(Song song, _UserPreferenceIndex index) {
     double affinity = 0.0;
 
-    // 1. Liked Song Direct Match (+0.40)
-    final isLiked = favs.any((f) => f.id == song.id || f.deduplicationKey == song.deduplicationKey);
+    // 1. Liked Song Direct Match (+0.40) - O(1)
+    final isLiked = index.likedSongIds.contains(song.id) ||
+        (song.deduplicationKey.isNotEmpty && index.likedDedupKeys.contains(song.deduplicationKey));
     if (isLiked) {
       affinity += 0.40;
     }
 
-    // 2. Favorite Artist Affinity (+0.30)
+    // 2. Favorite Artist Affinity (+0.30) - O(k) where k <= 4
     final songArtists = ArtistSanitizer.extractAllGenuineArtists(song.artist);
-    final songArtistsLower = songArtists.map((a) => a.toLowerCase()).toSet();
-    songArtistsLower.add(song.primaryArtist.toLowerCase());
+    final songArtistsLower = songArtists.map((a) => a.toLowerCase().trim()).toSet();
+    songArtistsLower.add(song.primaryArtist.toLowerCase().trim());
+    songArtistsLower.remove('');
 
     int likedArtistMatches = 0;
-    for (final fav in favs) {
-      final favPrimary = fav.primaryArtist.toLowerCase();
-      if (songArtistsLower.contains(favPrimary)) {
-        likedArtistMatches++;
-      }
+    for (final artist in songArtistsLower) {
+      likedArtistMatches += index.likedArtistCounts[artist] ?? 0;
     }
     if (likedArtistMatches >= 3) {
       affinity += 0.30;
@@ -43,15 +87,14 @@ class UserPreferenceMatrix {
       affinity += 0.20;
     }
 
-    // 3. Listening History Frequency (+0.30)
-    int historyPlayCount = 0;
-    for (final h in hist) {
-      if (h.id == song.id) {
-        historyPlayCount += 2;
-      } else if (songArtistsLower.contains(h.primaryArtist.toLowerCase())) {
-        historyPlayCount += 1;
-      }
+    // 3. Listening History Frequency (+0.30) - O(k)
+    final songIdPlays = index.histSongCounts[song.id] ?? 0;
+    int totalArtistPlays = 0;
+    for (final artist in songArtistsLower) {
+      totalArtistPlays += index.histArtistCounts[artist] ?? 0;
     }
+    final otherArtistPlays = totalArtistPlays - songIdPlays;
+    final historyPlayCount = (songIdPlays * 2) + (otherArtistPlays > 0 ? otherArtistPlays : 0);
 
     if (historyPlayCount >= 4) {
       affinity += 0.30;
@@ -64,10 +107,47 @@ class UserPreferenceMatrix {
     return affinity.clamp(0.0, 1.0);
   }
 
+  /// Computes a personalized user affinity score between 0.0 and 1.0 for a song.
+  static double computeAffinity(
+    Song song, {
+    List<Song>? likedSongs,
+    List<Song>? historySongs,
+  }) {
+    final favs = likedSongs ?? (FavoritesManager.favoritesNotifier.value);
+    final hist = historySongs ?? (HistoryManager.historyNotifier.value);
+    final index = _UserPreferenceIndex.fromSongs(favs, hist);
+    return computeAffinityWithIndex(song, index);
+  }
+
+  static double _scoreVariant(String q, String titleLower, String albumLower, String artistLower) {
+    if (q.isEmpty) return 0.0;
+    if (SearchService.isAlbumOrMovieEntityMatch(albumLower, q)) {
+      return 1.0;
+    } else if (titleLower == q) {
+      return 0.98;
+    } else if (titleLower.startsWith('$q ') || titleLower.startsWith('$q-') || (q.length > 3 && titleLower.startsWith(q))) {
+      return 0.88;
+    } else if (albumLower.startsWith('$q ') || (q.length > 3 && albumLower.startsWith(q))) {
+      return 0.85;
+    } else if (q.length <= 3) {
+      final tokenRegex = RegExp(r'\b' + RegExp.escape(q) + r'\b');
+      if (tokenRegex.hasMatch(titleLower)) return 0.75;
+      if (tokenRegex.hasMatch(albumLower)) return 0.72;
+      if (artistLower == q) return 0.65;
+      return 0.10;
+    } else {
+      if (titleLower.contains(q)) return 0.70;
+      if (albumLower.contains(q)) return 0.68;
+      if (artistLower.contains(q)) return 0.65;
+      return 0.30;
+    }
+  }
+
   /// Re-ranks a list of candidate songs by combining query relevance with the user preference affinity.
   static List<Song> reRankWithPreferences(
     List<Song> candidates,
     String query, {
+    QueryIntent? intent,
     List<Song>? likedSongs,
     List<Song>? historySongs,
   }) {
@@ -76,52 +156,38 @@ class UserPreferenceMatrix {
 
     final favs = likedSongs ?? (FavoritesManager.favoritesNotifier.value);
     final hist = historySongs ?? (HistoryManager.historyNotifier.value);
+    final prefIndex = _UserPreferenceIndex.fromSongs(favs, hist);
 
     final scored = candidates.map((song) {
       final titleLower = song.title.toLowerCase();
       final artistLower = song.artist.toLowerCase();
       final albumLower = song.album.toLowerCase();
 
-      // Base Query Relevance (0.0 to 1.0)
-      double relevance = 0.0;
-      if (SearchService.isAlbumOrMovieEntityMatch(albumLower, qLower)) {
-        // Direct album / movie match promotes soundtrack tracks to top tier
-        relevance = 1.0;
-      } else if (titleLower == qLower) {
-        relevance = 0.98;
-      } else if (titleLower.startsWith('$qLower ') || titleLower.startsWith('$qLower-') || (qLower.length > 3 && titleLower.startsWith(qLower))) {
-        relevance = 0.88;
-      } else if (albumLower.startsWith('$qLower ') || (qLower.length > 3 && albumLower.startsWith(qLower))) {
-        relevance = 0.85;
-      } else if (qLower.length <= 3) {
-        // Strict token boundary (\btoken\b) for short queries <= 3 chars: no partial substring matching
-        final tokenRegex = RegExp(r'\b' + RegExp.escape(qLower) + r'\b');
-        if (tokenRegex.hasMatch(titleLower)) {
-          relevance = 0.75;
-        } else if (tokenRegex.hasMatch(albumLower)) {
-          relevance = 0.72;
-        } else if (artistLower == qLower) {
-          relevance = 0.65;
-        } else {
-          relevance = 0.10;
+      double relevance = _scoreVariant(qLower, titleLower, albumLower, artistLower);
+      if (intent != null) {
+        final coreQ = intent.effectiveCoreQuery.toLowerCase().trim();
+        if (coreQ.isNotEmpty && coreQ != qLower) {
+          final s = _scoreVariant(coreQ, titleLower, albumLower, artistLower);
+          if (s > relevance) relevance = s;
         }
-      } else {
-        if (titleLower.contains(qLower)) {
-          relevance = 0.70;
-        } else if (albumLower.contains(qLower)) {
-          relevance = 0.68;
-        } else if (artistLower.contains(qLower)) {
-          relevance = 0.65;
-        } else {
-          relevance = 0.30;
+        final transQ = intent.transliteratedQuery.toLowerCase().trim();
+        if (transQ.isNotEmpty && transQ != qLower) {
+          final s = _scoreVariant(transQ, titleLower, albumLower, artistLower);
+          if (s > relevance) relevance = s;
+        }
+        final dym = intent.didYouMeanSuggestion?.toLowerCase().trim();
+        if (dym != null && dym.isNotEmpty && dym != qLower) {
+          final s = _scoreVariant(dym, titleLower, albumLower, artistLower);
+          if (s > relevance) relevance = s;
         }
       }
 
       // User Personal Preference (0.0 to 1.0)
-      final userAffinity = computeAffinity(song, likedSongs: favs, historySongs: hist);
+      final userAffinity = computeAffinityWithIndex(song, prefIndex);
 
-      // Weighted Multi-Factor Score: 60% Query Relevance + 40% User Personal Affinity
-      final compositeScore = (0.60 * relevance) + (0.40 * userAffinity);
+      // Weighted Multi-Factor Score: 85% Query Relevance + 15% User Personal Affinity
+      final effectiveAffinity = relevance >= 0.45 ? userAffinity : (userAffinity * 0.30);
+      final compositeScore = (0.85 * relevance) + (0.15 * effectiveAffinity);
 
       return MapEntry(compositeScore, song);
     }).toList();

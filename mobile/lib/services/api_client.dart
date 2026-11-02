@@ -115,10 +115,10 @@ class ApiClient {
   }
 
   static Future<List<Song>> fetchForYou({String? language}) async {
-    final targetLang = language ?? (SettingsManager.preferredLanguages.isNotEmpty ? SettingsManager.preferredLanguages.first : 'Tamil');
+    final targetLang = (language != null && language.isNotEmpty && language.toLowerCase() != 'all') ? language.toLowerCase() : null;
     try {
       final uri = Uri.parse('$baseUrl/api/music/for-you').replace(queryParameters: {
-        'language': targetLang.toLowerCase(),
+        if (targetLang != null) 'language': targetLang,
       });
       final response = await UnifiedHttpClient.get(uri, headers: _headers, timeout: const Duration(seconds: 8));
       if (response.statusCode == 200) {
@@ -146,12 +146,12 @@ class ApiClient {
   static Future<List<Song>> fetchRecommendations(String songId, {String? artist, String? language}) async {
     final targetLang = (language != null && language.isNotEmpty)
         ? language
-        : (SettingsManager.preferredLanguages.isNotEmpty ? SettingsManager.preferredLanguages.first : 'Tamil');
+        : (SettingsManager.preferredLanguages.isNotEmpty ? SettingsManager.preferredLanguages.join(',') : 'Tamil');
     try {
       final uri = Uri.parse('$baseUrl/api/music/recommendations/$songId').replace(queryParameters: {
         if (artist != null && artist.isNotEmpty) 'artist': artist,
         'lang': targetLang.toLowerCase(),
-        'language': targetLang.toLowerCase(),
+        if (targetLang != null) 'language': targetLang,
         'limit': '25',
       });
 
@@ -184,12 +184,12 @@ class ApiClient {
     final clean = query.trim();
     if (clean.isEmpty) return null;
 
-    final targetLang = language ?? (SettingsManager.preferredLanguages.isNotEmpty ? SettingsManager.preferredLanguages.first : 'Tamil');
+    final targetLang = (language != null && language.isNotEmpty && language.toLowerCase() != 'all') ? language.toLowerCase() : null;
 
     try {
       final uri = Uri.parse('$baseUrl/api/music/search').replace(queryParameters: {
         'query': clean,
-        'language': targetLang.toLowerCase(),
+        if (targetLang != null) 'language': targetLang,
       });
       final response = await UnifiedHttpClient.get(uri, headers: _headers, timeout: const Duration(seconds: 8));
 

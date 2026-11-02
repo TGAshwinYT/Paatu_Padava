@@ -37,6 +37,7 @@ class _SearchScreenState extends State<SearchScreen> {
   final FocusNode _searchFocusNode = FocusNode();
   final ValueNotifier<bool> _isSearchActiveNotifier = ValueNotifier<bool>(false);
   Timer? _debounceTimer;
+  Timer? _typeaheadDebounceTimer;
   int _searchRequestId = 0;
 
   // 3-State Progressive Search Notifiers
@@ -86,6 +87,7 @@ class _SearchScreenState extends State<SearchScreen> {
     SearchHistoryManager.historyNotifier.removeListener(_updateTrieWithHistory);
     _searchController.dispose();
     _debounceTimer?.cancel();
+    _typeaheadDebounceTimer?.cancel();
     for (final n in [_isSearchingNotifier, _hasSearchedNotifier, _localMatchesNotifier, _suggestionsNotifier, _resultsNotifier]) {
       n.dispose();
     }
@@ -102,6 +104,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _exitActiveSearch() {
     _debounceTimer?.cancel();
+    _typeaheadDebounceTimer?.cancel();
     _searchFocusNode.unfocus();
     _searchController.clear();
     _isSearchActiveNotifier.value = false;
@@ -111,11 +114,14 @@ class _SearchScreenState extends State<SearchScreen> {
   void _onQueryChanged(String query) {
     if (!_isSearchActiveNotifier.value) _isSearchActiveNotifier.value = true;
     _debounceTimer?.cancel();
-    final clean = query.trim().toLowerCase();
+    _typeaheadDebounceTimer?.cancel();
+    final clean = query.trim();
     if (clean.isEmpty) {
       _resetSearchState();
       return;
     }
+
+    _hasSearchedNotifier.value = false;
 
     // State B: Instant Local Song Matches (< 5ms)
     final lower = clean.toLowerCase();
@@ -144,25 +150,27 @@ class _SearchScreenState extends State<SearchScreen> {
     final instant = _localSearchTrie.findByPrefix(clean, limit: 5).map((m) => m.term).toList();
     if (instant.isNotEmpty) _suggestionsNotifier.value = instant;
 
-    // State B: Asynchronous Live Typeahead Fetch (< 120ms)
-    SearchService.getTypeaheadSuggestions(clean, localTrie: _localSearchTrie, limit: 5).then((suggs) {
-      if (mounted && _searchController.text.trim() == clean && !_hasSearchedNotifier.value) {
-        _suggestionsNotifier.value = suggs;
-      }
+    // State B: Asynchronous Live Typeahead Fetch (< 120ms, debounced 150ms)
+    _typeaheadDebounceTimer = Timer(const Duration(milliseconds: 150), () {
+      SearchService.getTypeaheadSuggestions(clean, localTrie: _localSearchTrie, limit: 5).then((suggs) {
+        if (mounted && _searchController.text.trim() == clean && !_hasSearchedNotifier.value) {
+          _suggestionsNotifier.value = suggs;
+        }
+      });
     });
 
-    _debounceTimer = Timer(const Duration(milliseconds: 200), () {
+    _debounceTimer = Timer(const Duration(milliseconds: 450), () {
       if (mounted) _executeSearch(clean, saveHistory: false);
     });
   }
 
   Future<void> _executeSearch(String query, {bool saveHistory = false}) async {
-    final clean = query.trim().toLowerCase();
+    final clean = query.trim();
     if (clean.isEmpty) return;
     if (!_isSearchActiveNotifier.value) _isSearchActiveNotifier.value = true;
     final currentRequestId = ++_searchRequestId;
 
-    if (saveHistory) SearchHistoryManager.addQuery(clean);
+    if (saveHistory && query.trim().isNotEmpty) SearchHistoryManager.addQuery(query.trim());
     _isSearchingNotifier.value = true;
     _hasSearchedNotifier.value = true;
 
@@ -173,21 +181,14 @@ class _SearchScreenState extends State<SearchScreen> {
       _resultsNotifier.value = SearchResultsState(
         ytSongs: tracks,
         songs: tracks,
-        topResult: {
-          'type': direct['type'],
-          'id': direct['id'],
-          'title': direct['title'],
-          'subtitle': direct['subtitle'],
-          'image': direct['image'],
-        },
+        topResult: {'type': direct['type'], 'id': direct['id'], 'title': direct['title'], 'subtitle': direct['subtitle'], 'image': direct['image']},
       );
       _isSearchingNotifier.value = false;
       return;
     }
 
-    final prefLang = SettingsManager.preferredLanguages.isNotEmpty ? SettingsManager.preferredLanguages.first : 'Tamil';
     try {
-      await for (final unified in SearchService.searchProgressive(clean, language: prefLang, limit: 25)) {
+      await for (final unified in SearchService.searchProgressive(clean, language: null, limit: 25)) {
         if (!mounted || currentRequestId != _searchRequestId) return;
         final clustered = SearchService.clusterAndClassifySongs(unified.songs, query: clean);
         final clusteredTracks = clustered.map((c) => c.primaryTrack).toList();
@@ -205,7 +206,7 @@ class _SearchScreenState extends State<SearchScreen> {
           error: unified.error,
         );
 
-        if (clusteredTracks.isNotEmpty) {
+        if (saveHistory && clusteredTracks.isNotEmpty) {
           DefaultStreamResolver.prewarmSongs(clusteredTracks, limit: 3);
         }
       }
@@ -222,7 +223,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _triggerCategorySearch(String query) {
-    final clean = query.trim().toLowerCase();
+    final clean = query.trim();
     if (clean.isEmpty) return;
     if (!_isSearchActiveNotifier.value) _isSearchActiveNotifier.value = true;
     _searchController.text = clean;
@@ -231,7 +232,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _searchExactQuery(String query) {
-    final exact = SearchQueryPlanner.forExactQuery(query).toLowerCase();
+    final exact = SearchQueryPlanner.forExactQuery(query);
     if (exact.isEmpty) return;
     if (!_isSearchActiveNotifier.value) _isSearchActiveNotifier.value = true;
     _searchController.text = exact;
@@ -380,15 +381,9 @@ class _SearchScreenState extends State<SearchScreen> {
                   },
                   onArtistRecordClick: () => _recordSearchResultClick(),
                   onRecordClick: ([song]) => _recordSearchResultClick(song),
-                  onSongTap: (song) {
-                    _recordSearchResultClick(song);
-                    audioHandler.playSong(song, queue: state.songs);
-                  },
+                  onSongTap: (song) { _recordSearchResultClick(song); audioHandler.playSong(song, queue: state.songs); },
                   onShowOptions: (s) => SearchSongOptionsSheet.show(context, s),
-                  onShowVersions: (s) => SearchVersionsSheet.show(context, s, onSelectSong: (v) {
-                    _recordSearchResultClick(v);
-                    audioHandler.playSong(v);
-                  }),
+                  onShowVersions: (s) => SearchVersionsSheet.show(context, s, onSelectSong: (v) { _recordSearchResultClick(v); audioHandler.playSong(v); }),
                 );
               },
             );

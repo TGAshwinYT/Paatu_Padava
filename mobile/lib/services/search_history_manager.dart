@@ -119,6 +119,8 @@ class SearchHistoryManager {
     await _box.put('recent_searched_songs', <Map<String, dynamic>>[]);
   }
 
+  static Future<void> clear() => clearAll();
+
   static Future<void> clearAll() async {
     await _box.put('recent_searches', <String>[]);
     await _box.put('recent_searched_songs', <Map<String, dynamic>>[]);

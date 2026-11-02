@@ -182,6 +182,9 @@ class AuthManager {
     final authUser = AuthUser.fromSupabase(supaUser, languages: langs, artists: artists);
     authNotifier.value = authUser;
     await _box.put('user_profile', authUser.toJson());
+    SettingsManager.languagesNotifier.value = List<String>.from(langs);
+    try { if (Hive.isBoxOpen(SettingsManager.boxName)) await Hive.box(SettingsManager.boxName).put('languages', langs); } catch (_) {}
+    unawaited(SupabaseService.syncPendingUserTaste());
   }
 
   static Future<bool> login(String email, String password) async {

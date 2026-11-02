@@ -9,6 +9,7 @@ import '../../../services/player_handler.dart';
 import '../../../services/favorites_manager.dart';
 import '../../../services/artist_sanitizer.dart';
 import '../../theme/app_theme.dart';
+import '../common/cascading_cover_image.dart';
 
 class SearchSongTile extends StatelessWidget {
   static final HtmlUnescape _unescape = HtmlUnescape();
@@ -145,21 +146,12 @@ class SearchSongTile extends StatelessWidget {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: SizedBox(
-                width: 50,
-                height: 50,
-                child: CachedNetworkImage(
-                  imageUrl: song.coverUrl,
-                  fit: BoxFit.cover,
-                  memCacheWidth: 120,
-                  memCacheHeight: 120,
-                  fadeInDuration: const Duration(milliseconds: 200),
-                  placeholder: (_, __) => _buildThumbHashPlaceholder('${song.title}_${song.artist}', radius: 10),
-                  errorWidget: (_, __, ___) => _buildThumbHashPlaceholder('${song.title}_${song.artist}', radius: 10),
-                ),
-              ),
+            CascadingCoverImage(
+              imageUrl: song.coverUrl,
+              seed: '${song.title}_${song.artist}',
+              width: 50,
+              height: 50,
+              borderRadius: 10,
             ),
             if (isResolving)
               Container(
@@ -214,7 +206,11 @@ class SearchSongTile extends StatelessWidget {
           fontSize: 14,
         ),
       ),
-      subtitle: Row(
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
@@ -270,6 +266,29 @@ class SearchSongTile extends StatelessWidget {
               style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 12),
             ),
           ),
+        ],
+      ),
+          if (song.matchedLyricSnippet != null && song.matchedLyricSnippet!.isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Row(
+              children: [
+                const Icon(Icons.chat_bubble_outline_rounded, size: 10, color: AppColors.electricCyan),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    '"${song.matchedLyricSnippet}"',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontStyle: FontStyle.italic,
+                      color: AppColors.electricCyan,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
       trailing: Row(

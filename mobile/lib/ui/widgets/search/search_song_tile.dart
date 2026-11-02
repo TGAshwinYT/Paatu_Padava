@@ -1,3 +1,4 @@
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -117,68 +118,91 @@ class SearchSongTile extends StatelessWidget {
     return ListTile(
       onTap: () {
         FocusScope.of(context).unfocus();
-        onTap();
+        if (isPlaying && isAudioHandlerInitialized) {
+          if (audioHandler.playbackState.value.playing) {
+            audioHandler.pause();
+          } else {
+            audioHandler.play();
+          }
+        } else {
+          onTap();
+        }
       },
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 3),
-      leading: Stack(
-        alignment: Alignment.center,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: SizedBox(
-              width: 50,
-              height: 50,
-              child: CachedNetworkImage(
-                imageUrl: song.coverUrl,
-                fit: BoxFit.cover,
-                memCacheWidth: 120,
-                memCacheHeight: 120,
-                fadeInDuration: const Duration(milliseconds: 200),
-                placeholder: (_, __) => Container(
-                  color: AppColors.surfaceDark,
-                  child: const Center(
-                    child: Icon(Icons.music_note_rounded, color: AppColors.textSecondary, size: 20),
-                  ),
-                ),
-                errorWidget: (_, __, ___) => Container(
-                  color: AppColors.surfaceDark,
-                  child: const Center(
-                    child: Icon(Icons.music_note_rounded, color: AppColors.textSecondary, size: 20),
-                  ),
+      leading: GestureDetector(
+        onTap: () {
+          HapticFeedback.lightImpact();
+          if (isPlaying && isAudioHandlerInitialized) {
+            if (audioHandler.playbackState.value.playing) {
+              audioHandler.pause();
+            } else {
+              audioHandler.play();
+            }
+          } else {
+            onTap();
+          }
+        },
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: SizedBox(
+                width: 50,
+                height: 50,
+                child: CachedNetworkImage(
+                  imageUrl: song.coverUrl,
+                  fit: BoxFit.cover,
+                  memCacheWidth: 120,
+                  memCacheHeight: 120,
+                  fadeInDuration: const Duration(milliseconds: 200),
+                  placeholder: (_, __) => _buildThumbHashPlaceholder('${song.title}_${song.artist}', radius: 10),
+                  errorWidget: (_, __, ___) => _buildThumbHashPlaceholder('${song.title}_${song.artist}', radius: 10),
                 ),
               ),
             ),
-          ),
-          if (isResolving)
-            Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.60),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Center(
-                child: SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: AppColors.electricCyan,
+            if (isResolving)
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.60),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Center(
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: AppColors.electricCyan,
+                    ),
                   ),
                 ),
+              )
+            else if (isPlaying && isAudioHandlerInitialized)
+              StreamBuilder<PlaybackState>(
+                stream: audioHandler.playbackState,
+                initialData: audioHandler.playbackState.value,
+                builder: (context, snapshot) {
+                  final isAudioActive = snapshot.data?.playing ?? false;
+                  return Container(
+                    width: 50,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      isAudioActive ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                      color: AppColors.electricCyan,
+                      size: 26,
+                    ),
+                  );
+                },
               ),
-            )
-          else if (isPlaying)
-            Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.55),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.equalizer_rounded, color: AppColors.electricCyan, size: 24),
-            ),
-        ],
+          ],
+        ),
       ),
       title: Text(
         cleanTitle,
@@ -278,6 +302,31 @@ class SearchSongTile extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+  static Widget _buildThumbHashPlaceholder(String seed, {double radius = 10, double iconSize = 20}) {
+    final hash = seed.hashCode.abs();
+    final hue1 = (hash % 360).toDouble();
+    final hue2 = ((hash ~/ 360 + 50) % 360).toDouble();
+    final color1 = HSLColor.fromAHSL(1.0, hue1, 0.40, 0.20).toColor();
+    final color2 = HSLColor.fromAHSL(1.0, hue2, 0.50, 0.14).toColor();
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [color1, color2],
+        ),
+        borderRadius: BorderRadius.circular(radius),
+      ),
+      child: Center(
+        child: Icon(
+          Icons.music_note_rounded,
+          color: Colors.white.withValues(alpha: 0.35),
+          size: iconSize,
+        ),
       ),
     );
   }

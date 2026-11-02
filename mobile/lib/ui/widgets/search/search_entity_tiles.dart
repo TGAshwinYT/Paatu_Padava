@@ -54,7 +54,7 @@ class SearchArtistTile extends StatelessWidget {
                   memCacheWidth: 96,
                   memCacheHeight: 96,
                   fadeInDuration: const Duration(milliseconds: 200),
-                  placeholder: (_, __) => _buildAvatarFallback(),
+                  placeholder: (_, __) => buildThumbHashPlaceholder(name, isCircle: true, icon: Icons.person_rounded),
                   errorWidget: (_, __, ___) => _buildAvatarFallback(),
                 )
               : _buildAvatarFallback(),
@@ -145,22 +145,35 @@ class SearchAlbumTile extends StatelessWidget {
           ),
         );
       },
-      leading: ClipRRect(
-        borderRadius: BorderRadius.circular(6),
-        child: SizedBox(
-          width: 48,
-          height: 48,
-          child: img.isNotEmpty
-              ? CachedNetworkImage(
-                  imageUrl: img,
-                  fit: BoxFit.cover,
-                  memCacheWidth: 96,
-                  memCacheHeight: 96,
-                  fadeInDuration: const Duration(milliseconds: 200),
-                  placeholder: (_, __) => _buildAlbumFallback(),
-                  errorWidget: (_, __, ___) => _buildAlbumFallback(),
-                )
-              : _buildAlbumFallback(),
+      leading: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(6),
+          boxShadow: [
+            BoxShadow(
+              color: computeAmbientGlow('${title}_$artist'),
+              blurRadius: 10,
+              spreadRadius: -2,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: SizedBox(
+            width: 48,
+            height: 48,
+            child: img.isNotEmpty
+                ? CachedNetworkImage(
+                    imageUrl: img,
+                    fit: BoxFit.cover,
+                    memCacheWidth: 96,
+                    memCacheHeight: 96,
+                    fadeInDuration: const Duration(milliseconds: 200),
+                    placeholder: (_, __) => buildThumbHashPlaceholder('${title}_$artist', radius: 6),
+                    errorWidget: (_, __, ___) => _buildAlbumFallback(),
+                  )
+                : _buildAlbumFallback(),
+          ),
         ),
       ),
       title: Text(
@@ -255,7 +268,7 @@ class SearchPlaylistTile extends StatelessWidget {
                   memCacheWidth: 96,
                   memCacheHeight: 96,
                   fadeInDuration: const Duration(milliseconds: 200),
-                  placeholder: (_, __) => _buildPlaylistFallback(),
+                  placeholder: (_, __) => buildThumbHashPlaceholder(cleanTitle, radius: 8, icon: Icons.queue_music_rounded),
                   errorWidget: (_, __, ___) => _buildPlaylistFallback(),
                 )
               : _buildPlaylistFallback(),
@@ -295,3 +308,38 @@ class SearchPlaylistTile extends StatelessWidget {
     );
   }
 }
+
+  Color computeAmbientGlow(String seed) {
+    final hash = seed.hashCode.abs();
+    final hue = (hash % 360).toDouble();
+    return HSLColor.fromAHSL(0.32, hue, 0.70, 0.50).toColor();
+  }
+
+  Widget buildThumbHashPlaceholder(String seed, {double radius = 6, bool isCircle = false, IconData icon = Icons.album_rounded}) {
+    final hash = seed.hashCode.abs();
+    final hue1 = (hash % 360).toDouble();
+    final hue2 = ((hash ~/ 360 + 50) % 360).toDouble();
+    final color1 = HSLColor.fromAHSL(1.0, hue1, 0.40, 0.20).toColor();
+    final color2 = HSLColor.fromAHSL(1.0, hue2, 0.50, 0.14).toColor();
+
+    final boxDec = BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [color1, color2],
+      ),
+      shape: isCircle ? BoxShape.circle : BoxShape.rectangle,
+      borderRadius: isCircle ? null : BorderRadius.circular(radius),
+    );
+
+    return Container(
+      decoration: boxDec,
+      child: Center(
+        child: Icon(
+          icon,
+          color: Colors.white.withValues(alpha: 0.35),
+          size: 20,
+        ),
+      ),
+    );
+  }

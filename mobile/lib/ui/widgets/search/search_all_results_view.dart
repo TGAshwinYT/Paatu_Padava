@@ -1,3 +1,4 @@
+import '../../../services/search_service.dart';
 import 'package:flutter/material.dart';
 import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
@@ -149,6 +150,23 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
                 if (artists.isNotEmpty) ...[
                   _buildSectionHeader('Artists', onSeeAll: artists.length > 4 ? () => setState(() => _selectedFilter = 'Artists') : null),
                   ...artists.take(4).map((art) => SearchArtistTile(artist: art, onRecordClick: widget.onArtistRecordClick)),
+                ],
+              ],
+
+              // Tab: Soundtracks
+              if (_selectedFilter == 'Soundtracks') ...[
+                if (albums.any((a) => (int.tryParse(a['song_count']?.toString() ?? '0') ?? 0) > 1 || SearchService.isAlbumOrMovieEntityMatch((a['title'] ?? '').toString(), widget.query))) ...[
+                  ...albums.where((a) => (int.tryParse(a['song_count']?.toString() ?? '0') ?? 0) > 1 || SearchService.isAlbumOrMovieEntityMatch((a['title'] ?? '').toString(), widget.query))
+                      .map((alb) => SearchAlbumTile(album: alb, onRecordClick: widget.onRecordClick)),
+                ] else if (albums.isNotEmpty) ...[
+                  ...albums.map((alb) => SearchAlbumTile(album: alb, onRecordClick: widget.onRecordClick)),
+                ] else ...[
+                  const Padding(
+                    padding: EdgeInsets.all(32.0),
+                    child: Center(
+                      child: Text('No soundtrack albums found', style: TextStyle(color: AppColors.textSecondary)),
+                    ),
+                  ),
                 ],
               ],
 

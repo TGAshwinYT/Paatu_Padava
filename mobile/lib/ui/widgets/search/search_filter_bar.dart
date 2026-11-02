@@ -9,6 +9,7 @@ class SearchFilterBar extends StatelessWidget {
   static const List<String> filters = [
     'All',
     'Songs',
+    'Soundtracks',
     'Mixes & BGM',
     'Albums',
     'Artists',

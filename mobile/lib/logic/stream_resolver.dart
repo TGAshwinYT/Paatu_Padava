@@ -1,3 +1,4 @@
+import '../services/smart_gapless_precacher.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -136,7 +137,8 @@ class DefaultStreamResolver implements StreamResolver {
     );
   }
 
-  /// Silently resolves and caches stream URLs for the top songs in the background
+  /// Silently resolves and caches stream URLs for the top songs in the background,
+  /// and speculatively pre-caches the first audio chunk for the #1 top result for < 50ms instant playback.
   static Future<void> prewarmSongs(List<Song> songs, {int limit = 3}) async {
     final toPrewarm = songs.take(limit).toList();
     final resolver = DefaultStreamResolver();
@@ -144,7 +146,10 @@ class DefaultStreamResolver implements StreamResolver {
       toPrewarm.map((s) async {
         try {
           if (getCachedStream(s.id) == null) {
-            await resolver.resolveStreamUrl(s).timeout(const Duration(seconds: 4), onTimeout: () => null);
+            final url = await resolver.resolveStreamUrl(s).timeout(const Duration(seconds: 4), onTimeout: () => null);
+            if (url != null && url.isNotEmpty && songs.isNotEmpty && s.id == songs.first.id) {
+              SmartGaplessPrecacher.instance.precacheTrackHeader(s, resolver: resolver);
+            }
           }
         } catch (_) {}
       }),

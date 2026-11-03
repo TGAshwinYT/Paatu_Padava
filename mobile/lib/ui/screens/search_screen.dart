@@ -52,9 +52,7 @@ class _SearchScreenState extends State<SearchScreen> {
     super.initState();
     _initTrie();
     SearchHistoryManager.historyNotifier.addListener(_onHistoryQueryAdded);
-    for (final l in [SearchHistoryManager.recentSongsNotifier, FavoritesManager.favoritesNotifier, DownloadManager.downloadedSongsNotifier]) {
-      l.addListener(_scheduleLibrarySync);
-    }
+    for (final l in [SearchHistoryManager.recentSongsNotifier, FavoritesManager.favoritesNotifier, DownloadManager.downloadedSongsNotifier]) { l.addListener(_scheduleLibrarySync); }
     _searchFocusNode.addListener(() {
       if (_searchFocusNode.hasFocus && !_isSearchActiveNotifier.value) { _isSearchActiveNotifier.value = true; _updateCanPop(); }
     });
@@ -104,15 +102,16 @@ class _SearchScreenState extends State<SearchScreen> {
     }
 
     final saved = [...DownloadManager.downloadedSongsNotifier.value, ...FavoritesManager.favoritesNotifier.value];
-    for (int i = 0; i < saved.length; i++) { addTerm(saved[i].title, 150 - (i % 20)); addTerm(saved[i].primaryArtist, 140 - (i % 20)); }
+    final boundedSaved = saved.take(100).toList();
+    for (int i = 0; i < boundedSaved.length; i++) { addTerm(boundedSaved[i].title, 150 - (i % 20)); addTerm(boundedSaved[i].primaryArtist, 140 - (i % 20)); }
     for (int i = 0; i < recent.length; i++) { addTerm(recent[i], 130 - i); }
-    final recentSongs = SearchHistoryManager.recentSongsNotifier.value;
+    final recentSongs = SearchHistoryManager.recentSongsNotifier.value.take(50).toList();
     for (int i = 0; i < recentSongs.length; i++) { addTerm(recentSongs[i].title, 110 - i); }
     for (int i = 0; i < SearchConstants.trendingArtists.length; i++) { addTerm(SearchConstants.trendingArtists[i], 90 - i); }
     for (int i = 0; i < SearchConstants.browseCategories.length; i++) { addTerm(SearchConstants.browseCategories[i]['title'] as String?, 70 - i); }
 
     FuzzySearchService.registerCandidates(recent);
-    final allLocal = [...saved, ...recentSongs];
+    final allLocal = [...boundedSaved, ...recentSongs];
     if (allLocal.isNotEmpty) FuzzySearchService.registerSongs(allLocal, isLibrary: true);
     SearchService.clearTypeaheadCache();
   }
@@ -123,15 +122,11 @@ class _SearchScreenState extends State<SearchScreen> {
     _isSearchActiveNotifier.dispose();
     _canPopNotifier.dispose();
     SearchHistoryManager.historyNotifier.removeListener(_onHistoryQueryAdded);
-    for (final l in [SearchHistoryManager.recentSongsNotifier, FavoritesManager.favoritesNotifier, DownloadManager.downloadedSongsNotifier]) {
-      l.removeListener(_scheduleLibrarySync);
-    }
+    for (final l in [SearchHistoryManager.recentSongsNotifier, FavoritesManager.favoritesNotifier, DownloadManager.downloadedSongsNotifier]) { l.removeListener(_scheduleLibrarySync); }
     _searchController.dispose();
     _typeaheadDebounceTimer?.cancel();
     _libraryDebounceTimer?.cancel();
-    for (final n in [_isSearchingNotifier, _isInitialLoadingNotifier, _hasSearchedNotifier, _localMatchesNotifier, _suggestionsNotifier, _resultsNotifier]) {
-      n.dispose();
-    }
+    for (final n in [_isSearchingNotifier, _isInitialLoadingNotifier, _hasSearchedNotifier, _localMatchesNotifier, _suggestionsNotifier, _resultsNotifier]) { n.dispose(); }
     super.dispose();
   }
 
@@ -197,16 +192,21 @@ class _SearchScreenState extends State<SearchScreen> {
 
     _typeaheadDebounceTimer = Timer(const Duration(milliseconds: 250), () {
       SearchService.getTypeaheadSuggestions(
-        clean,
-        localTrie: _localSearchTrie,
-        limit: 5,
-        onPartialResults: (suggs) {
-          if (mounted && _searchController.text.trim() == clean && !_hasSearchedNotifier.value) _suggestionsNotifier.value = suggs;
-        },
+        clean, localTrie: _localSearchTrie, limit: 5,
+        onPartialResults: (suggs) { if (mounted && _searchController.text.trim() == clean && !_hasSearchedNotifier.value) _suggestionsNotifier.value = suggs; },
       ).then((suggs) {
         if (mounted && _searchController.text.trim() == clean && !_hasSearchedNotifier.value) _suggestionsNotifier.value = suggs;
       }).catchError((e, stack) => AppLogger.log('SearchScreen', 'Typeahead fetch error: $e', level: LogLevel.warn));
     });
+  }
+
+  static bool _sameEntities(List<Map<String, dynamic>> a, List<Map<String, dynamic>> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if ((a[i]['id'] ?? a[i]['name'] ?? a[i]['title']) != (b[i]['id'] ?? b[i]['name'] ?? b[i]['title'])) return false;
+    }
+    return true;
   }
 
   Future<void> _executeSearch(String query, {bool saveHistory = true}) async {
@@ -221,7 +221,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _updateCanPop();
 
     // SWR Instant Cache Check: Symmetric lookup with explicit language
-    final intent = SearchService.understandQuery(clean);
+    final intent = SearchService.understandQuery(clean.toLowerCase());
     final effectiveLang = intent.explicitLanguage;
     final cached = SearchCache.get(clean, language: effectiveLang) ?? SearchCache.get(clean);
     bool hasCachedResults = false;
@@ -229,9 +229,8 @@ class _SearchScreenState extends State<SearchScreen> {
     if (cached != null && cached.songs.isNotEmpty) {
       hasCachedResults = true;
       _resultsNotifier.value = SearchResultsState(
-        topResult: cached.topResult, songs: cached.songs, ytSongs: cached.ytSongs,
-        saavnSongs: cached.saavnSongs, audiusSongs: cached.audiusSongs, albums: cached.albums,
-        artists: cached.artists, playlists: cached.playlists, didYouMean: cached.didYouMean,
+        topResult: cached.topResult, songs: cached.songs, ytSongs: cached.ytSongs, saavnSongs: cached.saavnSongs,
+        audiusSongs: cached.audiusSongs, albums: cached.albums, artists: cached.artists, playlists: cached.playlists, didYouMean: cached.didYouMean,
       );
       _isInitialLoadingNotifier.value = false;
     } else {
@@ -266,9 +265,8 @@ class _SearchScreenState extends State<SearchScreen> {
         if (unified.isCached && unified.songs.isNotEmpty) {
           hasCachedResults = true;
           _resultsNotifier.value = SearchResultsState(
-            topResult: unified.topResult, songs: unified.songs, ytSongs: unified.ytSongs,
-            saavnSongs: unified.saavnSongs, audiusSongs: unified.audiusSongs, albums: unified.albums,
-            artists: unified.artists, playlists: unified.playlists, didYouMean: unified.didYouMean,
+            topResult: unified.topResult, songs: unified.songs, ytSongs: unified.ytSongs, saavnSongs: unified.saavnSongs,
+            audiusSongs: unified.audiusSongs, albums: unified.albums, artists: unified.artists, playlists: unified.playlists, didYouMean: unified.didYouMean,
           );
           _isInitialLoadingNotifier.value = false;
           continue;
@@ -277,7 +275,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
         if (hasCachedResults && (unified.songs.isEmpty || unified.error != null)) {
           if (unified.error != null && mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Offline: Showing cached results'), duration: Duration(seconds: 2)));
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't refresh, showing saved results"), duration: Duration(seconds: 2)));
           }
           break;
         }
@@ -285,21 +283,24 @@ class _SearchScreenState extends State<SearchScreen> {
         final current = _resultsNotifier.value;
         final isSameSongs = current.songs.length == unified.songs.length &&
             List.generate(current.songs.length, (i) => current.songs[i].id == unified.songs[i].id).every((x) => x);
-        final isFullyIdentical = isSameSongs && current.topResult == unified.topResult &&
-            current.albums.length == unified.albums.length && current.artists.length == unified.artists.length &&
-            current.playlists.length == unified.playlists.length && current.didYouMean == unified.didYouMean && current.error == unified.error;
+        final sameTop = (current.topResult == null && unified.topResult == null) ||
+            (current.topResult?['id'] == unified.topResult?['id'] && current.topResult?['type'] == unified.topResult?['type']);
+        final sameErr = (current.error == null && unified.error == null) ||
+            (current.error?.errorCode == unified.error?.errorCode && current.error?.userMessage == unified.error?.userMessage);
+        final isFullyIdentical = isSameSongs && sameTop && sameErr &&
+            current.didYouMean == unified.didYouMean &&
+            _sameEntities(current.albums, unified.albums) &&
+            _sameEntities(current.artists, unified.artists) &&
+            _sameEntities(current.playlists, unified.playlists);
 
         if (!hasCachedResults || !isFullyIdentical) {
           _resultsNotifier.value = SearchResultsState(
-            topResult: unified.topResult, songs: isSameSongs ? current.songs : unified.songs,
-            ytSongs: unified.ytSongs, saavnSongs: unified.saavnSongs, audiusSongs: unified.audiusSongs,
-            albums: unified.albums, artists: unified.artists, playlists: unified.playlists,
-            didYouMean: unified.didYouMean, error: unified.error,
+            topResult: unified.topResult, songs: isSameSongs ? current.songs : unified.songs, ytSongs: unified.ytSongs,
+            saavnSongs: unified.saavnSongs, audiusSongs: unified.audiusSongs, albums: unified.albums, artists: unified.artists,
+            playlists: unified.playlists, didYouMean: unified.didYouMean, error: unified.error,
           );
         }
-        if (unified.songs.isNotEmpty || unified.albums.isNotEmpty || unified.artists.isNotEmpty) {
-          _isInitialLoadingNotifier.value = false;
-        }
+        if (unified.songs.isNotEmpty || unified.albums.isNotEmpty || unified.artists.isNotEmpty) { _isInitialLoadingNotifier.value = false; }
       }
       if (mounted && currentRequestId == _searchRequestId) {
         _isSearchingNotifier.value = _isInitialLoadingNotifier.value = false;
@@ -310,7 +311,7 @@ class _SearchScreenState extends State<SearchScreen> {
         if (_resultsNotifier.value.isEmpty) {
           _resultsNotifier.value = SearchResultsState(error: ErrorHandler.resolve(e, stackTrace: stack, context: 'SearchScreen._executeSearch'));
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Offline: Showing cached results'), duration: Duration(seconds: 2)));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't refresh, showing saved results"), duration: Duration(seconds: 2)));
         }
         _isSearchingNotifier.value = _isInitialLoadingNotifier.value = false;
       }
@@ -339,9 +340,7 @@ class _SearchScreenState extends State<SearchScreen> {
       valueListenable: _canPopNotifier,
       builder: (context, canPop, _) => PopScope(
         canPop: canPop,
-        onPopInvokedWithResult: (didPop, result) {
-          if (!didPop && !canPop) _exitActiveSearch();
-        },
+        onPopInvokedWithResult: (didPop, result) { if (!didPop && !canPop) _exitActiveSearch(); },
         child: Scaffold(
           backgroundColor: AppColors.bgDark,
           body: SafeArea(
@@ -356,8 +355,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     focusNode: _searchFocusNode,
                     onEnterActiveSearch: () {
                       if (!_isSearchActiveNotifier.value) _isSearchActiveNotifier.value = true;
-                      _searchFocusNode.requestFocus();
-                      _updateCanPop();
+                      _searchFocusNode.requestFocus(); _updateCanPop();
                     },
                     onExitActiveSearch: _exitActiveSearch,
                     onChanged: _onQueryChanged,
@@ -367,10 +365,9 @@ class _SearchScreenState extends State<SearchScreen> {
                     valueListenable: _hasSearchedNotifier,
                     builder: (context, hasSearched, _) => ValueListenableBuilder<bool>(
                       valueListenable: _isSearchingNotifier,
-                      builder: (context, isSearching, _) {
-                        if (!isSearching || !hasSearched) return const SizedBox(height: 2);
-                        return const LinearProgressIndicator(minHeight: 2, color: AppColors.electricCyan, backgroundColor: Colors.transparent);
-                      },
+                      builder: (context, isSearching, _) => (!isSearching || !hasSearched)
+                          ? const SizedBox(height: 2)
+                          : const LinearProgressIndicator(minHeight: 2, color: AppColors.electricCyan, backgroundColor: Colors.transparent),
                     ),
                   ),
                   Expanded(

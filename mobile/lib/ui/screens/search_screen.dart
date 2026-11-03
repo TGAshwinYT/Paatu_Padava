@@ -8,7 +8,7 @@ import '../../services/player_handler.dart';
 import '../../services/search_history_manager.dart';
 import '../../services/favorites_manager.dart';
 import '../../services/catalog_database.dart';
-// import '../../services/settings_manager.dart';
+import '../../services/download_manager.dart';
 import '../../services/fuzzy_search_service.dart';
 import '../../services/search_service.dart';
 import '../../logic/stream_resolver.dart';
@@ -51,9 +51,9 @@ class _SearchScreenState extends State<SearchScreen> {
   void initState() {
     super.initState();
     _initTrie();
-    SearchHistoryManager.historyNotifier.addListener(_updateTrieWithHistory);
-    SearchHistoryManager.recentSongsNotifier.addListener(_updateTrieWithHistory);
-    FavoritesManager.favoritesNotifier.addListener(_updateTrieWithHistory);
+    for (final l in [SearchHistoryManager.historyNotifier, SearchHistoryManager.recentSongsNotifier, FavoritesManager.favoritesNotifier, DownloadManager.downloadedSongsNotifier]) {
+      l.addListener(_updateTrieWithHistory);
+    }
     _searchFocusNode.addListener(() {
       if (_searchFocusNode.hasFocus && !_isSearchActiveNotifier.value) _isSearchActiveNotifier.value = true;
     });
@@ -67,24 +67,33 @@ class _SearchScreenState extends State<SearchScreen> {
   void _updateTrieWithHistory() {
     final recent = SearchHistoryManager.historyNotifier.value;
     _localSearchTrie.clear();
-    for (int i = 0; i < SearchConstants.trendingArtists.length; i++) { _localSearchTrie.insert(SearchConstants.trendingArtists[i], weight: 100 - i); }
-    for (int i = 0; i < SearchConstants.browseCategories.length; i++) {
-      final t = SearchConstants.browseCategories[i]['title'] as String?;
-      if (t != null) _localSearchTrie.insert(t, weight: 80 - i);
+    final seen = <String>{};
+    void addTerm(String? term, int weight) {
+      if (term == null) return;
+      final clean = SearchQueryPlanner.cleanTitle(term).trim();
+      if (clean.length >= 2 && seen.add(clean.toLowerCase())) _localSearchTrie.insert(clean, weight: weight);
     }
-    for (int i = 0; i < recent.length; i++) { _localSearchTrie.insert(recent[i], weight: 120 - i); }
+
+    final saved = [...DownloadManager.downloadedSongsNotifier.value, ...FavoritesManager.favoritesNotifier.value];
+    for (int i = 0; i < saved.length; i++) { addTerm(saved[i].title, 150 - (i % 20)); addTerm(saved[i].primaryArtist, 140 - (i % 20)); }
+    for (int i = 0; i < recent.length; i++) { addTerm(recent[i], 130 - i); }
+    final recentSongs = SearchHistoryManager.recentSongsNotifier.value;
+    for (int i = 0; i < recentSongs.length; i++) { addTerm(recentSongs[i].title, 110 - i); }
+    for (int i = 0; i < SearchConstants.trendingArtists.length; i++) { addTerm(SearchConstants.trendingArtists[i], 90 - i); }
+    for (int i = 0; i < SearchConstants.browseCategories.length; i++) { addTerm(SearchConstants.browseCategories[i]['title'] as String?, 70 - i); }
+
     FuzzySearchService.registerCandidates(recent);
-    final localSongs = [...SearchHistoryManager.recentSongsNotifier.value, ...FavoritesManager.favoritesNotifier.value];
-    if (localSongs.isNotEmpty) FuzzySearchService.registerSongs(localSongs);
+    final allLocal = [...saved, ...recentSongs];
+    if (allLocal.isNotEmpty) FuzzySearchService.registerSongs(allLocal);
   }
 
   @override
   void dispose() {
     _searchFocusNode.dispose();
     _isSearchActiveNotifier.dispose();
-    SearchHistoryManager.historyNotifier.removeListener(_updateTrieWithHistory);
-    SearchHistoryManager.recentSongsNotifier.removeListener(_updateTrieWithHistory);
-    FavoritesManager.favoritesNotifier.removeListener(_updateTrieWithHistory);
+    for (final l in [SearchHistoryManager.historyNotifier, SearchHistoryManager.recentSongsNotifier, FavoritesManager.favoritesNotifier, DownloadManager.downloadedSongsNotifier]) {
+      l.removeListener(_updateTrieWithHistory);
+    }
     _searchController.dispose();
     _typeaheadDebounceTimer?.cancel();
     for (final n in [_isSearchingNotifier, _hasSearchedNotifier, _localMatchesNotifier, _suggestionsNotifier, _resultsNotifier]) {
@@ -123,7 +132,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
     // State B: Instant Local Song Matches (< 5ms) - Only match songs whose TITLE starts with or matches query
     final lower = clean.toLowerCase();
-    final allLocal = [...SearchHistoryManager.recentSongsNotifier.value, ...FavoritesManager.favoritesNotifier.value];
+    final allLocal = [...DownloadManager.downloadedSongsNotifier.value, ...FavoritesManager.favoritesNotifier.value, ...SearchHistoryManager.recentSongsNotifier.value];
     final matchedSongs = <Song>[];
     for (final s in allLocal) {
       final t = SearchQueryPlanner.cleanTitle(s.title).toLowerCase();

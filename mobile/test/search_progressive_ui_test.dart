@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paatu_padava_mobile/models/song.dart';
 import 'package:paatu_padava_mobile/ui/screens/search_screen.dart';
+import 'package:paatu_padava_mobile/services/download_manager.dart';
 import 'package:paatu_padava_mobile/ui/widgets/search/search_pre_content.dart';
 import 'package:paatu_padava_mobile/ui/widgets/search/search_active_typing_suggestions.dart';
 import 'package:paatu_padava_mobile/ui/widgets/search/search_all_results_view.dart';
@@ -319,6 +320,42 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(SearchScreen), findsNothing);
       expect(find.text('Base Screen'), findsOneWidget);
+    });
+
+    testWidgets('Trie contents: offline downloaded & favorite songs are indexed into the PrefixTrie with top weight', (tester) async {
+      final downloadedTrack = Song(
+        id: 'dl_arabic',
+        title: 'Arabic Kuthu',
+        artist: 'Anirudh Ravichander',
+        album: 'Beast',
+        duration: 280,
+        source: 'saavn',
+        coverUrl: '',
+      );
+
+      DownloadManager.downloadedSongsNotifier.value = [downloadedTrack];
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: SearchScreen(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Tap to activate search
+      await tester.tap(find.text('What do you want to play?'));
+      await tester.pumpAndSettle();
+
+      // Type prefix 'Ar'
+      await tester.enterText(find.byType(TextField), 'Ar');
+      await tester.pump();
+
+      // State B: Autocomplete suggestions should immediately include 'Arabic Kuthu'
+      expect(find.byType(SearchActiveTypingSuggestions), findsOneWidget);
+      expect(find.text('Arabic Kuthu'), findsWidgets);
+
+      // Clean up notifier
+      DownloadManager.downloadedSongsNotifier.value = [];
     });
   });
 }

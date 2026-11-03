@@ -10,7 +10,6 @@ import 'package:paatu_padava_mobile/ui/widgets/search/search_song_tile.dart';
 import 'package:paatu_padava_mobile/ui/widgets/search/search_top_result_card.dart';
 import 'package:paatu_padava_mobile/ui/widgets/search/search_skeleton_view.dart';
 import 'package:paatu_padava_mobile/ui/widgets/search/search_body_content.dart';
-import 'package:paatu_padava_mobile/services/search_service.dart';
 
 void main() {
   group('3-State Progressive Search UI Tests', () {

@@ -37,10 +37,21 @@ class _SearchScreenState extends State<SearchScreen> {
   final ValueNotifier<bool> _isSearchingNotifier = ValueNotifier<bool>(false);
   final ValueNotifier<bool> _isInitialLoadingNotifier = ValueNotifier<bool>(false);
   final ValueNotifier<bool> _hasSearchedNotifier = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> _canPopNotifier = ValueNotifier<bool>(true);
   final ValueNotifier<List<Song>> _localMatchesNotifier = ValueNotifier<List<Song>>([]);
   final ValueNotifier<List<String>> _suggestionsNotifier = ValueNotifier<List<String>>([]);
   final ValueNotifier<SearchResultsState> _resultsNotifier = ValueNotifier<SearchResultsState>(const SearchResultsState());
   final PrefixTrie<String> _localSearchTrie = PrefixTrie<String>();
+
+  void _updateCanPop() {
+    final hasActiveSearch = _isSearchActiveNotifier.value ||
+        _hasSearchedNotifier.value ||
+        _searchController.text.isNotEmpty;
+    final canPop = !hasActiveSearch;
+    if (_canPopNotifier.value != canPop) {
+      _canPopNotifier.value = canPop;
+    }
+  }
 
   @override
   void initState() {
@@ -50,7 +61,10 @@ class _SearchScreenState extends State<SearchScreen> {
       l.addListener(_updateTrieWithHistory);
     }
     _searchFocusNode.addListener(() {
-      if (_searchFocusNode.hasFocus && !_isSearchActiveNotifier.value) _isSearchActiveNotifier.value = true;
+      if (_searchFocusNode.hasFocus && !_isSearchActiveNotifier.value) {
+        _isSearchActiveNotifier.value = true;
+        _updateCanPop();
+      }
     });
   }
 
@@ -87,6 +101,7 @@ class _SearchScreenState extends State<SearchScreen> {
   void dispose() {
     _searchFocusNode.dispose();
     _isSearchActiveNotifier.dispose();
+    _canPopNotifier.dispose();
     for (final l in [SearchHistoryManager.historyNotifier, SearchHistoryManager.recentSongsNotifier, FavoritesManager.favoritesNotifier, DownloadManager.downloadedSongsNotifier]) {
       l.removeListener(_updateTrieWithHistory);
     }
@@ -104,6 +119,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _localMatchesNotifier.value = [];
     _suggestionsNotifier.value = [];
     _resultsNotifier.value = const SearchResultsState();
+    _updateCanPop();
   }
 
   void _exitActiveSearch() {
@@ -113,10 +129,12 @@ class _SearchScreenState extends State<SearchScreen> {
     _searchController.clear();
     _isSearchActiveNotifier.value = false;
     _resetSearchState();
+    _updateCanPop();
   }
 
   void _onQueryChanged(String query) {
     if (!_isSearchActiveNotifier.value) _isSearchActiveNotifier.value = true;
+    _updateCanPop();
     _typeaheadDebounceTimer?.cancel();
     final clean = query.trim();
     if (clean.isEmpty) {
@@ -126,27 +144,24 @@ class _SearchScreenState extends State<SearchScreen> {
 
     _hasSearchedNotifier.value = false;
 
-    // State B: Instant Local Song Matches (< 5ms) - Only match songs whose TITLE starts with or matches query
-    final lower = clean.toLowerCase();
+    // State B: Instant Local Song Matches (< 5ms) - Uses FuzzySearchService for title, artist, album, and typo tolerance
     final allLocal = [...DownloadManager.downloadedSongsNotifier.value, ...FavoritesManager.favoritesNotifier.value, ...SearchHistoryManager.recentSongsNotifier.value];
     final matchedSongs = <Song>[];
     for (final s in allLocal) {
-      final t = SearchQueryPlanner.cleanTitle(s.title).toLowerCase();
-      if ((t.startsWith(lower) || t.split(RegExp(r'\s+')).any((w) => w.startsWith(lower))) && !matchedSongs.any((m) => m.id == s.id)) {
+      if (FuzzySearchService.matchesSong(s, clean) && !matchedSongs.any((m) => m.id == s.id)) {
         matchedSongs.add(s);
         if (matchedSongs.length >= 3) break;
       }
     }
     _localMatchesNotifier.value = matchedSongs;
 
-    // Supplement with Master Catalog matches only if song title genuinely matches
+    // Supplement with Master Catalog matches
     if (matchedSongs.length < 3) {
       CatalogDatabase.searchCatalog(clean, limit: 5).then((catSongs) {
         if (!mounted || _searchController.text.trim() != clean || _hasSearchedNotifier.value) return;
         final current = List<Song>.from(_localMatchesNotifier.value);
         for (final cs in catSongs) {
-          final ct = SearchQueryPlanner.cleanTitle(cs.title).toLowerCase();
-          if ((ct.startsWith(lower) || ct.split(RegExp(r'\s+')).any((w) => w.startsWith(lower))) && !current.any((x) => x.id == cs.id) && current.length < 3) {
+          if (FuzzySearchService.matchesSong(cs, clean) && !current.any((x) => x.id == cs.id) && current.length < 3) {
             current.add(cs);
           }
         }
@@ -154,13 +169,14 @@ class _SearchScreenState extends State<SearchScreen> {
       }).catchError((e, stack) => AppLogger.log('SearchScreen', 'Catalog query error: $e', level: LogLevel.warn));
     }
 
-    // State B: Instant Prefix Trie Suggestions (smooth, no flash on empty)
+    // State B: Instant Prefix Trie Suggestions (smooth, no ghost completions)
+    final lower = clean.toLowerCase();
     final instant = _localSearchTrie.findByPrefix(clean, limit: 5).map((m) => m.term).toList();
     if (instant.isNotEmpty) {
       _suggestionsNotifier.value = instant;
     } else {
       final retained = _suggestionsNotifier.value.where((s) => s.toLowerCase().contains(lower)).toList();
-      if (retained.isNotEmpty) _suggestionsNotifier.value = retained;
+      _suggestionsNotifier.value = retained;
     }
 
     // State B: Asynchronous Live Typeahead Fetch (debounced 250ms, progressive merge)
@@ -193,6 +209,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
     _searchFocusNode.unfocus();
     _hasSearchedNotifier.value = true;
+    _updateCanPop();
 
     // SWR Instant Cache Check: Immediately render cached results if present (0ms flash-free)
     final cached = SearchCache.get(clean);
@@ -307,73 +324,75 @@ class _SearchScreenState extends State<SearchScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: Listenable.merge([_isSearchActiveNotifier, _hasSearchedNotifier, _searchController]),
-      builder: (context, _) {
-        final hasActiveSearch = _isSearchActiveNotifier.value ||
-            _hasSearchedNotifier.value ||
-            _searchController.text.isNotEmpty;
+    return ValueListenableBuilder<bool>(
+      valueListenable: _canPopNotifier,
+      builder: (context, canPop, _) {
         return PopScope(
-          canPop: !hasActiveSearch,
+          canPop: canPop,
           onPopInvokedWithResult: (didPop, result) {
             if (didPop) return;
-            if (hasActiveSearch) _exitActiveSearch();
+            if (!canPop) _exitActiveSearch();
           },
           child: Scaffold(
-        backgroundColor: AppColors.bgDark,
-        body: SafeArea(
-          child: ValueListenableBuilder<bool>(
-            valueListenable: _isSearchActiveNotifier,
-            builder: (context, isSearchActive, _) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SearchHeaderBar(
-                    isSearchActive: isSearchActive,
-                    controller: _searchController,
-                    focusNode: _searchFocusNode,
-                    onEnterActiveSearch: () {
-                      if (!_isSearchActiveNotifier.value) _isSearchActiveNotifier.value = true;
-                      _searchFocusNode.requestFocus();
-                    },
-                    onExitActiveSearch: _exitActiveSearch,
-                    onChanged: _onQueryChanged,
-                    onSubmitted: (q) => _executeSearch(q, saveHistory: true),
-                  ),
-                  ValueListenableBuilder<bool>(
-                    valueListenable: _hasSearchedNotifier,
-                    builder: (context, hasSearched, _) {
-                      return ValueListenableBuilder<bool>(
-                        valueListenable: _isInitialLoadingNotifier,
-                        builder: (context, isInitialLoading, _) {
-                          if (!isInitialLoading || !hasSearched) return const SizedBox(height: 2);
-                          return const LinearProgressIndicator(minHeight: 2, color: AppColors.electricCyan, backgroundColor: Colors.transparent);
+            backgroundColor: AppColors.bgDark,
+            body: SafeArea(
+              child: ValueListenableBuilder<bool>(
+                valueListenable: _isSearchActiveNotifier,
+                builder: (context, isSearchActive, _) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SearchHeaderBar(
+                        isSearchActive: isSearchActive,
+                        controller: _searchController,
+                        focusNode: _searchFocusNode,
+                        onEnterActiveSearch: () {
+                          if (!_isSearchActiveNotifier.value) _isSearchActiveNotifier.value = true;
+                          _searchFocusNode.requestFocus();
+                          _updateCanPop();
                         },
-                      );
-                    },
-                  ),
-                  Expanded(
-                    child: SearchBodyContent(
-                      searchController: _searchController,
-                      hasSearchedNotifier: _hasSearchedNotifier,
-                      isInitialLoadingNotifier: _isInitialLoadingNotifier,
-                      localMatchesNotifier: _localMatchesNotifier,
-                      suggestionsNotifier: _suggestionsNotifier,
-                      resultsNotifier: _resultsNotifier,
-                      onTriggerCategorySearch: _triggerCategorySearch,
-                      onSearchExactQuery: _searchExactQuery,
-                      onQueryChanged: _onQueryChanged,
-                      onExecuteSearch: _executeSearch,
-                      onRecordSearchResultClick: _recordSearchResultClick,
-                    ),
-                  ),
-                ],
-              );
-            },
+                        onExitActiveSearch: _exitActiveSearch,
+                        onChanged: _onQueryChanged,
+                        onSubmitted: (q) => _executeSearch(q, saveHistory: true),
+                      ),
+                      ValueListenableBuilder<bool>(
+                        valueListenable: _hasSearchedNotifier,
+                        builder: (context, hasSearched, _) {
+                          return ValueListenableBuilder<bool>(
+                            valueListenable: _isInitialLoadingNotifier,
+                            builder: (context, isInitialLoading, _) {
+                              if (!isInitialLoading || !hasSearched) return const SizedBox(height: 2);
+                              return const LinearProgressIndicator(
+                                minHeight: 2,
+                                color: AppColors.electricCyan,
+                                backgroundColor: Colors.transparent,
+                              );
+                            },
+                          );
+                        },
+                      ),
+                      Expanded(
+                        child: SearchBodyContent(
+                          searchController: _searchController,
+                          hasSearchedNotifier: _hasSearchedNotifier,
+                          isInitialLoadingNotifier: _isInitialLoadingNotifier,
+                          localMatchesNotifier: _localMatchesNotifier,
+                          suggestionsNotifier: _suggestionsNotifier,
+                          resultsNotifier: _resultsNotifier,
+                          onTriggerCategorySearch: _triggerCategorySearch,
+                          onSearchExactQuery: _searchExactQuery,
+                          onQueryChanged: _onQueryChanged,
+                          onExecuteSearch: _executeSearch,
+                          onRecordSearchResultClick: _recordSearchResultClick,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
           ),
-        ),
-      ),
-    );
+        );
       },
     );
   }

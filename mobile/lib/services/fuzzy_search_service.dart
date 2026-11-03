@@ -210,18 +210,24 @@ class FuzzySearchService {
   /// Dynamically register candidate terms with strict capacity bounding (max 100 dynamic entries)
   static void registerCandidates(Iterable<String> terms) {
     _ensureInitialized();
+
+    // Enforce strict upper bound on dynamic dictionary size (max 100 dynamic entries).
+    // Perform bulk pruning and single rebuild BEFORE insertion loop, never on every iteration.
+    final candidateList = terms.toList();
+    if (_dynamicHistory.isNotEmpty && (_dynamicHistory.length + candidateList.length >= maxDynamicCandidates)) {
+      final excess = (_dynamicHistory.length + candidateList.length) - maxDynamicCandidates + 25;
+      final pruneCount = excess.clamp(1, _dynamicHistory.length);
+      _dynamicHistory.removeRange(0, pruneCount);
+      _rebuildAll();
+    }
+
     bool addedAny = false;
-    for (final term in terms) {
+    for (final term in candidateList) {
+      if (_dynamicHistory.length >= maxDynamicCandidates) break;
       final sanitized = Song.sanitize(term).trim();
       if (sanitized.length < 3 || sanitized.length > 35) continue;
       final lower = sanitized.toLowerCase();
       if (_lowercaseCandidateSet.contains(lower)) continue;
-
-      // Enforce strict upper bound on dynamic dictionary size (max 100 dynamic entries)
-      if (_dynamicHistory.length >= maxDynamicCandidates) {
-        _dynamicHistory.removeRange(0, 25);
-        _rebuildAll();
-      }
 
       if (_candidateDictionary.add(sanitized)) {
         _dynamicHistory.add(sanitized);
@@ -250,10 +256,10 @@ class FuzzySearchService {
     }
   }
 
-  /// Register verified top song titles and primary artists into the dictionary (capped to top 5)
+  /// Register verified song titles and primary artists from library into the dictionary (capped to 100)
   static void registerSongs(Iterable<Song> songs) {
     final terms = <String>[];
-    for (final song in songs.take(5)) {
+    for (final song in songs.take(100)) {
       if (song.title.isNotEmpty && song.title.length <= 35) {
         terms.add(song.title);
       }

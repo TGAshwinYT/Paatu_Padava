@@ -265,13 +265,20 @@ void main() {
       );
       expect(affinityFav, equals(1.0));
 
-      // 2. With artist in history -> strong affinity 0.70 to 1.0
-      final affinityHist = SearchService.calculateUserAffinity(
+      // 2. With artist in history -> graduated affinity: 1 play = 0.25, 2 plays = 0.50, 3 plays = 0.75, 5+ = 1.0
+      final affinity1Play = SearchService.calculateUserAffinity(
         candidateSong,
         favorites: const [],
         history: [historySong],
       );
-      expect(affinityHist, greaterThanOrEqualTo(0.70));
+      expect(affinity1Play, equals(0.25));
+
+      final affinity3Plays = SearchService.calculateUserAffinity(
+        candidateSong,
+        favorites: const [],
+        history: [historySong, historySong, historySong],
+      );
+      expect(affinity3Plays, equals(0.75));
 
       // 3. Unknown artist without history -> 0.0 affinity
       final affinityNone = SearchService.calculateUserAffinity(

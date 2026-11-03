@@ -84,6 +84,14 @@ void main() {
 
       final neruppuVariants = SearchService.generateUniversalPhoneticVariants('neruppu');
       expect(neruppuVariants, contains('nerupu'));
+
+      // Intervocalic geminate doubling: doubles medial consonant between vowels, never word-initial
+      final nerupuVariants = SearchService.generateUniversalPhoneticVariants('nerupu');
+      expect(nerupuVariants, contains('neruppu'));
+
+      final karkalamVariants = SearchService.generateUniversalPhoneticVariants('karkalam');
+      // Must not double word-initial 'k' into junk 'kkarkkalam'
+      expect(karkalamVariants, isNot(contains('kkarkkalam')));
     });
   });
 
@@ -136,16 +144,39 @@ void main() {
       final tamilIntent = SearchService.understandQuery('விக்ரம்');
       expect(tamilIntent.transliteratedQuery.toLowerCase(), equals('vikram'));
       expect(tamilIntent.explicitLanguage?.toLowerCase(), equals('tamil'));
+      // Must NOT suggest English romanization as "did you mean" for native script
+      expect(tamilIntent.didYouMeanSuggestion, isNull);
 
       // Hindi query: Devanagari script must resolve to 'hindi' language
       final hindiIntent = SearchService.understandQuery('केसरिया');
       expect(hindiIntent.transliteratedQuery.toLowerCase(), startsWith('kesariya'));
       expect(hindiIntent.explicitLanguage?.toLowerCase(), equals('hindi'));
+      expect(hindiIntent.didYouMeanSuggestion, isNull);
 
       // Telugu query
       final teluguIntent = SearchService.understandQuery('చుట్టమల్లే');
       expect(teluguIntent.transliteratedQuery.toLowerCase(), startsWith('chuttamall'));
       expect(teluguIntent.explicitLanguage?.toLowerCase(), equals('telugu'));
+      expect(teluguIntent.didYouMeanSuggestion, isNull);
+    });
+
+    test('FuzzySearchService.registerSongs learns up to 100 library songs and handles capacity bounding', () {
+      final librarySongs = List.generate(
+        120,
+        (i) => Song(
+          id: 'lib_song_$i',
+          title: 'Unique Library Title $i',
+          artist: 'Artist $i',
+          album: 'Album $i',
+          coverUrl: '',
+        ),
+      );
+
+      // Registering 120 songs handles capacity without throwing or UI freeze
+      FuzzySearchService.registerSongs(librarySongs);
+
+      // Songs within the 100 quota should match
+      expect(FuzzySearchService.matchesSong(librarySongs[10], 'Unique Library Title 10'), isTrue);
     });
 
     test('SearchService.expandPhoneticQuery handles multi-language transliterations without no-ops', () {

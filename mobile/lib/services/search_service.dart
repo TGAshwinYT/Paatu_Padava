@@ -260,8 +260,10 @@ class UserAffinityContext {
       playCount += historyAlbumPlayCounts[candAlbum] ?? 0;
     }
 
-    if (playCount >= 3) return 1.0;
-    if (playCount >= 1) return 0.70;
+    if (playCount >= 5) return 1.0;
+    if (playCount >= 3) return 0.75;
+    if (playCount == 2) return 0.50;
+    if (playCount == 1) return 0.25;
 
     return 0.0;
   }
@@ -429,10 +431,12 @@ class SearchService {
     if (clean.contains('ph')) variants.add(clean.replaceAll('ph', 'f'));
     if (clean.contains('f')) variants.add(clean.replaceAll('f', 'ph'));
 
-    // Geminate consonant expansion (e.g. "muruku" -> "murukku", "nerupu" -> "neruppu")
+    // Geminate consonant expansion (intervocalic medial positions ONLY, e.g. "nerupu" -> "neruppu", "kutty" -> "kuty")
+    // Consonant doubling in South Asian phonetics never occurs word-initially (never "kk-", "pp-", "tt-").
     for (final ch in const ['k', 'p', 't', 'l', 'm', 'n', 'r']) {
-      if (clean.contains(ch) && !clean.contains('$ch$ch')) {
-        variants.add(clean.replaceAll(ch, '$ch$ch'));
+      final medialRegex = RegExp('([aeiou])$ch([aeiou])');
+      if (medialRegex.hasMatch(clean) && !clean.contains('$ch$ch')) {
+        variants.add(clean.replaceAllMapped(medialRegex, (m) => '${m[1]}$ch$ch${m[2]}'));
       }
     }
 
@@ -934,8 +938,10 @@ class SearchService {
       final ytQuery = (effectiveLang != null && !query.toLowerCase().contains(effectiveLang.toLowerCase()))
           ? '$effectiveLang $query'
           : query;
-      final ytFuture = YouTubeClient.search(ytQuery, limit: limit)
-          .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[]);
+      final ytOffset = (page - 1) * limit;
+      final ytFuture = YouTubeClient.search(ytQuery, limit: page * limit)
+          .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[])
+          .then((list) => list.length > ytOffset ? list.skip(ytOffset).take(limit).toList() : <Song>[]);
 
       final results = await Future.wait([saavnFuture, ytFuture]);
       final saavnSongs = results[0];
@@ -1209,7 +1215,7 @@ class SearchService {
       final roman = IndicRomanizer.romanize(clean).trim();
       if (roman.isNotEmpty && roman.toLowerCase() != cleanLower) {
         transliterated = roman;
-        didYouMean = roman;
+        // Do NOT set didYouMean = roman; native Indic script is an authentic, intentional query, not a misspelling!
       }
       if (explicitLang == null) {
         final detected = IndicRomanizer.detectScript(clean);
@@ -1232,7 +1238,7 @@ class SearchService {
       }
     }
 
-    if (didYouMean == null) {
+    if (didYouMean == null && !IndicRomanizer.hasIndicScript(clean)) {
       final typoOrTanglish = FuzzySearchService.findCorrection(cleanLower);
       if (typoOrTanglish != null && typoOrTanglish.corrected.toLowerCase() != cleanLower) {
         transliterated = typoOrTanglish.corrected;
@@ -1244,7 +1250,9 @@ class SearchService {
       final phoneticExpanded = expandPhoneticQuery(cleanLower);
       if (phoneticExpanded.toLowerCase() != cleanLower) {
         transliterated = phoneticExpanded;
-        didYouMean = phoneticExpanded;
+        if (!IndicRomanizer.hasIndicScript(clean)) {
+          didYouMean = phoneticExpanded;
+        }
       }
     }
 
@@ -1265,7 +1273,7 @@ class SearchService {
       transliterated = universalPhonetic;
     }
 
-    if (didYouMean == null && cleanLower != transliterated.toLowerCase()) {
+    if (didYouMean == null && cleanLower != transliterated.toLowerCase() && !IndicRomanizer.hasIndicScript(clean)) {
       didYouMean = transliterated;
     }
 
@@ -1479,8 +1487,10 @@ class SearchService {
       }
     }
 
-    if (playCount >= 3) return 1.0;
-    if (playCount >= 1) return 0.70;
+    if (playCount >= 5) return 1.0;
+    if (playCount >= 3) return 0.75;
+    if (playCount == 2) return 0.50;
+    if (playCount == 1) return 0.25;
 
     return 0.0;
   }
@@ -1701,6 +1711,7 @@ class SearchService {
     List<String>? preferredLanguages,
     List<Song>? history,
     List<Song>? favorites,
+    UserAffinityContext? affinityContext,
   }) {
     final Map<String, Song> canonicalMap = {};
     final List<Song> deduplicatedPool = [];
@@ -1767,7 +1778,7 @@ class SearchService {
       for (int i = 0; i < deduplicatedPool.length; i++) deduplicatedPool[i].id: i
     };
 
-    final affinityContext = UserAffinityContext.fromSongs(
+    final effAffinityContext = affinityContext ?? UserAffinityContext.fromSongs(
       favorites: favorites,
       history: history,
     );
@@ -1780,7 +1791,7 @@ class SearchService {
         history: history,
         favorites: favorites,
         preferredLanguages: preferredLanguages,
-        affinityContext: affinityContext,
+        affinityContext: effAffinityContext,
       );
       return MapEntry(score, song);
     }).where((e) => e.key > 0.0).toList();
@@ -1868,6 +1879,7 @@ class SearchService {
     List<Map<String, dynamic>> initialArtists = [];
     List<Map<String, dynamic>> initialPlaylists = [];
     SearchResults? lastEmittedBundle;
+    final queryAffinityCtx = UserAffinityContext.fromSongs();
 
     try {
       bool saavnFailed = false;
@@ -2101,13 +2113,12 @@ class SearchService {
         bypassedExplicitLangSaavnEarly = true;
       }
 
-      final saavnAffinityCtxEarly = UserAffinityContext.fromSongs();
       final scoredSaavnEarly = candidateSaavnEarly.map((s) {
         final score = calculateCompositeRelevance(
           s,
           bypassedExplicitLangSaavnEarly ? intent.copyWith(explicitLanguage: null) : intent,
           preferredLanguages: prefLangs,
-          affinityContext: saavnAffinityCtxEarly,
+          affinityContext: queryAffinityCtx,
         );
         return MapEntry(score, s);
       }).where((e) => e.key > 0.0).toList();
@@ -2238,13 +2249,12 @@ class SearchService {
         bypassedExplicitLangSaavn = true;
       }
 
-      final saavnAffinityCtx = UserAffinityContext.fromSongs();
       final scoredSaavn = candidateSaavn.map((s) {
         final score = calculateCompositeRelevance(
           s,
           bypassedExplicitLangSaavn ? intent.copyWith(explicitLanguage: null) : intent,
           preferredLanguages: prefLangs,
-          affinityContext: saavnAffinityCtx,
+          affinityContext: queryAffinityCtx,
         );
         return MapEntry(score, s);
       }).where((e) => e.key > 0.0).toList();
@@ -2406,7 +2416,8 @@ class SearchService {
 
       if (hasStrongMatch) {
         didYouMean = null;
-      } else if (intent.transliteratedQuery.toLowerCase() != intent.cleanQuery.toLowerCase()) {
+      } else if (intent.transliteratedQuery.toLowerCase() != intent.cleanQuery.toLowerCase() &&
+          !IndicRomanizer.hasIndicScript(intent.cleanQuery)) {
         didYouMean = intent.transliteratedQuery;
       } else {
         final correction = FuzzySearchService.findCorrection(intent.cleanQuery);
@@ -2473,13 +2484,12 @@ class SearchService {
       }
       final ytSongs = candidateYt;
 
-      final ytAffinityCtx = UserAffinityContext.fromSongs();
       final scoredYt = candidateYt.map((s) {
         final score = calculateCompositeRelevance(
           s,
           bypassedExplicitLangYt ? intent.copyWith(explicitLanguage: null) : intent,
           preferredLanguages: prefLangs,
-          affinityContext: ytAffinityCtx,
+          affinityContext: queryAffinityCtx,
         );
         return MapEntry(score, s);
       }).where((e) => e.key > 0.0).toList();
@@ -2514,6 +2524,7 @@ class SearchService {
         audiusSongs: const [],
         intent: intent,
         preferredLanguages: prefLangs,
+        affinityContext: queryAffinityCtx,
       );
 
       // Asynchronous Write-Through Ingestion: store newly discovered songs in local CatalogDatabase

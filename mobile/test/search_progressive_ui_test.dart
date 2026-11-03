@@ -211,5 +211,114 @@ void main() {
       expect(find.byType(SearchPreContent), findsOneWidget);
       expect(find.byType(SearchActiveTypingSuggestions), findsNothing);
     });
+
+    testWidgets('Pause-to-results & Debounce: typing pause of 450ms or 1200ms NEVER triggers full results or spinner', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: SearchScreen(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Activate and type
+      await tester.tap(find.text('What do you want to play?'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'K');
+      await tester.pump();
+
+      // State B is visible
+      expect(find.byType(SearchActiveTypingSuggestions), findsOneWidget);
+
+      // Rapid keystroke before 150ms debounce (e.g. 50ms)
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.enterText(find.byType(TextField), 'Ka');
+      await tester.pump();
+
+      // Wait 150ms for typeahead debounce
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(find.byType(SearchActiveTypingSuggestions), findsOneWidget);
+
+      // Wait 450ms (the old auto-search timer threshold)
+      await tester.pump(const Duration(milliseconds: 450));
+
+      // MUST NOT have transitioned to SearchAllResultsView or loading spinner!
+      expect(find.byType(SearchActiveTypingSuggestions), findsOneWidget);
+      expect(find.byType(SearchAllResultsView), findsNothing);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+
+      // Wait an additional 1000ms (1.45s total pause)
+      await tester.pump(const Duration(milliseconds: 1000));
+
+      // STILL locked in State B
+      expect(find.byType(SearchActiveTypingSuggestions), findsOneWidget);
+      expect(find.byType(SearchAllResultsView), findsNothing);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+
+    testWidgets('Back-button / PopScope behavior: intercepts back when search is active or has text, canPop is true when clean', (tester) async {
+      final navKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navKey,
+          home: const Scaffold(body: Text('Base Screen')),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Push SearchScreen onto navigator
+      navKey.currentState!.push(MaterialPageRoute(builder: (_) => const SearchScreen()));
+      await tester.pumpAndSettle();
+
+      // 1. Initial State A: search is inactive and text is empty -> canPop must be TRUE
+      var popScope = tester.widgetList(find.byWidgetPredicate((w) => w is PopScope)).first as PopScope;
+      expect(popScope.canPop, isTrue);
+      expect(find.byType(SearchPreContent), findsOneWidget);
+
+      // 2. Tap search bar to enter active search
+      await tester.tap(find.text('What do you want to play?'));
+      await tester.pumpAndSettle();
+
+      // Active search with empty text -> canPop must be FALSE to protect against exiting
+      popScope = tester.widgetList(find.byWidgetPredicate((w) => w is PopScope)).first as PopScope;
+      expect(popScope.canPop, isFalse);
+
+      // Trigger back button while active search is open
+      await navKey.currentState!.maybePop();
+      await tester.pumpAndSettle();
+
+      // Must have intercepted back and returned to inactive State A, SearchScreen is still mounted!
+      expect(find.byType(SearchScreen), findsOneWidget);
+      expect(find.byType(SearchPreContent), findsOneWidget);
+      popScope = tester.widgetList(find.byWidgetPredicate((w) => w is PopScope)).first as PopScope;
+      expect(popScope.canPop, isTrue);
+
+      // 3. Enter active search and type a query
+      await tester.tap(find.text('What do you want to play?'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Anirudh');
+      await tester.pump();
+
+      // Active search with typed text -> canPop must be FALSE
+      popScope = tester.widgetList(find.byWidgetPredicate((w) => w is PopScope)).first as PopScope;
+      expect(popScope.canPop, isFalse);
+      expect(find.byType(SearchActiveTypingSuggestions), findsOneWidget);
+
+      // Trigger back button while text is present
+      await navKey.currentState!.maybePop();
+      await tester.pumpAndSettle();
+
+      // Must have cleared text, exited active search, returned to State A, SearchScreen still mounted
+      expect(find.byType(SearchScreen), findsOneWidget);
+      expect(find.byType(SearchPreContent), findsOneWidget);
+      expect(find.byType(SearchActiveTypingSuggestions), findsNothing);
+      popScope = tester.widgetList(find.byWidgetPredicate((w) => w is PopScope)).first as PopScope;
+      expect(popScope.canPop, isTrue);
+
+      // 4. Now in clean State A, back button SHOULD pop the screen and return to Base Screen
+      await navKey.currentState!.maybePop();
+      await tester.pumpAndSettle();
+      expect(find.byType(SearchScreen), findsNothing);
+      expect(find.text('Base Screen'), findsOneWidget);
+    });
   });
 }

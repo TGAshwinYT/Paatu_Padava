@@ -244,13 +244,19 @@ class _SearchScreenState extends State<SearchScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: !_isSearchActiveNotifier.value && _searchController.text.isEmpty,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
-        if (_isSearchActiveNotifier.value || _searchController.text.isNotEmpty) _exitActiveSearch();
-      },
-      child: Scaffold(
+    return ListenableBuilder(
+      listenable: Listenable.merge([_isSearchActiveNotifier, _hasSearchedNotifier, _searchController]),
+      builder: (context, _) {
+        final hasActiveSearch = _isSearchActiveNotifier.value ||
+            _hasSearchedNotifier.value ||
+            _searchController.text.isNotEmpty;
+        return PopScope(
+          canPop: !hasActiveSearch,
+          onPopInvokedWithResult: (didPop, result) {
+            if (didPop) return;
+            if (hasActiveSearch) _exitActiveSearch();
+          },
+          child: Scaffold(
         backgroundColor: AppColors.bgDark,
         body: SafeArea(
           child: ValueListenableBuilder<bool>(
@@ -290,6 +296,8 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
         ),
       ),
+    );
+      },
     );
   }
 

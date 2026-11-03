@@ -3,6 +3,7 @@ import 'package:fuzzywuzzy/fuzzywuzzy.dart';
 import 'package:fuzzywuzzy/model/extracted_result.dart';
 import '../models/song.dart';
 import '../core/dsa/bk_tree.dart';
+import '../core/dsa/lru_cache.dart';
 import '../core/dsa/symspell.dart';
 import '../core/dsa/trigram_index.dart';
 import 'saavn_client.dart';
@@ -22,7 +23,7 @@ class FuzzyCorrectionResult {
 }
 
 class FuzzySearchService {
-  static final Set<String> _candidateDictionary = {
+  static const Set<String> _coreDictionary = {
     // Top Regional & Tamil Artists
     'Anirudh Ravichander',
     'A.R. Rahman',
@@ -110,6 +111,12 @@ class FuzzySearchService {
     'Enthiran',
   };
 
+  static final Set<String> _candidateDictionary = Set<String>.from(_coreDictionary);
+  static const int maxDynamicCandidates = 100;
+  static final List<String> _dynamicHistory = [];
+  static final LruCache<String, FuzzyCorrectionResult?> _correctionCache =
+      LruCache<String, FuzzyCorrectionResult?>(capacity: 100);
+
   static final BkTree<String> _bkTree = BkTree<String>();
   static final SymSpell _symSpell = SymSpell(maxEditDistance: 2);
   static final TrigramIndex<String> _trigramIndex = TrigramIndex<String>();
@@ -119,17 +126,39 @@ class FuzzySearchService {
 
   static String _normKey(String s) => s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
 
+  static void _rebuildAll() {
+    _candidateDictionary
+      ..clear()
+      ..addAll(_coreDictionary)
+      ..addAll(_dynamicHistory);
+
+    _lowercaseCandidateSet.clear();
+    _normalizedToOriginal.clear();
+    _bkTree.clear();
+    _symSpell.clear();
+    _trigramIndex.clear();
+
+    _bkTree.insertAll(_candidateDictionary);
+    for (final term in _candidateDictionary) {
+      _lowercaseCandidateSet.add(term.toLowerCase().trim());
+      _normalizedToOriginal[_normKey(term)] = term;
+      _symSpell.insert(term);
+      _trigramIndex.insert(term, payload: term);
+    }
+    _correctionCache.clear();
+  }
+
   static void _ensureInitialized() {
     if (!_bkTreeInitialized) {
-      _bkTree.insertAll(_candidateDictionary);
-      for (final term in _candidateDictionary) {
-        _lowercaseCandidateSet.add(term.toLowerCase().trim());
-        _normalizedToOriginal[_normKey(term)] = term;
-        _symSpell.insert(term);
-        _trigramIndex.insert(term, payload: term);
-      }
+      _rebuildAll();
       _bkTreeInitialized = true;
     }
+  }
+
+  /// High-performance O(1) membership check against the candidate dictionary
+  static bool containsCandidate(String term) {
+    _ensureInitialized();
+    return _lowercaseCandidateSet.contains(term.toLowerCase().trim());
   }
 
   /// Direct accessor for candidate dictionary terms
@@ -178,28 +207,49 @@ class FuzzySearchService {
     return _bkTree;
   }
 
-  /// Dynamically register candidate terms (from search history, favorites, or loaded songs)
+  /// Dynamically register candidate terms with strict capacity bounding (max 100 dynamic entries)
   static void registerCandidates(Iterable<String> terms) {
     _ensureInitialized();
+    bool addedAny = false;
     for (final term in terms) {
       final sanitized = Song.sanitize(term).trim();
-      if (sanitized.length >= 3) {
-        if (_candidateDictionary.add(sanitized)) {
-          _lowercaseCandidateSet.add(sanitized.toLowerCase());
-          _normalizedToOriginal[_normKey(sanitized)] = sanitized;
-          _bkTree.insert(sanitized);
-          _symSpell.insert(sanitized);
-          _trigramIndex.insert(sanitized, payload: sanitized);
-        }
+      if (sanitized.length < 3 || sanitized.length > 35) continue;
+      final lower = sanitized.toLowerCase();
+      if (_lowercaseCandidateSet.contains(lower)) continue;
+
+      // Enforce strict upper bound on dynamic dictionary size (max 100 dynamic entries)
+      if (_dynamicHistory.length >= maxDynamicCandidates) {
+        _dynamicHistory.removeRange(0, 25);
+        _rebuildAll();
       }
+
+      if (_candidateDictionary.add(sanitized)) {
+        _dynamicHistory.add(sanitized);
+        _lowercaseCandidateSet.add(lower);
+        _normalizedToOriginal[_normKey(sanitized)] = sanitized;
+        _bkTree.insert(sanitized);
+        _symSpell.insert(sanitized);
+        _trigramIndex.insert(sanitized, payload: sanitized);
+        addedAny = true;
+      }
+    }
+    if (addedAny) {
+      _correctionCache.clear();
     }
   }
 
-  /// Register songs into the dictionary for instantaneous local typo matching
+  /// Register verified top song titles and primary artists into the dictionary (capped to top 5)
   static void registerSongs(Iterable<Song> songs) {
-    for (final song in songs) {
-      registerCandidates([song.title, song.artist, song.album]);
+    final terms = <String>[];
+    for (final song in songs.take(5)) {
+      if (song.title.isNotEmpty && song.title.length <= 35) {
+        terms.add(song.title);
+      }
+      if (song.primaryArtist.isNotEmpty && song.primaryArtist.length <= 30) {
+        terms.add(song.primaryArtist);
+      }
     }
+    if (terms.isNotEmpty) registerCandidates(terms);
   }
 
   /// Evaluate if query contains a typo and locate the best match using O(log N) BK-Tree metric space search
@@ -209,21 +259,29 @@ class FuzzySearchService {
 
     final lowerQuery = cleanQuery.toLowerCase();
 
+    // Check O(1) LRU correction cache
+    if (_correctionCache.containsKey(lowerQuery)) {
+      return _correctionCache.get(lowerQuery);
+    }
+
     // Avoid correcting category queries or generic discovery terms (e.g. "Top Tamil Hits")
     final genericDiscoveryPattern = RegExp(
       r'^(?:top|best|latest|trending|new)?\s*(?:tamil|telugu|hindi|english|malayalam|kannada)?\s*(?:hits?|songs?|tracks?|melodies|vibes?)?$',
       caseSensitive: false,
     );
     if (genericDiscoveryPattern.hasMatch(cleanQuery)) {
+      _correctionCache.put(lowerQuery, null);
       return null;
     }
     _ensureInitialized();
 
     // If exact case-insensitive match already exists, no typo correction is needed
     if (_lowercaseCandidateSet.contains(lowerQuery)) {
+      _correctionCache.put(lowerQuery, null);
       return null;
     }
 
+    FuzzyCorrectionResult? result;
     try {
       // 0a. Ultra-fast O(1) SymSpell typo lookup (< 0.2ms)
       final symSpellMatches = _symSpell.lookup(cleanQuery, maxDistance: 2, limit: 3);
@@ -235,7 +293,7 @@ class FuzzySearchService {
           final weightScore = weightedRatio(cleanQuery, resolved);
           final combinedScore = (((1.0 - (best.distance / cleanQuery.length)) * 100).toInt() + tokenScore + weightScore) ~/ 3;
           if (combinedScore >= 65) {
-            return FuzzyCorrectionResult(
+            result = FuzzyCorrectionResult(
               original: cleanQuery,
               corrected: resolved,
               score: combinedScore,
@@ -245,41 +303,44 @@ class FuzzySearchService {
       }
 
       // 0b. Tri-Gram Tanglish phonetic transliteration lookup (< 1.5ms)
-      final triMatches = _trigramIndex.search(cleanQuery, threshold: 0.50, limit: 3);
-      if (triMatches.isNotEmpty) {
-        final best = triMatches.first;
-        final resolved = best.payload ?? _normalizedToOriginal[_normKey(best.term)] ?? best.term;
-        if (resolved.toLowerCase() != lowerQuery && best.similarity >= 0.55) {
-          return FuzzyCorrectionResult(
-            original: cleanQuery,
-            corrected: resolved,
-            score: (best.similarity * 100).toInt(),
-          );
+      if (result == null) {
+        final triMatches = _trigramIndex.search(cleanQuery, threshold: 0.50, limit: 3);
+        if (triMatches.isNotEmpty) {
+          final best = triMatches.first;
+          final resolved = best.payload ?? _normalizedToOriginal[_normKey(best.term)] ?? best.term;
+          if (resolved.toLowerCase() != lowerQuery && best.similarity >= 0.55) {
+            result = FuzzyCorrectionResult(
+              original: cleanQuery,
+              corrected: resolved,
+              score: (best.similarity * 100).toInt(),
+            );
+          }
         }
       }
 
       // 1. Fast O(log N) metric space search using Burkhard-Keller Tree (max edit distance <= 2)
-      final bkMatches = _bkTree.search(cleanQuery, maxDistance: 2, limit: 5);
+      if (result == null) {
+        final bkMatches = _bkTree.search(cleanQuery, maxDistance: 2, limit: 5);
+        if (bkMatches.isNotEmpty) {
+          final best = bkMatches.first;
+          final resolved = _normalizedToOriginal[_normKey(best.term)] ?? best.term;
+          final tokenScore = tokenSetRatio(cleanQuery, resolved);
+          final weightScore = weightedRatio(cleanQuery, resolved);
+          final similarityPct = (best.similarity * 100).toInt();
+          final combinedScore = (similarityPct + tokenScore + weightScore) ~/ 3;
 
-      if (bkMatches.isNotEmpty) {
-        final best = bkMatches.first;
-        final resolved = _normalizedToOriginal[_normKey(best.term)] ?? best.term;
-        final tokenScore = tokenSetRatio(cleanQuery, resolved);
-        final weightScore = weightedRatio(cleanQuery, resolved);
-        final similarityPct = (best.similarity * 100).toInt();
-        final combinedScore = (similarityPct + tokenScore + weightScore) ~/ 3;
-
-        if (combinedScore >= 65 && resolved.toLowerCase() != lowerQuery) {
-          return FuzzyCorrectionResult(
-            original: cleanQuery,
-            corrected: resolved,
-            score: combinedScore,
-          );
+          if (combinedScore >= 65 && resolved.toLowerCase() != lowerQuery) {
+            result = FuzzyCorrectionResult(
+              original: cleanQuery,
+              corrected: resolved,
+              score: combinedScore,
+            );
+          }
         }
       }
 
       // 2. Token-set fallback for multi-word permutations if edit distance > 2
-      if (cleanQuery.contains(' ')) {
+      if (result == null && cleanQuery.contains(' ')) {
         final List<ExtractedResult<String>> matches = extractTop<String>(
           query: cleanQuery,
           choices: _candidateDictionary.toList(),
@@ -298,7 +359,7 @@ class FuzzySearchService {
           final extraTokens = choiceTokens.difference(queryTokens);
 
           if (combinedScore >= 70 && best.choice.toLowerCase() != lowerQuery && extraTokens.length <= 1) {
-            return FuzzyCorrectionResult(
+            result = FuzzyCorrectionResult(
               original: cleanQuery,
               corrected: Song.sanitize(best.choice),
               score: combinedScore,
@@ -310,7 +371,8 @@ class FuzzySearchService {
       AppLogger.log('FuzzySearchService', 'Fuzzy correction notice: $e');
     }
 
-    return null;
+    _correctionCache.put(lowerQuery, result);
+    return result;
   }
 
   /// Execute fallback search using fuzzy corrected query if primary search produced 0 results

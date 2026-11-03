@@ -1000,7 +1000,7 @@ class SearchService {
     final phoneticVariants = generateUniversalPhoneticVariants(cleanLower);
     if (phoneticVariants.isNotEmpty) {
       universalPhonetic = phoneticVariants.firstWhere(
-        (v) => FuzzySearchService.candidateDictionary.any((c) => c.toLowerCase() == v),
+        (v) => FuzzySearchService.containsCandidate(v),
         orElse: () => '',
       );
       if (universalPhonetic.isEmpty) {

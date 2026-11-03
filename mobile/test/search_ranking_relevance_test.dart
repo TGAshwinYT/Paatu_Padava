@@ -47,7 +47,7 @@ void main() {
       trie.insert('Aalaporaan Thamizhan', weight: 80);
       trie.insert('Harris Jayaraj', weight: 50);
 
-      final matches = await SearchService.getTypeaheadSuggestions('a', localTrie: trie, limit: 5);
+      final matches = await SearchService.getTypeaheadSuggestions('a', localTrie: trie, limit: 5, skipRemote: true);
       expect(matches, contains('Anirudh Ravichander'));
       expect(matches, contains('A.R. Rahman'));
       expect(matches, isNot(contains('Harris Jayaraj')));
@@ -57,7 +57,7 @@ void main() {
       final trie = PrefixTrie<String>();
       trie.insert('Vaathi Coming', weight: 100);
 
-      final suggestions = await SearchService.getTypeaheadSuggestions('vaathi', localTrie: trie);
+      final suggestions = await SearchService.getTypeaheadSuggestions('vaathi', localTrie: trie, skipRemote: true);
       final occurrences = suggestions.where((s) => s.toLowerCase() == 'vaathi coming').length;
       expect(occurrences, equals(1));
     });

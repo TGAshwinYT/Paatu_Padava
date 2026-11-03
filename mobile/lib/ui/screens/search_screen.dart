@@ -168,9 +168,18 @@ class _SearchScreenState extends State<SearchScreen> {
       if (retained.isNotEmpty) _suggestionsNotifier.value = retained;
     }
 
-    // State B: Asynchronous Live Typeahead Fetch (< 120ms, debounced 150ms)
-    _typeaheadDebounceTimer = Timer(const Duration(milliseconds: 150), () {
-      SearchService.getTypeaheadSuggestions(clean, localTrie: _localSearchTrie, limit: 5).then((suggs) {
+    // State B: Asynchronous Live Typeahead Fetch (debounced 250ms, progressive merge)
+    _typeaheadDebounceTimer = Timer(const Duration(milliseconds: 250), () {
+      SearchService.getTypeaheadSuggestions(
+        clean,
+        localTrie: _localSearchTrie,
+        limit: 5,
+        onPartialResults: (suggs) {
+          if (mounted && _searchController.text.trim() == clean && !_hasSearchedNotifier.value) {
+            _suggestionsNotifier.value = suggs;
+          }
+        },
+      ).then((suggs) {
         if (mounted && _searchController.text.trim() == clean && !_hasSearchedNotifier.value) {
           _suggestionsNotifier.value = suggs;
         }

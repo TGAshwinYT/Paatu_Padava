@@ -91,7 +91,7 @@ class _SearchPaginatedSongsViewState extends State<SearchPaginatedSongsView> {
     final nextPage = _currentPage + 1;
 
     try {
-      final nextBatch = await SearchService.searchSongsTab(
+      final nextBatch = await SearchService.searchSongsPaged(
         widget.query,
         page: nextPage,
         limit: 20,

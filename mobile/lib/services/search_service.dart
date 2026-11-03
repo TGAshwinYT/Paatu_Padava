@@ -173,6 +173,100 @@ class SearchCache {
   }
 }
 
+/// Precomputed immutable context for O(1) user affinity lookups during multi-song ranking.
+/// Completely eliminates O(N * (F + H)) linear scans across favorites and history.
+class UserAffinityContext {
+  final Set<String> favoriteIds;
+  final Set<String> favoriteArtists;
+  final Set<String> favoriteAlbums;
+  final Map<String, int> historyArtistPlayCounts;
+  final Map<String, int> historyAlbumPlayCounts;
+  final Set<String> historySongIds;
+
+  const UserAffinityContext({
+    required this.favoriteIds,
+    required this.favoriteArtists,
+    required this.favoriteAlbums,
+    required this.historyArtistPlayCounts,
+    required this.historyAlbumPlayCounts,
+    required this.historySongIds,
+  });
+
+  factory UserAffinityContext.fromSongs({List<Song>? favorites, List<Song>? history}) {
+    final favs = favorites ?? (FavoritesManager.favoritesNotifier.value);
+    final hist = history ?? (HistoryManager.historyNotifier.value);
+
+    final favIds = <String>{};
+    final favArtists = <String>{};
+    final favAlbums = <String>{};
+
+    for (final f in favs) {
+      favIds.add(f.id);
+      final art = f.primaryArtist.toLowerCase().trim();
+      if (art.isNotEmpty) {
+        favArtists.add(art);
+        favArtists.add(SongRepository.normalizeArtist(f.artist).toLowerCase().trim());
+      }
+      final alb = f.album.toLowerCase().trim();
+      if (alb.isNotEmpty && alb != 'studio album' && alb != 'single' && alb != 'unknown') {
+        favAlbums.add(alb);
+      }
+    }
+
+    final histSongIds = <String>{};
+    final histArtistCounts = <String, int>{};
+    final histAlbumCounts = <String, int>{};
+
+    for (final h in hist) {
+      histSongIds.add(h.id);
+      final art = h.primaryArtist.toLowerCase().trim();
+      if (art.isNotEmpty) {
+        histArtistCounts[art] = (histArtistCounts[art] ?? 0) + 1;
+        final norm = SongRepository.normalizeArtist(h.artist).toLowerCase().trim();
+        if (norm != art) histArtistCounts[norm] = (histArtistCounts[norm] ?? 0) + 1;
+      }
+      final alb = h.album.toLowerCase().trim();
+      if (alb.isNotEmpty && alb != 'studio album' && alb != 'single' && alb != 'unknown') {
+        histAlbumCounts[alb] = (histAlbumCounts[alb] ?? 0) + 2;
+      }
+    }
+
+    return UserAffinityContext(
+      favoriteIds: favIds,
+      favoriteArtists: favArtists,
+      favoriteAlbums: favAlbums,
+      historyArtistPlayCounts: histArtistCounts,
+      historyAlbumPlayCounts: histAlbumCounts,
+      historySongIds: histSongIds,
+    );
+  }
+
+  double computeAffinity(Song song) {
+    if (favoriteIds.contains(song.id)) return 1.0;
+
+    final candArtist = song.primaryArtist.toLowerCase().trim();
+    final candAlbum = song.album.toLowerCase().trim();
+
+    if (candArtist.isNotEmpty && favoriteArtists.contains(candArtist)) return 1.0;
+    if (candAlbum.isNotEmpty && favoriteAlbums.contains(candAlbum)) return 0.95;
+
+    if (historySongIds.contains(song.id)) return 0.90;
+
+    int playCount = 0;
+    if (candArtist.isNotEmpty) {
+      playCount += historyArtistPlayCounts[candArtist] ?? 0;
+    }
+    if (candAlbum.isNotEmpty) {
+      playCount += historyAlbumPlayCounts[candAlbum] ?? 0;
+    }
+
+    if (playCount >= 3) return 1.0;
+    if (playCount >= 1) return 0.70;
+
+    return 0.0;
+  }
+}
+
 class SearchService {
   static final RegExp _dialogueRegex = RegExp(
     r'\b(dialogues?|punch\s*dialogues?|mass\s*dialogues?|movie\s*scenes?|comedy\s*scenes?|audio\s*scenes?|dialogue\s*mix|scenes?|ringtones?|bgm\s*ringtones?)\b',
@@ -347,16 +441,28 @@ class SearchService {
   }
 
   /// Stage 1: Instant Debounced Typeahead (< 150ms).
+  static final Map<String, List<String>> _typeaheadCache = {};
+  static const int _maxTypeaheadCacheSize = 100;
+
   /// Queries local PrefixTrie in < 1ms, then merges lightweight autocomplete suggestions
-  /// directly from YouTube (suggestqueries.google.com) and JioSaavn in parallel.
-  /// Strictly avoids heavy entity or stream resolution while typing.
+  /// progressively from YouTube and JioSaavn as each arrives without blocking.
+  /// Bounded by in-memory LRU cache to eliminate redundant network roundtrips.
   static Future<List<String>> getTypeaheadSuggestions(
     String query, {
     PrefixTrie<String>? localTrie,
     int limit = 10,
+    bool skipRemote = false,
+    void Function(List<String> partial)? onPartialResults,
   }) async {
     final clean = query.trim();
     if (clean.isEmpty) return const [];
+
+    final cacheKey = clean.toLowerCase();
+    if (_typeaheadCache.containsKey(cacheKey)) {
+      final cached = _typeaheadCache[cacheKey]!;
+      onPartialResults?.call(cached);
+      return cached.take(limit).toList();
+    }
 
     final List<String> suggestions = [];
     final Set<String> seenLower = {};
@@ -365,48 +471,74 @@ class SearchService {
       final trimmed = s.trim();
       if (trimmed.isEmpty) return;
       final lower = trimmed.toLowerCase();
-      if (!seenLower.contains(lower)) {
-        seenLower.add(lower);
+      if (seenLower.add(lower)) {
         suggestions.add(trimmed);
       }
     }
 
-    // 1. Instant O(K) local Prefix Trie matches (0ms local latency)
+    // 1. Instant local Prefix Trie matches (0ms local latency)
     if (localTrie != null) {
       final localMatches = localTrie.findByPrefix(clean, limit: 6);
       for (final m in localMatches) {
         if (suggestions.length >= limit) break;
         addSuggestion(m.term);
       }
+      if (suggestions.isNotEmpty) {
+        onPartialResults?.call(List<String>.from(suggestions));
+      }
     }
 
-    // 2. Parallel lightweight suggestions from YouTube and JioSaavn (<150ms non-blocking)
+    if (skipRemote) {
+      return suggestions.take(limit).toList();
+    }
+
+    // 2. Progressive non-blocking remote suggestions:
+    // Fire Google and JioSaavn concurrently. As EACH one returns, merge suggestions immediately!
+    final ytFuture = YouTubeClient.getSearchSuggestions(clean)
+        .timeout(const Duration(milliseconds: 600), onTimeout: () => <String>[])
+        .catchError((_) => <String>[]);
+    final saavnFuture = SaavnClient.getSearchSuggestions(clean)
+        .timeout(const Duration(milliseconds: 600), onTimeout: () => <String>[])
+        .catchError((_) => <String>[]);
+
+    final f1 = ytFuture.then((ytList) {
+      if (ytList.isNotEmpty) {
+        bool addedAny = false;
+        for (final s in ytList) {
+          if (suggestions.length >= limit) break;
+          final lenBefore = suggestions.length;
+          addSuggestion(s);
+          if (suggestions.length > lenBefore) addedAny = true;
+        }
+        if (addedAny) onPartialResults?.call(List<String>.from(suggestions));
+      }
+    });
+
+    final f2 = saavnFuture.then((saavnList) {
+      if (saavnList.isNotEmpty) {
+        bool addedAny = false;
+        for (final s in saavnList) {
+          if (suggestions.length >= limit) break;
+          final lenBefore = suggestions.length;
+          addSuggestion(s);
+          if (suggestions.length > lenBefore) addedAny = true;
+        }
+        if (addedAny) onPartialResults?.call(List<String>.from(suggestions));
+      }
+    });
+
     try {
-      final remoteFutures = await Future.wait([
-        YouTubeClient.getSearchSuggestions(clean)
-            .timeout(const Duration(milliseconds: 750), onTimeout: () => <String>[])
-            .catchError((_) => <String>[]),
-        SaavnClient.getSearchSuggestions(clean)
-            .timeout(const Duration(milliseconds: 750), onTimeout: () => <String>[])
-            .catchError((_) => <String>[]),
-      ]);
-
-      final ytSuggestions = remoteFutures[0];
-      final saavnSuggestions = remoteFutures[1];
-
-      for (final s in saavnSuggestions) {
-        if (suggestions.length >= limit) break;
-        addSuggestion(s);
-      }
-      for (final s in ytSuggestions) {
-        if (suggestions.length >= limit) break;
-        addSuggestion(s);
-      }
+      await Future.wait([f1, f2]);
     } catch (e) {
       debugPrint('[SearchService] getTypeaheadSuggestions notice: $e');
     }
 
-    return suggestions.take(limit).toList();
+    final result = suggestions.take(limit).toList();
+    if (_typeaheadCache.length >= _maxTypeaheadCacheSize) {
+      _typeaheadCache.remove(_typeaheadCache.keys.first);
+    }
+    _typeaheadCache[cacheKey] = result;
+    return result;
   }
 
   /// Strictly filters out single-song releases, fake albums, and unrelated compilations
@@ -749,6 +881,44 @@ class SearchService {
     } catch (e, stack) {
       AppLogger.log('SearchService', 'searchSongsTab error: $e', level: LogLevel.error);
       AppLogger.recordError(e, stack, context: 'searchSongsTab query="$query"');
+      return <Song>[];
+    }
+  }
+
+  /// Multi-source paginated song search (JioSaavn + YouTube Music + Canonical Deduplication)
+  /// Used for infinite-scrolling pages (Page 2, 3...) to guarantee source parity.
+  static Future<List<Song>> searchSongsPaged(
+    String query, {
+    int page = 1,
+    int limit = 20,
+    String? language,
+  }) async {
+    try {
+      final intent = understandQuery(query);
+      final effectiveLang = intent.explicitLanguage ?? language;
+
+      final saavnFuture = SaavnClient.search(query, limit: limit, page: page, language: effectiveLang)
+          .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[]);
+
+      final ytQuery = (effectiveLang != null && !query.toLowerCase().contains(effectiveLang.toLowerCase()))
+          ? '$effectiveLang $query'
+          : query;
+      final ytFuture = YouTubeClient.search(ytQuery, limit: limit)
+          .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[]);
+
+      final results = await Future.wait([saavnFuture, ytFuture]);
+      final saavnSongs = results[0];
+      final ytSongs = results[1];
+
+      return deduplicateAndRankUnified(
+        saavnSongs: saavnSongs,
+        ytSongs: ytSongs,
+        intent: intent,
+        preferredLanguages: effectiveLang != null ? [effectiveLang] : null,
+      );
+    } catch (e, stack) {
+      AppLogger.log('SearchService', 'searchSongsPaged error: $e', level: LogLevel.error);
+      AppLogger.recordError(e, stack, context: 'searchSongsPaged query="$query", page=$page');
       return <Song>[];
     }
   }
@@ -1291,6 +1461,7 @@ class SearchService {
     List<Song>? history,
     List<Song>? favorites,
     List<String>? preferredLanguages,
+    UserAffinityContext? affinityContext,
   }) {
     // If query has explicit language override, strictly reject any cross-language mismatch
     if (intent.explicitLanguage != null &&
@@ -1361,7 +1532,8 @@ class SearchService {
       }
     }
     final popularity = calculateSourcePopularity(song);
-    final affinity = calculateUserAffinity(song, history: history, favorites: favorites);
+    final affinity = affinityContext?.computeAffinity(song) ??
+        calculateUserAffinity(song, history: history, favorites: favorites);
 
     // Multi-factor formula with query-gated affinity:
     // Personal affinity cannot promote a song that does not match the typed query
@@ -1563,7 +1735,12 @@ class SearchService {
       for (int i = 0; i < deduplicatedPool.length; i++) deduplicatedPool[i].id: i
     };
 
-    // 4. Score every song in the unified deduplicated pool
+    final affinityContext = UserAffinityContext.fromSongs(
+      favorites: favorites,
+      history: history,
+    );
+
+    // 4. Score every song in the unified deduplicated pool (O(1) affinity per song)
     final scored = deduplicatedPool.map((song) {
       final score = calculateCompositeRelevance(
         song,
@@ -1571,6 +1748,7 @@ class SearchService {
         history: history,
         favorites: favorites,
         preferredLanguages: preferredLanguages,
+        affinityContext: affinityContext,
       );
       return MapEntry(score, song);
     }).where((e) => e.key > 0.0).toList();
@@ -2022,11 +2200,13 @@ class SearchService {
         bypassedExplicitLangSaavn = true;
       }
 
+      final saavnAffinityCtx = UserAffinityContext.fromSongs();
       final scoredSaavn = candidateSaavn.map((s) {
-        final score = scoreSong(
+        final score = calculateCompositeRelevance(
           s,
           bypassedExplicitLangSaavn ? intent.copyWith(explicitLanguage: null) : intent,
           preferredLanguages: prefLangs,
+          affinityContext: saavnAffinityCtx,
         );
         return MapEntry(score, s);
       }).where((e) => e.key > 0.0).toList();
@@ -2255,11 +2435,13 @@ class SearchService {
       }
       final ytSongs = candidateYt;
 
+      final ytAffinityCtx = UserAffinityContext.fromSongs();
       final scoredYt = candidateYt.map((s) {
-        final score = scoreSong(
+        final score = calculateCompositeRelevance(
           s,
           bypassedExplicitLangYt ? intent.copyWith(explicitLanguage: null) : intent,
           preferredLanguages: prefLangs,
+          affinityContext: ytAffinityCtx,
         );
         return MapEntry(score, s);
       }).where((e) => e.key > 0.0).toList();

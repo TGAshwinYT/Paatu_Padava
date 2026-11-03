@@ -82,7 +82,16 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
       }
 
       for (final v in s.versions) {
-        if (!mixes.any((m) => m.id == v.id)) {
+        final isVVersion = v.versionTag != null ||
+            _mixOrBgmRegex.hasMatch(v.title) ||
+            TrackQualityFilter.classifyTrack(
+                  title: v.title,
+                  durationSec: v.duration,
+                  source: v.source,
+                  artist: v.artist,
+                ) ==
+                ContentClassification.fanMixOrVersion;
+        if (isVVersion && !mixes.any((m) => m.id == v.id)) {
           mixes.add(v);
         }
       }
@@ -156,10 +165,6 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
                 if (playlists.isNotEmpty) ...[
                   _buildSectionHeader('Playlists', onSeeAll: playlists.length > 4 ? () => setState(() => _selectedFilter = 'Playlists') : null),
                   ...playlists.take(4).map((pl) => SearchPlaylistTile(playlist: pl, onRecordClick: widget.onRecordClick)),
-                ],
-                if (artists.isNotEmpty) ...[
-                  _buildSectionHeader('Artists', onSeeAll: artists.length > 4 ? () => setState(() => _selectedFilter = 'Artists') : null),
-                  ...artists.take(4).map((art) => SearchArtistTile(artist: art, onRecordClick: widget.onArtistRecordClick)),
                 ],
               ],
 

@@ -126,6 +126,22 @@ class SearchResults {
   bool get hasError => error != null;
 }
 
+/// Bundle containing text completions, matching songs, and matching albums for active typing.
+class SearchTypeaheadBundle {
+  final List<String> completions;
+  final List<Song> songs;
+  final List<Map<String, dynamic>> albums;
+
+  const SearchTypeaheadBundle({
+    this.completions = const [],
+    this.songs = const [],
+    this.albums = const [],
+  });
+
+  bool get isEmpty => completions.isEmpty && songs.isEmpty && albums.isEmpty;
+  bool get isNotEmpty => !isEmpty;
+}
+
 class _SearchCacheEntry {
   final SearchResults results;
   final DateTime createdAt;
@@ -452,6 +468,9 @@ class SearchService {
   static final LruCache<String, List<String>> _typeaheadLruCache =
       LruCache<String, List<String>>(capacity: 100, defaultTtl: const Duration(minutes: 15));
 
+  static final LruCache<String, SearchTypeaheadBundle> _typeaheadBundleCache =
+      LruCache<String, SearchTypeaheadBundle>(capacity: 60, defaultTtl: const Duration(minutes: 5));
+
   /// Bounded cache for paginated YouTube federated searches to prevent cost growing with scrolling
   static final LruCache<String, List<Song>> _pagedYouTubeCache =
       LruCache<String, List<Song>>(capacity: 30, defaultTtl: const Duration(minutes: 10));
@@ -459,6 +478,119 @@ class SearchService {
   /// Clears the typeahead LRU cache upon library mutations (favorites, downloads, history).
   static void clearTypeaheadCache() {
     _typeaheadLruCache.clear();
+    _typeaheadBundleCache.clear();
+  }
+
+  /// Fetches rich autocomplete bundle: text completions, top online songs, and top online albums.
+  static Future<SearchTypeaheadBundle> getTypeaheadBundle(
+    String query, {
+    PrefixTrie<String>? localTrie,
+    int limit = 6,
+  }) async {
+    final clean = query.trim();
+    if (clean.isEmpty) return const SearchTypeaheadBundle();
+
+    final cacheKey = clean.toLowerCase();
+    final cached = _typeaheadBundleCache.get(cacheKey);
+    if (cached != null) return cached;
+
+    final ytFuture = YouTubeClient.getSearchSuggestions(clean)
+        .timeout(const Duration(milliseconds: 600), onTimeout: () => <String>[])
+        .catchError((_) => <String>[]);
+    final saavnFuture = SaavnClient.getAutocompleteData(clean)
+        .timeout(const Duration(milliseconds: 1200), onTimeout: () => <String, dynamic>{})
+        .catchError((_) => <String, dynamic>{});
+
+    final res = await Future.wait([ytFuture, saavnFuture]);
+    final ytCompletions = res[0] as List<String>;
+    final saavnData = res[1] as Map<String, dynamic>;
+
+    final completions = <String>[];
+    final seen = <String>{};
+
+    void addComp(String s) {
+      final t = s.trim();
+      if (t.isNotEmpty && seen.add(t.toLowerCase())) {
+        completions.add(t);
+      }
+    }
+
+    if (localTrie != null) {
+      for (final m in localTrie.findByPrefix(clean, limit: 3)) {
+        addComp(m.term);
+      }
+    }
+
+    final saavnComps = (saavnData['completions'] as List<dynamic>?)?.cast<String>() ?? <String>[];
+    for (final s in saavnComps) {
+      if (completions.length >= limit) break;
+      addComp(s);
+    }
+
+    for (final s in ytCompletions) {
+      if (completions.length >= limit) break;
+      addComp(s);
+    }
+
+    final songs = (saavnData['songs'] as List<dynamic>?)?.cast<Song>() ?? <Song>[];
+    final albums = (saavnData['albums'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? <Map<String, dynamic>>[];
+
+    final bundle = SearchTypeaheadBundle(
+      completions: completions,
+      songs: songs.take(3).toList(),
+      albums: albums.take(2).toList(),
+    );
+
+    _typeaheadBundleCache.put(cacheKey, bundle);
+    return bundle;
+  }
+
+  /// Pre-warms the primary search query in the background on debounced typing pauses (300ms).
+  static void prewarmQuery(String query, {String? language}) {
+    final clean = query.trim();
+    if (clean.length < 2) return;
+    final cached = SearchCache.get(clean, language: language);
+    if (cached != null) return;
+
+    SaavnClient.search(clean, limit: 25, language: language).then((songs) {
+      if (songs.isNotEmpty) {
+        final existing = SearchCache.get(clean, language: language);
+        if (existing == null) {
+          final extractedAlbums = <Map<String, dynamic>>[];
+          final seen = <String>{};
+          for (final s in songs.take(6)) {
+            final alb = s.album.trim();
+            final albLower = alb.toLowerCase();
+            if (alb.isNotEmpty &&
+                albLower != 'single' &&
+                albLower != 'unknown' &&
+                albLower != 'various artists' &&
+                albLower != 'studio album' &&
+                seen.add(albLower)) {
+              extractedAlbums.add({
+                'id': alb.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_').toLowerCase(),
+                'title': alb,
+                'artist': s.artist,
+                'image': s.coverUrl,
+                'type': 'Album',
+                'is_movie': true,
+                'source': s.source,
+              });
+            }
+          }
+          SearchCache.put(
+            clean,
+            SearchResults(
+              songs: songs,
+              saavnSongs: songs,
+              albums: extractedAlbums,
+              isFinal: false,
+            ),
+            language: language,
+          );
+        }
+      }
+    }).catchError((_) {});
   }
 
   /// Queries local PrefixTrie in < 1ms, then merges lightweight autocomplete suggestions
@@ -725,6 +857,12 @@ class SearchService {
         if (!RegExp(r'\b' + RegExp.escape(token) + r'\b', caseSensitive: false).hasMatch(title)) {
           continue;
         }
+      }
+
+      // 3. Drop empty or single-track YouTube playlists that fail when opened
+      if (p['source'] == 'youtube') {
+        final count = int.tryParse(p['song_count']?.toString() ?? '0') ?? 0;
+        if (count < 2) continue;
       }
 
       filtered.add(p);
@@ -1985,7 +2123,7 @@ class SearchService {
             transQuery,
             limit: limit,
             language: effectiveLang,
-          ).timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]);
+          ).timeout(const Duration(seconds: 2), onTimeout: () => <Song>[]);
         } catch (e) {
           debugPrint('[SearchService] Upstream Saavn transliterated search fault isolated: $e');
           return <Song>[];
@@ -1995,14 +2133,14 @@ class SearchService {
       final Future<List<Map<String, dynamic>>> albumsFuture = () async {
         try {
           var alb = await SaavnClient.searchAlbums(saavnSearchQuery, limit: 16)
-              .timeout(const Duration(milliseconds: 2500), onTimeout: () => <Map<String, dynamic>>[]);
+              .timeout(const Duration(milliseconds: 2000), onTimeout: () => <Map<String, dynamic>>[]);
           if (alb.isEmpty && intent.effectiveCoreQuery != intent.cleanQuery && intent.effectiveCoreQuery != saavnSearchQuery) {
             alb = await SaavnClient.searchAlbums(intent.effectiveCoreQuery, limit: 16)
-                .timeout(const Duration(milliseconds: 2500), onTimeout: () => <Map<String, dynamic>>[]);
+                .timeout(const Duration(milliseconds: 2000), onTimeout: () => <Map<String, dynamic>>[]);
           }
           if (alb.isEmpty && intent.cleanQuery.toLowerCase() != saavnSearchQuery.toLowerCase()) {
             final cleanAlbs = await SaavnClient.searchAlbums(intent.cleanQuery, limit: 16)
-                .timeout(const Duration(milliseconds: 2500), onTimeout: () => <Map<String, dynamic>>[]);
+                .timeout(const Duration(milliseconds: 2000), onTimeout: () => <Map<String, dynamic>>[]);
             alb.addAll(cleanAlbs);
           }
           return alb;
@@ -2020,7 +2158,7 @@ class SearchService {
               intent.cleanQuery.toLowerCase() == 'songs';
           final artistSearchQuery = SearchQueryPlanner.formatArtistQuery(intent.effectiveCoreQuery, explicitLanguage: effectiveLang, isGeneric: isGeneric);
           final rawArtists = await SaavnClient.searchArtists(artistSearchQuery, limit: 12, language: effectiveLang)
-              .timeout(const Duration(seconds: 5), onTimeout: () => <Map<String, dynamic>>[]);
+              .timeout(const Duration(seconds: 2), onTimeout: () => <Map<String, dynamic>>[]);
           return filterArtistsByLanguage(rawArtists, language: effectiveLang, query: intent.effectiveCoreQuery);
         } catch (e) {
           debugPrint('[SearchService] Upstream Saavn artists search fault isolated: $e');
@@ -2031,7 +2169,7 @@ class SearchService {
       final Future<List<Map<String, dynamic>>> playlistsFuture = () async {
         try {
           return await SaavnClient.searchPlaylists(saavnSearchQuery, limit: 10, language: effectiveLang)
-              .timeout(const Duration(seconds: 5), onTimeout: () => <Map<String, dynamic>>[]);
+              .timeout(const Duration(seconds: 2), onTimeout: () => <Map<String, dynamic>>[]);
         } catch (e) {
           debugPrint('[SearchService] Upstream Saavn playlists search fault isolated: $e');
           return <Map<String, dynamic>>[];
@@ -2043,7 +2181,7 @@ class SearchService {
       final Future<List<Song>> ytFuture = () async {
         try {
           final res = await YouTubeClient.search(ytSearchQuery, limit: limit)
-              .timeout(const Duration(seconds: 6), onTimeout: () {
+              .timeout(const Duration(milliseconds: 3500), onTimeout: () {
             ytFailed = true;
             return <Song>[];
           });
@@ -2061,7 +2199,7 @@ class SearchService {
       final Future<List<Map<String, dynamic>>> ytPlaylistsFuture = () async {
         try {
           return await YouTubeClient.searchPlaylists(ytSearchQuery, limit: 8)
-              .timeout(const Duration(seconds: 5), onTimeout: () => <Map<String, dynamic>>[]);
+              .timeout(const Duration(milliseconds: 2500), onTimeout: () => <Map<String, dynamic>>[]);
         } catch (e) {
           debugPrint('[SearchService] Upstream YouTube playlists search fault isolated: $e');
           return <Map<String, dynamic>>[];
@@ -2193,12 +2331,37 @@ class SearchService {
       }
 
       if (rankedSaavnEarly.isNotEmpty) {
+        final List<Map<String, dynamic>> earlyExtractedAlbums = [...phase0Albums];
+        final Set<String> earlySeenAlbums = {
+          for (final a in earlyExtractedAlbums) (a['title'] ?? '').toString().toLowerCase().trim()
+        };
+        for (final s in rankedSaavnEarly.take(6)) {
+          final alb = s.album.trim();
+          final albLower = alb.toLowerCase();
+          if (alb.isNotEmpty &&
+              albLower != 'single' &&
+              albLower != 'unknown' &&
+              albLower != 'various artists' &&
+              albLower != 'studio album' &&
+              earlySeenAlbums.add(albLower)) {
+            earlyExtractedAlbums.add({
+              'id': s.album.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_').toLowerCase(),
+              'title': alb,
+              'artist': s.artist,
+              'image': s.coverUrl,
+              'type': 'Album',
+              'is_movie': true,
+              'source': s.source,
+            });
+          }
+        }
+
         lastEmittedBundle = SearchResults(
           songs: rankedSaavnEarly,
           ytSongs: const [],
           saavnSongs: rankedSaavnEarly,
           audiusSongs: const [],
-          albums: phase0Albums,
+          albums: earlyExtractedAlbums,
           artists: catArtists,
           playlists: phase0Playlists,
           topResult: initialTopResultEarly,
@@ -2372,6 +2535,28 @@ class SearchService {
             ...cm,
             'image': img,
             'artist': cm['artist'] ?? cm['composer'] ?? '',
+          });
+        }
+      }
+
+      // Correlate matched songs with their parent movie/soundtrack albums
+      for (final s in rankedSaavn.take(6)) {
+        final alb = s.album.trim();
+        final albLower = alb.toLowerCase();
+        if (alb.isNotEmpty &&
+            albLower != 'single' &&
+            albLower != 'unknown' &&
+            albLower != 'various artists' &&
+            albLower != 'studio album' &&
+            seenAlbumNames.add(albLower)) {
+          initialAlbums.add({
+            'id': s.album.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_').toLowerCase(),
+            'title': alb,
+            'artist': s.artist,
+            'image': s.coverUrl,
+            'type': 'Album',
+            'is_movie': true,
+            'source': s.source,
           });
         }
       }

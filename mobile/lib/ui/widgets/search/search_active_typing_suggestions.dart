@@ -5,25 +5,30 @@ import '../../../models/song.dart';
 import '../../../services/favorites_manager.dart';
 import '../../../services/search_history_manager.dart';
 import '../../theme/app_theme.dart';
+import '../../screens/album_screen.dart';
 
 class SearchActiveTypingSuggestions extends StatelessWidget {
   static final HtmlUnescape _unescape = HtmlUnescape();
 
   final List<Song> localSongMatches;
+  final List<Map<String, dynamic>> matchingAlbums;
   final List<String> queryCompletions;
   final void Function(Song song) onPlaySong;
   final void Function(String query) onSelectQuery;
   final void Function(String query) onAppendQuery;
+  final void Function(Map<String, dynamic> album)? onSelectAlbum;
   final String? query;
   final void Function(Song song)? onShowOptions;
 
   const SearchActiveTypingSuggestions({
     super.key,
     required this.localSongMatches,
+    this.matchingAlbums = const [],
     required this.queryCompletions,
     required this.onPlaySong,
     required this.onSelectQuery,
     required this.onAppendQuery,
+    this.onSelectAlbum,
     this.query,
     this.onShowOptions,
   });
@@ -37,7 +42,7 @@ class SearchActiveTypingSuggestions extends StatelessWidget {
             ? [cleanQ, if (!cleanQ.toLowerCase().contains(' song')) '$cleanQ songs', if (!cleanQ.toLowerCase().contains(' hit')) '$cleanQ hits']
             : const <String>[]);
 
-    if (localSongMatches.isEmpty && effectiveCompletions.isEmpty) {
+    if (localSongMatches.isEmpty && matchingAlbums.isEmpty && effectiveCompletions.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -89,7 +94,7 @@ class SearchActiveTypingSuggestions extends StatelessWidget {
             padding: EdgeInsets.fromLTRB(16, 6, 16, 4),
             child: Row(
               children: [
-                Icon(Icons.flash_on_rounded, size: 13, color: AppColors.electricCyan),
+                Icon(Icons.music_note_rounded, size: 13, color: AppColors.electricCyan),
                 SizedBox(width: 4),
                 Text(
                   'INSTANT MATCHES',
@@ -98,7 +103,7 @@ class SearchActiveTypingSuggestions extends StatelessWidget {
               ],
             ),
           ),
-          ...localSongMatches.take(4).map((song) {
+          ...localSongMatches.take(3).map((song) {
             final cleanTitle = _unescape.convert(Song.sanitize(song.title));
             final cleanArtist = _unescape.convert(Song.sanitize(song.artist));
 
@@ -165,6 +170,81 @@ class SearchActiveTypingSuggestions extends StatelessWidget {
                   ),
                 );
               },
+            );
+          }),
+          const SizedBox(height: 8),
+        ],
+
+        // 3. Direct Matching Entities (Albums)
+        if (matchingAlbums.isNotEmpty) ...[
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 6, 16, 4),
+            child: Row(
+              children: [
+                Icon(Icons.album_rounded, size: 13, color: AppColors.neonViolet),
+                SizedBox(width: 4),
+                Text(
+                  'ALBUMS',
+                  style: TextStyle(color: AppColors.neonViolet, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.8),
+                ),
+              ],
+            ),
+          ),
+          ...matchingAlbums.take(2).map((alb) {
+            final title = _unescape.convert((alb['title'] ?? alb['name'] ?? '').toString());
+            final artist = _unescape.convert((alb['artist'] ?? alb['music'] ?? alb['description'] ?? '').toString());
+            final img = (alb['image'] ?? alb['cover_url'] ?? '').toString();
+            final id = alb['id']?.toString() ?? '';
+
+            return ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+              onTap: () {
+                if (onSelectAlbum != null) {
+                  onSelectAlbum!(alb);
+                } else {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => AlbumScreen(albumId: id, albumTitle: title, imageUrl: img),
+                    ),
+                  );
+                }
+              },
+              leading: ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: SizedBox(
+                  width: 46,
+                  height: 46,
+                  child: img.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: img,
+                          fit: BoxFit.cover,
+                          memCacheWidth: 120,
+                          memCacheHeight: 120,
+                          errorWidget: (_, __, ___) => Container(
+                            color: AppColors.surfaceDark,
+                            child: const Icon(Icons.album_rounded, color: Colors.white24, size: 22),
+                          ),
+                        )
+                      : Container(
+                          color: AppColors.surfaceDark,
+                          child: const Icon(Icons.album_rounded, color: Colors.white24, size: 22),
+                        ),
+                ),
+              ),
+              title: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontSize: 14.5, fontWeight: FontWeight.w500),
+              ),
+              subtitle: Text(
+                artist.isNotEmpty ? 'Album • $artist' : 'Album',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5),
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white38, size: 20),
             );
           }),
         ],

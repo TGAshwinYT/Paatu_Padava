@@ -133,10 +133,10 @@ class SaavnClient {
   }
 
   /// Direct client-side autocomplete via JioSaavn autocomplete.get endpoint.
-  /// Sub-100ms response fetching top query, songs, albums, and artist names.
-  static Future<List<String>> getSearchSuggestions(String query) async {
+  /// Fetches top query text completions, songs, and albums.
+  static Future<Map<String, dynamic>> getAutocompleteData(String query) async {
     final clean = query.trim();
-    if (clean.isEmpty) return [];
+    if (clean.isEmpty) return {'completions': <String>[], 'songs': <Song>[], 'albums': <Map<String, dynamic>>[]};
 
     try {
       final uri = Uri.parse('$baseUrl?__call=autocomplete.get&_format=json&query=${Uri.encodeComponent(clean)}');
@@ -144,37 +144,94 @@ class SaavnClient {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data is Map) {
-          final Set<String> suggestions = {};
+          final List<String> completions = [];
+          final Set<String> seenCompletions = {};
+          final List<Song> songs = [];
+          final List<Map<String, dynamic>> albums = [];
 
-          void extractFromSection(dynamic section) {
-            if (section is Map && section['data'] is List) {
-              for (final item in section['data']) {
-                if (item is Map) {
-                  final title = (item['title'] ?? item['name'] ?? '').toString().trim();
-                  if (title.isNotEmpty) {
-                    final decoded = ArtistSanitizer.decodeHtml(title);
-                    if (decoded.isNotEmpty) {
-                      suggestions.add(decoded);
-                    }
+          void addCompletion(String s) {
+            final t = ArtistSanitizer.decodeHtml(s.trim());
+            if (t.isNotEmpty && seenCompletions.add(t.toLowerCase())) {
+              completions.add(t);
+            }
+          }
+
+          if (data['topquery'] is Map && data['topquery']['data'] is List) {
+            for (final item in data['topquery']['data']) {
+              if (item is Map) addCompletion((item['title'] ?? item['name'] ?? '').toString());
+            }
+          }
+
+          if (data['songs'] is Map && data['songs']['data'] is List) {
+            for (final item in data['songs']['data']) {
+              if (item is Map) {
+                final title = ArtistSanitizer.decodeHtml((item['title'] ?? item['name'] ?? '').toString());
+                if (title.isNotEmpty) {
+                  addCompletion(title);
+                  final album = ArtistSanitizer.decodeHtml((item['album'] ?? '').toString());
+                  var desc = ArtistSanitizer.decodeHtml((item['description'] ?? item['artist'] ?? '').toString());
+                  if (album.isNotEmpty && desc.startsWith('$album · ')) {
+                    desc = desc.substring('$album · '.length).trim();
                   }
+                  var img = (item['image'] ?? '').toString();
+                  if (img.contains('50x50')) img = img.replaceAll('50x50', '500x500');
+                  if (img.contains('150x150')) img = img.replaceAll('150x150', '500x500');
+
+                  songs.add(Song(
+                    id: item['id']?.toString() ?? '',
+                    title: title,
+                    artist: desc.isNotEmpty ? desc : album,
+                    album: album,
+                    coverUrl: img,
+                    source: 'saavn',
+                  ));
                 }
               }
             }
           }
 
-          extractFromSection(data['topquery']);
-          extractFromSection(data['songs']);
-          extractFromSection(data['artists']);
-          extractFromSection(data['albums']);
-          extractFromSection(data['playlists']);
+          if (data['albums'] is Map && data['albums']['data'] is List) {
+            for (final item in data['albums']['data']) {
+              if (item is Map) {
+                final title = ArtistSanitizer.decodeHtml((item['title'] ?? item['name'] ?? '').toString());
+                if (title.isNotEmpty) {
+                  addCompletion(title);
+                  final music = ArtistSanitizer.decodeHtml((item['music'] ?? item['description'] ?? item['artist'] ?? '').toString());
+                  var img = (item['image'] ?? '').toString();
+                  if (img.contains('50x50')) img = img.replaceAll('50x50', '500x500');
+                  if (img.contains('150x150')) img = img.replaceAll('150x150', '500x500');
 
-          return suggestions.toList();
+                  albums.add({
+                    'id': item['id']?.toString() ?? '',
+                    'title': title,
+                    'artist': music,
+                    'image': img,
+                    'type': 'Album',
+                    'year': (item['more_info'] is Map ? item['more_info']['year'] : null)?.toString(),
+                  });
+                }
+              }
+            }
+          }
+
+          return {
+            'completions': completions,
+            'songs': songs,
+            'albums': albums,
+          };
         }
       }
     } catch (e) {
-      debugPrint('[SaavnClient] getSearchSuggestions notice: $e');
+      debugPrint('[SaavnClient] getAutocompleteData notice: $e');
     }
-    return [];
+    return {'completions': <String>[], 'songs': <Song>[], 'albums': <Map<String, dynamic>>[]};
+  }
+
+  /// Direct client-side autocomplete via JioSaavn autocomplete.get endpoint.
+  /// Sub-100ms response fetching top query, songs, albums, and artist names.
+  static Future<List<String>> getSearchSuggestions(String query) async {
+    final data = await getAutocompleteData(query);
+    return (data['completions'] as List<dynamic>?)?.cast<String>() ?? <String>[];
   }
 
   static Future<List<Song>> search(String query, {int limit = 10, int page = 1, String? language}) async {

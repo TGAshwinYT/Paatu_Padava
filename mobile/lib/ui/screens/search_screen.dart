@@ -7,7 +7,6 @@ import '../../services/app_logger.dart';
 import '../../services/error_handler.dart';
 import '../../services/search_history_manager.dart';
 import '../../services/favorites_manager.dart';
-import '../../services/catalog_database.dart';
 import '../../services/download_manager.dart';
 import '../../services/fuzzy_search_service.dart';
 import '../../services/search_service.dart';
@@ -37,6 +36,7 @@ class _SearchScreenState extends State<SearchScreen> {
   final ValueNotifier<bool> _isSearchingNotifier = ValueNotifier<bool>(false), _isInitialLoadingNotifier = ValueNotifier<bool>(false);
   final ValueNotifier<bool> _hasSearchedNotifier = ValueNotifier<bool>(false), _canPopNotifier = ValueNotifier<bool>(true);
   final ValueNotifier<List<Song>> _localMatchesNotifier = ValueNotifier<List<Song>>([]);
+  final ValueNotifier<List<Map<String, dynamic>>> _matchingAlbumsNotifier = ValueNotifier<List<Map<String, dynamic>>>([]);
   final ValueNotifier<List<String>> _suggestionsNotifier = ValueNotifier<List<String>>([]);
   final ValueNotifier<SearchResultsState> _resultsNotifier = ValueNotifier<SearchResultsState>(const SearchResultsState());
   final PrefixTrie<String> _localSearchTrie = PrefixTrie<String>();
@@ -126,7 +126,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _searchController.dispose();
     _typeaheadDebounceTimer?.cancel();
     _libraryDebounceTimer?.cancel();
-    for (final n in [_isSearchingNotifier, _isInitialLoadingNotifier, _hasSearchedNotifier, _localMatchesNotifier, _suggestionsNotifier, _resultsNotifier]) { n.dispose(); }
+    for (final n in [_isSearchingNotifier, _isInitialLoadingNotifier, _hasSearchedNotifier, _localMatchesNotifier, _matchingAlbumsNotifier, _suggestionsNotifier, _resultsNotifier]) { n.dispose(); }
     super.dispose();
   }
 
@@ -134,6 +134,7 @@ class _SearchScreenState extends State<SearchScreen> {
     ++_searchRequestId;
     _hasSearchedNotifier.value = _isSearchingNotifier.value = _isInitialLoadingNotifier.value = false;
     _localMatchesNotifier.value = [];
+    _matchingAlbumsNotifier.value = [];
     _suggestionsNotifier.value = [];
     _resultsNotifier.value = const SearchResultsState();
     _updateCanPop();
@@ -160,29 +161,8 @@ class _SearchScreenState extends State<SearchScreen> {
     }
 
     _hasSearchedNotifier.value = false;
-
-    // State B: Instant Local Song Matches (< 5ms) - Uses FuzzySearchService for title, artist, album, and typo tolerance
-    final allLocal = [...DownloadManager.downloadedSongsNotifier.value, ...FavoritesManager.favoritesNotifier.value, ...SearchHistoryManager.recentSongsNotifier.value];
-    final matchedSongs = <Song>[];
-    for (final s in allLocal) {
-      if (FuzzySearchService.matchesSong(s, clean) && !matchedSongs.any((m) => m.id == s.id)) {
-        matchedSongs.add(s);
-        if (matchedSongs.length >= 3) break;
-      }
-    }
-    _localMatchesNotifier.value = matchedSongs;
-
-    // Supplement with Master Catalog matches
-    if (matchedSongs.length < 3) {
-      CatalogDatabase.searchCatalog(clean, limit: 5).then((catSongs) {
-        if (!mounted || _searchController.text.trim() != clean || _hasSearchedNotifier.value) return;
-        final current = List<Song>.from(_localMatchesNotifier.value);
-        for (final cs in catSongs) {
-          if (FuzzySearchService.matchesSong(cs, clean) && !current.any((x) => x.id == cs.id) && current.length < 3) current.add(cs);
-        }
-        _localMatchesNotifier.value = current;
-      }).catchError((e, stack) => AppLogger.log('SearchScreen', 'Catalog query error: $e', level: LogLevel.warn));
-    }
+    _localMatchesNotifier.value = [];
+    _matchingAlbumsNotifier.value = [];
 
     final lower = clean.toLowerCase();
     final instant = _localSearchTrie.findByPrefix(clean, limit: 5).map((m) => m.term).toList();
@@ -192,12 +172,19 @@ class _SearchScreenState extends State<SearchScreen> {
             ? _suggestionsNotifier.value.where((s) => s.toLowerCase().contains(lower)).toList()
             : [clean, if (!lower.contains(' song')) '$clean songs', if (!lower.contains(' hit')) '$clean hits']);
 
-    _typeaheadDebounceTimer = Timer(const Duration(milliseconds: 250), () {
-      SearchService.getTypeaheadSuggestions(
-        clean, localTrie: _localSearchTrie, limit: 5,
-        onPartialResults: (suggs) { if (mounted && _searchController.text.trim() == clean && !_hasSearchedNotifier.value) _suggestionsNotifier.value = suggs; },
-      ).then((suggs) {
-        if (mounted && _searchController.text.trim() == clean && !_hasSearchedNotifier.value) _suggestionsNotifier.value = suggs;
+    _typeaheadDebounceTimer = Timer(const Duration(milliseconds: 300), () {
+      final intent = SearchService.understandQuery(lower);
+      SearchService.prewarmQuery(clean, language: intent.explicitLanguage);
+      SearchService.getTypeaheadBundle(
+        clean,
+        localTrie: _localSearchTrie,
+        limit: 5,
+      ).then((bundle) {
+        if (mounted && _searchController.text.trim() == clean && !_hasSearchedNotifier.value) {
+          if (bundle.completions.isNotEmpty) _suggestionsNotifier.value = bundle.completions;
+          _localMatchesNotifier.value = bundle.songs;
+          _matchingAlbumsNotifier.value = bundle.albums;
+        }
       }).catchError((e, stack) => AppLogger.log('SearchScreen', 'Typeahead fetch error: $e', level: LogLevel.warn));
     });
   }
@@ -378,6 +365,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       hasSearchedNotifier: _hasSearchedNotifier,
                       isInitialLoadingNotifier: _isInitialLoadingNotifier,
                       localMatchesNotifier: _localMatchesNotifier,
+                      matchingAlbumsNotifier: _matchingAlbumsNotifier,
                       suggestionsNotifier: _suggestionsNotifier,
                       resultsNotifier: _resultsNotifier,
                       onTriggerCategorySearch: _triggerCategorySearch,

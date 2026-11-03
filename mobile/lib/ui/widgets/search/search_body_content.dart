@@ -21,6 +21,7 @@ class SearchBodyContent extends StatelessWidget {
   final ValueNotifier<bool> hasSearchedNotifier;
   final ValueNotifier<bool> isInitialLoadingNotifier;
   final ValueNotifier<List<Song>> localMatchesNotifier;
+  final ValueNotifier<List<Map<String, dynamic>>>? matchingAlbumsNotifier;
   final ValueNotifier<List<String>> suggestionsNotifier;
   final ValueNotifier<SearchResultsState> resultsNotifier;
   final void Function(String) onTriggerCategorySearch;
@@ -35,6 +36,7 @@ class SearchBodyContent extends StatelessWidget {
     required this.hasSearchedNotifier,
     required this.isInitialLoadingNotifier,
     required this.localMatchesNotifier,
+    this.matchingAlbumsNotifier,
     required this.suggestionsNotifier,
     required this.resultsNotifier,
     required this.onTriggerCategorySearch,
@@ -75,23 +77,34 @@ class SearchBodyContent extends StatelessWidget {
                   return ValueListenableBuilder<List<String>>(
                     valueListenable: suggestionsNotifier,
                     builder: (context, completions, _) {
-                      return SearchActiveTypingSuggestions(
-                        query: query,
-                        localSongMatches: localMatches,
-                        queryCompletions: completions,
-                        onPlaySong: (song) {
-                          SearchHistoryManager.addSong(song);
-                          SearchService.recordSearchClick(song);
-                          audioHandler.playSong(song);
-                        },
-                        onSelectQuery: onTriggerCategorySearch,
-                        onAppendQuery: (q) {
-                          searchController.text = q;
-                          searchController.selection = TextSelection.collapsed(offset: q.length);
-                          onQueryChanged(q);
-                        },
-                        onShowOptions: (s) => SearchSongOptionsSheet.show(context, s),
-                      );
+                      Widget buildSuggestions(List<Map<String, dynamic>> matchingAlbums) {
+                        return SearchActiveTypingSuggestions(
+                          query: query,
+                          localSongMatches: localMatches,
+                          matchingAlbums: matchingAlbums,
+                          queryCompletions: completions,
+                          onPlaySong: (song) {
+                            SearchHistoryManager.addSong(song);
+                            SearchService.recordSearchClick(song);
+                            audioHandler.playSong(song);
+                          },
+                          onSelectQuery: onTriggerCategorySearch,
+                          onAppendQuery: (q) {
+                            searchController.text = q;
+                            searchController.selection = TextSelection.collapsed(offset: q.length);
+                            onQueryChanged(q);
+                          },
+                          onShowOptions: (s) => SearchSongOptionsSheet.show(context, s),
+                        );
+                      }
+
+                      if (matchingAlbumsNotifier != null) {
+                        return ValueListenableBuilder<List<Map<String, dynamic>>>(
+                          valueListenable: matchingAlbumsNotifier!,
+                          builder: (context, albums, _) => buildSuggestions(albums),
+                        );
+                      }
+                      return buildSuggestions(const []);
                     },
                   );
                 },

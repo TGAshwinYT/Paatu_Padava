@@ -218,6 +218,20 @@ void main() {
       expect(FuzzySearchService.containsCandidate('ponniyin selvan'), isTrue);
     });
 
+    test('FuzzySearchService.registerCandidates tracks Romanized Indic candidates across rebuilds', () {
+      // Register a native Indic candidate via registerCandidates
+      FuzzySearchService.registerCandidates(['விக்ரம் வேதா']);
+      expect(FuzzySearchService.containsCandidate('விக்ரம் வேதா'), isTrue);
+      expect(FuzzySearchService.containsCandidate('vikram vedha'), isTrue);
+
+      // Force a dictionary rebuild by updating library songs
+      FuzzySearchService.registerLibrarySongs([]);
+
+      // Romanized form must NOT be lost after the rebuild
+      expect(FuzzySearchService.containsCandidate('விக்ரம் வேதா'), isTrue);
+      expect(FuzzySearchService.containsCandidate('vikram vedha'), isTrue);
+    });
+
     test('SearchService.expandPhoneticQuery handles multi-language transliterations without no-ops', () {
       // Eliminated no-ops: waseegara & vasikara -> vaseegara
       expect(SearchService.expandPhoneticQuery('waseegara').toLowerCase(), equals('vaseegara'));

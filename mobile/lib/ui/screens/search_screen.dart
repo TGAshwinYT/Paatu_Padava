@@ -31,6 +31,7 @@ class _SearchScreenState extends State<SearchScreen> {
   final FocusNode _searchFocusNode = FocusNode();
   final ValueNotifier<bool> _isSearchActiveNotifier = ValueNotifier<bool>(false);
   Timer? _typeaheadDebounceTimer;
+  Timer? _libraryDebounceTimer;
   int _searchRequestId = 0;
 
   // 3-State Progressive Search Notifiers
@@ -55,7 +56,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _initTrie();
     SearchHistoryManager.historyNotifier.addListener(_onHistoryQueryAdded);
     for (final l in [SearchHistoryManager.recentSongsNotifier, FavoritesManager.favoritesNotifier, DownloadManager.downloadedSongsNotifier]) {
-      l.addListener(_updateTrieWithLibrary);
+      l.addListener(_scheduleLibrarySync);
     }
     _searchFocusNode.addListener(() {
       if (_searchFocusNode.hasFocus && !_isSearchActiveNotifier.value) {
@@ -63,6 +64,11 @@ class _SearchScreenState extends State<SearchScreen> {
         _updateCanPop();
       }
     });
+  }
+
+  void _scheduleLibrarySync() {
+    _libraryDebounceTimer?.cancel();
+    _libraryDebounceTimer = Timer(const Duration(milliseconds: 250), () { if (mounted) _updateTrieWithLibrary(); });
   }
 
   void _initTrie() {
@@ -87,6 +93,7 @@ class _SearchScreenState extends State<SearchScreen> {
         _localSearchTrie.insert(clean, weight: 130);
         FuzzySearchService.registerCandidates([latest]);
       }
+      SearchService.clearTypeaheadCache();
     }
   }
 
@@ -122,10 +129,11 @@ class _SearchScreenState extends State<SearchScreen> {
     _canPopNotifier.dispose();
     SearchHistoryManager.historyNotifier.removeListener(_onHistoryQueryAdded);
     for (final l in [SearchHistoryManager.recentSongsNotifier, FavoritesManager.favoritesNotifier, DownloadManager.downloadedSongsNotifier]) {
-      l.removeListener(_updateTrieWithLibrary);
+      l.removeListener(_scheduleLibrarySync);
     }
     _searchController.dispose();
     _typeaheadDebounceTimer?.cancel();
+    _libraryDebounceTimer?.cancel();
     for (final n in [_isSearchingNotifier, _isInitialLoadingNotifier, _hasSearchedNotifier, _localMatchesNotifier, _suggestionsNotifier, _resultsNotifier]) {
       n.dispose();
     }
@@ -270,8 +278,8 @@ class _SearchScreenState extends State<SearchScreen> {
 
       await for (final unified in SearchService.searchProgressive(clean, language: null, limit: 25)) {
         if (!mounted || currentRequestId != _searchRequestId) return;
-        // Anti-Flicker SWR Gate: Never downgrade a complete cached list to partial intermediate phases
-        if (hasCachedResults && unified.ytSongs.isEmpty && cached.ytSongs.isNotEmpty) {
+        // Anti-Flicker SWR Gate: Hold cached list until the final emission arrives
+        if (hasCachedResults && !unified.isFinal) {
           continue;
         }
         _resultsNotifier.value = SearchResultsState(
@@ -315,10 +323,7 @@ class _SearchScreenState extends State<SearchScreen> {
   void _recordSearchResultClick([Song? song]) {
     final clean = _searchController.text.trim();
     if (clean.isNotEmpty) SearchHistoryManager.addQuery(clean);
-    if (song != null) {
-      SearchHistoryManager.addSong(song);
-      SearchService.recordSearchClick(song);
-    }
+    if (song != null) { SearchHistoryManager.addSong(song); SearchService.recordSearchClick(song); }
   }
 
   @override
@@ -361,11 +366,7 @@ class _SearchScreenState extends State<SearchScreen> {
                             valueListenable: _isSearchingNotifier,
                             builder: (context, isSearching, _) {
                               if (!isSearching || !hasSearched) return const SizedBox(height: 2);
-                              return const LinearProgressIndicator(
-                                minHeight: 2,
-                                color: AppColors.electricCyan,
-                                backgroundColor: Colors.transparent,
-                              );
+                              return const LinearProgressIndicator(minHeight: 2, color: AppColors.electricCyan, backgroundColor: Colors.transparent);
                             },
                           );
                         },

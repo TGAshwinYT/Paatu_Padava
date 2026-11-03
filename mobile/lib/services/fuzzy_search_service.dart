@@ -204,6 +204,7 @@ class FuzzySearchService {
         if (roman.length >= 3 && roman.length <= 35) {
           final rLower = roman.toLowerCase();
           if (_candidateDictionary.add(roman)) {
+            _dynamicHistory.add(roman);
             _lowercaseCandidateSet.add(rLower);
             _normalizedToOriginal[_normKey(roman)] = roman;
             if (!needsRebuild) {
@@ -386,13 +387,9 @@ class FuzzySearchService {
   }
 
   /// Execute fallback search using fuzzy corrected query if primary search produced 0 results
-  static Future<List<Song>> executeFallbackSearch(
-    String originalQuery, {
-    String? language,
-  }) async {
+  static Future<List<Song>> executeFallbackSearch(String originalQuery, {String? language}) async {
     final correction = findCorrection(originalQuery);
     if (correction == null) return [];
-
     final effectiveLang = (language != null && language.isNotEmpty && language.toLowerCase() != 'all') ? language : null;
     return await SaavnClient.search(correction.corrected, limit: 20, language: effectiveLang);
   }

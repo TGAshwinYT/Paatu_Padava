@@ -97,6 +97,7 @@ class SearchResults {
   final Map<String, dynamic>? topResult;
   final String? didYouMean;
   final AppError? error;
+  final bool isFinal;
 
   SearchResults({
     this.songs = const [],
@@ -109,6 +110,7 @@ class SearchResults {
     this.topResult,
     this.didYouMean,
     this.error,
+    this.isFinal = false,
   });
 
   bool get isEmpty =>
@@ -2005,7 +2007,7 @@ class SearchService {
         }
       }();
 
-      final ytSearchQuery = intent.cleanQuery;
+      final ytSearchQuery = SearchQueryPlanner.formatProviderQuery(intent.cleanQuery, explicitLanguage: effectiveLang);
 
       final Future<List<Song>> ytFuture = () async {
         try {
@@ -2627,6 +2629,7 @@ class SearchService {
         topResult: finalTopResult,
         didYouMean: didYouMean,
         error: searchError,
+        isFinal: true,
       );
 
       SearchCache.put(rawQuery, finalBundle, language: effectiveLang);
@@ -2634,7 +2637,19 @@ class SearchService {
     } catch (e, stack) {
       debugPrint('[SearchService] Search error: $e');
       if (lastEmittedBundle != null && !lastEmittedBundle.isEmpty) {
-        yield lastEmittedBundle;
+        yield SearchResults(
+          songs: lastEmittedBundle.songs,
+          ytSongs: lastEmittedBundle.ytSongs,
+          saavnSongs: lastEmittedBundle.saavnSongs,
+          audiusSongs: lastEmittedBundle.audiusSongs,
+          albums: lastEmittedBundle.albums,
+          artists: lastEmittedBundle.artists,
+          playlists: lastEmittedBundle.playlists,
+          topResult: lastEmittedBundle.topResult,
+          didYouMean: lastEmittedBundle.didYouMean,
+          error: lastEmittedBundle.error,
+          isFinal: true,
+        );
       } else if (catalogSongs.isNotEmpty) {
         yield SearchResults(
           songs: catalogSongs,
@@ -2642,10 +2657,11 @@ class SearchService {
           albums: initialAlbums,
           artists: initialArtists,
           playlists: initialPlaylists,
+          isFinal: true,
         );
       } else {
         final appErr = ErrorHandler.resolve(e, stackTrace: stack, context: 'SearchService.searchProgressive');
-        yield SearchResults(error: appErr);
+        yield SearchResults(error: appErr, isFinal: true);
       }
     }
   }

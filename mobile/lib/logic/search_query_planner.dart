@@ -283,9 +283,10 @@ class SearchQueryPlanner {
     String? explicitLanguage,
   }) {
     final clean = cleanQuery.trim();
+    final formatted = formatProviderQuery(clean, explicitLanguage: explicitLanguage);
     return {
-      'saavn': formatProviderQuery(clean, explicitLanguage: explicitLanguage),
-      'youtube': clean,
+      'saavn': formatted,
+      'youtube': formatted,
     };
   }
 }

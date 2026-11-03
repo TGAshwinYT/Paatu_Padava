@@ -121,13 +121,18 @@ void main() {
   });
 
   group('Stage 2: Parallel Multi-Source Query Planning', () {
-    test('Plans targeted queries: adds explicit language for JioSaavn, keeps clean for YouTube Music', () {
+    test('Plans targeted queries: adds explicit language for both JioSaavn and YouTube Music', () {
       final queries = SearchQueryPlanner.planMultiSourceQueries('Hukum', explicitLanguage: 'Tamil');
       expect(queries['saavn'], equals('Tamil Hukum'));
-      expect(queries['youtube'], equals('Hukum'));
+      expect(queries['youtube'], equals('Tamil Hukum'));
+
+      // Language-stripped queries (e.g. "Tamil hits" -> cleanQuery "hits" + explicitLanguage "Tamil")
+      final strippedQueries = SearchQueryPlanner.planMultiSourceQueries('hits', explicitLanguage: 'Tamil');
+      expect(strippedQueries['saavn'], equals('Tamil hits'));
+      expect(strippedQueries['youtube'], equals('Tamil hits'));
     });
 
-    test('Does not duplicate language in Saavn query if query already mentions it', () {
+    test('Does not duplicate language in Saavn or YouTube query if query already mentions it', () {
       final queries = SearchQueryPlanner.planMultiSourceQueries('Tamil Hits 2024', explicitLanguage: 'Tamil');
       expect(queries['saavn'], equals('Tamil Hits 2024'));
       expect(queries['youtube'], equals('Tamil Hits 2024'));
@@ -364,6 +369,76 @@ void main() {
       final intent = SearchService.understandQuery('tamil songs');
       final score = SearchService.calculateCompositeRelevance(hindiSong, intent);
       expect(score, equals(0.0));
+    });
+  });
+
+  group('Stage 5: SWR Revalidation & Monotonic Completeness', () {
+    test('SearchResults distinguishes intermediate phases from terminal emission via isFinal', () {
+      final phase0 = SearchResults(
+        songs: [createSong(id: 'cat_1', title: 'Local Song', artist: 'Local Artist')],
+        isFinal: false,
+      );
+      final phase1 = SearchResults(
+        songs: [createSong(id: 'saavn_1', title: 'Saavn Song', artist: 'Saavn Artist')],
+        isFinal: false,
+      );
+      final phase2Final = SearchResults(
+        songs: [
+          createSong(id: 'saavn_1', title: 'Saavn Song', artist: 'Saavn Artist'),
+          createSong(id: 'yt_1', title: 'YouTube Song', artist: 'YouTube Artist', source: 'youtube'),
+        ],
+        ytSongs: [createSong(id: 'yt_1', title: 'YouTube Song', artist: 'YouTube Artist', source: 'youtube')],
+        isFinal: true,
+      );
+
+      expect(phase0.isFinal, isFalse);
+      expect(phase1.isFinal, isFalse);
+      expect(phase2Final.isFinal, isTrue);
+    });
+
+    test('SWR Consumer Gate holds cached results until terminal emission with isFinal arrives', () {
+      final cachedSongs = [
+        createSong(id: 'cached_saavn', title: 'Cached Saavn', artist: 'Artist'),
+        createSong(id: 'cached_yt', title: 'Cached YouTube', artist: 'Artist', source: 'youtube'),
+      ];
+
+      // Simulated cached state currently visible on screen
+      List<Song> screenState = List<Song>.from(cachedSongs);
+      const hasCachedResults = true;
+
+      // Simulated progressive emissions from searchProgressive
+      final emissions = [
+        // Phase 0: 1 catalog song (intermediate)
+        SearchResults(songs: [createSong(id: 'cat_1', title: 'Cat 1', artist: 'Artist')], isFinal: false),
+        // Phase 1: 1 Saavn song (intermediate)
+        SearchResults(songs: [createSong(id: 'saavn_1', title: 'Saavn 1', artist: 'Artist')], isFinal: false),
+        // Phase 2: Fresh unified 2-song final bundle (terminal)
+        SearchResults(
+          songs: [
+            createSong(id: 'saavn_1', title: 'Saavn 1', artist: 'Artist'),
+            createSong(id: 'yt_1', title: 'YT 1', artist: 'Artist', source: 'youtube'),
+          ],
+          didYouMean: 'corrected query',
+          isFinal: true,
+        ),
+      ];
+
+      String? displayedDidYouMean;
+
+      for (final emission in emissions) {
+        // Anti-Flicker SWR Gate: hold cached list until final emission arrives
+        if (hasCachedResults && !emission.isFinal) {
+          continue;
+        }
+        screenState = emission.songs;
+        displayedDidYouMean = emission.didYouMean;
+      }
+
+      // Final screen state must NOT have flickered into Phase 0 or Phase 1 single-song lists
+      expect(screenState.length, equals(2));
+      expect(screenState.first.id, equals('saavn_1'));
+      expect(screenState.last.id, equals('yt_1'));
+      expect(displayedDidYouMean, equals('corrected query'));
     });
   });
 }

@@ -34,10 +34,8 @@ class _SearchScreenState extends State<SearchScreen> {
   int _searchRequestId = 0;
 
   // 3-State Progressive Search Notifiers
-  final ValueNotifier<bool> _isSearchingNotifier = ValueNotifier<bool>(false);
-  final ValueNotifier<bool> _isInitialLoadingNotifier = ValueNotifier<bool>(false);
-  final ValueNotifier<bool> _hasSearchedNotifier = ValueNotifier<bool>(false);
-  final ValueNotifier<bool> _canPopNotifier = ValueNotifier<bool>(true);
+  final ValueNotifier<bool> _isSearchingNotifier = ValueNotifier<bool>(false), _isInitialLoadingNotifier = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> _hasSearchedNotifier = ValueNotifier<bool>(false), _canPopNotifier = ValueNotifier<bool>(true);
   final ValueNotifier<List<Song>> _localMatchesNotifier = ValueNotifier<List<Song>>([]);
   final ValueNotifier<List<String>> _suggestionsNotifier = ValueNotifier<List<String>>([]);
   final ValueNotifier<SearchResultsState> _resultsNotifier = ValueNotifier<SearchResultsState>(const SearchResultsState());
@@ -58,10 +56,7 @@ class _SearchScreenState extends State<SearchScreen> {
       l.addListener(_scheduleLibrarySync);
     }
     _searchFocusNode.addListener(() {
-      if (_searchFocusNode.hasFocus && !_isSearchActiveNotifier.value) {
-        _isSearchActiveNotifier.value = true;
-        _updateCanPop();
-      }
+      if (_searchFocusNode.hasFocus && !_isSearchActiveNotifier.value) { _isSearchActiveNotifier.value = true; _updateCanPop(); }
     });
   }
 
@@ -266,7 +261,7 @@ class _SearchScreenState extends State<SearchScreen> {
         }
       }
 
-      await for (final unified in SearchService.searchProgressive(clean, language: effectiveLang, limit: 25)) {
+      await for (final unified in SearchService.searchProgressive(clean, language: effectiveLang, precomputedIntent: intent, limit: 25)) {
         if (!mounted || currentRequestId != _searchRequestId) return;
         if (unified.isCached && unified.songs.isNotEmpty) {
           hasCachedResults = true;
@@ -287,15 +282,19 @@ class _SearchScreenState extends State<SearchScreen> {
           break;
         }
 
-        final currentSongs = _resultsNotifier.value.songs;
-        final isIdentical = currentSongs.length == unified.songs.length &&
-            List.generate(currentSongs.length, (i) => currentSongs[i].id == unified.songs[i].id).every((x) => x);
+        final current = _resultsNotifier.value;
+        final isSameSongs = current.songs.length == unified.songs.length &&
+            List.generate(current.songs.length, (i) => current.songs[i].id == unified.songs[i].id).every((x) => x);
+        final isFullyIdentical = isSameSongs && current.topResult == unified.topResult &&
+            current.albums.length == unified.albums.length && current.artists.length == unified.artists.length &&
+            current.playlists.length == unified.playlists.length && current.didYouMean == unified.didYouMean && current.error == unified.error;
 
-        if (!hasCachedResults || !isIdentical) {
+        if (!hasCachedResults || !isFullyIdentical) {
           _resultsNotifier.value = SearchResultsState(
-            topResult: unified.topResult, songs: unified.songs, ytSongs: unified.ytSongs,
-            saavnSongs: unified.saavnSongs, audiusSongs: unified.audiusSongs, albums: unified.albums,
-            artists: unified.artists, playlists: unified.playlists, didYouMean: unified.didYouMean, error: unified.error,
+            topResult: unified.topResult, songs: isSameSongs ? current.songs : unified.songs,
+            ytSongs: unified.ytSongs, saavnSongs: unified.saavnSongs, audiusSongs: unified.audiusSongs,
+            albums: unified.albums, artists: unified.artists, playlists: unified.playlists,
+            didYouMean: unified.didYouMean, error: unified.error,
           );
         }
         if (unified.songs.isNotEmpty || unified.albums.isNotEmpty || unified.artists.isNotEmpty) {

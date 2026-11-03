@@ -1886,10 +1886,11 @@ class SearchService {
   static Stream<SearchResults> searchProgressive(
     String rawQuery, {
     String? language,
+    QueryIntent? precomputedIntent,
     int limit = 25,
   }) async* {
     final normalizedRaw = rawQuery.trim().toLowerCase();
-    final intent = understandQuery(normalizedRaw);
+    final intent = precomputedIntent ?? understandQuery(normalizedRaw);
     if (intent.cleanQuery.isEmpty) {
       yield SearchResults();
       return;
@@ -2513,6 +2514,9 @@ class SearchService {
         candidateYt = deduplicatedYt;
         bypassedExplicitLangYt = true;
       }
+      if (ytFailed && candidateYt.isEmpty && cached != null && cached.ytSongs.isNotEmpty) {
+        candidateYt = cached.ytSongs;
+      }
       final ytSongs = candidateYt;
 
       final scoredYt = candidateYt.map((s) {
@@ -2651,7 +2655,22 @@ class SearchService {
       yield finalBundle;
     } catch (e, stack) {
       debugPrint('[SearchService] Search error: $e');
-      if (lastEmittedBundle != null && !lastEmittedBundle.isEmpty) {
+      final appErr = ErrorHandler.resolve(e, stackTrace: stack, context: 'SearchService.searchProgressive');
+      if (cached != null && cached.songs.isNotEmpty) {
+        yield SearchResults(
+          songs: cached.songs,
+          ytSongs: cached.ytSongs,
+          saavnSongs: cached.saavnSongs,
+          audiusSongs: cached.audiusSongs,
+          albums: cached.albums,
+          artists: cached.artists,
+          playlists: cached.playlists,
+          topResult: cached.topResult,
+          didYouMean: cached.didYouMean,
+          error: appErr,
+          isFinal: true,
+        );
+      } else if (lastEmittedBundle != null && !lastEmittedBundle.isEmpty) {
         yield SearchResults(
           songs: lastEmittedBundle.songs,
           ytSongs: lastEmittedBundle.ytSongs,
@@ -2662,7 +2681,7 @@ class SearchService {
           playlists: lastEmittedBundle.playlists,
           topResult: lastEmittedBundle.topResult,
           didYouMean: lastEmittedBundle.didYouMean,
-          error: lastEmittedBundle.error,
+          error: lastEmittedBundle.error ?? appErr,
           isFinal: true,
         );
       } else if (catalogSongs.isNotEmpty) {
@@ -2672,10 +2691,10 @@ class SearchService {
           albums: initialAlbums,
           artists: initialArtists,
           playlists: initialPlaylists,
+          error: appErr,
           isFinal: true,
         );
       } else {
-        final appErr = ErrorHandler.resolve(e, stackTrace: stack, context: 'SearchService.searchProgressive');
         yield SearchResults(error: appErr, isFinal: true);
       }
     }

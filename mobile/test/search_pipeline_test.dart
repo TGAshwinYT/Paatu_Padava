@@ -38,7 +38,7 @@ void main() {
       expect(SearchService.understandQuery('రాములో రాములా').detectedLanguage, equals('telugu'));
       expect(SearchService.understandQuery('പുതുമഴ').detectedLanguage, equals('malayalam'));
       expect(SearchService.understandQuery('ಬಾ ಬೆಳಕೆ').detectedLanguage, equals('kannada'));
-      expect(SearchService.understandQuery('केसरिया तेरा').detectedLanguage, equals('hindi'));
+      expect(SearchService.understandQuery('केसरिया तेरा').detectedLanguage, equals('devanagari'));
     });
 
     test('Extracts explicit language in query as override and strips language word', () {

@@ -28,6 +28,7 @@ import '../data/repositories/song_repository.dart';
 import '../core/dsa/lru_cache.dart';
 import '../domain/models/clustered_track_result.dart';
 import '../logic/track_quality_filter.dart';
+import '../logic/lyrics/indic_romanizer.dart';
 
 
 
@@ -223,11 +224,17 @@ class SearchService {
     var text = query.trim().toLowerCase();
     if (text.isEmpty) return query;
 
+    // 0. Automatic Indic Script Transliteration (Tamil, Hindi, Telugu, Malayalam, Kannada)
+    if (IndicRomanizer.hasIndicScript(text)) {
+      final roman = IndicRomanizer.romanize(text).trim();
+      if (roman.isNotEmpty) return roman;
+    }
+
     if (_tanglishIndex.containsKey(text)) {
       return _tanglishIndex[text]!;
     }
 
-    // Common phonetic swaps
+    // Common phonetic swaps (eliminating no-ops and expanding multi-variant aliases)
     text = text.replaceAll('aniruth', 'anirudh')
                .replaceAll('ar rehman', 'ar rahman')
                .replaceAll('rehman', 'rahman')
@@ -238,10 +245,11 @@ class SearchService {
                .replaceAll('hukm', 'hukum')
                .replaceAll('nerupuda', 'neruppu da')
                .replaceAll('kadaippoma', 'kadhaippoma')
-               .replaceAll('vaseegara', 'vaseegara')
                .replaceAll('waseegara', 'vaseegara')
+               .replaceAll('vasikara', 'vaseegara')
                .replaceAll('mesaya muruku', 'meesaya murukku')
-               .replaceAll('oorum blood', 'oorum blood');
+               .replaceAll('oorum raththam', 'oorum blood')
+               .replaceAll('oorum ratham', 'oorum blood');
 
     return text;
   }
@@ -312,6 +320,26 @@ class SearchService {
     // Dental / retroflex aspirates (e.g. "aniruth" -> "anirudh")
     if (clean.endsWith('uth')) {
       variants.add('${clean.substring(0, clean.length - 3)}udh');
+    }
+
+    // Indic Script romanization variant
+    if (IndicRomanizer.hasIndicScript(clean)) {
+      final roman = IndicRomanizer.romanize(clean).trim().toLowerCase();
+      if (roman.isNotEmpty && roman != clean) variants.add(roman);
+    }
+
+    // South Indian allophone folding (zh <-> l, th <-> dh, ph <-> f)
+    if (clean.contains('zh')) variants.add(clean.replaceAll('zh', 'l'));
+    if (clean.contains('th')) variants.add(clean.replaceAll('th', 'dh'));
+    if (clean.contains('dh')) variants.add(clean.replaceAll('dh', 'th'));
+    if (clean.contains('ph')) variants.add(clean.replaceAll('ph', 'f'));
+    if (clean.contains('f')) variants.add(clean.replaceAll('f', 'ph'));
+
+    // Geminate consonant expansion (e.g. "muruku" -> "murukku", "nerupu" -> "neruppu")
+    for (final ch in const ['k', 'p', 't', 'l', 'm', 'n', 'r']) {
+      if (clean.contains(ch) && !clean.contains('$ch$ch')) {
+        variants.add(clean.replaceAll(ch, '$ch$ch'));
+      }
     }
 
     variants.remove(clean);
@@ -960,12 +988,25 @@ class SearchService {
 
     if (clean.isEmpty) clean = trimmed;
 
-    // 3. Tanglish transliteration check
+    // 3. Script detection & Transliteration check
     final cleanLower = clean.toLowerCase();
     String transliterated = clean;
     String? didYouMean;
 
-    if (_tanglishIndex.containsKey(cleanLower)) {
+    // A. Native Indic script handling (Tamil, Hindi, Telugu, Malayalam, Kannada, etc.)
+    if (IndicRomanizer.hasIndicScript(clean)) {
+      final roman = IndicRomanizer.romanize(clean).trim();
+      if (roman.isNotEmpty && roman.toLowerCase() != cleanLower) {
+        transliterated = roman;
+        didYouMean = roman;
+      }
+      if (explicitLang == null) {
+        final detected = IndicRomanizer.detectScript(clean);
+        if (detected != 'latin') {
+          explicitLang = detected[0].toUpperCase() + detected.substring(1);
+        }
+      }
+    } else if (_tanglishIndex.containsKey(cleanLower)) {
       transliterated = _tanglishIndex[cleanLower]!;
       didYouMean = transliterated;
     } else {

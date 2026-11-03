@@ -7,7 +7,7 @@ import '../core/dsa/lru_cache.dart';
 import '../core/dsa/symspell.dart';
 import '../core/dsa/trigram_index.dart';
 import 'saavn_client.dart';
-// removed
+import '../logic/lyrics/indic_romanizer.dart';
 import 'app_logger.dart';
 
 class FuzzyCorrectionResult {
@@ -49,25 +49,11 @@ class FuzzySearchService {
     'Andrea Jeremiah',
 
     // Popular Tamil Tracks & Movie Hits
-    'Naa Ready',
-    'Badass',
-    'Hukum',
-    'Arabic Kuthu',
-    'Vaseegara',
-    'Why This Kolaveri Di',
-    'Rowdy Baby',
-    'Kaavaalaa',
-    'Chinna Chinna Aasai',
-    'Munbe Vaa',
-    'Nenjukkul Peidhidum',
-    'Enjoy Enjaami',
-    'Ordinary Person',
-    'Bloody Sweet',
-    'Chellamma',
-    'Vaathi Coming',
-    'Kutty Story',
-    'Master the Blaster',
-    'Dippam Dappam',
+    'Naa Ready', 'Badass', 'Hukum', 'Arabic Kuthu', 'Vaseegara',
+    'Why This Kolaveri Di', 'Rowdy Baby', 'Kaavaalaa', 'Chinna Chinna Aasai',
+    'Munbe Vaa', 'Nenjukkul Peidhidum', 'Enjoy Enjaami', 'Ordinary Person',
+    'Bloody Sweet', 'Chellamma', 'Vaathi Coming', 'Kutty Story',
+    'Master the Blaster', 'Dippam Dappam',
     'Megham Karukatha',
     'Two Two Two',
     'Kanave Kanave',
@@ -124,7 +110,7 @@ class FuzzySearchService {
   static final Set<String> _lowercaseCandidateSet = <String>{};
   static bool _bkTreeInitialized = false;
 
-  static String _normKey(String s) => s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+  static String _normKey(String s) => s.toLowerCase().replaceAll(RegExp(r'[\s,._\-!?/\\&|:;()\[\]{}"]+'), '');
 
   static void _rebuildAll() {
     _candidateDictionary
@@ -187,7 +173,7 @@ class FuzzySearchService {
     if (queryWords.isEmpty) return false;
 
     final fullText = '$tLower $aLower $albLower';
-    final songTokens = fullText.split(RegExp(r'[^a-zA-Z0-9]+')).where((t) => t.isNotEmpty).toList();
+    final songTokens = fullText.split(RegExp(r'[\s,._\-!?/\\&|:;()\[\]{}"]+')).where((t) => t.isNotEmpty).toList();
 
     return queryWords.every((qw) {
       if (songTokens.any((t) => t.contains(qw))) return true;
@@ -230,6 +216,18 @@ class FuzzySearchService {
         _bkTree.insert(sanitized);
         _symSpell.insert(sanitized);
         _trigramIndex.insert(sanitized, payload: sanitized);
+        if (IndicRomanizer.hasIndicScript(sanitized)) {
+          final roman = IndicRomanizer.romanize(sanitized).trim();
+          final rLower = roman.toLowerCase();
+          if (roman.length >= 3 && _candidateDictionary.add(roman)) {
+            _dynamicHistory.add(roman);
+            _lowercaseCandidateSet.add(rLower);
+            _normalizedToOriginal[_normKey(roman)] = roman;
+            _bkTree.insert(roman);
+            _symSpell.insert(roman);
+            _trigramIndex.insert(roman, payload: sanitized);
+          }
+        }
         addedAny = true;
       }
     }

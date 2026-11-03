@@ -101,4 +101,62 @@ void main() {
       expect(similarity, greaterThanOrEqualTo(0.85));
     });
   });
+
+  group('Multi-Language Indic Script & Phonetic Expansion (All Languages)', () {
+    final tamilScriptSong = Song(
+      id: 'tamil_ps1',
+      title: 'பொன்னியின் செல்வன்',
+      artist: 'ஏ.ஆர். ரஹ்மான்',
+      album: 'பொன்னியின் செல்வன் 1',
+      coverUrl: '',
+    );
+
+    final teluguScriptSong = Song(
+      id: 'telugu_devara',
+      title: 'చుట్టమల్లే',
+      artist: 'అనిరుధ్ రవిచందర్',
+      album: 'దేవర',
+      coverUrl: '',
+    );
+
+    test('FuzzySearchService.matchesSong preserves and matches native Indic script tokens', () {
+      // Tamil script tokens are not stripped by regex
+      expect(FuzzySearchService.matchesSong(tamilScriptSong, 'பொன்னியின்'), isTrue);
+      expect(FuzzySearchService.matchesSong(tamilScriptSong, 'செல்வன்'), isTrue);
+      expect(FuzzySearchService.matchesSong(tamilScriptSong, 'ரஹ்மான்'), isTrue);
+
+      // Telugu script tokens
+      expect(FuzzySearchService.matchesSong(teluguScriptSong, 'చుట్టమల్లే'), isTrue);
+      expect(FuzzySearchService.matchesSong(teluguScriptSong, 'దేవర'), isTrue);
+    });
+
+    test('SearchService.understandQuery transliterates native Indic scripts to Latin and detects language', () {
+      // Tamil query
+      final tamilIntent = SearchService.understandQuery('விக்ரம்');
+      expect(tamilIntent.transliteratedQuery.toLowerCase(), equals('vikram'));
+      expect(tamilIntent.explicitLanguage?.toLowerCase(), equals('tamil'));
+
+      // Hindi query
+      final hindiIntent = SearchService.understandQuery('केसरिया');
+      expect(hindiIntent.transliteratedQuery.toLowerCase(), startsWith('kesariya'));
+      expect(hindiIntent.explicitLanguage?.toLowerCase(), equals('devanagari'));
+
+      // Telugu query
+      final teluguIntent = SearchService.understandQuery('చుట్టమల్లే');
+      expect(teluguIntent.transliteratedQuery.toLowerCase(), startsWith('chuttamall'));
+      expect(teluguIntent.explicitLanguage?.toLowerCase(), equals('telugu'));
+    });
+
+    test('SearchService.expandPhoneticQuery handles multi-language transliterations without no-ops', () {
+      // Eliminated no-ops: waseegara & vasikara -> vaseegara
+      expect(SearchService.expandPhoneticQuery('waseegara').toLowerCase(), equals('vaseegara'));
+      expect(SearchService.expandPhoneticQuery('vasikara').toLowerCase(), equals('vaseegara'));
+      expect(SearchService.expandPhoneticQuery('oorum raththam').toLowerCase(), equals('oorum blood'));
+      expect(SearchService.expandPhoneticQuery('oorum ratham').toLowerCase(), equals('oorum blood'));
+
+      // Native Indic script input in expandPhoneticQuery
+      expect(SearchService.expandPhoneticQuery('விக்ரம்').toLowerCase(), equals('vikram'));
+      expect(SearchService.expandPhoneticQuery('பொன்னியின் செல்வன்').toLowerCase(), contains('ponniyin'));
+    });
+  });
 }

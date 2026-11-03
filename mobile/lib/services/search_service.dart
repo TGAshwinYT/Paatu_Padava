@@ -1638,7 +1638,7 @@ class SearchService {
     if (qLower.isNotEmpty && albLower.isNotEmpty) {
       final isAlbMatch = isAlbumOrMovieEntityMatch(albLower, qLower) || (intent.effectiveCoreQuery.isNotEmpty && isAlbumOrMovieEntityMatch(albLower, intent.effectiveCoreQuery));
       if (isAlbMatch) {
-        score = math.max(score, (stringSim >= 0.70) ? 0.95 : 0.82);
+        score = 1.0;
       } else if (albLower.startsWith('$qLower ') || albLower.startsWith('$qLower-') || albLower.startsWith('$qLower (')) {
         score = (score + 0.35).clamp(0.0, 1.0);
       }
@@ -1698,20 +1698,6 @@ class SearchService {
     final songA = a.value;
     final songB = b.value;
 
-    // 0. Direct Title Match Precedence: Tracks whose title matches query outrank child tracks of a matched film entity
-    bool titleMatches(String title) {
-      final t = title.toLowerCase().trim();
-      if (t == queryLower || t.contains(queryLower) || queryLower.contains(t)) return true;
-      if (t.length >= 3 && queryLower.length >= 3 && (t.length - queryLower.length).abs() <= 2) {
-        return BkTree.levenshteinDistance(t, queryLower, maxDistance: 2) <= 2;
-      }
-      return false;
-    }
-
-    final aTitleMatch = titleMatches(songA.title) ? 1 : 0;
-    final bTitleMatch = titleMatches(songB.title) ? 1 : 0;
-    if (aTitleMatch != bTitleMatch) return bTitleMatch.compareTo(aTitleMatch);
-
     // 1. Movie Soundtrack Match Precedence: Child tracks of matched film entity outrank standalone singles
     final albA = songA.album.toLowerCase().trim();
     final albB = songB.album.toLowerCase().trim();
@@ -1733,6 +1719,20 @@ class SearchService {
     final aExact = (songA.title.toLowerCase().trim() == queryLower) ? 1 : 0;
     final bExact = (songB.title.toLowerCase().trim() == queryLower) ? 1 : 0;
     if (aExact != bExact) return bExact.compareTo(aExact);
+
+    // Direct Title Match Precedence for tied non-album tracks
+    bool titleMatches(String title) {
+      final t = title.toLowerCase().trim();
+      if (t == queryLower || t.contains(queryLower) || queryLower.contains(t)) return true;
+      if (t.length >= 3 && queryLower.length >= 3 && (t.length - queryLower.length).abs() <= 2) {
+        return BkTree.levenshteinDistance(t, queryLower, maxDistance: 2) <= 2;
+      }
+      return false;
+    }
+
+    final aTitleMatch = titleMatches(songA.title) ? 1 : 0;
+    final bTitleMatch = titleMatches(songB.title) ? 1 : 0;
+    if (aTitleMatch != bTitleMatch) return bTitleMatch.compareTo(aTitleMatch);
 
     final aStudio = (songA.source.toLowerCase() == 'saavn') ? 1 : 0;
     final bStudio = (songB.source.toLowerCase() == 'saavn') ? 1 : 0;

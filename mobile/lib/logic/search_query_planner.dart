@@ -3,6 +3,7 @@ import '../domain/models/clustered_track_result.dart';
 import '../services/youtube/youtube_title_cleaner.dart';
 import '../services/artist_sanitizer.dart';
 import '../services/spotify_track_key.dart';
+import 'lyrics/indic_romanizer.dart';
 
 /// Explicit type of search intent detected from user input.
 enum QueryIntentType {
@@ -239,27 +240,51 @@ class SearchQueryPlanner {
     );
   }
 
+  /// Single shared authority for formatting queries sent to external music providers (Saavn, YouTube).
+  /// Script families ('devanagari', 'latin') and native Indic script text NEVER receive a language prefix.
+  static String formatProviderQuery(String query, {String? explicitLanguage}) {
+    final clean = query.trim();
+    if (clean.isEmpty) return '';
+    if (explicitLanguage == null || explicitLanguage.trim().isEmpty) return clean;
+
+    final lang = explicitLanguage.trim();
+    final lowerLang = lang.toLowerCase();
+
+    // Script families or generic scripts NEVER get prepended as language names
+    if (lowerLang == 'devanagari' || lowerLang == 'latin') return clean;
+
+    // If query is already in native Indic script (Tamil, Devanagari, Telugu, etc.), do not prepend English names
+    if (IndicRomanizer.hasIndicScript(clean)) return clean;
+
+    // If query already contains the language name, do not duplicate
+    if (clean.toLowerCase().contains(lowerLang)) return clean;
+
+    return '$lang $clean';
+  }
+
+  /// Formats artist search queries for external providers.
+  static String formatArtistQuery(String query, {String? explicitLanguage, bool isGeneric = false}) {
+    final clean = query.trim();
+    if (explicitLanguage == null || explicitLanguage.trim().isEmpty) return clean;
+
+    final lang = explicitLanguage.trim();
+    final lowerLang = lang.toLowerCase();
+
+    if (lowerLang == 'devanagari' || lowerLang == 'latin') return clean;
+    if (IndicRomanizer.hasIndicScript(clean)) return clean;
+    if (clean.toLowerCase().contains(lowerLang)) return clean;
+
+    return isGeneric ? 'Top $lang Artists' : '$lang $clean';
+  }
+
   /// Plans targeted queries for concurrent multi-source fetching (JioSaavn and YouTube Music)
   static Map<String, String> planMultiSourceQueries(
     String cleanQuery, {
     String? explicitLanguage,
   }) {
     final clean = cleanQuery.trim();
-    final lower = clean.toLowerCase();
-
-    final rawLang = explicitLanguage?.trim();
-    // Devanagari script is shared by Hindi, Marathi, Bhojpuri, etc.
-    // Do not prepend language for generic Devanagari script queries; let providers search native terms directly.
-    final effectiveLang = (rawLang != null && rawLang.toLowerCase() == 'devanagari')
-        ? null
-        : rawLang;
-
-    final saavnQuery = (effectiveLang != null && !lower.contains(effectiveLang.toLowerCase()))
-        ? '$effectiveLang $clean'
-        : clean;
-
     return {
-      'saavn': saavnQuery,
+      'saavn': formatProviderQuery(clean, explicitLanguage: explicitLanguage),
       'youtube': clean,
     };
   }

@@ -132,6 +132,26 @@ void main() {
       expect(queries['saavn'], equals('Tamil Hits 2024'));
       expect(queries['youtube'], equals('Tamil Hits 2024'));
     });
+
+    test('formatProviderQuery NEVER prepends Devanagari or Latin script families', () {
+      expect(SearchQueryPlanner.formatProviderQuery('Kesariya', explicitLanguage: 'devanagari'), equals('Kesariya'));
+      expect(SearchQueryPlanner.formatProviderQuery('Believer', explicitLanguage: 'latin'), equals('Believer'));
+    });
+
+    test('formatProviderQuery NEVER prepends language prefix to native Indic scripts', () {
+      // Native Devanagari query must stay clean (never "Devanagari केसरिया" or "Hindi केसरिया")
+      expect(SearchQueryPlanner.formatProviderQuery('केसरिया', explicitLanguage: 'Hindi'), equals('केसरिया'));
+      expect(SearchQueryPlanner.formatProviderQuery('केसरिया', explicitLanguage: 'devanagari'), equals('केसरिया'));
+      // Native Tamil query must stay clean (never "Tamil விக்ரம்")
+      expect(SearchQueryPlanner.formatProviderQuery('விக்ரம்', explicitLanguage: 'Tamil'), equals('விக்ரம்'));
+    });
+
+    test('formatArtistQuery formats artist searches without prepending script family names', () {
+      expect(SearchQueryPlanner.formatArtistQuery('Arijit Singh', explicitLanguage: 'Hindi'), equals('Hindi Arijit Singh'));
+      expect(SearchQueryPlanner.formatArtistQuery('Arijit Singh', explicitLanguage: 'devanagari'), equals('Arijit Singh'));
+      expect(SearchQueryPlanner.formatArtistQuery('Top Artists', explicitLanguage: 'Tamil', isGeneric: true), equals('Top Tamil Artists'));
+      expect(SearchQueryPlanner.formatArtistQuery('Top Artists', explicitLanguage: 'devanagari', isGeneric: true), equals('Top Artists'));
+    });
   });
 
   group('Stage 3: Normalization & Cross-Source Deduplication', () {

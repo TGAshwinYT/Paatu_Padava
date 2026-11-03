@@ -70,8 +70,16 @@ class _SearchScreenState extends State<SearchScreen> {
     _updateTrieWithLibrary();
   }
 
+  int _lastHistoryCount = 0;
+
   void _onHistoryQueryAdded() {
     final recent = SearchHistoryManager.historyNotifier.value;
+    if (recent.length < _lastHistoryCount || recent.isEmpty) {
+      _lastHistoryCount = recent.length;
+      _updateTrieWithLibrary();
+      return;
+    }
+    _lastHistoryCount = recent.length;
     if (recent.isNotEmpty) {
       final latest = recent.first;
       final clean = SearchQueryPlanner.cleanTitle(latest).trim();
@@ -84,6 +92,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _updateTrieWithLibrary() {
     final recent = SearchHistoryManager.historyNotifier.value;
+    _lastHistoryCount = recent.length;
     _localSearchTrie.clear();
     final seen = <String>{};
     void addTerm(String? term, int weight) {
@@ -103,6 +112,7 @@ class _SearchScreenState extends State<SearchScreen> {
     FuzzySearchService.registerCandidates(recent);
     final allLocal = [...saved, ...recentSongs];
     if (allLocal.isNotEmpty) FuzzySearchService.registerSongs(allLocal, isLibrary: true);
+    SearchService.clearTypeaheadCache();
   }
 
   @override
@@ -205,7 +215,6 @@ class _SearchScreenState extends State<SearchScreen> {
         }
       }).catchError((e, stack) => AppLogger.log('SearchScreen', 'Typeahead fetch error: $e', level: LogLevel.warn));
     });
-
   }
 
   Future<void> _executeSearch(String query, {bool saveHistory = true}) async {
@@ -239,8 +248,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
     try {
       final isLikelyUrl = clean.startsWith('http://') || clean.startsWith('https://') ||
-          clean.contains('youtu.be') || clean.contains('youtube.com') ||
-          clean.contains('jiosaavn.com') || clean.contains('saavn.com');
+          clean.contains('youtu.be') || clean.contains('youtube.com') || clean.contains('saavn.com');
 
       if (isLikelyUrl) {
         final direct = await SearchService.resolveDirectUrlOrEntity(clean);
@@ -248,15 +256,8 @@ class _SearchScreenState extends State<SearchScreen> {
           if (!mounted || currentRequestId != _searchRequestId) return;
           final tracks = (direct['tracks'] as List<Song>?) ?? <Song>[];
           _resultsNotifier.value = SearchResultsState(
-            ytSongs: tracks,
-            songs: tracks,
-            topResult: {
-              'type': direct['type'],
-              'id': direct['id'],
-              'title': direct['title'],
-              'subtitle': direct['subtitle'],
-              'image': direct['image'],
-            },
+            ytSongs: tracks, songs: tracks,
+            topResult: {'type': direct['type'], 'id': direct['id'], 'title': direct['title'], 'subtitle': direct['subtitle'], 'image': direct['image']},
           );
           _isSearchingNotifier.value = false;
           _isInitialLoadingNotifier.value = false;
@@ -265,8 +266,14 @@ class _SearchScreenState extends State<SearchScreen> {
         }
       }
 
+      final hasCachedResults = cached != null && cached.songs.isNotEmpty;
+
       await for (final unified in SearchService.searchProgressive(clean, language: null, limit: 25)) {
         if (!mounted || currentRequestId != _searchRequestId) return;
+        // Anti-Flicker SWR Gate: Never downgrade a complete cached list to partial intermediate phases
+        if (hasCachedResults && unified.ytSongs.isEmpty && cached.ytSongs.isNotEmpty) {
+          continue;
+        }
         _resultsNotifier.value = SearchResultsState(
           topResult: unified.topResult, songs: unified.songs, ytSongs: unified.ytSongs,
           saavnSongs: unified.saavnSongs, audiusSongs: unified.audiusSongs, albums: unified.albums,

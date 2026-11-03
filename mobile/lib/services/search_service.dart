@@ -790,10 +790,7 @@ class SearchService {
     final intent = understandQuery(query);
     final effectiveLang = intent.explicitLanguage ??
         (language != null && language.isNotEmpty && language.toLowerCase() != 'all' ? language : null);
-    final saavnQuery = (intent.explicitLanguage != null &&
-            !intent.cleanQuery.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
-        ? '${intent.explicitLanguage!} ${intent.cleanQuery}'
-        : intent.cleanQuery;
+    final saavnQuery = SearchQueryPlanner.formatProviderQuery(intent.cleanQuery, explicitLanguage: effectiveLang);
 
     final saavnFuture = SaavnClient.searchPlaylists(saavnQuery, limit: limit, language: effectiveLang)
         .timeout(const Duration(seconds: 4), onTimeout: () => <Map<String, dynamic>>[]);
@@ -939,9 +936,7 @@ class SearchService {
       final saavnFuture = SaavnClient.search(query, limit: limit, page: page, language: effectiveLang)
           .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[]);
 
-      final ytQuery = (effectiveLang != null && !query.toLowerCase().contains(effectiveLang.toLowerCase()))
-          ? '$effectiveLang $query'
-          : query;
+      final ytQuery = SearchQueryPlanner.formatProviderQuery(query, explicitLanguage: effectiveLang);
       final ytOffset = (page - 1) * limit;
       final Future<List<Song>> ytFuture = () async {
         final cached = _pagedYouTubeCache.get(ytQuery);
@@ -952,7 +947,9 @@ class SearchService {
         // Fetch bounded YouTube pool once (max 25 items) and cache for subsequent pages
         final pool = await YouTubeClient.search(ytQuery, limit: 25)
             .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[]);
-        _pagedYouTubeCache.put(ytQuery, pool);
+        if (pool.isNotEmpty) {
+          _pagedYouTubeCache.put(ytQuery, pool);
+        }
         if (ytOffset >= pool.length) return <Song>[];
         return pool.skip(ytOffset).take(limit).toList();
       }();
@@ -1188,7 +1185,7 @@ class SearchService {
     } else if (RegExp(r'[\u0C80-\u0CFF]').hasMatch(trimmed)) {
       detectedScript = 'kannada';
     } else if (RegExp(r'[\u0900-\u097F]').hasMatch(trimmed)) {
-      detectedScript = 'hindi';
+      detectedScript = 'devanagari';
     } else {
       detectedScript = 'latin';
     }
@@ -1250,7 +1247,8 @@ class SearchService {
       }
       if (explicitLang == null) {
         final detected = IndicRomanizer.detectScript(clean);
-        if (detected != 'latin') {
+        // Devanagari is a multi-language script family (Hindi, Marathi, etc.), not a single language
+        if (detected != 'latin' && detected != 'devanagari') {
           final lang = IndicRomanizer.scriptToLanguage(detected);
           explicitLang = lang[0].toUpperCase() + lang.substring(1);
         }
@@ -1916,11 +1914,8 @@ class SearchService {
       bool saavnFailed = false;
       bool ytFailed = false;
 
-      // Preserve explicit language in search query so providers don't default to Bollywood Hindi
-      final saavnSearchQuery = (intent.explicitLanguage != null &&
-              !intent.cleanQuery.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
-          ? '${intent.explicitLanguage!.toLowerCase()} ${intent.cleanQuery.toLowerCase()}'
-          : intent.cleanQuery.toLowerCase();
+      // Preserve explicit language in search query via centralized provider formatter
+      final saavnSearchQuery = SearchQueryPlanner.formatProviderQuery(intent.cleanQuery, explicitLanguage: effectiveLang);
 
       final Future<List<Song>> saavnFuture = () async {
         try {
@@ -1934,10 +1929,7 @@ class SearchService {
           });
           if (results.isNotEmpty) saavnFailed = false;
           if (results.isEmpty && intent.effectiveCoreQuery != intent.cleanQuery) {
-            final coreSearch = (intent.explicitLanguage != null &&
-                    !intent.effectiveCoreQuery.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
-                ? '${intent.explicitLanguage!} ${intent.effectiveCoreQuery}'
-                : intent.effectiveCoreQuery;
+            final coreSearch = SearchQueryPlanner.formatProviderQuery(intent.effectiveCoreQuery, explicitLanguage: effectiveLang);
             results = await SaavnClient.search(
               coreSearch,
               limit: limit,
@@ -1955,10 +1947,7 @@ class SearchService {
       final Future<List<Song>> transliteratedSaavnFuture = () async {
         if (intent.transliteratedQuery == intent.cleanQuery) return <Song>[];
         try {
-          final transQuery = (intent.explicitLanguage != null &&
-                  !intent.transliteratedQuery.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
-              ? '${intent.explicitLanguage!} ${intent.transliteratedQuery}'
-              : intent.transliteratedQuery;
+          final transQuery = SearchQueryPlanner.formatProviderQuery(intent.transliteratedQuery, explicitLanguage: effectiveLang);
           return await SaavnClient.search(
             transQuery,
             limit: limit,
@@ -1996,10 +1985,7 @@ class SearchService {
               intent.cleanQuery.toLowerCase() == 'hits' ||
               intent.cleanQuery.toLowerCase() == 'top songs' ||
               intent.cleanQuery.toLowerCase() == 'songs';
-          final artistSearchQuery = (intent.explicitLanguage != null &&
-                  !intent.effectiveCoreQuery.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
-              ? (isGeneric ? 'Top ${intent.explicitLanguage!} Artists' : '${intent.explicitLanguage!} ${intent.effectiveCoreQuery}')
-              : intent.effectiveCoreQuery;
+          final artistSearchQuery = SearchQueryPlanner.formatArtistQuery(intent.effectiveCoreQuery, explicitLanguage: effectiveLang, isGeneric: isGeneric);
           final rawArtists = await SaavnClient.searchArtists(artistSearchQuery, limit: 12, language: effectiveLang)
               .timeout(const Duration(seconds: 5), onTimeout: () => <Map<String, dynamic>>[]);
           return filterArtistsByLanguage(rawArtists, language: effectiveLang, query: intent.effectiveCoreQuery);
@@ -2019,10 +2005,7 @@ class SearchService {
         }
       }();
 
-      final ytSearchQuery = (intent.explicitLanguage != null &&
-              !intent.cleanQuery.toLowerCase().contains(intent.explicitLanguage!.toLowerCase()))
-          ? '${intent.explicitLanguage!.toLowerCase()} ${intent.cleanQuery.toLowerCase()}'
-          : intent.cleanQuery.toLowerCase();
+      final ytSearchQuery = intent.cleanQuery;
 
       final Future<List<Song>> ytFuture = () async {
         try {

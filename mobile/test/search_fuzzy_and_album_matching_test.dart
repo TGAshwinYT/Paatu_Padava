@@ -148,10 +148,22 @@ void main() {
       expect(tamilIntent.didYouMeanSuggestion, isNull);
 
       // Devanagari script query: resolves to 'devanagari' script family, accepting Hindi, Marathi, Bhojpuri, etc.
+      // Explicit language remains null so all Devanagari regional songs and YouTube Latin tracks are included
       final devanagariIntent = SearchService.understandQuery('केसरिया');
       expect(devanagariIntent.transliteratedQuery.toLowerCase(), startsWith('kesariya'));
-      expect(devanagariIntent.explicitLanguage?.toLowerCase(), equals('devanagari'));
+      expect(devanagariIntent.detectedScript, equals('devanagari'));
+      expect(devanagariIntent.explicitLanguage, isNull);
       expect(devanagariIntent.didYouMeanSuggestion, isNull);
+
+      // Verify that YouTube songs with Latin titles are NOT rejected for Devanagari target
+      final ytKesariya = Song(
+        id: 'yt_kesariya_track',
+        title: 'Kesariya - Brahmastra',
+        artist: 'Arijit Singh, Pritam',
+        album: 'Brahmastra',
+        source: 'youtube',
+      );
+      expect(SongRepository.isLanguageMismatch(ytKesariya, 'devanagari'), isFalse);
 
       // Explicit Marathi keyword query
       final marathiIntent = SearchService.understandQuery('मराठी गाणी');
@@ -189,6 +201,21 @@ void main() {
       // Duplicate registration of existing candidates should be an immediate 0ms no-op
       FuzzySearchService.registerSongs(librarySongs.take(20), isLibrary: true);
       expect(FuzzySearchService.matchesSong(librarySongs[10], 'Unique Library Title 10'), isTrue);
+    });
+
+    test('FuzzySearchService.registerLibrarySongs refreshes library candidates and indexes Romanized Indic titles', () {
+      final indicLibrarySong = Song(
+        id: 'indic_lib_1',
+        title: 'பொன்னியின் செல்வன்',
+        artist: 'ஏ.ஆர். ரஹ்மான்',
+        album: 'பொன்னியின் செல்வன் 1',
+        coverUrl: '',
+      );
+
+      // Registers library songs and verifies both native and Romanized candidates are registered
+      FuzzySearchService.registerLibrarySongs([indicLibrarySong]);
+      expect(FuzzySearchService.containsCandidate('பொன்னியின் செல்வன்'), isTrue);
+      expect(FuzzySearchService.containsCandidate('ponniyin selvan'), isTrue);
     });
 
     test('SearchService.expandPhoneticQuery handles multi-language transliterations without no-ops', () {

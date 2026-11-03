@@ -7,6 +7,7 @@ import '../core/dsa/lru_cache.dart';
 import '../core/dsa/symspell.dart';
 import '../core/dsa/trigram_index.dart';
 import 'saavn_client.dart';
+import '../logic/lyrics/indic_romanizer.dart';
 import 'app_logger.dart';
 
 class FuzzyCorrectionResult {
@@ -24,28 +25,12 @@ class FuzzyCorrectionResult {
 class FuzzySearchService {
   static const Set<String> _coreDictionary = {
     // Top Regional & Tamil Artists
-    'Anirudh Ravichander',
-    'A.R. Rahman',
-    'Harris Jayaraj',
-    'Yuvan Shankar Raja',
-    'Ilaiyaraaja',
-    'Santhosh Narayanan',
-    'Sid Sriram',
-    'D. Imman',
-    'G.V. Prakash Kumar',
-    'Sean Roldan',
-    'Hiphop Tamizha',
-    'Shreya Ghoshal',
-    'S.P. Balasubrahmanyam',
-    'K.J. Yesudas',
-    'Pradeep Kumar',
-    'Dhanush',
-    'Karthik',
-    'Hariharan',
-    'Vijay Antony',
-    'Shweta Mohan',
-    'Jonita Gandhi',
-    'Andrea Jeremiah',
+    'Anirudh Ravichander', 'A.R. Rahman', 'Harris Jayaraj', 'Yuvan Shankar Raja',
+    'Ilaiyaraaja', 'Santhosh Narayanan', 'Sid Sriram', 'D. Imman',
+    'G.V. Prakash Kumar', 'Sean Roldan', 'Hiphop Tamizha', 'Shreya Ghoshal',
+    'S.P. Balasubrahmanyam', 'K.J. Yesudas', 'Pradeep Kumar', 'Dhanush',
+    'Karthik', 'Hariharan', 'Vijay Antony', 'Shweta Mohan',
+    'Jonita Gandhi', 'Andrea Jeremiah',
 
     // Popular Tamil Tracks & Movie Hits
     'Naa Ready', 'Badass', 'Hukum', 'Arabic Kuthu', 'Vaseegara',
@@ -177,7 +162,7 @@ class FuzzySearchService {
   }
 
   /// Dynamically register candidate terms with strict capacity bounding
-  static void registerCandidates(Iterable<String> terms, {bool isLibrary = false}) {
+  static void registerCandidates(Iterable<String> terms) {
     _ensureInitialized();
 
     // 1. Sanitize and deduplicate incoming terms against existing candidates AND within batch
@@ -195,62 +180,88 @@ class FuzzySearchService {
 
     bool needsRebuild = false;
 
-    if (isLibrary) {
-      // Library terms are protected in _libraryCandidates and never evicted by search results
-      for (final term in newTerms) {
-        if (_libraryCandidates.length >= maxLibraryCandidates) break;
-        if (_libraryCandidates.add(term)) {
-          _candidateDictionary.add(term);
-          _lowercaseCandidateSet.add(term.toLowerCase());
-          _normalizedToOriginal[_normKey(term)] = term;
-          _bkTree.insert(term);
-          _symSpell.insert(term);
-          _trigramIndex.insert(term, payload: term);
+    // Dynamic search candidate insertion with capacity bounding
+    if (_dynamicHistory.length + newTerms.length > maxDynamicCandidates) {
+      final excess = (_dynamicHistory.length + newTerms.length) - maxDynamicCandidates + 15;
+      final pruneCount = excess.clamp(1, _dynamicHistory.length);
+      _dynamicHistory.removeRange(0, pruneCount);
+      needsRebuild = true;
+    }
+
+    for (final term in newTerms) {
+      if (_dynamicHistory.length >= maxDynamicCandidates) break;
+      _dynamicHistory.add(term);
+      _candidateDictionary.add(term);
+      _lowercaseCandidateSet.add(term.toLowerCase());
+      _normalizedToOriginal[_normKey(term)] = term;
+      if (!needsRebuild) {
+        _bkTree.insert(term);
+        _symSpell.insert(term);
+        _trigramIndex.insert(term, payload: term);
+      }
+      if (IndicRomanizer.hasIndicScript(term)) {
+        final roman = IndicRomanizer.romanize(term).trim();
+        if (roman.length >= 3 && roman.length <= 35) {
+          final rLower = roman.toLowerCase();
+          if (_candidateDictionary.add(roman)) {
+            _lowercaseCandidateSet.add(rLower);
+            _normalizedToOriginal[_normKey(roman)] = roman;
+            if (!needsRebuild) {
+              _bkTree.insert(roman);
+              _symSpell.insert(roman);
+              _trigramIndex.insert(roman, payload: term);
+            }
+          }
         }
       }
-    } else {
-      // Dynamic search candidate insertion with capacity bounding
-      if (_dynamicHistory.length + newTerms.length > maxDynamicCandidates) {
-        final excess = (_dynamicHistory.length + newTerms.length) - maxDynamicCandidates + 15;
-        final pruneCount = excess.clamp(1, _dynamicHistory.length);
-        _dynamicHistory.removeRange(0, pruneCount);
-        needsRebuild = true;
-      }
+    }
 
-      for (final term in newTerms) {
-        if (_dynamicHistory.length >= maxDynamicCandidates) break;
-        _dynamicHistory.add(term);
-        _candidateDictionary.add(term);
-        _lowercaseCandidateSet.add(term.toLowerCase());
-        _normalizedToOriginal[_normKey(term)] = term;
-        if (!needsRebuild) {
-          _bkTree.insert(term);
-          _symSpell.insert(term);
-          _trigramIndex.insert(term, payload: term);
-        }
-      }
-
-      if (needsRebuild) {
-        _rebuildAll();
-      }
+    if (needsRebuild) {
+      _rebuildAll();
     }
 
     _correctionCache.clear();
   }
 
-  /// Register verified song titles and primary artists into the dictionary
-  static void registerSongs(Iterable<Song> songs, {bool isLibrary = false}) {
-    final terms = <String>[];
-    final limit = isLibrary ? 100 : 5;
-    for (final song in songs.take(limit)) {
-      if (song.title.isNotEmpty && song.title.length <= 35) {
-        terms.add(song.title);
-      }
-      if (song.primaryArtist.isNotEmpty && song.primaryArtist.length <= 30) {
-        terms.add(song.primaryArtist);
+  /// Synchronizes verified library songs (favorites, downloads) into the fuzzy dictionary.
+  /// Replaces outdated library entries when favorites/downloads are mutated.
+  static void registerLibrarySongs(Iterable<Song> songs) {
+    _ensureInitialized();
+    final newTerms = <String>{};
+    void addTerm(String? raw, int maxLen) {
+      if (raw == null || raw.isEmpty) return;
+      final s = Song.sanitize(raw).trim();
+      if (s.length >= 3 && s.length <= maxLen) {
+        newTerms.add(s);
+        if (IndicRomanizer.hasIndicScript(s)) {
+          final r = IndicRomanizer.romanize(s).trim();
+          if (r.length >= 3 && r.length <= maxLen) newTerms.add(r);
+        }
       }
     }
-    if (terms.isNotEmpty) registerCandidates(terms, isLibrary: isLibrary);
+    for (final song in songs.take(maxLibraryCandidates)) {
+      addTerm(song.title, 35);
+      addTerm(song.primaryArtist, 30);
+    }
+
+    if (_libraryCandidates.length == newTerms.length && _libraryCandidates.containsAll(newTerms)) return;
+
+    _libraryCandidates..clear()..addAll(newTerms);
+    _rebuildAll();
+  }
+
+  /// Register verified song titles and primary artists into the dictionary
+  static void registerSongs(Iterable<Song> songs, {bool isLibrary = false}) {
+    if (isLibrary) {
+      registerLibrarySongs(songs);
+      return;
+    }
+    final terms = <String>[];
+    for (final song in songs.take(5)) {
+      if (song.title.isNotEmpty && song.title.length <= 35) terms.add(song.title);
+      if (song.primaryArtist.isNotEmpty && song.primaryArtist.length <= 30) terms.add(song.primaryArtist);
+    }
+    if (terms.isNotEmpty) registerCandidates(terms);
   }
 
   /// Evaluate if query contains a typo and locate the best match using O(log N) BK-Tree metric space search
@@ -261,9 +272,7 @@ class FuzzySearchService {
     final lowerQuery = cleanQuery.toLowerCase();
 
     // Check O(1) LRU correction cache
-    if (_correctionCache.containsKey(lowerQuery)) {
-      return _correctionCache.get(lowerQuery);
-    }
+    if (_correctionCache.containsKey(lowerQuery)) return _correctionCache.get(lowerQuery);
 
     // Avoid correcting category queries or generic discovery terms (e.g. "Top Tamil Hits")
     final genericDiscoveryPattern = RegExp(

@@ -135,12 +135,16 @@ class SongRepository {
         if (_devanagariLanguages.contains(sLang) || sLang == 'devanagari') {
           return false;
         }
+        // Explicitly labeled under a different non-Devanagari language (e.g. 'tamil')
+        return true;
       }
-      final combined = '${song.title} ${song.artist} ${song.album}';
-      if (RegExp(r'[\u0900-\u097F]').hasMatch(combined)) {
-        return false;
+      final combined = '${song.title} ${song.artist} ${song.album}'.toLowerCase();
+      // If it contains foreign non-Devanagari Indic scripts (Tamil, Telugu, Malayalam, Kannada), it's a mismatch
+      if (RegExp(r'[\u0B80-\u0BFF\u0C00-\u0C7F\u0D00-\u0D7F\u0C80-\u0CFF]').hasMatch(combined)) {
+        return true;
       }
-      return true;
+      // YouTube songs and tracks with Latin titles or Devanagari text are valid candidates
+      return false;
     }
 
     final target = rawTarget;

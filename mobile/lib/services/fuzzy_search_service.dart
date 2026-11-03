@@ -56,9 +56,9 @@ class FuzzySearchService {
   static final LruCache<String, FuzzyCorrectionResult?> _correctionCache =
       LruCache<String, FuzzyCorrectionResult?>(capacity: 100);
 
-  static final BkTree<String> _bkTree = BkTree<String>();
-  static final SymSpell _symSpell = SymSpell(maxEditDistance: 2);
-  static final TrigramIndex<String> _trigramIndex = TrigramIndex<String>();
+  static BkTree<String> _bkTree = BkTree<String>();
+  static SymSpell _symSpell = SymSpell(maxEditDistance: 2);
+  static TrigramIndex<String> _trigramIndex = TrigramIndex<String>();
   static final Map<String, String> _normalizedToOriginal = {};
   static final Set<String> _lowercaseCandidateSet = <String>{};
   static bool _bkTreeInitialized = false;
@@ -66,25 +66,27 @@ class FuzzySearchService {
   static String _normKey(String s) => s.toLowerCase().replaceAll(RegExp(r'[\s,._\-!?/\\&|:;()\[\]{}"]+'), '');
 
   static void _rebuildAll() {
-    _candidateDictionary
-      ..clear()
-      ..addAll(_coreDictionary)
-      ..addAll(_libraryCandidates)
-      ..addAll(_dynamicHistory);
+    final nextDict = <String>{..._coreDictionary, ..._libraryCandidates, ..._dynamicHistory};
+    final nextLowerSet = <String>{};
+    final nextNormMap = <String, String>{};
+    final nextBkTree = BkTree<String>();
+    final nextSymSpell = SymSpell(maxEditDistance: 2);
+    final nextTrigram = TrigramIndex<String>();
 
-    _lowercaseCandidateSet.clear();
-    _normalizedToOriginal.clear();
-    _bkTree.clear();
-    _symSpell.clear();
-    _trigramIndex.clear();
-
-    _bkTree.insertAll(_candidateDictionary);
-    for (final term in _candidateDictionary) {
-      _lowercaseCandidateSet.add(term.toLowerCase().trim());
-      _normalizedToOriginal[_normKey(term)] = term;
-      _symSpell.insert(term);
-      _trigramIndex.insert(term, payload: term);
+    nextBkTree.insertAll(nextDict);
+    for (final term in nextDict) {
+      nextLowerSet.add(term.toLowerCase().trim());
+      nextNormMap[_normKey(term)] = term;
+      nextSymSpell.insert(term);
+      nextTrigram.insert(term, payload: term);
     }
+
+    _candidateDictionary..clear()..addAll(nextDict);
+    _lowercaseCandidateSet..clear()..addAll(nextLowerSet);
+    _normalizedToOriginal..clear()..addAll(nextNormMap);
+    _bkTree = nextBkTree;
+    _symSpell = nextSymSpell;
+    _trigramIndex = nextTrigram;
     _correctionCache.clear();
   }
 
@@ -168,12 +170,21 @@ class FuzzySearchService {
     // 1. Sanitize and deduplicate incoming terms against existing candidates AND within batch
     final newTerms = <String>[];
     final seenBatch = <String>{};
-    for (final term in terms) {
+    void addTerm(String term) {
       final sanitized = Song.sanitize(term).trim();
-      if (sanitized.length < 3 || sanitized.length > 35) continue;
+      if (sanitized.length < 3 || sanitized.length > 35) return;
       final lower = sanitized.toLowerCase();
-      if (_lowercaseCandidateSet.contains(lower) || !seenBatch.add(lower)) continue;
-      newTerms.add(sanitized);
+      if (!_lowercaseCandidateSet.contains(lower) && seenBatch.add(lower)) newTerms.add(sanitized);
+      if (IndicRomanizer.hasIndicScript(sanitized)) {
+        final r = IndicRomanizer.romanize(sanitized).trim();
+        if (r.length >= 3 && r.length <= 35) {
+          final rLower = r.toLowerCase();
+          if (!_lowercaseCandidateSet.contains(rLower) && seenBatch.add(rLower)) newTerms.add(r);
+        }
+      }
+    }
+    for (final term in terms) {
+      addTerm(term);
     }
 
     if (newTerms.isEmpty) return; // Immediate 0ms return! No pruning, zero rebuilds!
@@ -198,22 +209,6 @@ class FuzzySearchService {
         _bkTree.insert(term);
         _symSpell.insert(term);
         _trigramIndex.insert(term, payload: term);
-      }
-      if (IndicRomanizer.hasIndicScript(term)) {
-        final roman = IndicRomanizer.romanize(term).trim();
-        if (roman.length >= 3 && roman.length <= 35) {
-          final rLower = roman.toLowerCase();
-          if (_candidateDictionary.add(roman)) {
-            _dynamicHistory.add(roman);
-            _lowercaseCandidateSet.add(rLower);
-            _normalizedToOriginal[_normKey(roman)] = roman;
-            if (!needsRebuild) {
-              _bkTree.insert(roman);
-              _symSpell.insert(roman);
-              _trigramIndex.insert(roman, payload: term);
-            }
-          }
-        }
       }
     }
 

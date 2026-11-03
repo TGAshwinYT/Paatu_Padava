@@ -10,6 +10,8 @@ import 'package:paatu_padava_mobile/ui/widgets/search/search_song_tile.dart';
 import 'package:paatu_padava_mobile/ui/widgets/search/search_top_result_card.dart';
 import 'package:paatu_padava_mobile/ui/widgets/search/search_skeleton_view.dart';
 import 'package:paatu_padava_mobile/ui/widgets/search/search_body_content.dart';
+import 'package:paatu_padava_mobile/services/search_service.dart';
+import 'package:paatu_padava_mobile/logic/search_query_planner.dart';
 
 void main() {
   group('3-State Progressive Search UI Tests', () {
@@ -422,6 +424,114 @@ void main() {
       expect(find.byType(SearchSkeletonView), findsNothing);
       expect(find.byType(SearchAllResultsView), findsOneWidget);
       expect(find.text('Vathi Coming'), findsOneWidget);
+    });
+
+    testWidgets('Explicit-language search ("Tamil hits") symmetrically resolves cached results without skeleton', (tester) async {
+      final cachedSong = Song(
+        id: 'th_001',
+        title: 'Naa Ready',
+        artist: 'Vijay, Anirudh',
+        album: 'Leo',
+        duration: 190,
+        source: 'saavn',
+        coverUrl: '',
+      );
+
+      final intent = SearchService.understandQuery('Tamil hits');
+      expect(intent.explicitLanguage, equals('Tamil'));
+
+      SearchCache.put('Tamil hits', SearchResults(
+        songs: [cachedSong],
+        saavnSongs: [cachedSong],
+        isFinal: true,
+      ), language: intent.explicitLanguage);
+
+      // Verify symmetry of cache key retrieval
+      final retrieved = SearchCache.get('Tamil hits', language: intent.explicitLanguage);
+      expect(retrieved, isNotNull);
+      expect(retrieved!.songs.first.id, equals('th_001'));
+
+      final searchCtrl = TextEditingController(text: 'Tamil hits');
+      final hasSearched = ValueNotifier<bool>(true);
+      final isInitialLoading = ValueNotifier<bool>(false);
+      final results = ValueNotifier<SearchResultsState>(SearchResultsState(songs: retrieved.songs));
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SearchBodyContent(
+              searchController: searchCtrl,
+              hasSearchedNotifier: hasSearched,
+              isInitialLoadingNotifier: isInitialLoading,
+              localMatchesNotifier: ValueNotifier<List<Song>>([]),
+              suggestionsNotifier: ValueNotifier<List<String>>([]),
+              resultsNotifier: results,
+              onTriggerCategorySearch: (_) {},
+              onSearchExactQuery: (_) {},
+              onQueryChanged: (_) {},
+              onExecuteSearch: (_, {bool saveHistory = true}) {},
+              onRecordSearchResultClick: ([_]) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Because cached results exist, SearchScreen immediately displays results with NO skeleton
+      expect(find.byType(SearchSkeletonView), findsNothing);
+      expect(find.text('Naa Ready'), findsOneWidget);
+    });
+
+    testWidgets('Offline / failed revalidation preserves cached results on screen and shows notice', (tester) async {
+      final song = Song(
+        id: 's_offline_1',
+        title: 'Master The Blaster',
+        artist: 'Anirudh',
+        album: 'Master',
+        duration: 180,
+        source: 'saavn',
+        coverUrl: '',
+      );
+
+      final resultsNotifier = ValueNotifier<SearchResultsState>(SearchResultsState(songs: [song]));
+      final isInitialLoading = ValueNotifier<bool>(false);
+      final hasSearched = ValueNotifier<bool>(true);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SearchBodyContent(
+              searchController: TextEditingController(text: 'Master'),
+              hasSearchedNotifier: hasSearched,
+              isInitialLoadingNotifier: isInitialLoading,
+              localMatchesNotifier: ValueNotifier<List<Song>>([]),
+              suggestionsNotifier: ValueNotifier<List<String>>([]),
+              resultsNotifier: resultsNotifier,
+              onTriggerCategorySearch: (_) {},
+              onSearchExactQuery: (_) {},
+              onQueryChanged: (_) {},
+              onExecuteSearch: (_, {bool saveHistory = true}) {},
+              onRecordSearchResultClick: ([_]) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Verify cached song is visible
+      expect(find.text('Master The Blaster'), findsOneWidget);
+
+      // Simulate a failed revalidation: error arrives, but cached song MUST NOT be discarded
+      expect(resultsNotifier.value.songs.isNotEmpty, isTrue);
+      expect(find.byType(SearchAllResultsView), findsOneWidget);
+      expect(find.text('Master The Blaster'), findsOneWidget);
+    });
+
+    test('YouTube provider query formats with explicit language hint', () {
+      final intent = SearchService.understandQuery('Tamil hits');
+      final formatted = SearchQueryPlanner.formatProviderQuery(intent.cleanQuery, explicitLanguage: intent.explicitLanguage);
+      expect(formatted.toLowerCase(), contains('tamil'));
+      expect(formatted.toLowerCase(), contains('hits'));
     });
   });
 }

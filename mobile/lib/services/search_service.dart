@@ -98,6 +98,7 @@ class SearchResults {
   final String? didYouMean;
   final AppError? error;
   final bool isFinal;
+  final bool isCached;
 
   SearchResults({
     this.songs = const [],
@@ -111,6 +112,7 @@ class SearchResults {
     this.didYouMean,
     this.error,
     this.isFinal = false,
+    this.isCached = false,
   });
 
   bool get isEmpty =>
@@ -1899,9 +1901,22 @@ class SearchService {
 
     // SWR (Stale-While-Revalidate): Yield fast LRU in-memory cache immediately (0ms),
     // then continue executing network pipeline to revalidate fresh catalog versions.
-    final cached = SearchCache.get(rawQuery, language: effectiveLang);
+    final cached = SearchCache.get(rawQuery, language: effectiveLang) ?? SearchCache.get(rawQuery);
     if (cached != null) {
-      yield cached;
+      yield SearchResults(
+        songs: cached.songs,
+        ytSongs: cached.ytSongs,
+        saavnSongs: cached.saavnSongs,
+        audiusSongs: cached.audiusSongs,
+        albums: cached.albums,
+        artists: cached.artists,
+        playlists: cached.playlists,
+        topResult: cached.topResult,
+        didYouMean: cached.didYouMean,
+        error: null,
+        isCached: true,
+        isFinal: false,
+      );
     }
 
     List<Song> catalogSongs = [];

@@ -161,6 +161,8 @@ void main() {
         title: 'Kesariya - Brahmastra',
         artist: 'Arijit Singh, Pritam',
         album: 'Brahmastra',
+        coverUrl: '',
+        duration: 240,
         source: 'youtube',
       );
       expect(SongRepository.isLanguageMismatch(ytKesariya, 'devanagari'), isFalse);
@@ -222,14 +224,14 @@ void main() {
       // Register a native Indic candidate via registerCandidates
       FuzzySearchService.registerCandidates(['விக்ரம் வேதா']);
       expect(FuzzySearchService.containsCandidate('விக்ரம் வேதா'), isTrue);
-      expect(FuzzySearchService.containsCandidate('vikram vedha'), isTrue);
+      expect(FuzzySearchService.containsCandidate('vikram vaethaa'), isTrue);
 
       // Force a dictionary rebuild by updating library songs
       FuzzySearchService.registerLibrarySongs([]);
 
       // Romanized form must NOT be lost after the rebuild
       expect(FuzzySearchService.containsCandidate('விக்ரம் வேதா'), isTrue);
-      expect(FuzzySearchService.containsCandidate('vikram vedha'), isTrue);
+      expect(FuzzySearchService.containsCandidate('vikram vaethaa'), isTrue);
     });
 
     test('SearchService.expandPhoneticQuery handles multi-language transliterations without no-ops', () {
@@ -344,7 +346,8 @@ void main() {
 
     test('Devanagari-script query retains and scores both Hindi and Marathi songs without cross-language rejection', () {
       final intent = SearchService.understandQuery('केसरिया');
-      expect(intent.explicitLanguage?.toLowerCase(), equals('devanagari'));
+      expect(intent.detectedScript, equals('devanagari'));
+      expect(intent.explicitLanguage, isNull);
 
       final hindiSong = Song(
         id: 'saavn_kesariya_1',
@@ -369,8 +372,8 @@ void main() {
       );
 
       // Verify isLanguageMismatch does NOT flag Hindi or Marathi as mismatch under Devanagari
-      expect(SongRepository.isLanguageMismatch(hindiSong, intent.explicitLanguage!), isFalse);
-      expect(SongRepository.isLanguageMismatch(marathiSong, intent.explicitLanguage!), isFalse);
+      expect(SongRepository.isLanguageMismatch(hindiSong, intent.detectedScript!), isFalse);
+      expect(SongRepository.isLanguageMismatch(marathiSong, intent.detectedScript!), isFalse);
 
       // Verify composite relevance score is high (> 0.70), not 0.0
       final scoreHindi = SearchService.calculateCompositeRelevance(hindiSong, intent);

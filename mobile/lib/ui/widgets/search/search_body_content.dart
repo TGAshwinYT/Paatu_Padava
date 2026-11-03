@@ -76,6 +76,7 @@ class SearchBodyContent extends StatelessWidget {
                     valueListenable: suggestionsNotifier,
                     builder: (context, completions, _) {
                       return SearchActiveTypingSuggestions(
+                        query: query,
                         localSongMatches: localMatches,
                         queryCompletions: completions,
                         onPlaySong: (song) {
@@ -89,6 +90,7 @@ class SearchBodyContent extends StatelessWidget {
                           searchController.selection = TextSelection.collapsed(offset: q.length);
                           onQueryChanged(q);
                         },
+                        onShowOptions: (s) => SearchSongOptionsSheet.show(context, s),
                       );
                     },
                   );

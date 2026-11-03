@@ -188,7 +188,9 @@ class _SearchScreenState extends State<SearchScreen> {
     final instant = _localSearchTrie.findByPrefix(clean, limit: 5).map((m) => m.term).toList();
     _suggestionsNotifier.value = instant.isNotEmpty
         ? instant
-        : _suggestionsNotifier.value.where((s) => s.toLowerCase().contains(lower)).toList();
+        : (_suggestionsNotifier.value.where((s) => s.toLowerCase().contains(lower)).isNotEmpty
+            ? _suggestionsNotifier.value.where((s) => s.toLowerCase().contains(lower)).toList()
+            : [clean, if (!lower.contains(' song')) '$clean songs', if (!lower.contains(' hit')) '$clean hits']);
 
     _typeaheadDebounceTimer = Timer(const Duration(milliseconds: 250), () {
       SearchService.getTypeaheadSuggestions(

@@ -171,12 +171,7 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
                 ] else if (albums.isNotEmpty) ...[
                   ...albums.map((alb) => SearchAlbumTile(album: alb, onRecordClick: widget.onRecordClick)),
                 ] else ...[
-                  const Padding(
-                    padding: EdgeInsets.all(32.0),
-                    child: Center(
-                      child: Text('No soundtrack albums found', style: TextStyle(color: AppColors.textSecondary)),
-                    ),
-                  ),
+                  _buildEmptyCategoryNotice('No soundtrack albums found'),
                 ],
               ],
 
@@ -290,10 +285,23 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
-        child: Text(
-          text,
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: AppColors.textSecondary, fontSize: 13.5),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.search_off_rounded, size: 40, color: Colors.white24),
+            const SizedBox(height: 12),
+            Text(text, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
+            const SizedBox(height: 16),
+            OutlinedButton(
+              onPressed: () => setState(() => _selectedFilter = 'All'),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Colors.white24),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              ),
+              child: const Text('View All Results', style: TextStyle(color: Colors.white, fontSize: 12.5)),
+            ),
+          ],
         ),
       ),
     );

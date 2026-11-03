@@ -128,9 +128,14 @@ class FuzzySearchService {
       return false;
     }
 
-    // 1. Short queries (< 3 chars): strictly require word-start prefix match to prevent noisy substring collisions
+    // 1. Single-character query (e.g. "t", "a"): require song title or primary artist prefix
+    if (lower.length == 1) {
+      return tLower.startsWith(lower) || aLower.startsWith(lower);
+    }
+
+    // 2. Short queries (2 chars, e.g. "hi", "va"): require word-start prefix match on title or artist
     if (lower.length < 3) {
-      return matchesWordStart(tLower, lower) || matchesWordStart(aLower, lower) || matchesWordStart(albLower, lower);
+      return matchesWordStart(tLower, lower) || matchesWordStart(aLower, lower);
     }
 
     // 2. Full substring containment (for queries >= 3 chars)

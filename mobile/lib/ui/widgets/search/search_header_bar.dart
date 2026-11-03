@@ -100,15 +100,20 @@ class SearchHeaderBar extends StatelessWidget {
                   hintText: 'Search songs, artists, albums...',
                   hintStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
                   prefixIcon: const Icon(Icons.search_rounded, color: AppColors.neonViolet, size: 22),
-                  suffixIcon: controller.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear_rounded, color: Colors.white70, size: 20),
-                          onPressed: () {
-                            controller.clear();
-                            onChanged('');
-                          },
-                        )
-                      : null,
+                  suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: controller,
+                    builder: (context, value, _) {
+                      if (value.text.isEmpty) return const SizedBox.shrink();
+                      return IconButton(
+                        icon: const Icon(Icons.cancel_rounded, color: Colors.white70, size: 20),
+                        tooltip: 'Clear search',
+                        onPressed: () {
+                          controller.clear();
+                          onChanged('');
+                        },
+                      );
+                    },
+                  ),
                   border: InputBorder.none,
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 ),

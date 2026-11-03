@@ -294,10 +294,13 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _buildBody() {
-    return ValueListenableBuilder<bool>(
-      valueListenable: _hasSearchedNotifier,
-      builder: (context, hasSearched, _) {
-        final query = _searchController.text.trim();
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: _searchController,
+      builder: (context, textValue, _) {
+        final query = textValue.text.trim();
+        return ValueListenableBuilder<bool>(
+          valueListenable: _hasSearchedNotifier,
+          builder: (context, hasSearched, _) {
 
         // State A: Zero-Query State (Before Typing)
         if (!hasSearched && query.isEmpty) {
@@ -371,6 +374,8 @@ class _SearchScreenState extends State<SearchScreen> {
             );
           },
         );
+      },
+    );
       },
     );
   }

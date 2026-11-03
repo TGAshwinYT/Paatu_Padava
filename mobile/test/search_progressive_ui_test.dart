@@ -176,5 +176,40 @@ void main() {
 
       expect(find.text('TOP RESULT'), findsOneWidget);
     });
+
+    testWidgets('State B remains visible indefinitely during typing pauses, transitions to State C only on explicit submission', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: SearchScreen(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Tap search bar to activate
+      await tester.tap(find.text('What do you want to play?'));
+      await tester.pumpAndSettle();
+
+      // Type 'Hi'
+      await tester.enterText(find.byType(TextField), 'Hi');
+      await tester.pump();
+
+      // State B: SearchActiveTypingSuggestions must be visible
+      expect(find.byType(SearchActiveTypingSuggestions), findsOneWidget);
+      expect(find.byType(SearchAllResultsView), findsNothing);
+
+      // Simulate a typing pause of 1200ms
+      await tester.pump(const Duration(milliseconds: 1200));
+
+      // CRITICAL: SearchActiveTypingSuggestions MUST STILL BE VISIBLE!
+      // It must NOT automatically switch to SearchAllResultsView or wipe suggestions
+      expect(find.byType(SearchActiveTypingSuggestions), findsOneWidget);
+      expect(find.byType(SearchAllResultsView), findsNothing);
+
+      // Verify clearing text restores State A
+      await tester.enterText(find.byType(TextField), '');
+      await tester.pump();
+      expect(find.byType(SearchPreContent), findsOneWidget);
+      expect(find.byType(SearchActiveTypingSuggestions), findsNothing);
+    });
   });
 }

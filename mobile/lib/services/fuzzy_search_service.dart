@@ -163,7 +163,21 @@ class FuzzySearchService {
     final aLower = song.artist.toLowerCase();
     final albLower = song.album.toLowerCase();
 
-    // 1. Instant full substring containment
+    bool matchesWordStart(String text, String prefix) {
+      if (text.startsWith(prefix)) return true;
+      final tokens = text.split(RegExp(r'[\s,._\-!?/\\&|:;()[\]{}"]+'));
+      for (final t in tokens) {
+        if (t.startsWith(prefix)) return true;
+      }
+      return false;
+    }
+
+    // 1. Short queries (< 3 chars): strictly require word-start prefix match to prevent noisy substring collisions
+    if (lower.length < 3) {
+      return matchesWordStart(tLower, lower) || matchesWordStart(aLower, lower) || matchesWordStart(albLower, lower);
+    }
+
+    // 2. Full substring containment (for queries >= 3 chars)
     if (tLower.contains(lower) || aLower.contains(lower) || albLower.contains(lower)) {
       return true;
     }

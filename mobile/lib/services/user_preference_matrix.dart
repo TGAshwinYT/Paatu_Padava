@@ -192,7 +192,11 @@ class UserPreferenceMatrix {
       return MapEntry(compositeScore, song);
     }).toList();
 
-    // Deterministic tie-breaking: Score -> Exact Title -> Studio Source -> Art -> ID
+    final Map<String, int> arrivalOrder = {
+      for (int i = 0; i < candidates.length; i++) candidates[i].id: i
+    };
+
+    // Deterministic tie-breaking: Score -> Exact Title -> Album Track Order -> Studio Source -> Art -> Arrival Order / ID
     scored.sort((a, b) {
       final scoreCmp = b.key.compareTo(a.key);
       if (scoreCmp != 0) return scoreCmp;
@@ -206,6 +210,17 @@ class UserPreferenceMatrix {
       final bAlbumMatch = SearchService.isAlbumOrMovieEntityMatch(albB, qLower) ? 1 : 0;
       if (aAlbumMatch != bAlbumMatch) return bAlbumMatch.compareTo(aAlbumMatch);
 
+      // If both tracks belong to the SAME matched movie/soundtrack entity, preserve official tracklist order!
+      if (aAlbumMatch == 1 && bAlbumMatch == 1 && albA == albB) {
+        final aExact = (sA.title.toLowerCase().trim() == qLower) ? 1 : 0;
+        final bExact = (sB.title.toLowerCase().trim() == qLower) ? 1 : 0;
+        if (aExact != bExact) return bExact.compareTo(aExact);
+
+        final idxA = arrivalOrder[sA.id] ?? 0;
+        final idxB = arrivalOrder[sB.id] ?? 0;
+        if (idxA != idxB) return idxA.compareTo(idxB);
+      }
+
       final aExact = (sA.title.toLowerCase().trim() == qLower) ? 1 : 0;
       final bExact = (sB.title.toLowerCase().trim() == qLower) ? 1 : 0;
       if (aExact != bExact) return bExact.compareTo(aExact);
@@ -217,6 +232,10 @@ class UserPreferenceMatrix {
       final aArt = sA.hasOfficialAlbumArt ? 1 : 0;
       final bArt = sB.hasOfficialAlbumArt ? 1 : 0;
       if (aArt != bArt) return bArt.compareTo(aArt);
+
+      final idxA = arrivalOrder[sA.id] ?? 0;
+      final idxB = arrivalOrder[sB.id] ?? 0;
+      if (idxA != idxB) return idxA.compareTo(idxB);
 
       return sA.id.compareTo(sB.id);
     });

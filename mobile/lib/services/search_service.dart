@@ -1188,36 +1188,41 @@ class SearchService {
   static double calculateSourcePopularity(Song song) {
     double score = 0.0;
 
-    // 1. Studio release / verified source (Saavn or YouTube Official Topic/VEVO)
+    // 1. Studio release authority / verified audio stream quality
+    // Saavn 320kbps catalog gets a subtle bitrate preference (+0.25).
+    // YouTube Official Topic / VEVO / Studio tracks get +0.22.
+    // Clean independent/single audio tracks get +0.18.
     if (song.source == 'saavn') {
-      score += 0.40;
+      score += 0.25;
     } else if (song.artist.toLowerCase().contains('topic') ||
                song.artist.toLowerCase().contains('vevo') ||
                song.hasOfficialAlbumArt) {
-      score += 0.35;
+      score += 0.22;
     } else {
-      score += 0.15;
+      score += 0.18;
     }
 
     // 2. Official Square Studio Album Art (1000x1000 / 500x500 CDN vs thumbnail)
     if (song.hasOfficialAlbumArt) {
       score += 0.30;
-    } else if (song.coverUrl.isNotEmpty && !song.coverUrl.contains('default.jpg')) {
-      score += 0.15;
+    } else if (song.coverUrl.isNotEmpty && !song.coverUrl.contains('default.jpg') && !song.coverUrl.contains('mqdefault.jpg')) {
+      score += 0.20;
+    } else {
+      score += 0.05;
     }
 
     // 3. Duration Sanity (standard studio song 90s - 360s)
     if (song.duration >= 90 && song.duration <= 360) {
-      score += 0.20;
+      score += 0.25;
     } else if (song.duration >= 45 && song.duration <= 600) {
-      score += 0.10;
+      score += 0.15;
     }
 
     // 4. Clean studio title (not a remix/lofi/bootleg unless requested)
     if (song.versionTag == 'Original') {
-      score += 0.10;
+      score += 0.20;
     } else {
-      score += 0.05;
+      score += 0.10;
     }
 
     return score.clamp(0.0, 1.0);
@@ -1358,8 +1363,18 @@ class SearchService {
     final popularity = calculateSourcePopularity(song);
     final affinity = calculateUserAffinity(song, history: history, favorites: favorites);
 
-    // Multi-factor formula
-    double score = (0.45 * stringSim) + (0.35 * popularity) + (0.20 * affinity);
+    // Multi-factor formula with query-gated affinity:
+    // Personal affinity cannot promote a song that does not match the typed query
+    final double effectiveAffinity;
+    if (stringSim >= 0.60) {
+      effectiveAffinity = affinity;
+    } else if (stringSim >= 0.25) {
+      effectiveAffinity = affinity * ((stringSim - 0.25) / 0.35);
+    } else {
+      effectiveAffinity = 0.0;
+    }
+
+    double score = (0.50 * stringSim) + (0.30 * popularity) + (0.20 * effectiveAffinity);
 
     // Exact title matches establish a strong confidence baseline (>= 0.75)
     if (stringSim >= 0.98) {
@@ -1426,8 +1441,9 @@ class SearchService {
   static int compareRankedEntries(
     MapEntry<double, Song> a,
     MapEntry<double, Song> b,
-    String queryLower,
-  ) {
+    String queryLower, {
+    Map<String, int>? arrivalOrder,
+  }) {
     final scoreCmp = b.key.compareTo(a.key);
     if (scoreCmp != 0) return scoreCmp;
 
@@ -1441,6 +1457,17 @@ class SearchService {
     final bAlbumMatch = isAlbumOrMovieEntityMatch(albB, queryLower) ? 1 : 0;
     if (aAlbumMatch != bAlbumMatch) return bAlbumMatch.compareTo(aAlbumMatch);
 
+    // If both tracks belong to the SAME matched movie/soundtrack entity, preserve official tracklist order!
+    if (aAlbumMatch == 1 && bAlbumMatch == 1 && albA == albB && arrivalOrder != null) {
+      final aExact = (songA.title.toLowerCase().trim() == queryLower) ? 1 : 0;
+      final bExact = (songB.title.toLowerCase().trim() == queryLower) ? 1 : 0;
+      if (aExact != bExact) return bExact.compareTo(aExact);
+
+      final idxA = arrivalOrder[songA.id] ?? 0;
+      final idxB = arrivalOrder[songB.id] ?? 0;
+      if (idxA != idxB) return idxA.compareTo(idxB);
+    }
+
     final aExact = (songA.title.toLowerCase().trim() == queryLower) ? 1 : 0;
     final bExact = (songB.title.toLowerCase().trim() == queryLower) ? 1 : 0;
     if (aExact != bExact) return bExact.compareTo(aExact);
@@ -1452,6 +1479,12 @@ class SearchService {
     final aArt = songA.hasOfficialAlbumArt ? 1 : 0;
     final bArt = songB.hasOfficialAlbumArt ? 1 : 0;
     if (aArt != bArt) return bArt.compareTo(aArt);
+
+    if (arrivalOrder != null) {
+      final idxA = arrivalOrder[songA.id] ?? 0;
+      final idxB = arrivalOrder[songB.id] ?? 0;
+      if (idxA != idxB) return idxA.compareTo(idxB);
+    }
 
     return songA.id.compareTo(songB.id);
   }
@@ -1526,6 +1559,10 @@ class SearchService {
       }
     }
 
+    final Map<String, int> arrivalOrder = {
+      for (int i = 0; i < deduplicatedPool.length; i++) deduplicatedPool[i].id: i
+    };
+
     // 4. Score every song in the unified deduplicated pool
     final scored = deduplicatedPool.map((song) {
       final score = calculateCompositeRelevance(
@@ -1538,8 +1575,13 @@ class SearchService {
       return MapEntry(score, song);
     }).where((e) => e.key > 0.0).toList();
 
-    // 5. Sort descending by Multi-Factor Relevance Score
-    scored.sort((a, b) => compareRankedEntries(a, b, intent.cleanQuery.toLowerCase()));
+    // 5. Sort descending by Multi-Factor Relevance Score with tracklist order preservation
+    scored.sort((a, b) => compareRankedEntries(
+      a,
+      b,
+      intent.cleanQuery.toLowerCase(),
+      arrivalOrder: arrivalOrder,
+    ));
 
     return scored.map((e) => e.value).toList();
   }
@@ -1989,7 +2031,10 @@ class SearchService {
         return MapEntry(score, s);
       }).where((e) => e.key > 0.0).toList();
 
-      scoredSaavn.sort((a, b) => compareRankedEntries(a, b, qClean));
+      final Map<String, int> saavnArrival = {
+        for (int i = 0; i < candidateSaavn.length; i++) candidateSaavn[i].id: i
+      };
+      scoredSaavn.sort((a, b) => compareRankedEntries(a, b, qClean, arrivalOrder: saavnArrival));
       final rankedSaavn = scoredSaavn.map((e) => e.value).toList();
 
       // If the search query targets an artist (e.g. "Anirudh Ravichander", "A.R. Rahman"),
@@ -1999,12 +2044,18 @@ class SearchService {
         final aName = (a['name'] ?? '').toString().toLowerCase().trim();
         final canon = ArtistSanitizer.canonicalArtistName(aName).toLowerCase();
         if (qClean.length <= 2) {
-          if (aName == qClean || canon == qClean || aName.startsWith(qClean) || canon.startsWith(qClean)) {
+          if ((aName.isNotEmpty && aName == qClean) ||
+              (canon.isNotEmpty && canon == qClean) ||
+              (aName.length >= 2 && aName.startsWith(qClean)) ||
+              (canon.length >= 2 && canon.startsWith(qClean))) {
             matchingArtist = a;
             break;
           }
         } else {
-          if (aName == qClean || canon == qClean || aName.contains(qCore) || qClean.contains(canon)) {
+          if ((aName.isNotEmpty && aName == qClean) ||
+              (canon.isNotEmpty && canon == qClean) ||
+              (qCore.length >= 3 && aName.contains(qCore)) ||
+              (canon.length >= 3 && qClean.contains(canon))) {
             matchingArtist = a;
             break;
           }
@@ -2212,7 +2263,10 @@ class SearchService {
         );
         return MapEntry(score, s);
       }).where((e) => e.key > 0.0).toList();
-      scoredYt.sort((a, b) => compareRankedEntries(a, b, qClean));
+      final Map<String, int> ytArrival = {
+        for (int i = 0; i < candidateYt.length; i++) candidateYt[i].id: i
+      };
+      scoredYt.sort((a, b) => compareRankedEntries(a, b, qClean, arrivalOrder: ytArrival));
       final rankedYt = scoredYt.map((e) => e.value).toList();
 
       // Elevate exact singles first, then soundtrack songs, then remaining Saavn tracks

@@ -159,4 +159,102 @@ void main() {
       expect(SearchService.expandPhoneticQuery('பொன்னியின் செல்வன்').toLowerCase(), contains('ponniyin'));
     });
   });
+  group('Search Engine Accuracy & Ranking Refinements', () {
+    final vaathiSong = Song(
+      id: 'z_track_master',
+      title: 'Vaathi Coming',
+      artist: 'Gana Balachandar',
+      album: 'Master',
+      coverUrl: '',
+      duration: 230,
+    );
+
+    final aalaporanSong = Song(
+      id: 'm_track_mersal',
+      title: 'Aalaporan Thamizhan',
+      artist: 'Kailash Kher, Sathya Prakash',
+      album: 'Mersal',
+      coverUrl: '',
+      duration: 348,
+    );
+
+    final neethanaeSong = Song(
+      id: 'a_track_mersal',
+      title: 'Neethanae',
+      artist: 'A.R. Rahman, Shreya Ghoshal',
+      album: 'Mersal',
+      coverUrl: '',
+      duration: 269,
+    );
+
+    test('Short queries (< 3 chars) require word-start prefix match and eliminate noise', () {
+      // Query "a":
+      // "Vaathi Coming" has 'a' inside Vaathi, Gana, Balachandar, Master, but NO word starts with "a"
+      expect(FuzzySearchService.matchesSong(vaathiSong, 'a'), isFalse);
+
+      // "Aalaporan Thamizhan" title starts with "a"
+      expect(FuzzySearchService.matchesSong(aalaporanSong, 'a'), isTrue);
+
+      // Query "va": matches word-start in "Vaathi Coming"
+      expect(FuzzySearchService.matchesSong(vaathiSong, 'va'), isTrue);
+    });
+
+    test('Album tracks preserve official tracklist arrival order instead of sorting by string ID', () {
+      final intent = SearchService.understandQuery('Mersal');
+      // Unpacked in album track order: track 1 (aalaporan), track 2 (neethanae)
+      // Note IDs: aalaporan is 'm_track_mersal', neethanae is 'a_track_mersal'
+      // If sorted by ID, 'a_track_mersal' would wrongly beat 'm_track_mersal'!
+      final ranked = SearchService.deduplicateAndRankUnified(
+        saavnSongs: [aalaporanSong, neethanaeSong],
+        ytSongs: const [],
+        intent: intent,
+      );
+
+      expect(ranked.length, equals(2));
+      expect(ranked.first.id, equals('m_track_mersal'));
+      expect(ranked.last.id, equals('a_track_mersal'));
+    });
+
+    test('Gated affinity: irrelevant song by favorite artist does not receive affinity bonus', () {
+      final unrelatedAnirudhSong = Song(
+        id: 'ani_unrelated',
+        title: 'Random Track',
+        artist: 'Anirudh Ravichander',
+        album: 'Single',
+        coverUrl: '',
+        duration: 180,
+      );
+
+      final intent = SearchService.understandQuery('Shape of You');
+      final scoreWithFavorites = SearchService.calculateCompositeRelevance(
+        unrelatedAnirudhSong,
+        intent,
+        favorites: [Song(id: 'fav_ani', title: 'Hukum', artist: 'Anirudh Ravichander', coverUrl: '')],
+      );
+
+      final scoreWithoutFavorites = SearchService.calculateCompositeRelevance(
+        unrelatedAnirudhSong,
+        intent,
+        favorites: [],
+      );
+
+      // Because string similarity < 0.25, effective affinity must be 0.0 (scores identical)
+      expect(scoreWithFavorites, closeTo(scoreWithoutFavorites, 0.001));
+    });
+
+    test('Balanced source popularity allows verified YouTube tracks to compete on merit', () {
+      final ytOfficial = Song(
+        id: 'yt_official_1',
+        title: 'Original Song',
+        artist: 'Indie Artist - Topic',
+        album: 'Indie Album',
+        coverUrl: 'https://example.com/cover500.jpg',
+        duration: 210,
+        source: 'youtube',
+      );
+
+      final popularity = SearchService.calculateSourcePopularity(ytOfficial);
+      expect(popularity, greaterThanOrEqualTo(0.80));
+    });
+  });
 }

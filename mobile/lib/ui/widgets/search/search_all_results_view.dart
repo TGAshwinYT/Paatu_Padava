@@ -82,7 +82,8 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
       }
 
       for (final v in s.versions) {
-        final isVVersion = v.versionTag != null ||
+        final isVVersion = v.versionTag == 'Remix' ||
+            v.versionTag == 'Lofi' ||
             _mixOrBgmRegex.hasMatch(v.title) ||
             TrackQualityFilter.classifyTrack(
                   title: v.title,

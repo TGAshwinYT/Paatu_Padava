@@ -140,12 +140,17 @@ void main() {
       expect(find.text('Kiss'), findsOneWidget);
       expect(find.textContaining('Album •'), findsOneWidget);
 
-      // 4. Verify tapping an album fires onSelectAlbum
+      // 4. Verify tapping song fires onPlaySong
+      await tester.tap(find.text('Thirudi Thirudi'));
+      expect(playedSong, isNotNull);
+      expect(playedSong!.id, equals('s_test'));
+
+      // 5. Verify tapping an album fires onSelectAlbum
       await tester.tap(find.text('Kiss'));
       expect(selectedAlbum, isNotNull);
       expect(selectedAlbum!['id'], equals('alb_kiss'));
 
-      // 5. Verify NO "Artist" entities or section is rendered
+      // 6. Verify NO "Artist" entities or section is rendered
       expect(find.textContaining('Artist •'), findsNothing);
     });
   });

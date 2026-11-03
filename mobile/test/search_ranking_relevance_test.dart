@@ -103,6 +103,21 @@ void main() {
       final second = await SearchService.getTypeaheadSuggestions('fav', localTrie: trie, skipRemote: true);
       expect(second, contains('Favorite Track Updated'));
     });
+
+    test('Typeahead cache key isolates entries by limit and skipRemote preventing cross-leakage', () async {
+      final trie = PrefixTrie<String>();
+      trie.insert('Track 1', weight: 100);
+      trie.insert('Track 2', weight: 90);
+      trie.insert('Track 3', weight: 80);
+
+      // Call 1: limit 2 with skipRemote = true
+      final res2 = await SearchService.getTypeaheadSuggestions('Track', localTrie: trie, limit: 2, skipRemote: true);
+      expect(res2.length, equals(2));
+
+      // Call 2: limit 3 with skipRemote = true (must not return cached 2-item list)
+      final res3 = await SearchService.getTypeaheadSuggestions('Track', localTrie: trie, limit: 3, skipRemote: true);
+      expect(res3.length, equals(3));
+    });
   });
 
   group('Stage 2: Parallel Multi-Source Query Planning', () {

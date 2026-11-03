@@ -147,11 +147,19 @@ void main() {
       // Must NOT suggest English romanization as "did you mean" for native script
       expect(tamilIntent.didYouMeanSuggestion, isNull);
 
-      // Hindi query: Devanagari script must resolve to 'hindi' language
-      final hindiIntent = SearchService.understandQuery('केसरिया');
-      expect(hindiIntent.transliteratedQuery.toLowerCase(), startsWith('kesariya'));
-      expect(hindiIntent.explicitLanguage?.toLowerCase(), equals('hindi'));
-      expect(hindiIntent.didYouMeanSuggestion, isNull);
+      // Devanagari script query: resolves to 'devanagari' script family, accepting Hindi, Marathi, Bhojpuri, etc.
+      final devanagariIntent = SearchService.understandQuery('केसरिया');
+      expect(devanagariIntent.transliteratedQuery.toLowerCase(), startsWith('kesariya'));
+      expect(devanagariIntent.explicitLanguage?.toLowerCase(), equals('devanagari'));
+      expect(devanagariIntent.didYouMeanSuggestion, isNull);
+
+      // Explicit Marathi keyword query
+      final marathiIntent = SearchService.understandQuery('मराठी गाणी');
+      expect(marathiIntent.explicitLanguage?.toLowerCase(), equals('marathi'));
+
+      // Explicit Hindi keyword query
+      final hindiExplicitIntent = SearchService.understandQuery('हिंदी गाने');
+      expect(hindiExplicitIntent.explicitLanguage?.toLowerCase(), equals('hindi'));
 
       // Telugu query
       final teluguIntent = SearchService.understandQuery('చుట్టమల్లే');
@@ -172,10 +180,14 @@ void main() {
         ),
       );
 
-      // Registering 120 songs handles capacity without throwing or UI freeze
-      FuzzySearchService.registerSongs(librarySongs);
+      // Registering 120 songs with isLibrary: true handles capacity without throwing or UI freeze
+      FuzzySearchService.registerSongs(librarySongs, isLibrary: true);
 
       // Songs within the 100 quota should match
+      expect(FuzzySearchService.matchesSong(librarySongs[10], 'Unique Library Title 10'), isTrue);
+
+      // Duplicate registration of existing candidates should be an immediate 0ms no-op
+      FuzzySearchService.registerSongs(librarySongs.take(20), isLibrary: true);
       expect(FuzzySearchService.matchesSong(librarySongs[10], 'Unique Library Title 10'), isTrue);
     });
 
@@ -289,9 +301,9 @@ void main() {
       expect(popularity, greaterThanOrEqualTo(0.80));
     });
 
-    test('Hindi-script query retains and scores Hindi songs without cross-language rejection', () {
+    test('Devanagari-script query retains and scores both Hindi and Marathi songs without cross-language rejection', () {
       final intent = SearchService.understandQuery('केसरिया');
-      expect(intent.explicitLanguage?.toLowerCase(), equals('hindi'));
+      expect(intent.explicitLanguage?.toLowerCase(), equals('devanagari'));
 
       final hindiSong = Song(
         id: 'saavn_kesariya_1',
@@ -304,21 +316,37 @@ void main() {
         duration: 268,
       );
 
-      // Verify isLanguageMismatch does NOT flag it as mismatch
+      final marathiSong = Song(
+        id: 'saavn_apsara_1',
+        title: 'Apsara Aali',
+        artist: 'Bela Shende, Ajay-Atul',
+        album: 'Natarang',
+        language: 'marathi',
+        source: 'saavn',
+        coverUrl: 'https://example.com/natarang.jpg',
+        duration: 230,
+      );
+
+      // Verify isLanguageMismatch does NOT flag Hindi or Marathi as mismatch under Devanagari
       expect(SongRepository.isLanguageMismatch(hindiSong, intent.explicitLanguage!), isFalse);
+      expect(SongRepository.isLanguageMismatch(marathiSong, intent.explicitLanguage!), isFalse);
 
       // Verify composite relevance score is high (> 0.70), not 0.0
-      final score = SearchService.calculateCompositeRelevance(hindiSong, intent);
-      expect(score, greaterThan(0.70));
+      final scoreHindi = SearchService.calculateCompositeRelevance(hindiSong, intent);
+      expect(scoreHindi, greaterThan(0.70));
 
-      // Verify deduplicateAndRankUnified preserves Hindi songs
+      final scoreMarathi = SearchService.calculateCompositeRelevance(marathiSong, intent);
+      expect(scoreMarathi, greaterThan(0.0));
+
+      // Verify deduplicateAndRankUnified preserves Devanagari songs
       final results = SearchService.deduplicateAndRankUnified(
-        saavnSongs: [hindiSong],
+        saavnSongs: [hindiSong, marathiSong],
         ytSongs: const [],
         intent: intent,
       );
-      expect(results, isNotEmpty);
-      expect(results.first.id, equals('saavn_kesariya_1'));
+      expect(results.length, equals(2));
+      expect(results.any((s) => s.id == 'saavn_kesariya_1'), isTrue);
+      expect(results.any((s) => s.id == 'saavn_apsara_1'), isTrue);
     });
   });
 }

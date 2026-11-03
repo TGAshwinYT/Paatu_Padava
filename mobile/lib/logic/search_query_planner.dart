@@ -248,8 +248,10 @@ class SearchQueryPlanner {
     final lower = clean.toLowerCase();
 
     final rawLang = explicitLanguage?.trim();
+    // Devanagari script is shared by Hindi, Marathi, Bhojpuri, etc.
+    // Do not prepend language for generic Devanagari script queries; let providers search native terms directly.
     final effectiveLang = (rawLang != null && rawLang.toLowerCase() == 'devanagari')
-        ? 'Hindi'
+        ? null
         : rawLang;
 
     final saavnQuery = (effectiveLang != null && !lower.contains(effectiveLang.toLowerCase()))

@@ -111,12 +111,39 @@ class SongRepository {
     return first.replaceAll(RegExp(r'[^\w\s\u0B80-\u0BFF\u0C00-\u0C7F\u0900-\u097F]'), '').toLowerCase().trim();
   }
 
+  static const Set<String> _devanagariLanguages = {
+    'hindi',
+    'marathi',
+    'bhojpuri',
+    'sanskrit',
+    'rajasthani',
+    'maithili',
+    'konkani',
+    'nepali',
+  };
+
   /// Strict cross-language barrier check to eliminate language contamination
   /// (e.g. Hindi songs leaking into Tamil feeds, search cards, and trending carousels).
   static bool isLanguageMismatch(Song song, String targetLanguage) {
     final rawTarget = targetLanguage.toLowerCase().trim();
     if (rawTarget.isEmpty) return false;
-    final target = rawTarget == 'devanagari' ? 'hindi' : rawTarget;
+
+    // Devanagari script family: authentic match for Hindi, Marathi, Bhojpuri, Sanskrit, etc.
+    if (rawTarget == 'devanagari') {
+      if (song.language != null && song.language!.isNotEmpty) {
+        final sLang = song.language!.toLowerCase().trim();
+        if (_devanagariLanguages.contains(sLang) || sLang == 'devanagari') {
+          return false;
+        }
+      }
+      final combined = '${song.title} ${song.artist} ${song.album}';
+      if (RegExp(r'[\u0900-\u097F]').hasMatch(combined)) {
+        return false;
+      }
+      return true;
+    }
+
+    final target = rawTarget;
 
     // 1. Explicit metadata language check from Saavn/API
     if (song.language != null && song.language!.isNotEmpty) {

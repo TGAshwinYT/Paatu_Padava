@@ -44,21 +44,18 @@ class _SearchScreenState extends State<SearchScreen> {
   final PrefixTrie<String> _localSearchTrie = PrefixTrie<String>();
 
   void _updateCanPop() {
-    final hasActiveSearch = _isSearchActiveNotifier.value ||
-        _hasSearchedNotifier.value ||
-        _searchController.text.isNotEmpty;
+    final hasActiveSearch = _isSearchActiveNotifier.value || _hasSearchedNotifier.value || _searchController.text.isNotEmpty;
     final canPop = !hasActiveSearch;
-    if (_canPopNotifier.value != canPop) {
-      _canPopNotifier.value = canPop;
-    }
+    if (_canPopNotifier.value != canPop) _canPopNotifier.value = canPop;
   }
 
   @override
   void initState() {
     super.initState();
     _initTrie();
-    for (final l in [SearchHistoryManager.historyNotifier, SearchHistoryManager.recentSongsNotifier, FavoritesManager.favoritesNotifier, DownloadManager.downloadedSongsNotifier]) {
-      l.addListener(_updateTrieWithHistory);
+    SearchHistoryManager.historyNotifier.addListener(_onHistoryQueryAdded);
+    for (final l in [SearchHistoryManager.recentSongsNotifier, FavoritesManager.favoritesNotifier, DownloadManager.downloadedSongsNotifier]) {
+      l.addListener(_updateTrieWithLibrary);
     }
     _searchFocusNode.addListener(() {
       if (_searchFocusNode.hasFocus && !_isSearchActiveNotifier.value) {
@@ -70,10 +67,22 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _initTrie() {
     FuzzySearchService.registerCandidates(SearchConstants.trendingArtists);
-    _updateTrieWithHistory();
+    _updateTrieWithLibrary();
   }
 
-  void _updateTrieWithHistory() {
+  void _onHistoryQueryAdded() {
+    final recent = SearchHistoryManager.historyNotifier.value;
+    if (recent.isNotEmpty) {
+      final latest = recent.first;
+      final clean = SearchQueryPlanner.cleanTitle(latest).trim();
+      if (clean.length >= 2) {
+        _localSearchTrie.insert(clean, weight: 130);
+        FuzzySearchService.registerCandidates([latest]);
+      }
+    }
+  }
+
+  void _updateTrieWithLibrary() {
     final recent = SearchHistoryManager.historyNotifier.value;
     _localSearchTrie.clear();
     final seen = <String>{};
@@ -93,8 +102,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
     FuzzySearchService.registerCandidates(recent);
     final allLocal = [...saved, ...recentSongs];
-    if (allLocal.isNotEmpty) FuzzySearchService.registerSongs(allLocal);
-    SearchService.clearTypeaheadCache();
+    if (allLocal.isNotEmpty) FuzzySearchService.registerSongs(allLocal, isLibrary: true);
   }
 
   @override
@@ -102,8 +110,9 @@ class _SearchScreenState extends State<SearchScreen> {
     _searchFocusNode.dispose();
     _isSearchActiveNotifier.dispose();
     _canPopNotifier.dispose();
-    for (final l in [SearchHistoryManager.historyNotifier, SearchHistoryManager.recentSongsNotifier, FavoritesManager.favoritesNotifier, DownloadManager.downloadedSongsNotifier]) {
-      l.removeListener(_updateTrieWithHistory);
+    SearchHistoryManager.historyNotifier.removeListener(_onHistoryQueryAdded);
+    for (final l in [SearchHistoryManager.recentSongsNotifier, FavoritesManager.favoritesNotifier, DownloadManager.downloadedSongsNotifier]) {
+      l.removeListener(_updateTrieWithLibrary);
     }
     _searchController.dispose();
     _typeaheadDebounceTimer?.cancel();
@@ -215,16 +224,9 @@ class _SearchScreenState extends State<SearchScreen> {
     final cached = SearchCache.get(clean);
     if (cached != null) {
       _resultsNotifier.value = SearchResultsState(
-        topResult: cached.topResult,
-        songs: cached.songs,
-        ytSongs: cached.ytSongs,
-        saavnSongs: cached.saavnSongs,
-        audiusSongs: cached.audiusSongs,
-        albums: cached.albums,
-        artists: cached.artists,
-        playlists: cached.playlists,
-        didYouMean: cached.didYouMean,
-        error: cached.error,
+        topResult: cached.topResult, songs: cached.songs, ytSongs: cached.ytSongs,
+        saavnSongs: cached.saavnSongs, audiusSongs: cached.audiusSongs, albums: cached.albums,
+        artists: cached.artists, playlists: cached.playlists, didYouMean: cached.didYouMean, error: cached.error,
       );
       _isInitialLoadingNotifier.value = false;
     } else {
@@ -236,12 +238,9 @@ class _SearchScreenState extends State<SearchScreen> {
     final currentRequestId = ++_searchRequestId;
 
     try {
-      final isLikelyUrl = clean.startsWith('http://') ||
-          clean.startsWith('https://') ||
-          clean.contains('youtu.be') ||
-          clean.contains('youtube.com') ||
-          clean.contains('jiosaavn.com') ||
-          clean.contains('saavn.com');
+      final isLikelyUrl = clean.startsWith('http://') || clean.startsWith('https://') ||
+          clean.contains('youtu.be') || clean.contains('youtube.com') ||
+          clean.contains('jiosaavn.com') || clean.contains('saavn.com');
 
       if (isLikelyUrl) {
         final direct = await SearchService.resolveDirectUrlOrEntity(clean);
@@ -269,16 +268,9 @@ class _SearchScreenState extends State<SearchScreen> {
       await for (final unified in SearchService.searchProgressive(clean, language: null, limit: 25)) {
         if (!mounted || currentRequestId != _searchRequestId) return;
         _resultsNotifier.value = SearchResultsState(
-          topResult: unified.topResult,
-          songs: unified.songs,
-          ytSongs: unified.ytSongs,
-          saavnSongs: unified.saavnSongs,
-          audiusSongs: unified.audiusSongs,
-          albums: unified.albums,
-          artists: unified.artists,
-          playlists: unified.playlists,
-          didYouMean: unified.didYouMean,
-          error: unified.error,
+          topResult: unified.topResult, songs: unified.songs, ytSongs: unified.ytSongs,
+          saavnSongs: unified.saavnSongs, audiusSongs: unified.audiusSongs, albums: unified.albums,
+          artists: unified.artists, playlists: unified.playlists, didYouMean: unified.didYouMean, error: unified.error,
         );
         if (unified.songs.isNotEmpty || unified.albums.isNotEmpty || unified.artists.isNotEmpty) {
           _isInitialLoadingNotifier.value = false;
@@ -359,9 +351,9 @@ class _SearchScreenState extends State<SearchScreen> {
                         valueListenable: _hasSearchedNotifier,
                         builder: (context, hasSearched, _) {
                           return ValueListenableBuilder<bool>(
-                            valueListenable: _isInitialLoadingNotifier,
-                            builder: (context, isInitialLoading, _) {
-                              if (!isInitialLoading || !hasSearched) return const SizedBox(height: 2);
+                            valueListenable: _isSearchingNotifier,
+                            builder: (context, isSearching, _) {
+                              if (!isSearching || !hasSearched) return const SizedBox(height: 2);
                               return const LinearProgressIndicator(
                                 minHeight: 2,
                                 color: AppColors.electricCyan,

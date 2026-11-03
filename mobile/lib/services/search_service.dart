@@ -448,6 +448,10 @@ class SearchService {
   static final LruCache<String, List<String>> _typeaheadLruCache =
       LruCache<String, List<String>>(capacity: 100, defaultTtl: const Duration(minutes: 15));
 
+  /// Bounded cache for paginated YouTube federated searches to prevent cost growing with scrolling
+  static final LruCache<String, List<Song>> _pagedYouTubeCache =
+      LruCache<String, List<Song>>(capacity: 30, defaultTtl: const Duration(minutes: 10));
+
   /// Clears the typeahead LRU cache upon library mutations (favorites, downloads, history).
   static void clearTypeaheadCache() {
     _typeaheadLruCache.clear();
@@ -467,11 +471,11 @@ class SearchService {
     final clean = query.trim();
     if (clean.isEmpty) return const [];
 
-    final cacheKey = clean.toLowerCase();
+    final cacheKey = '${clean.toLowerCase()}|lim=$limit|sr=$skipRemote';
     final cached = _typeaheadLruCache.get(cacheKey);
     if (cached != null) {
       onPartialResults?.call(cached);
-      return cached.take(limit).toList();
+      return cached;
     }
 
     final List<String> suggestions = [];
@@ -939,9 +943,19 @@ class SearchService {
           ? '$effectiveLang $query'
           : query;
       final ytOffset = (page - 1) * limit;
-      final ytFuture = YouTubeClient.search(ytQuery, limit: page * limit)
-          .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[])
-          .then((list) => list.length > ytOffset ? list.skip(ytOffset).take(limit).toList() : <Song>[]);
+      final Future<List<Song>> ytFuture = () async {
+        final cached = _pagedYouTubeCache.get(ytQuery);
+        if (cached != null) {
+          if (ytOffset >= cached.length) return <Song>[];
+          return cached.skip(ytOffset).take(limit).toList();
+        }
+        // Fetch bounded YouTube pool once (max 25 items) and cache for subsequent pages
+        final pool = await YouTubeClient.search(ytQuery, limit: 25)
+            .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[]);
+        _pagedYouTubeCache.put(ytQuery, pool);
+        if (ytOffset >= pool.length) return <Song>[];
+        return pool.skip(ytOffset).take(limit).toList();
+      }();
 
       final results = await Future.wait([saavnFuture, ytFuture]);
       final saavnSongs = results[0];
@@ -1204,6 +1218,23 @@ class SearchService {
     }
 
     if (clean.isEmpty) clean = trimmed;
+
+    // Detect native-script language keywords (e.g. मराठी -> Marathi, தமிழ் -> Tamil)
+    if (explicitLang == null) {
+      if (clean.contains('मराठी')) {
+        explicitLang = 'Marathi';
+      } else if (clean.contains('हिंदी') || clean.contains('हिन्दी')) {
+        explicitLang = 'Hindi';
+      } else if (clean.contains('தமிழ்')) {
+        explicitLang = 'Tamil';
+      } else if (clean.contains('తెలుగు')) {
+        explicitLang = 'Telugu';
+      } else if (clean.contains('മലയാളം')) {
+        explicitLang = 'Malayalam';
+      } else if (clean.contains('ಕನ್ನಡ')) {
+        explicitLang = 'Kannada';
+      }
+    }
 
     // 3. Script detection & Transliteration check
     final cleanLower = clean.toLowerCase();
@@ -1866,11 +1897,11 @@ class SearchService {
     final effectiveLang = intent.explicitLanguage ??
         (language != null && language.isNotEmpty && language.toLowerCase() != 'all' && language.toLowerCase() != 'any' ? language : null);
 
-    // Check fast LRU in-memory cache first (0ms)
+    // SWR (Stale-While-Revalidate): Yield fast LRU in-memory cache immediately (0ms),
+    // then continue executing network pipeline to revalidate fresh catalog versions.
     final cached = SearchCache.get(rawQuery, language: effectiveLang);
     if (cached != null) {
       yield cached;
-      return;
     }
 
     List<Song> catalogSongs = [];

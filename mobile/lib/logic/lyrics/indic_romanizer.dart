@@ -27,12 +27,12 @@ class IndicRomanizer {
     return 'latin';
   }
 
-  /// Maps an Indic script to its canonical catalog language.
-  /// Crucially maps 'devanagari' to 'hindi' to guarantee cross-catalog compatibility.
+  /// Maps an Indic script to its canonical catalog language or script family.
+  /// Preserves 'devanagari' as script family to support Hindi, Marathi, Bhojpuri, etc.
   static String scriptToLanguage(String script) {
     switch (script.toLowerCase().trim()) {
       case 'devanagari':
-        return 'hindi';
+        return 'devanagari';
       case 'tamil':
         return 'tamil';
       case 'telugu':

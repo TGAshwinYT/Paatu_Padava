@@ -7,7 +7,6 @@ import '../core/dsa/lru_cache.dart';
 import '../core/dsa/symspell.dart';
 import '../core/dsa/trigram_index.dart';
 import 'saavn_client.dart';
-import '../logic/lyrics/indic_romanizer.dart';
 import 'app_logger.dart';
 
 class FuzzyCorrectionResult {
@@ -53,52 +52,21 @@ class FuzzySearchService {
     'Why This Kolaveri Di', 'Rowdy Baby', 'Kaavaalaa', 'Chinna Chinna Aasai',
     'Munbe Vaa', 'Nenjukkul Peidhidum', 'Enjoy Enjaami', 'Ordinary Person',
     'Bloody Sweet', 'Chellamma', 'Vaathi Coming', 'Kutty Story',
-    'Master the Blaster', 'Dippam Dappam',
-    'Megham Karukatha',
-    'Two Two Two',
-    'Kanave Kanave',
-    'Porkanda Singam',
-    'Pathala Pathala',
-    'Vikram Title Track',
-    'Once Upon a Time',
-    'Marakkuma Nenjam',
-    'Mallipoo',
-    'Chola Chola',
-    'Aga Naga',
-    'Ponni Nadhi',
-    'Kadhaippoma',
-    'Bae',
-    'Jimikki Ponnu',
-    'Ranjithame',
-    'Thee Thalapathy',
-    'Soul of Varisu',
-    'Mersal',
-    'Aalaporaan Thamizhan',
-    'Neethanae',
-    'Mersal Arasan',
-    'Maacho',
-    'Sarkar',
-    'Bigil',
-    'Kaththi',
-    'Theri',
-    'Thuppakki',
-    'Leo',
-    'Jailer',
-    'Vikram',
-    'Master',
-    'Varisu',
-    'Ponniyin Selvan',
-    'Thunivu',
-    'Beast',
-    'Doctor',
-    'Don',
-    'Petta',
-    'Kabali',
-    'Enthiran',
+    'Master the Blaster', 'Dippam Dappam', 'Megham Karukatha', 'Two Two Two',
+    'Kanave Kanave', 'Porkanda Singam', 'Pathala Pathala', 'Vikram Title Track',
+    'Once Upon a Time', 'Marakkuma Nenjam', 'Mallipoo', 'Chola Chola',
+    'Aga Naga', 'Ponni Nadhi', 'Kadhaippoma', 'Bae', 'Jimikki Ponnu',
+    'Ranjithame', 'Thee Thalapathy', 'Soul of Varisu', 'Mersal',
+    'Aalaporaan Thamizhan', 'Neethanae', 'Mersal Arasan', 'Maacho',
+    'Sarkar', 'Bigil', 'Kaththi', 'Theri', 'Thuppakki', 'Leo',
+    'Jailer', 'Vikram', 'Master', 'Varisu', 'Ponniyin Selvan',
+    'Thunivu', 'Beast', 'Doctor', 'Don', 'Petta', 'Kabali', 'Enthiran',
   };
 
   static final Set<String> _candidateDictionary = Set<String>.from(_coreDictionary);
   static const int maxDynamicCandidates = 100;
+  static const int maxLibraryCandidates = 100;
+  static final Set<String> _libraryCandidates = <String>{};
   static final List<String> _dynamicHistory = [];
   static final LruCache<String, FuzzyCorrectionResult?> _correctionCache =
       LruCache<String, FuzzyCorrectionResult?>(capacity: 100);
@@ -116,6 +84,7 @@ class FuzzySearchService {
     _candidateDictionary
       ..clear()
       ..addAll(_coreDictionary)
+      ..addAll(_libraryCandidates)
       ..addAll(_dynamicHistory);
 
     _lowercaseCandidateSet.clear();
@@ -207,59 +176,73 @@ class FuzzySearchService {
     return _bkTree;
   }
 
-  /// Dynamically register candidate terms with strict capacity bounding (max 100 dynamic entries)
-  static void registerCandidates(Iterable<String> terms) {
+  /// Dynamically register candidate terms with strict capacity bounding
+  static void registerCandidates(Iterable<String> terms, {bool isLibrary = false}) {
     _ensureInitialized();
 
-    // Enforce strict upper bound on dynamic dictionary size (max 100 dynamic entries).
-    // Perform bulk pruning and single rebuild BEFORE insertion loop, never on every iteration.
-    final candidateList = terms.toList();
-    if (_dynamicHistory.isNotEmpty && (_dynamicHistory.length + candidateList.length >= maxDynamicCandidates)) {
-      final excess = (_dynamicHistory.length + candidateList.length) - maxDynamicCandidates + 25;
-      final pruneCount = excess.clamp(1, _dynamicHistory.length);
-      _dynamicHistory.removeRange(0, pruneCount);
-      _rebuildAll();
-    }
-
-    bool addedAny = false;
-    for (final term in candidateList) {
-      if (_dynamicHistory.length >= maxDynamicCandidates) break;
+    // 1. Sanitize and deduplicate incoming terms against existing candidates AND within batch
+    final newTerms = <String>[];
+    final seenBatch = <String>{};
+    for (final term in terms) {
       final sanitized = Song.sanitize(term).trim();
       if (sanitized.length < 3 || sanitized.length > 35) continue;
       final lower = sanitized.toLowerCase();
-      if (_lowercaseCandidateSet.contains(lower)) continue;
+      if (_lowercaseCandidateSet.contains(lower) || !seenBatch.add(lower)) continue;
+      newTerms.add(sanitized);
+    }
 
-      if (_candidateDictionary.add(sanitized)) {
-        _dynamicHistory.add(sanitized);
-        _lowercaseCandidateSet.add(lower);
-        _normalizedToOriginal[_normKey(sanitized)] = sanitized;
-        _bkTree.insert(sanitized);
-        _symSpell.insert(sanitized);
-        _trigramIndex.insert(sanitized, payload: sanitized);
-        if (IndicRomanizer.hasIndicScript(sanitized)) {
-          final roman = IndicRomanizer.romanize(sanitized).trim();
-          final rLower = roman.toLowerCase();
-          if (roman.length >= 3 && _candidateDictionary.add(roman)) {
-            _dynamicHistory.add(roman);
-            _lowercaseCandidateSet.add(rLower);
-            _normalizedToOriginal[_normKey(roman)] = roman;
-            _bkTree.insert(roman);
-            _symSpell.insert(roman);
-            _trigramIndex.insert(roman, payload: sanitized);
-          }
+    if (newTerms.isEmpty) return; // Immediate 0ms return! No pruning, zero rebuilds!
+
+    bool needsRebuild = false;
+
+    if (isLibrary) {
+      // Library terms are protected in _libraryCandidates and never evicted by search results
+      for (final term in newTerms) {
+        if (_libraryCandidates.length >= maxLibraryCandidates) break;
+        if (_libraryCandidates.add(term)) {
+          _candidateDictionary.add(term);
+          _lowercaseCandidateSet.add(term.toLowerCase());
+          _normalizedToOriginal[_normKey(term)] = term;
+          _bkTree.insert(term);
+          _symSpell.insert(term);
+          _trigramIndex.insert(term, payload: term);
         }
-        addedAny = true;
+      }
+    } else {
+      // Dynamic search candidate insertion with capacity bounding
+      if (_dynamicHistory.length + newTerms.length > maxDynamicCandidates) {
+        final excess = (_dynamicHistory.length + newTerms.length) - maxDynamicCandidates + 15;
+        final pruneCount = excess.clamp(1, _dynamicHistory.length);
+        _dynamicHistory.removeRange(0, pruneCount);
+        needsRebuild = true;
+      }
+
+      for (final term in newTerms) {
+        if (_dynamicHistory.length >= maxDynamicCandidates) break;
+        _dynamicHistory.add(term);
+        _candidateDictionary.add(term);
+        _lowercaseCandidateSet.add(term.toLowerCase());
+        _normalizedToOriginal[_normKey(term)] = term;
+        if (!needsRebuild) {
+          _bkTree.insert(term);
+          _symSpell.insert(term);
+          _trigramIndex.insert(term, payload: term);
+        }
+      }
+
+      if (needsRebuild) {
+        _rebuildAll();
       }
     }
-    if (addedAny) {
-      _correctionCache.clear();
-    }
+
+    _correctionCache.clear();
   }
 
-  /// Register verified song titles and primary artists from library into the dictionary (capped to 100)
-  static void registerSongs(Iterable<Song> songs) {
+  /// Register verified song titles and primary artists into the dictionary
+  static void registerSongs(Iterable<Song> songs, {bool isLibrary = false}) {
     final terms = <String>[];
-    for (final song in songs.take(100)) {
+    final limit = isLibrary ? 100 : 5;
+    for (final song in songs.take(limit)) {
       if (song.title.isNotEmpty && song.title.length <= 35) {
         terms.add(song.title);
       }
@@ -267,7 +250,7 @@ class FuzzySearchService {
         terms.add(song.primaryArtist);
       }
     }
-    if (terms.isNotEmpty) registerCandidates(terms);
+    if (terms.isNotEmpty) registerCandidates(terms, isLibrary: isLibrary);
   }
 
   /// Evaluate if query contains a typo and locate the best match using O(log N) BK-Tree metric space search

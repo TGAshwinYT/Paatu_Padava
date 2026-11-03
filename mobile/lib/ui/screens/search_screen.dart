@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/song.dart';
 import '../../domain/models/search_results_state.dart';
 export '../../domain/models/search_results_state.dart';
+import '../../services/app_logger.dart';
 import '../../services/error_handler.dart';
 import '../../services/player_handler.dart';
 import '../../services/search_history_manager.dart';
@@ -155,7 +156,7 @@ class _SearchScreenState extends State<SearchScreen> {
           }
         }
         _localMatchesNotifier.value = current;
-      });
+      }).catchError((e, stack) => AppLogger.log('SearchScreen', 'Catalog query error: $e', level: LogLevel.warn));
     }
 
     // State B: Instant Prefix Trie Suggestions (smooth, no flash on empty)
@@ -173,7 +174,7 @@ class _SearchScreenState extends State<SearchScreen> {
         if (mounted && _searchController.text.trim() == clean && !_hasSearchedNotifier.value) {
           _suggestionsNotifier.value = suggs;
         }
-      });
+      }).catchError((e, stack) => AppLogger.log('SearchScreen', 'Typeahead fetch error: $e', level: LogLevel.warn));
     });
 
   }

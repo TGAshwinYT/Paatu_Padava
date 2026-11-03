@@ -746,7 +746,9 @@ class SearchService {
       final grouped = SongRepository.groupCanonicalSongs(enrichedSongs, preferredLanguage: language);
       final deduped = SongRepository.deduplicateSongs(grouped);
       return SemanticSearchService.instance.rankBySemanticIntent(deduped, query);
-    } catch (_) {
+    } catch (e, stack) {
+      AppLogger.log('SearchService', 'searchSongsTab error: $e', level: LogLevel.error);
+      AppLogger.recordError(e, stack, context: 'searchSongsTab query="$query"');
       return <Song>[];
     }
   }
@@ -799,7 +801,9 @@ class SearchService {
       }
 
       return filterGenuineAlbums(correlatedAlbums, query: query);
-    } catch (_) {
+    } catch (e, stack) {
+      AppLogger.log('SearchService', 'searchAlbumsTab error: $e', level: LogLevel.error);
+      AppLogger.recordError(e, stack, context: 'searchAlbumsTab query="$query"');
       return <Map<String, dynamic>>[];
     }
   }
@@ -857,7 +861,9 @@ class SearchService {
         language: language,
         query: query,
       );
-    } catch (_) {
+    } catch (e, stack) {
+      AppLogger.log('SearchService', 'searchArtistsTab error: $e', level: LogLevel.error);
+      AppLogger.recordError(e, stack, context: 'searchArtistsTab query="$query"');
       return <Map<String, dynamic>>[];
     }
   }
@@ -881,7 +887,9 @@ class SearchService {
           : yt;
       final groupedYt = SongRepository.groupCanonicalSongs(filteredYt, preferredLanguage: targetLang);
       return SongRepository.deduplicateSongs(groupedYt);
-    } catch (_) {
+    } catch (e, stack) {
+      AppLogger.log('SearchService', 'searchYtMusicTab error: $e', level: LogLevel.error);
+      AppLogger.recordError(e, stack, context: 'searchYtMusicTab query="$query"');
       return <Song>[];
     }
   }
@@ -895,7 +903,9 @@ class SearchService {
   static Future<void> recordSearchClick(Song song) async {
     try {
       await ApiClient.recordSearchClick(song);
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.log('SearchService', 'recordSearchClick error: $e', level: LogLevel.warn);
+    }
   }
 
   /// Strictly filters search artists by language, purging Bollywood/Hindi leaks,
@@ -1786,7 +1796,10 @@ class SearchService {
         if (catArtists.isEmpty && intent.transliteratedQuery != intent.cleanQuery) {
           catArtists = await CatalogDatabase.searchArtists(intent.transliteratedQuery, limit: 6);
         }
-      } catch (_) {}
+      } catch (e, stack) {
+        AppLogger.log('SearchService', 'Phase 0 local catalog search error: $e', level: LogLevel.warn);
+        AppLogger.recordError(e, stack, context: 'Phase 0 local catalog search failed for query "${intent.cleanQuery}"');
+      }
 
       final phase0Albums = catMovies.map((m) => {
         ...m,
@@ -1922,7 +1935,8 @@ class SearchService {
               final details = await SongRepository.getAlbumDetails(albumId: albId, albumTitle: albTitle)
                   .timeout(const Duration(milliseconds: 2500), onTimeout: () => null);
               return details?['songs'] as List<Song>? ?? <Song>[];
-            } catch (_) {
+            } catch (e) {
+              AppLogger.log('SearchService', 'Phase 1 album details fetch fault: $e', level: LogLevel.debug);
               return <Song>[];
             }
           }
@@ -2004,7 +2018,8 @@ class SearchService {
         try {
           return await SaavnClient.getArtistAlbums(artId, limit: 40)
               .timeout(const Duration(seconds: 4), onTimeout: () => <Map<String, dynamic>>[]);
-        } catch (_) {
+        } catch (e) {
+          AppLogger.log('SearchService', 'Phase 2 artist albums fetch fault: $e', level: LogLevel.debug);
           return <Map<String, dynamic>>[];
         }
       }();

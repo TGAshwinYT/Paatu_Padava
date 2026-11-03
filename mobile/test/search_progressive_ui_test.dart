@@ -8,6 +8,9 @@ import 'package:paatu_padava_mobile/ui/widgets/search/search_active_typing_sugge
 import 'package:paatu_padava_mobile/ui/widgets/search/search_all_results_view.dart';
 import 'package:paatu_padava_mobile/ui/widgets/search/search_song_tile.dart';
 import 'package:paatu_padava_mobile/ui/widgets/search/search_top_result_card.dart';
+import 'package:paatu_padava_mobile/ui/widgets/search/search_skeleton_view.dart';
+import 'package:paatu_padava_mobile/ui/widgets/search/search_body_content.dart';
+import 'package:paatu_padava_mobile/services/search_service.dart';
 
 void main() {
   group('3-State Progressive Search UI Tests', () {
@@ -356,6 +359,70 @@ void main() {
 
       // Clean up notifier
       DownloadManager.downloadedSongsNotifier.value = [];
+    });
+
+    testWidgets('SearchSkeletonView renders shimmering layout wireframe with top card and song rows', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: SearchSkeletonView(),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byType(SearchSkeletonView), findsOneWidget);
+      expect(find.byType(ListView), findsOneWidget);
+    });
+
+    testWidgets('SearchBodyContent renders SearchSkeletonView during initial loading state (no CircularProgressIndicator)', (tester) async {
+      final searchCtrl = TextEditingController(text: 'Master');
+      final hasSearched = ValueNotifier<bool>(true);
+      final isInitialLoading = ValueNotifier<bool>(true);
+      final results = ValueNotifier<SearchResultsState>(const SearchResultsState());
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SearchBodyContent(
+              searchController: searchCtrl,
+              hasSearchedNotifier: hasSearched,
+              isInitialLoadingNotifier: isInitialLoading,
+              localMatchesNotifier: ValueNotifier<List<Song>>([]),
+              suggestionsNotifier: ValueNotifier<List<String>>([]),
+              resultsNotifier: results,
+              onTriggerCategorySearch: (_) {},
+              onSearchExactQuery: (_) {},
+              onQueryChanged: (_) {},
+              onExecuteSearch: (_, {bool saveHistory = true}) {},
+              onRecordSearchResultClick: ([_]) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Skeleton must be visible during initial loading; spinner must NOT be present
+      expect(find.byType(SearchSkeletonView), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+
+      // When first emission arrives with songs, skeleton dismisses immediately
+      final song = Song(
+        id: 's1',
+        title: 'Vathi Coming',
+        artist: 'Anirudh',
+        album: 'Master',
+        duration: 210,
+        source: 'saavn',
+        coverUrl: '',
+      );
+      results.value = SearchResultsState(songs: [song]);
+      isInitialLoading.value = false;
+      await tester.pump();
+
+      expect(find.byType(SearchSkeletonView), findsNothing);
+      expect(find.byType(SearchAllResultsView), findsOneWidget);
+      expect(find.text('Vathi Coming'), findsOneWidget);
     });
   });
 }

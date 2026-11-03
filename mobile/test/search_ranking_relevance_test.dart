@@ -61,6 +61,48 @@ void main() {
       final occurrences = suggestions.where((s) => s.toLowerCase() == 'vaathi coming').length;
       expect(occurrences, equals(1));
     });
+
+    test('Partitioned quota caps initial local matches to reserve slots for remote discovery', () async {
+      final trie = PrefixTrie<String>();
+      trie.insert('Local Song 1', weight: 100);
+      trie.insert('Local Song 2', weight: 90);
+      trie.insert('Local Song 3', weight: 80);
+      trie.insert('Local Song 4', weight: 70);
+      trie.insert('Local Song 5', weight: 60);
+
+      List<String>? partialCaptured;
+      await SearchService.getTypeaheadSuggestions(
+        'Local',
+        localTrie: trie,
+        limit: 5,
+        skipRemote: false,
+        onPartialResults: (partial) {
+          partialCaptured ??= List<String>.from(partial);
+        },
+      );
+
+      // Initial partial local emission MUST NOT exceed 2 items (reserves 3 slots for discovery)
+      expect(partialCaptured, isNotNull);
+      expect(partialCaptured!.length, lessThanOrEqualTo(2));
+      expect(partialCaptured, contains('Local Song 1'));
+      expect(partialCaptured, contains('Local Song 2'));
+    });
+
+    test('clearTypeaheadCache purges cached suggestions on library mutation', () async {
+      final trie = PrefixTrie<String>();
+      trie.insert('Favorite Track', weight: 100);
+
+      final first = await SearchService.getTypeaheadSuggestions('fav', localTrie: trie, skipRemote: true);
+      expect(first, contains('Favorite Track'));
+
+      // Clear cache simulating favorite added/removed
+      SearchService.clearTypeaheadCache();
+
+      // Modify trie with new favorite
+      trie.insert('Favorite Track Updated', weight: 150);
+      final second = await SearchService.getTypeaheadSuggestions('fav', localTrie: trie, skipRemote: true);
+      expect(second, contains('Favorite Track Updated'));
+    });
   });
 
   group('Stage 2: Parallel Multi-Source Query Planning', () {

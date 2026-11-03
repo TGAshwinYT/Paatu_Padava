@@ -441,11 +441,17 @@ class SearchService {
   }
 
   /// Stage 1: Instant Debounced Typeahead (< 150ms).
-  static final Map<String, List<String>> _typeaheadCache = {};
-  static const int _maxTypeaheadCacheSize = 100;
+  static final LruCache<String, List<String>> _typeaheadLruCache =
+      LruCache<String, List<String>>(capacity: 100, defaultTtl: const Duration(minutes: 15));
+
+  /// Clears the typeahead LRU cache upon library mutations (favorites, downloads, history).
+  static void clearTypeaheadCache() {
+    _typeaheadLruCache.clear();
+  }
 
   /// Queries local PrefixTrie in < 1ms, then merges lightweight autocomplete suggestions
   /// progressively from YouTube and JioSaavn as each arrives without blocking.
+  /// Enforces a partitioned quota so local library items never crowd out discovery suggestions.
   /// Bounded by in-memory LRU cache to eliminate redundant network roundtrips.
   static Future<List<String>> getTypeaheadSuggestions(
     String query, {
@@ -458,8 +464,8 @@ class SearchService {
     if (clean.isEmpty) return const [];
 
     final cacheKey = clean.toLowerCase();
-    if (_typeaheadCache.containsKey(cacheKey)) {
-      final cached = _typeaheadCache[cacheKey]!;
+    final cached = _typeaheadLruCache.get(cacheKey);
+    if (cached != null) {
       onPartialResults?.call(cached);
       return cached.take(limit).toList();
     }
@@ -476,12 +482,19 @@ class SearchService {
       }
     }
 
+    final List<String> deferredLocal = [];
+
     // 1. Instant local Prefix Trie matches (0ms local latency)
+    // Budget local items so remote discovery suggestions are never crowded out.
     if (localTrie != null) {
-      final localMatches = localTrie.findByPrefix(clean, limit: 6);
+      final localMatches = localTrie.findByPrefix(clean, limit: limit + 2);
+      final maxLocalInitial = skipRemote ? limit : (limit <= 5 ? 2 : (limit * 0.4).ceil());
       for (final m in localMatches) {
-        if (suggestions.length >= limit) break;
-        addSuggestion(m.term);
+        if (suggestions.length < maxLocalInitial) {
+          addSuggestion(m.term);
+        } else {
+          deferredLocal.add(m.term);
+        }
       }
       if (suggestions.isNotEmpty) {
         onPartialResults?.call(List<String>.from(suggestions));
@@ -494,6 +507,7 @@ class SearchService {
 
     // 2. Progressive non-blocking remote suggestions:
     // Fire Google and JioSaavn concurrently. As EACH one returns, merge suggestions immediately!
+    int remoteAddedCount = 0;
     final ytFuture = YouTubeClient.getSearchSuggestions(clean)
         .timeout(const Duration(milliseconds: 600), onTimeout: () => <String>[])
         .catchError((_) => <String>[]);
@@ -508,7 +522,10 @@ class SearchService {
           if (suggestions.length >= limit) break;
           final lenBefore = suggestions.length;
           addSuggestion(s);
-          if (suggestions.length > lenBefore) addedAny = true;
+          if (suggestions.length > lenBefore) {
+            addedAny = true;
+            remoteAddedCount++;
+          }
         }
         if (addedAny) onPartialResults?.call(List<String>.from(suggestions));
       }
@@ -521,7 +538,10 @@ class SearchService {
           if (suggestions.length >= limit) break;
           final lenBefore = suggestions.length;
           addSuggestion(s);
-          if (suggestions.length > lenBefore) addedAny = true;
+          if (suggestions.length > lenBefore) {
+            addedAny = true;
+            remoteAddedCount++;
+          }
         }
         if (addedAny) onPartialResults?.call(List<String>.from(suggestions));
       }
@@ -533,11 +553,22 @@ class SearchService {
       debugPrint('[SearchService] getTypeaheadSuggestions notice: $e');
     }
 
-    final result = suggestions.take(limit).toList();
-    if (_typeaheadCache.length >= _maxTypeaheadCacheSize) {
-      _typeaheadCache.remove(_typeaheadCache.keys.first);
+    // Backfill with deferred local suggestions if remote returned fewer than quota
+    if (suggestions.length < limit && deferredLocal.isNotEmpty) {
+      for (final def in deferredLocal) {
+        if (suggestions.length >= limit) break;
+        addSuggestion(def);
+      }
     }
-    _typeaheadCache[cacheKey] = result;
+
+    final result = suggestions.take(limit).toList();
+
+    // Cache in LRU only if remote suggestions succeeded or if remote was skipped.
+    // Do NOT cache degraded timeout-only results so subsequent queries can retry.
+    if (remoteAddedCount > 0 || skipRemote) {
+      _typeaheadLruCache.put(cacheKey, result);
+    }
+
     return result;
   }
 
@@ -2070,15 +2101,21 @@ class SearchService {
         bypassedExplicitLangSaavnEarly = true;
       }
 
+      final saavnAffinityCtxEarly = UserAffinityContext.fromSongs();
       final scoredSaavnEarly = candidateSaavnEarly.map((s) {
-        final score = scoreSong(
+        final score = calculateCompositeRelevance(
           s,
           bypassedExplicitLangSaavnEarly ? intent.copyWith(explicitLanguage: null) : intent,
           preferredLanguages: prefLangs,
+          affinityContext: saavnAffinityCtxEarly,
         );
         return MapEntry(score, s);
       }).where((e) => e.key > 0.0).toList();
-      scoredSaavnEarly.sort((a, b) => compareRankedEntries(a, b, qClean));
+
+      final Map<String, int> saavnArrivalEarly = {
+        for (int i = 0; i < candidateSaavnEarly.length; i++) candidateSaavnEarly[i].id: i
+      };
+      scoredSaavnEarly.sort((a, b) => compareRankedEntries(a, b, qClean, arrivalOrder: saavnArrivalEarly));
       final rankedSaavnEarly = scoredSaavnEarly.map((e) => e.value).toList();
 
       Map<String, dynamic>? initialTopResultEarly;

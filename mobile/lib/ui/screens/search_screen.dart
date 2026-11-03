@@ -5,7 +5,6 @@ import '../../domain/models/search_results_state.dart';
 export '../../domain/models/search_results_state.dart';
 import '../../services/app_logger.dart';
 import '../../services/error_handler.dart';
-import '../../services/player_handler.dart';
 import '../../services/search_history_manager.dart';
 import '../../services/favorites_manager.dart';
 import '../../services/catalog_database.dart';
@@ -16,15 +15,9 @@ import '../../logic/stream_resolver.dart';
 import '../../logic/search_query_planner.dart';
 import '../../core/dsa/prefix_trie.dart';
 import '../theme/app_theme.dart';
-import 'library_screen.dart';
 import '../widgets/search/search_constants.dart';
 import '../widgets/search/search_header_bar.dart';
-import '../widgets/search/search_error_view.dart';
-import '../widgets/search/search_pre_content.dart';
-import '../widgets/search/search_active_typing_suggestions.dart';
-import '../widgets/search/search_all_results_view.dart';
-import '../widgets/search/search_song_options_sheet.dart';
-import '../widgets/search/search_versions_sheet.dart';
+import '../widgets/search/search_body_content.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -42,6 +35,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   // 3-State Progressive Search Notifiers
   final ValueNotifier<bool> _isSearchingNotifier = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> _isInitialLoadingNotifier = ValueNotifier<bool>(false);
   final ValueNotifier<bool> _hasSearchedNotifier = ValueNotifier<bool>(false);
   final ValueNotifier<List<Song>> _localMatchesNotifier = ValueNotifier<List<Song>>([]);
   final ValueNotifier<List<String>> _suggestionsNotifier = ValueNotifier<List<String>>([]);
@@ -86,6 +80,7 @@ class _SearchScreenState extends State<SearchScreen> {
     FuzzySearchService.registerCandidates(recent);
     final allLocal = [...saved, ...recentSongs];
     if (allLocal.isNotEmpty) FuzzySearchService.registerSongs(allLocal);
+    SearchService.clearTypeaheadCache();
   }
 
   @override
@@ -97,7 +92,7 @@ class _SearchScreenState extends State<SearchScreen> {
     }
     _searchController.dispose();
     _typeaheadDebounceTimer?.cancel();
-    for (final n in [_isSearchingNotifier, _hasSearchedNotifier, _localMatchesNotifier, _suggestionsNotifier, _resultsNotifier]) {
+    for (final n in [_isSearchingNotifier, _isInitialLoadingNotifier, _hasSearchedNotifier, _localMatchesNotifier, _suggestionsNotifier, _resultsNotifier]) {
       n.dispose();
     }
     super.dispose();
@@ -105,7 +100,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _resetSearchState() {
     ++_searchRequestId;
-    _hasSearchedNotifier.value = _isSearchingNotifier.value = false;
+    _hasSearchedNotifier.value = _isSearchingNotifier.value = _isInitialLoadingNotifier.value = false;
     _localMatchesNotifier.value = [];
     _suggestionsNotifier.value = [];
     _resultsNotifier.value = const SearchResultsState();
@@ -198,35 +193,83 @@ class _SearchScreenState extends State<SearchScreen> {
 
     _searchFocusNode.unfocus();
     _hasSearchedNotifier.value = true;
-    _resultsNotifier.value = const SearchResultsState();
+
+    // SWR Instant Cache Check: Immediately render cached results if present (0ms flash-free)
+    final cached = SearchCache.get(clean);
+    if (cached != null) {
+      _resultsNotifier.value = SearchResultsState(
+        topResult: cached.topResult,
+        songs: cached.songs,
+        ytSongs: cached.ytSongs,
+        saavnSongs: cached.saavnSongs,
+        audiusSongs: cached.audiusSongs,
+        albums: cached.albums,
+        artists: cached.artists,
+        playlists: cached.playlists,
+        didYouMean: cached.didYouMean,
+        error: cached.error,
+      );
+      _isInitialLoadingNotifier.value = false;
+    } else {
+      _resultsNotifier.value = const SearchResultsState();
+      _isInitialLoadingNotifier.value = true;
+    }
     _isSearchingNotifier.value = true;
 
     final currentRequestId = ++_searchRequestId;
 
     try {
-      final direct = await SearchService.resolveDirectUrlOrEntity(clean);
-      if (direct != null) {
-        if (!mounted || currentRequestId != _searchRequestId) return;
-        final tracks = (direct['tracks'] as List<Song>?) ?? <Song>[];
-        _resultsNotifier.value = SearchResultsState(
-          ytSongs: tracks, songs: tracks,
-          topResult: {'type': direct['type'], 'id': direct['id'], 'title': direct['title'], 'subtitle': direct['subtitle'], 'image': direct['image']},
-        );
-        _isSearchingNotifier.value = false;
-        if (tracks.isNotEmpty) DefaultStreamResolver.prewarmSongs(tracks, limit: 3);
-        return;
+      final isLikelyUrl = clean.startsWith('http://') ||
+          clean.startsWith('https://') ||
+          clean.contains('youtu.be') ||
+          clean.contains('youtube.com') ||
+          clean.contains('jiosaavn.com') ||
+          clean.contains('saavn.com');
+
+      if (isLikelyUrl) {
+        final direct = await SearchService.resolveDirectUrlOrEntity(clean);
+        if (direct != null) {
+          if (!mounted || currentRequestId != _searchRequestId) return;
+          final tracks = (direct['tracks'] as List<Song>?) ?? <Song>[];
+          _resultsNotifier.value = SearchResultsState(
+            ytSongs: tracks,
+            songs: tracks,
+            topResult: {
+              'type': direct['type'],
+              'id': direct['id'],
+              'title': direct['title'],
+              'subtitle': direct['subtitle'],
+              'image': direct['image'],
+            },
+          );
+          _isSearchingNotifier.value = false;
+          _isInitialLoadingNotifier.value = false;
+          if (tracks.isNotEmpty) DefaultStreamResolver.prewarmSongs(tracks, limit: 3);
+          return;
+        }
       }
 
       await for (final unified in SearchService.searchProgressive(clean, language: null, limit: 25)) {
         if (!mounted || currentRequestId != _searchRequestId) return;
         _resultsNotifier.value = SearchResultsState(
-          topResult: unified.topResult, songs: unified.songs, ytSongs: unified.ytSongs,
-          saavnSongs: unified.saavnSongs, audiusSongs: unified.audiusSongs, albums: unified.albums,
-          artists: unified.artists, playlists: unified.playlists, didYouMean: unified.didYouMean, error: unified.error,
+          topResult: unified.topResult,
+          songs: unified.songs,
+          ytSongs: unified.ytSongs,
+          saavnSongs: unified.saavnSongs,
+          audiusSongs: unified.audiusSongs,
+          albums: unified.albums,
+          artists: unified.artists,
+          playlists: unified.playlists,
+          didYouMean: unified.didYouMean,
+          error: unified.error,
         );
+        if (unified.songs.isNotEmpty || unified.albums.isNotEmpty || unified.artists.isNotEmpty) {
+          _isInitialLoadingNotifier.value = false;
+        }
       }
       if (mounted && currentRequestId == _searchRequestId) {
         _isSearchingNotifier.value = false;
+        _isInitialLoadingNotifier.value = false;
         if (_resultsNotifier.value.songs.isNotEmpty) {
           DefaultStreamResolver.prewarmSongs(_resultsNotifier.value.songs, limit: 3);
         }
@@ -238,6 +281,7 @@ class _SearchScreenState extends State<SearchScreen> {
           _resultsNotifier.value = SearchResultsState(error: err);
         }
         _isSearchingNotifier.value = false;
+        _isInitialLoadingNotifier.value = false;
       }
     }
   }
@@ -300,108 +344,35 @@ class _SearchScreenState extends State<SearchScreen> {
                     valueListenable: _hasSearchedNotifier,
                     builder: (context, hasSearched, _) {
                       return ValueListenableBuilder<bool>(
-                        valueListenable: _isSearchingNotifier,
-                        builder: (context, isSearching, _) {
-                          if (!isSearching || !hasSearched) return const SizedBox(height: 2);
+                        valueListenable: _isInitialLoadingNotifier,
+                        builder: (context, isInitialLoading, _) {
+                          if (!isInitialLoading || !hasSearched) return const SizedBox(height: 2);
                           return const LinearProgressIndicator(minHeight: 2, color: AppColors.electricCyan, backgroundColor: Colors.transparent);
                         },
                       );
                     },
                   ),
-                  Expanded(child: _buildBody()),
+                  Expanded(
+                    child: SearchBodyContent(
+                      searchController: _searchController,
+                      hasSearchedNotifier: _hasSearchedNotifier,
+                      isInitialLoadingNotifier: _isInitialLoadingNotifier,
+                      localMatchesNotifier: _localMatchesNotifier,
+                      suggestionsNotifier: _suggestionsNotifier,
+                      resultsNotifier: _resultsNotifier,
+                      onTriggerCategorySearch: _triggerCategorySearch,
+                      onSearchExactQuery: _searchExactQuery,
+                      onQueryChanged: _onQueryChanged,
+                      onExecuteSearch: _executeSearch,
+                      onRecordSearchResultClick: _recordSearchResultClick,
+                    ),
+                  ),
                 ],
               );
             },
           ),
         ),
       ),
-    );
-      },
-    );
-  }
-
-  Widget _buildBody() {
-    return ValueListenableBuilder<TextEditingValue>(
-      valueListenable: _searchController,
-      builder: (context, textValue, _) {
-        final query = textValue.text.trim();
-        return ValueListenableBuilder<bool>(
-          valueListenable: _hasSearchedNotifier,
-          builder: (context, hasSearched, _) {
-
-        // State A: Zero-Query State (Before Typing)
-        if (!hasSearched && query.isEmpty) {
-          return SearchPreContent(
-            trendingArtists: SearchConstants.trendingArtists,
-            browseCategories: SearchConstants.browseCategories,
-            onSelectQuery: _triggerCategorySearch,
-            onSelectExactQuery: _searchExactQuery,
-            onPlaySong: (song) {
-              SearchHistoryManager.addSong(song);
-              audioHandler.playSong(song);
-            },
-          );
-        }
-
-        // State B: Active Typing State (1..N characters, keyboard open)
-        if (!hasSearched && query.isNotEmpty) {
-          return ValueListenableBuilder<List<Song>>(
-            valueListenable: _localMatchesNotifier,
-            builder: (context, localMatches, _) {
-              return ValueListenableBuilder<List<String>>(
-                valueListenable: _suggestionsNotifier,
-                builder: (context, completions, _) {
-                  return SearchActiveTypingSuggestions(
-                    localSongMatches: localMatches,
-                    queryCompletions: completions,
-                    onPlaySong: (song) { SearchHistoryManager.addSong(song); SearchService.recordSearchClick(song); audioHandler.playSong(song); },
-                    onSelectQuery: _triggerCategorySearch,
-                    onAppendQuery: (q) { _searchController.text = q; _searchController.selection = TextSelection.collapsed(offset: q.length); _onQueryChanged(q); },
-                  );
-                },
-              );
-            },
-          );
-        }
-
-        // State C: Committed Results State (Explicitly submitted or suggestion selected)
-        return ValueListenableBuilder<SearchResultsState>(
-          valueListenable: _resultsNotifier,
-          builder: (context, state, _) {
-            return ValueListenableBuilder<bool>(
-              valueListenable: _isSearchingNotifier,
-              builder: (context, isSearching, _) {
-                if (state.isEmpty && isSearching) return const Center(child: CircularProgressIndicator(color: AppColors.neonViolet));
-
-                if (state.hasError && state.isEmpty && !isSearching) {
-                  return SearchErrorView(
-                    error: state.error!,
-                    onRetry: () {
-                      final q = _searchController.text.trim();
-                      if (q.isNotEmpty) _executeSearch(q, saveHistory: false);
-                    },
-                    onOpenDownloads: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LibraryScreen())),
-                  );
-                }
-
-                return SearchAllResultsView(
-                  state: state,
-                  query: _searchController.text,
-                  onDidYouMeanTap: (sug) {
-                    _searchController.text = sug;
-                    _executeSearch(sug, saveHistory: true);
-                  },
-                  onArtistRecordClick: () => _recordSearchResultClick(),
-                  onRecordClick: ([song]) => _recordSearchResultClick(song),
-                  onSongTap: (song) { _recordSearchResultClick(song); audioHandler.playSong(song, queue: state.songs); },
-                  onShowOptions: (s) => SearchSongOptionsSheet.show(context, s),
-                  onShowVersions: (s) => SearchVersionsSheet.show(context, s, onSelectSong: (v) { _recordSearchResultClick(v); audioHandler.playSong(v); }),
-                );
-              },
-            );
-          },
-        );
-      },
     );
       },
     );

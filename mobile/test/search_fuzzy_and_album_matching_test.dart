@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:paatu_padava_mobile/models/song.dart';
 import 'package:paatu_padava_mobile/services/fuzzy_search_service.dart';
 import 'package:paatu_padava_mobile/services/search_service.dart';
+import 'package:paatu_padava_mobile/data/repositories/song_repository.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -136,10 +137,10 @@ void main() {
       expect(tamilIntent.transliteratedQuery.toLowerCase(), equals('vikram'));
       expect(tamilIntent.explicitLanguage?.toLowerCase(), equals('tamil'));
 
-      // Hindi query
+      // Hindi query: Devanagari script must resolve to 'hindi' language
       final hindiIntent = SearchService.understandQuery('केसरिया');
       expect(hindiIntent.transliteratedQuery.toLowerCase(), startsWith('kesariya'));
-      expect(hindiIntent.explicitLanguage?.toLowerCase(), equals('devanagari'));
+      expect(hindiIntent.explicitLanguage?.toLowerCase(), equals('hindi'));
 
       // Telugu query
       final teluguIntent = SearchService.understandQuery('చుట్టమల్లే');
@@ -255,6 +256,38 @@ void main() {
 
       final popularity = SearchService.calculateSourcePopularity(ytOfficial);
       expect(popularity, greaterThanOrEqualTo(0.80));
+    });
+
+    test('Hindi-script query retains and scores Hindi songs without cross-language rejection', () {
+      final intent = SearchService.understandQuery('केसरिया');
+      expect(intent.explicitLanguage?.toLowerCase(), equals('hindi'));
+
+      final hindiSong = Song(
+        id: 'saavn_kesariya_1',
+        title: 'Kesariya',
+        artist: 'Arijit Singh, Pritam',
+        album: 'Brahmastra',
+        language: 'hindi',
+        source: 'saavn',
+        coverUrl: 'https://example.com/kesariya.jpg',
+        duration: 268,
+      );
+
+      // Verify isLanguageMismatch does NOT flag it as mismatch
+      expect(SongRepository.isLanguageMismatch(hindiSong, intent.explicitLanguage!), isFalse);
+
+      // Verify composite relevance score is high (> 0.70), not 0.0
+      final score = SearchService.calculateCompositeRelevance(hindiSong, intent);
+      expect(score, greaterThan(0.70));
+
+      // Verify deduplicateAndRankUnified preserves Hindi songs
+      final results = SearchService.deduplicateAndRankUnified(
+        saavnSongs: [hindiSong],
+        ytSongs: const [],
+        intent: intent,
+      );
+      expect(results, isNotEmpty);
+      expect(results.first.id, equals('saavn_kesariya_1'));
     });
   });
 }

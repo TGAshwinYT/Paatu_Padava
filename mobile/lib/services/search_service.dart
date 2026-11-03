@@ -1183,7 +1183,8 @@ class SearchService {
       if (explicitLang == null) {
         final detected = IndicRomanizer.detectScript(clean);
         if (detected != 'latin') {
-          explicitLang = detected[0].toUpperCase() + detected.substring(1);
+          final lang = IndicRomanizer.scriptToLanguage(detected);
+          explicitLang = lang[0].toUpperCase() + lang.substring(1);
         }
       }
     } else if (_tanglishIndex.containsKey(cleanLower)) {

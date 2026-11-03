@@ -114,13 +114,15 @@ class SongRepository {
   /// Strict cross-language barrier check to eliminate language contamination
   /// (e.g. Hindi songs leaking into Tamil feeds, search cards, and trending carousels).
   static bool isLanguageMismatch(Song song, String targetLanguage) {
-    final target = targetLanguage.toLowerCase().trim();
-    if (target.isEmpty) return false;
+    final rawTarget = targetLanguage.toLowerCase().trim();
+    if (rawTarget.isEmpty) return false;
+    final target = rawTarget == 'devanagari' ? 'hindi' : rawTarget;
 
     // 1. Explicit metadata language check from Saavn/API
     if (song.language != null && song.language!.isNotEmpty) {
       final sLang = song.language!.toLowerCase().trim();
-      if (sLang != target) {
+      final normSongLang = sLang == 'devanagari' ? 'hindi' : sLang;
+      if (normSongLang != target) {
         if (target == 'english' && sLang == 'english') return false;
         // Explicitly labeled under a different language (e.g. 'hindi' when target is 'tamil')
         return true;

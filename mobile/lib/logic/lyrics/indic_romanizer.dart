@@ -27,6 +27,25 @@ class IndicRomanizer {
     return 'latin';
   }
 
+  /// Maps an Indic script to its canonical catalog language.
+  /// Crucially maps 'devanagari' to 'hindi' to guarantee cross-catalog compatibility.
+  static String scriptToLanguage(String script) {
+    switch (script.toLowerCase().trim()) {
+      case 'devanagari':
+        return 'hindi';
+      case 'tamil':
+        return 'tamil';
+      case 'telugu':
+        return 'telugu';
+      case 'malayalam':
+        return 'malayalam';
+      case 'kannada':
+        return 'kannada';
+      default:
+        return script.toLowerCase().trim();
+    }
+  }
+
   /// Whether the lyrics contain an Indic script that can be romanized
   static bool hasIndicScript(String text) {
     return _tamilPattern.hasMatch(text) ||

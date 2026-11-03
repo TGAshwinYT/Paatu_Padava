@@ -247,8 +247,13 @@ class SearchQueryPlanner {
     final clean = cleanQuery.trim();
     final lower = clean.toLowerCase();
 
-    final saavnQuery = (explicitLanguage != null && !lower.contains(explicitLanguage.toLowerCase()))
-        ? '${explicitLanguage.trim()} $clean'
+    final rawLang = explicitLanguage?.trim();
+    final effectiveLang = (rawLang != null && rawLang.toLowerCase() == 'devanagari')
+        ? 'Hindi'
+        : rawLang;
+
+    final saavnQuery = (effectiveLang != null && !lower.contains(effectiveLang.toLowerCase()))
+        ? '$effectiveLang $clean'
         : clean;
 
     return {

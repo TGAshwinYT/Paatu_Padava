@@ -4,7 +4,6 @@ import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
 import '../../../services/favorites_manager.dart';
 import '../../../services/search_history_manager.dart';
-import '../../../services/youtube_client.dart';
 import '../../theme/app_theme.dart';
 import '../../screens/album_screen.dart';
 

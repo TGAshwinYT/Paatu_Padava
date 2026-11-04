@@ -60,7 +60,7 @@ class SleepTimerService extends ChangeNotifier {
 
   /// Compact formatted duration MM:SS for top bar / chip displays
   String get formattedRemainingShort {
-    if (_stopAtEndOfTrack) return 'Track';
+    if (_stopAtEndOfTrack) return 'End';
     if (_stopAtEndOfQueue) return 'Queue';
     final m = _remainingTime.inMinutes;
     final s = _remainingTime.inSeconds.remainder(60);

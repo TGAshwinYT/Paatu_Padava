@@ -1,10 +1,70 @@
-# 🎵 Paatu Padava Mobile v2.4.0
+# 🎵 Paatu Padava Mobile — Release Notes
 
-Welcome to **Paatu Padava v2.4.0**! This major release delivers a massive search performance boost with persistent socket pooling, dynamic multi-resolution / DPI adaptation across all phone sizes, intelligent album extraction, and iOS 15+ readiness.
+Welcome to the comprehensive release notes for **Paatu Padava Mobile**. This document tracks all features, performance improvements, and fixes across recent builds.
 
 ---
 
-## ✨ Highlights & New Features
+## 🚀 v2.5.0 (Latest Release)
+
+This milestone release introduces **Search Result Single-Track Isolation**, a major **Queue Management Overhaul** (swipe-to-dismiss & "Save Queue as Playlist"), and an **Android Doze-Proof Wall-Clock Sleep Timer Engine**.
+
+### ✨ Highlights & New Features (v2.5.0)
+
+#### 🔍 Search Result Single-Track Isolation & Seamless Autoplay
+* **Single-Track Playback Isolation**:
+  * Tapping a song in search results now isolates playback to that chosen track alone (`preserveUserQueue: true`), eliminating the issue where 30 unrelated search results were dumped into the active queue.
+  * Preserves any tracks previously queued by the user (*"Play Next"*, *"Add to Queue"*).
+  * Seamlessly transitions to context-aware `RadioEngine` autoplay when the search track finishes.
+* **Instant Typeahead & Zero-Latency SWR Cache**:
+  * Optimized search debounce to **180 ms** for instantaneous keystroke suggestions.
+  * In-memory SWR (Stale-While-Revalidate) pre-warming: hitting Enter displays confirmed search results in **0 ms**.
+  * Decoupled parallel soundtrack & album extraction, eliminating blocking delays on short queries (e.g., *"Hi"*, *"Vikram"*).
+
+#### 📑 Advanced Queue Architecture & Playlist Persistence
+* **Swipe-to-Dismiss Queue Tracks**:
+  * Added horizontal swipe gestures (`DismissDirection.endToStart`) on both user-queued and suggested queue tracks in the Queue Sheet.
+  * Displays a smooth red trash indicator and triggers tactile haptic feedback on dismissal.
+* **Save Queue as Playlist (`SaveQueueDialog`)**:
+  * Direct one-tap "Save Queue as Playlist" icon (`Icons.bookmark_add_rounded`) in the Queue Sheet header.
+  * Allows listeners to instantly snapshot active and upcoming queue tracks into a custom playlist.
+  * Automatically persists to local device storage (Hive) and synchronizes to cloud storage (Supabase).
+* **Two-Tier Immutable User Stack**:
+  * Clear separation between User Priority Queue and Dynamic Autoplay / Radio Suggestions.
+  * Smart Shuffle and Markov-Cosine algorithms reorder context tracks without clobbering user-prioritized songs.
+
+#### 🌙 Wall-Clock Sleep Timer Engine (Android Doze-Proof)
+* **Wall-Clock Target Epoch Architecture**:
+  * Replaced naive 1-second countdown ticks with absolute wall-clock target calculations (`_targetEndTime = DateTime.now().add(duration)`).
+  * Solved the issue where Android Doze mode and background CPU throttling paused Dart timers, preventing music from turning off when the phone was locked.
+* **Audio Stream Expiration Watchdog**:
+  * The ExoPlayer position stream evaluates `SleepTimerService.hasExpired` on every position tick.
+  * Playback halts immediately at the scheduled second, cleanly surrendering foreground notifications and audio wake locks.
+* **Gapless End-of-Track Boundary Interception**:
+  * Fixed "End of Track" sleep stopping inside `AudioQueueHandler`.
+  * Intercepts `just_audio` gapless track transitions (`ConcatenatingAudioSource`) to halt playback precisely at the song boundary without leaking into the next track.
+* **New "End of Queue" Sleep Preset**:
+  * Added a dedicated **End of Queue** option (`Icons.queue_music_rounded`) in `SleepTimerSheet`.
+  * Allows the active queue to finish playing and cleanly stops playback before background Autoplay radio can trigger.
+* **Public `triggerSleepNow()`**:
+  * Immediate teardown of the audio pipeline, releasing wake locks and pausing the player instantly.
+
+### 🐛 Bug Fixes & Stability Improvements (v2.5.0)
+
+* **Search Engine**:
+  * Prevented search race conditions where in-flight requests from cleared queries could overwrite active screens.
+  * Added 15-minute TTL to in-memory search cache while blocking caching of degraded or empty network responses.
+* **Audio Pipeline**:
+  * Fixed consecutive track skipping bugs on stream errors with automatic progressive bitrate step-down (320k ➔ 160k ➔ 96k ➔ YouTube Fallback).
+  * Cleaned up UI parameter artifacts in `SleepTimerSheet`.
+  * Maintained volume normalization across provider switches between JioSaavn and YouTube Music.
+
+---
+
+## 📦 v2.4.0 (Cumulative Updates)
+
+*Note: As v2.4.0 was held back for the combined Android and iOS release, all v2.4.0 features and enhancements are fully included in the v2.5.0 build below:*
+
+### ✨ Highlights & Features (v2.4.0)
 
 * **🚀 3x Search Speed Boost & Connection Pooling**:
   * **Persistent HTTP Keep-Alive Pooling**: Switched all upstream JioSaavn calls to a shared Keep-Alive socket pool, eliminating 150–250 ms cold TLS handshakes on every query.
@@ -38,9 +98,7 @@ Welcome to **Paatu Padava v2.4.0**! This major release delivers a massive search
   * Instant two-way failover across JioSaavn 320 kbps, YouTube Music, and Audius. If any CDN stream expires or returns HTTP 403, the player automatically re-resolves and continues playback without interruption.
   * Configurable persistent background playback with lifecycle resilience for task-removed and notification-deleted states.
 
----
-
-## 🐛 Bug Fixes & Improvements
+### 🐛 Bug Fixes & Improvements (v2.4.0)
 
 * **Search Engine**:
   * Fixed search result state race conditions so in-flight requests from cleared queries never overwrite the active view.
@@ -59,12 +117,12 @@ Welcome to **Paatu Padava v2.4.0**! This major release delivers a massive search
 
 | Package File | Target Architecture | Recommendation |
 |:---|:---|:---|
-| **`Paatu-Padava-v2.4.0-arm64-v8a.apk`** | 64-bit ARM (`arm64-v8a`) | **Recommended for ~95% of Android devices** (Android 8.0+). Smaller file size and optimized CPU performance. |
-| **`Paatu-Padava-v2.4.0-universal.apk`** | Universal (All architectures) | Compatible with **all** Android devices, tablets, and emulators. |
-| **`Paatu-Padava-v2.4.0-armeabi-v7a.apk`** | 32-bit ARM (`armeabi-v7a`) | For older 32-bit Android phones. |
+| **`Paatu-Padava-v2.5.0-arm64-v8a.apk`** | 64-bit ARM (`arm64-v8a`) | **Recommended for ~95% of Android devices** (Android 8.0+). Smaller file size and optimized CPU performance. |
+| **`Paatu-Padava-v2.5.0-universal.apk`** | Universal (All architectures) | Compatible with **all** Android devices, tablets, and emulators. |
+| **`Paatu-Padava-v2.5.0-armeabi-v7a.apk`** | 32-bit ARM (`armeabi-v7a`) | For older 32-bit Android phones. |
 
 > [!TIP]
-> If you are unsure which file your phone uses, choose **`Paatu-Padava-v2.4.0-arm64-v8a.apk`**. If it fails to install, use the **`universal`** build.
+> If you are unsure which file your phone uses, choose **`Paatu-Padava-v2.5.0-arm64-v8a.apk`**. If it fails to install, use the **`universal`** build.
 
 ---
 

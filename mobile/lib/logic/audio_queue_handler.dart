@@ -17,12 +17,14 @@ import '../services/youtube_client.dart';
 import '../services/error_handler.dart';
 import '../services/player_handler.dart';
 import '../services/app_logger.dart';
+import '../services/catalog_database.dart';
 import '../services/battery_optimization_service.dart';
 import '../services/queue_cooldown_manager.dart';
 import '../services/des_decrypt.dart';
 import '../services/connectivity_service.dart';
 import '../services/smart_cache_service.dart';
 import '../services/smart_gapless_precacher.dart';
+import '../services/sleep_timer_service.dart';
 import 'stream_resolver.dart';
 import 'next_track_strategy.dart';
 import 'crossfade_engine.dart';
@@ -601,8 +603,19 @@ class AudioQueueHandler {
           }
         }
 
+        if (SleepTimerService.instance.stopAtEndOfTrack) {
+          _isAdvancing = false;
+          SleepTimerService.instance.triggerSleepNow();
+          return;
+        }
+
         if (hasNext) {
           skipToNext(isUserInitiated: false);
+        } else if (SleepTimerService.instance.stopAtEndOfQueue) {
+          _isAdvancing = false;
+          SleepTimerService.instance.triggerSleepNow();
+          await player.pause();
+          startIdleTimer();
         } else if (_effectiveLoopMode == LoopMode.all && _contextQueue.isNotEmpty) {
           handleRepeatAllLoop();
         } else if (SettingsManager.isAutoplayEnabled && current != null && isAudioHandlerInitialized) {
@@ -1369,6 +1382,11 @@ class AudioQueueHandler {
 
   /// Skip to next track: consumes _userQueue first, then advances _contextQueue
   Future<void> skipToNext({bool isUserInitiated = true}) async {
+    if (!isUserInitiated && SleepTimerService.instance.stopAtEndOfTrack) {
+      _isTransitioning = false;
+      SleepTimerService.instance.triggerSleepNow();
+      return;
+    }
     if (_isTransitioning) {
       AppLogger.log('AudioQueueHandler', 'skipToNext ignored: transition currently in progress');
       return;
@@ -1670,6 +1688,11 @@ class AudioQueueHandler {
 
   /// Handles gapless advance when just_audio ConcatenatingAudioSource fires index 1
   void _advanceToNextTrackFromPlayerStream([String? expectedId]) {
+    if (SleepTimerService.instance.stopAtEndOfTrack) {
+      _isTransitioning = false;
+      SleepTimerService.instance.triggerSleepNow();
+      return;
+    }
     if (_isTransitioning || _isDisposed) return;
     if (expectedId != null && _currentTrack?.id == expectedId) return;
     _isTransitioning = true;
@@ -2086,7 +2109,14 @@ class AudioQueueHandler {
 
     final deduplicated = <TrackEntity>[];
     for (final raw in tracks) {
-      final t = _toEntity(raw).copyWith(isSmartRecommended: true, isUserEnqueued: false);
+      var t = _toEntity(raw).copyWith(isSmartRecommended: true, isUserEnqueued: false);
+      if (t.coverUrl.isEmpty || t.coverUrl.contains('default.jpg')) {
+        final catalogArt = CatalogDatabase.getSongCoverArt(t.title, artist: t.artist, album: t.album) ??
+            CatalogDatabase.getMoviePoster(t.album);
+        if (catalogArt != null && catalogArt.isNotEmpty) {
+          t = t.copyWith(coverUrl: catalogArt);
+        }
+      }
       final key = t.cleanTitleKey;
       if (key.isNotEmpty && existingTitleKeys.contains(key)) continue;
       if (QueueCooldownManager.isCoolingDown(t.toSong())) continue;

@@ -23,6 +23,7 @@ class SleepTimerSheet extends StatefulWidget {
 class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProviderStateMixin {
   Duration _selectedDuration = const Duration(minutes: 30);
   bool _isEndOfTrack = false;
+  bool _isEndOfQueue = false;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
 
@@ -33,6 +34,7 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
     _SleepPreset(minutes: 60, title: '1 Hour', subtitle: 'Full Album', icon: Icons.hourglass_top_rounded),
     _SleepPreset(minutes: 90, title: '1.5 Hours', subtitle: 'Extended Session', icon: Icons.snooze_rounded),
     _SleepPreset(minutes: 0, title: 'End of Track', subtitle: 'Finish current song', icon: Icons.music_note_rounded, isEndOfTrack: true),
+    _SleepPreset(minutes: 0, title: 'End of Queue', subtitle: 'Finish remaining queue', icon: Icons.queue_music_rounded, isEndOfQueue: true),
   ];
 
   @override
@@ -56,10 +58,22 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
   void _selectPreset(_SleepPreset preset) {
     HapticFeedback.selectionClick();
     setState(() {
-      if (preset.isEndOfTrack) {
+      if (preset.isEndOfQueue) {
+        _isEndOfQueue = true;
+        _isEndOfTrack = false;
+      _isEndOfQueue = false;
+        _isEndOfQueue = false;
+
+  
+      } else if (preset.isEndOfTrack) {
         _isEndOfTrack = true;
+        _isEndOfQueue = false;
       } else {
         _isEndOfTrack = false;
+      _isEndOfQueue = false;
+        _isEndOfQueue = false;
+
+  
         _selectedDuration = Duration(minutes: preset.minutes);
       }
     });
@@ -69,6 +83,8 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
     HapticFeedback.selectionClick();
     setState(() {
       _isEndOfTrack = false;
+      _isEndOfQueue = false;
+
       _selectedDuration = Duration(minutes: minutes.round());
     });
   }
@@ -77,6 +93,8 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
     HapticFeedback.selectionClick();
     setState(() {
       _isEndOfTrack = false;
+      _isEndOfQueue = false;
+
       final newMin = (_selectedDuration.inMinutes + minutesDelta).clamp(5, 120);
       _selectedDuration = Duration(minutes: newMin);
     });
@@ -468,7 +486,7 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
             final preset = _presets[index];
             final isSelected = preset.isEndOfTrack
                 ? _isEndOfTrack
-                : (!_isEndOfTrack && _selectedDuration.inMinutes == preset.minutes);
+                : (preset.isEndOfQueue ? _isEndOfQueue : (!_isEndOfTrack && !_isEndOfQueue && _selectedDuration.inMinutes == preset.minutes));
 
             return InkWell(
               onTap: () => _selectPreset(preset),
@@ -701,6 +719,29 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
                 SleepTimerService.instance.setTimer(
                   _selectedDuration,
                   stopAtEnd: _isEndOfTrack,
+                  stopAtEndOfQueue: _isEndOfQueue,
+                );
+                Navigator.pop(context);
+                final msg = _isEndOfTrack
+                    ? 'Sleep timer set: Stopping at end of track'
+                    : (_isEndOfQueue
+                        ? 'Sleep timer set: Stopping at end of queue'
+                        : 'Sleep timer set for ${_formatDurationTitle(_selectedDuration)}');
+                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Row(
+                      children: [
+                        const Icon(Icons.bedtime_rounded, color: Color(0xFF818CF8), size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(child: Text(msg, style: const TextStyle(color: Colors.white))),
+                      ],
+                    ),
+                    backgroundColor: const Color(0xFF1E293B),
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    duration: const Duration(seconds: 2),
+                  ),
                 );
               },
               child: Row(
@@ -712,7 +753,10 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
                     child: Text(
                       _isEndOfTrack
                           ? 'Start Timer (End of Track)'
-                          : 'Start Sleep Timer (${_formatDurationTitle(_selectedDuration)})',
+                          : (_isEndOfQueue
+                              ? 'Start Timer (End of Queue)'
+                              : 'Start Sleep Timer (${_formatDurationTitle(_selectedDuration)})')
+,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -738,6 +782,7 @@ class _SleepPreset {
   final String subtitle;
   final IconData icon;
   final bool isEndOfTrack;
+  final bool isEndOfQueue;
 
   const _SleepPreset({
     required this.minutes,
@@ -745,6 +790,7 @@ class _SleepPreset {
     required this.subtitle,
     required this.icon,
     this.isEndOfTrack = false,
+    this.isEndOfQueue = false,
   });
 }
 

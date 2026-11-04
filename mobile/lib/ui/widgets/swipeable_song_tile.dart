@@ -8,6 +8,7 @@ import 'add_to_playlist_dialog.dart';
 
 import '../../services/favorites_manager.dart';
 import '../../services/blacklist_manager.dart';
+import '../../services/catalog_database.dart';
 
 class SwipeableSongTile extends StatelessWidget {
   final Song song;
@@ -192,11 +193,18 @@ class SwipeableSongTile extends StatelessWidget {
                 ),
               ),
             if (index != null) const SizedBox(width: 6),
-            ClipRRect(
+            Builder(
+              builder: (context) {
+                final effectiveCover = (song.coverUrl.isNotEmpty && !song.coverUrl.contains('default.jpg'))
+                    ? song.coverUrl
+                    : (CatalogDatabase.getSongCoverArt(song.title, artist: song.artist, album: song.album) ??
+                        CatalogDatabase.getMoviePoster(song.album) ??
+                        song.coverUrl);
+                return ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: song.coverUrl.isNotEmpty
+              child: effectiveCover.isNotEmpty
                   ? CachedNetworkImage(
-                      imageUrl: song.coverUrl,
+                      imageUrl: effectiveCover,
                       memCacheWidth: 150,
                       memCacheHeight: 150,
                       width: 44,
@@ -205,6 +213,8 @@ class SwipeableSongTile extends StatelessWidget {
                       errorWidget: (_, __, ___) => _buildPlaceholder(),
                     )
                   : _buildPlaceholder(),
+                );
+              },
             ),
           ],
         ),
@@ -301,6 +311,7 @@ class SwipeableSongTile extends StatelessWidget {
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert_rounded, color: Color(0xFF94A3B8), size: 20),
               color: const Color(0xFF1E293B),
+        
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               onSelected: (val) {
                 if (val == 'play_next') {
@@ -485,11 +496,25 @@ class SwipeableSongTile extends StatelessWidget {
   }
 
   Widget _buildPlaceholder() {
+    final hash = '${song.title}_${song.artist}'.hashCode.abs();
+    final hue1 = (hash % 360).toDouble();
+    final hue2 = ((hash ~/ 360 + 50) % 360).toDouble();
+    final color1 = HSLColor.fromAHSL(1.0, hue1, 0.40, 0.20).toColor();
+    final color2 = HSLColor.fromAHSL(1.0, hue2, 0.50, 0.14).toColor();
+
     return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [color1, color2],
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
       width: 44,
       height: 44,
-      color: const Color(0xFF1E293B),
-      child: const Icon(Icons.music_note, color: Colors.white30, size: 22),
+
+      child: const Center(child: Icon(Icons.music_note_rounded, color: Colors.white54, size: 20)),
     );
   }
 }

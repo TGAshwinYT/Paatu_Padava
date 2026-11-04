@@ -6,7 +6,10 @@ import '../../logic/smart_shuffle_controller.dart';
 import '../../models/song.dart';
 import '../../domain/models/track_entity.dart';
 import '../../services/favorites_manager.dart';
+import '../../services/catalog_database.dart';
+import 'common/cascading_cover_image.dart';
 import '../../services/player_handler.dart';
+import 'save_queue_dialog.dart';
 
 class QueueSheet extends StatefulWidget {
   const QueueSheet({Key? key}) : super(key: key);
@@ -177,6 +180,24 @@ class _QueueSheetState extends State<QueueSheet> {
                         ),
                       );
                     },
+                  ),
+
+                  // Save Queue as Playlist button
+                  ValueListenableBuilder<List<Song>>(
+                    valueListenable: audioHandler.playlistNotifier,
+                    builder: (context, playlist, _) => IconButton(
+                      icon: const Icon(Icons.bookmark_add_rounded, color: Colors.white70),
+                      tooltip: 'Save Queue as Playlist',
+                      onPressed: () {
+                        if (playlist.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Queue is empty')),
+                          );
+                          return;
+                        }
+                        SaveQueueDialog.show(context, songs: playlist);
+                      },
+                    ),
                   ),
 
                   // Clear queue button
@@ -354,7 +375,7 @@ class _QueueSheetState extends State<QueueSheet> {
                               dragIndex: idx,
                               isCurrent: false,
                               isPlayed: false,
-                              canDismiss: false,
+                              canDismiss: true,
                             );
                           },
                         ),
@@ -447,7 +468,7 @@ class _QueueSheetState extends State<QueueSheet> {
                               dragIndex: idx,
                               isCurrent: false,
                               isPlayed: false,
-                              canDismiss: false,
+                              canDismiss: true,
                             );
                           },
                         ),
@@ -579,24 +600,26 @@ class _QueueSheetState extends State<QueueSheet> {
           const SizedBox(width: 10),
 
           // Artwork
-          ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: SizedBox(
-              width: 48,
-              height: 48,
-              child: (song.localFilePath != null && File(song.localFilePath!).existsSync())
-                  ? Image.file(File(song.localFilePath!), fit: BoxFit.cover)
-                  : (song.coverUrl.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: song.coverUrl,
-                          fit: BoxFit.cover,
-                          memCacheWidth: 150,
-                          memCacheHeight: 150,
-                          errorWidget: (_, __, ___) => Container(color: const Color(0xFF1E293B)),
-                        )
-                      : Container(color: const Color(0xFF1E293B))),
-            ),
-          ),
+          (song.localFilePath != null && File(song.localFilePath!).existsSync())
+              ? ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: Image.file(File(song.localFilePath!), fit: BoxFit.cover),
+                  ),
+                )
+              : CascadingCoverImage(
+                  imageUrl: (song.coverUrl.isNotEmpty && !song.coverUrl.contains('default.jpg'))
+                      ? song.coverUrl
+                      : (CatalogDatabase.getSongCoverArt(song.title, artist: song.artist, album: song.album) ??
+                          CatalogDatabase.getMoviePoster(song.album) ??
+                          song.coverUrl),
+                  seed: '${song.title}_${song.artist}',
+                  width: 48,
+                  height: 48,
+                  borderRadius: 10,
+                ),
           const SizedBox(width: 12),
 
           // Title & Artist
@@ -743,25 +766,26 @@ class _QueueSheetState extends State<QueueSheet> {
               ),
             ),
             const SizedBox(width: 8),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: SizedBox(
-                width: 44,
-                height: 44,
-                child: (song.localFilePath != null && File(song.localFilePath!).existsSync())
-                    ? Image.file(File(song.localFilePath!), fit: BoxFit.cover)
-                    : (song.coverUrl.isNotEmpty
-                        ? CachedNetworkImage(
-                            imageUrl: song.coverUrl,
-                            fit: BoxFit.cover,
-                            memCacheWidth: 150,
-                            memCacheHeight: 150,
-                            placeholder: (_, __) => Container(color: const Color(0xFF1E293B)),
-                            errorWidget: (_, __, ___) => Container(color: const Color(0xFF1E293B)),
-                          )
-                        : Container(color: const Color(0xFF1E293B))),
-              ),
-            ),
+            (song.localFilePath != null && File(song.localFilePath!).existsSync())
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: Image.file(File(song.localFilePath!), fit: BoxFit.cover),
+                    ),
+                  )
+                : CascadingCoverImage(
+                    imageUrl: (song.coverUrl.isNotEmpty && !song.coverUrl.contains('default.jpg'))
+                        ? song.coverUrl
+                        : (CatalogDatabase.getSongCoverArt(song.title, artist: song.artist, album: song.album) ??
+                            CatalogDatabase.getMoviePoster(song.album) ??
+                            song.coverUrl),
+                    seed: '${song.title}_${song.artist}',
+                    width: 44,
+                    height: 44,
+                    borderRadius: 8,
+                  ),
           ],
         ),
         title: Column(
@@ -861,7 +885,7 @@ class _QueueSheetState extends State<QueueSheet> {
       ),
     );
 
-    if (isPlayed && canDismiss) {
+    if (canDismiss) {
       return Dismissible(
         key: key ?? ValueKey('dismiss_played_${song.id}_$index'),
         direction: DismissDirection.endToStart,
@@ -883,7 +907,7 @@ class _QueueSheetState extends State<QueueSheet> {
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Removed "${song.title}" from history'),
+              content: Text('Removed "${song.title}" from ${isPlayed ? "history" : "queue"}'),
               duration: const Duration(seconds: 2),
             ),
           );

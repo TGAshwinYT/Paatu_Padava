@@ -7,7 +7,7 @@ sdk: docker
 pinned: false
 ---
 
-# 🎵 Paatu Padava (பாட்டு பாடவா) — v2.4.0+5
+# 🎵 Paatu Padava (பாட்டு பாடவா) — v2.5.0+6
 
 [![Flutter](https://img.shields.io/badge/Flutter-v3.x-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
 [![Android](https://img.shields.io/badge/Android-SDK_36-3DDC84?logo=android&logoColor=white)](https://developer.android.com)
@@ -106,7 +106,7 @@ pinned: false
 
 ---
 
-## ✨ Key Features & Capabilities (v2.4.0+5)
+## ✨ Key Features & Capabilities (v2.5.0+6)
 
 ### 📡 Sub-Millisecond LAN Multi-Speaker Synchronization & Party Mode Overhaul
 - **Dual-Transport Synchronous Architecture**: Combines ultra-low-latency direct UDP local unicast over Wi-Fi (`PartyLanAccelerator`) with persistent Supabase Realtime cloud channels for seamless fallbacks.
@@ -266,15 +266,18 @@ pinned: false
 
 ---
 
-### 🌙 Redesigned Glassmorphic Sleep Timer
+### 🌙 Wall-Clock Sleep Timer Engine (Android Doze-Proof)
 - **Aesthetic Glassmorphic UI**: Frosted backdrop blur (`sigma: 30`) with an ambient indigo night rim (`#6366F1`) and curved modern sheet corners (`Radius.circular(32)`).
-- **2-Column Preset Grid**: One-tap selection of popular sleep timer intervals:
+- **Absolute Wall-Clock Target Architecture**: Replaces naive tick countdowns with absolute wall-clock target calculations (`DateTime.now().add(duration)`). Solves the Android Doze issue where background CPU sleep throttled timer ticks, ensuring playback reliably stops at the scheduled moment even when the phone is locked.
+- **Audio Stream Expiration Watchdog**: Player position stream actively evaluates `SleepTimerService.hasExpired` on every position tick, triggering immediate playback stoppage, service disposal, and wake lock surrender without waiting for timer callbacks.
+- **Comprehensive Sleep Presets**:
   - ⚡ **15 Min** – Quick Power Nap
   - 🌙 **30 Min** – Recommended Standard
   - 🌌 **45 Min** – Deep Rest
   - ⏳ **1 Hour** – Full Album
   - 💤 **1.5 Hours** – Extended Session
-  - 🎵 **End of Track** – Concludes after the current song finishes
+  - 🎵 **End of Track** – Gapless track boundary interception stops playback precisely at the song boundary without leaking into the next track.
+  - 📑 **End of Queue** – Dedicated preset that lets the remaining active queue finish, cleanly suppressing subsequent Autoplay radio generation.
 - **Custom Duration Slider & Micro-Steppers**: Continuous slider (5 to 120 minutes) with tactile `-5m` and `+5m` stepper controls.
 - **Glowing Circular Countdown Dial**: Animated circular progress ring with gradient sweep (`#818CF8` to `#C084FC`), bold tabular countdown numerals (`24:18`), and ambient pulsing moon icon.
 - **Gentle 5-Second Fade-Out**: Detects when 5 seconds remain and initiates a smooth exponential volume fade-out.
@@ -282,11 +285,13 @@ pinned: false
 
 ---
 
-### 🔀 3-Tier Queue & Continuous Autoplay Engine (Spotify & Echo-Music Architecture)
+### 🔀 Advanced Queue Architecture & Playlist Persistence (Spotify-Grade)
 - **3-Tier Queue Model**:
   - **Now Playing**: Active track with instantaneous position and playback state synchronization.
-  - **User Priority Queue Stack**: Tracks explicitly queued by the user via swipe gestures or context menu actions (*"Play Next"*, *"Add to Queue"*) are prioritized as an immutable user stack. Background recommendation algorithms will **never** displace, clobber, or alter user-queued songs.
+  - **User Priority Queue Stack**: Tracks explicitly queued by the user via swipe gestures or context menu actions (*"Play Next"*, *"Add to Queue"*) form an immutable user priority queue. Background recommendation algorithms will **never** displace, clobber, or alter user-queued songs.
   - **Dynamic Up Next / Context Tier**: Album, playlist, or recommendation context that naturally plays and replenishes in the background without disturbing user priority items.
+- **Swipe-to-Dismiss Queue Tracks**: Horizontal swipe gesture (`DismissDirection.endToStart`) on both user-queued and suggested queue tracks with a red trash reveal and haptic feedback.
+- **Save Queue as Playlist**: Dedicated "Save Queue as Playlist" dialog (`SaveQueueDialog`) directly inside the Queue header (`Icons.bookmark_add_rounded`), allowing users to snapshot active and upcoming tracks into a persistent local (Hive) & cloud-synced (Supabase) custom playlist.
 - **Continuous Endless Autoplay Engine**:
   - Automatically activates when playback reaches the end of the queue (`ProcessingState.completed`).
   - Fetches 6 context-aware similar tracks via `NextTrackStrategy` and continues seamless playback without pausing or tearing down the media session.
@@ -320,6 +325,8 @@ pinned: false
 ---
 
 ### 🔍 Multi-Source Hybrid Catalog & Smart Search Pipeline
+- **Single-Track Search Isolation (`preserveUserQueue`)**: Tapping any track in search results isolates playback to that selected track alone—preventing the entire search result list from dumping into the queue. Preserves existing user queues and smoothly transitions into context-aware Song Radio autoplay on finish.
+- **180ms Debounce & Progressive Autocomplete**: Decoupled parallel streaming fetches songs and albums instantly without waiting for slower third-party completions.
 - **Unified Domain Entity (`TrackEntity`)**: Canonical track entity with `deduplicationKey` and centralized `HtmlUnescape` string sanitization.
 - **Multilingual Script & Language Detection**: Automatically detects native scripts (Tamil, Telugu, Hindi, Malayalam, Kannada, Bengali, Punjabi, Latin) and handles phonetic Tanglish searches.
 - **Canonical Song Version Grouping**: Identifies and groups alternate versions (Remix, Lofi, Acoustic, Live, Film version) into a single canonical track entry with an expandable versions sheet.

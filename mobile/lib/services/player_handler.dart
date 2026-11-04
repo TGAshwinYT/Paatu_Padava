@@ -692,6 +692,10 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
 
     // Telemetry: Scrobble threshold milestone (30s, or >= 50% for tracks under 60 seconds)
     _throttledPositionSub = _player.positionStream.listen((pos) {
+      if (SleepTimerService.instance.hasExpired) {
+        SleepTimerService.instance.triggerSleepNow();
+        return;
+      }
       if (!_hasRecordedListen && pos.inSeconds >= 15 && currentSong != null) {
         _hasRecordedListen = true;
       }

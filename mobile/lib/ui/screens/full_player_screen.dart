@@ -458,7 +458,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                           Expanded(
                                             child: Text(
                                               song.title,
-                                              maxLines: 1,
+                                              maxLines: 2,
                                               overflow: TextOverflow.ellipsis,
                                               style: const TextStyle(
                                                 color: Colors.white,

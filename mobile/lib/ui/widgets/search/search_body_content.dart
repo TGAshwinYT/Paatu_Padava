@@ -64,7 +64,7 @@ class SearchBodyContent extends StatelessWidget {
                 onSelectExactQuery: onSearchExactQuery,
                 onPlaySong: (song) {
                   SearchHistoryManager.addSong(song);
-                  audioHandler.playSong(song);
+                  audioHandler.playSong(song, preserveUserQueue: true);
                 },
               );
             }
@@ -86,7 +86,7 @@ class SearchBodyContent extends StatelessWidget {
                           onPlaySong: (song) {
                             SearchHistoryManager.addSong(song);
                             SearchService.recordSearchClick(song);
-                            audioHandler.playSong(song);
+                            audioHandler.playSong(song, preserveUserQueue: true);
                           },
                           onSelectQuery: onTriggerCategorySearch,
                           onAppendQuery: (q) {
@@ -147,7 +147,7 @@ class SearchBodyContent extends StatelessWidget {
                       onRecordClick: ([song]) => onRecordSearchResultClick(song),
                       onSongTap: (song) {
                         onRecordSearchResultClick(song);
-                        audioHandler.playSong(song, queue: state.songs);
+                        audioHandler.playSong(song, preserveUserQueue: true);
                       },
                       onShowOptions: (s) => SearchSongOptionsSheet.show(context, s),
                       onShowVersions: (s) => SearchVersionsSheet.show(
@@ -155,7 +155,7 @@ class SearchBodyContent extends StatelessWidget {
                         s,
                         onSelectSong: (v) {
                           onRecordSearchResultClick(v);
-                          audioHandler.playSong(v);
+                          audioHandler.playSong(v, preserveUserQueue: true);
                         },
                       ),
                     );

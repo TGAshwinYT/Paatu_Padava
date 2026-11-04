@@ -650,6 +650,49 @@ class SearchService {
           );
         }
         onPrewarmed?.call(songs.take(3).toList(), extractedAlbums.take(2).toList());
+
+        final matchedAlb = extractedAlbums.firstWhere(
+          (a) => isAlbumOrMovieEntityMatch((a['title'] ?? a['name'] ?? '').toString(), clean),
+          orElse: () => _typeaheadBundleCache.get(clean)?.albums.firstWhere(
+                (a) => isAlbumOrMovieEntityMatch((a['title'] ?? a['name'] ?? '').toString(), clean),
+                orElse: () => <String, dynamic>{},
+              ) ?? <String, dynamic>{},
+        );
+        if (matchedAlb.isNotEmpty) {
+          final albId = matchedAlb['id']?.toString() ?? '';
+          final albTitle = (matchedAlb['title'] ?? matchedAlb['name'] ?? '').toString();
+          SongRepository.getAlbumDetails(albumId: albId, albumTitle: albTitle).then((details) {
+            final soundtrack = details?['songs'] as List<Song>? ?? <Song>[];
+            if (soundtrack.isNotEmpty) {
+              final currentCached = SearchCache.get(clean, language: language);
+              if (currentCached != null) {
+                final merged = <Song>[];
+                for (final s in currentCached.songs) {
+                  if (s.title.toLowerCase().trim() == clean.toLowerCase().trim() && !merged.any((x) => x.id == s.id)) {
+                    merged.add(s);
+                  }
+                }
+                for (final s in soundtrack) {
+                  if (!merged.any((x) => x.id == s.id)) merged.add(s);
+                }
+                for (final s in currentCached.songs) {
+                  if (!merged.any((x) => x.id == s.id)) merged.add(s);
+                }
+                SearchCache.put(
+                  clean,
+                  SearchResults(
+                    songs: merged,
+                    saavnSongs: merged,
+                    albums: currentCached.albums.isNotEmpty ? currentCached.albums : extractedAlbums,
+                    playlists: currentCached.playlists,
+                    isFinal: false,
+                  ),
+                  language: language,
+                );
+              }
+            }
+          }).catchError((_) {});
+        }
       }
     }).catchError((_) {});
   }
@@ -1698,7 +1741,18 @@ class SearchService {
     if (cleanTitle == qLower || titleNorm == qLower || transLower == cleanTitle || transLower == titleNorm) {
       return 1.0;
     }
-    if (cleanTitle.startsWith(qLower) || titleNorm.startsWith(qLower) || cleanTitle.startsWith(transLower)) {
+    bool isWordPrefix(String text, String prefix) {
+      if (prefix.length > 3) return text.startsWith(prefix);
+      if (!text.startsWith(prefix)) return false;
+      if (text.length == prefix.length) return true;
+      final nextChar = text.codeUnitAt(prefix.length);
+      final isAlnum = (nextChar >= 48 && nextChar <= 57) ||
+          (nextChar >= 65 && nextChar <= 90) ||
+          (nextChar >= 97 && nextChar <= 122);
+      return !isAlnum;
+    }
+
+    if (isWordPrefix(cleanTitle, qLower) || isWordPrefix(titleNorm, qLower) || isWordPrefix(cleanTitle, transLower)) {
       return 0.95;
     }
 
@@ -2636,6 +2690,7 @@ class SearchService {
         playlistsFuture,
       ]);
 
+
       final transSaavn = saavnMeta[0] as List<Song>;
       final rawAlbums = saavnMeta[1] as List<Map<String, dynamic>>;
       final artists = saavnMeta[2] as List<Map<String, dynamic>>;
@@ -2939,11 +2994,39 @@ class SearchService {
         }
       }
 
-      if (rankedSaavn.isNotEmpty || initialAlbums.isNotEmpty || initialArtists.isNotEmpty || initialPlaylists.isNotEmpty) {
+      List<Song> albumSoundtrackSongs = [];
+      if (matchingAlbums.isNotEmpty) {
+        try {
+          albumSoundtrackSongs = await soundtrackFuture.timeout(
+            const Duration(milliseconds: 650),
+            onTimeout: () => <Song>[],
+          );
+        } catch (_) {}
+      }
+
+      final List<Song> initialPhaseSongs = [];
+      for (final s in rankedSaavn) {
+        final sim = calculateStringSimilarity(s, intent);
+        if (sim >= 0.95 && !initialPhaseSongs.any((x) => x.id == s.id)) {
+          initialPhaseSongs.add(s);
+        }
+      }
+      for (final s in albumSoundtrackSongs) {
+        if (!initialPhaseSongs.any((x) => x.id == s.id)) {
+          initialPhaseSongs.add(s);
+        }
+      }
+      for (final s in rankedSaavn) {
+        if (!initialPhaseSongs.any((x) => x.id == s.id)) {
+          initialPhaseSongs.add(s);
+        }
+      }
+
+      if (initialPhaseSongs.isNotEmpty || initialAlbums.isNotEmpty || initialArtists.isNotEmpty || initialPlaylists.isNotEmpty) {
         lastEmittedBundle = SearchResults(
-          songs: rankedSaavn,
+          songs: initialPhaseSongs,
           ytSongs: const [],
-          saavnSongs: rankedSaavn,
+          saavnSongs: initialPhaseSongs,
           audiusSongs: const [],
           albums: initialAlbums,
           artists: initialArtists,
@@ -2956,18 +3039,25 @@ class SearchService {
       }
 
       // ── PHASE 2: Merge YouTube Results & Background Soundtracks ──
-      // Await YouTube songs and soundtrack songs concurrently
-      final ytAndSoundtrack = await Future.wait([
-        ytFuture,
-        soundtrackFuture,
-      ]);
-      final rawYt = ytAndSoundtrack[0];
-      final albumSoundtrackSongs = ytAndSoundtrack[1];
+      // Await YouTube songs independently; soundtrack was already handled in Phase 1
+      final rawYt = await ytFuture;
+      if (albumSoundtrackSongs.isEmpty) {
+        try {
+          albumSoundtrackSongs = await soundtrackFuture;
+        } catch (_) {}
+      }
+
+
+
+
+
+
 
       final extraMeta = await Future.wait([
         ytPlaylistsFuture,
         artistOfficialAlbumsFuture,
       ]);
+
       final rawYtPlaylists = extraMeta[0];
       final artistOfficialAlbums = extraMeta[1];
 

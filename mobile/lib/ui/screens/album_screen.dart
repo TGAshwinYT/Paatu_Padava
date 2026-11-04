@@ -50,7 +50,13 @@ class _AlbumScreenState extends State<AlbumScreen> {
         if (img.isNotEmpty) {
           _currentImageUrl = img;
         }
-        final songs = details['songs'] as List<Song>? ?? <Song>[];
+        final rawSongs = details['songs'] as List<Song>? ?? <Song>[];
+        final songs = rawSongs.map((s) {
+          if (s.coverUrl.isEmpty || s.coverUrl.contains('default.jpg')) {
+            return s.copyWith(coverUrl: _currentImageUrl);
+          }
+          return s;
+        }).toList();
 
         if (mounted) {
           setState(() {
@@ -190,7 +196,9 @@ class _AlbumScreenState extends State<AlbumScreen> {
                     (context, index) {
                       final song = _songs[index];
                       return SwipeableSongTile(
-                        song: song,
+                        song: (song.coverUrl.isEmpty || song.coverUrl.contains('default.jpg'))
+                            ? song.copyWith(coverUrl: _currentImageUrl)
+                            : song,
                         queue: _songs,
                         index: index,
                       );

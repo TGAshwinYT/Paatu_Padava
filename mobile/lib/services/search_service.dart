@@ -579,7 +579,7 @@ class SearchService {
         final existing = SearchCache.get(clean, language: language);
         final extractedAlbums = <Map<String, dynamic>>[];
         final seen = <String>{};
-        for (final s in songs.take(6)) {
+        final qLower = clean.toLowerCase(); for (final s in songs.take(6)) {
           final alb = s.album.trim();
           final albLower = alb.toLowerCase();
           if (alb.isNotEmpty &&
@@ -587,11 +587,11 @@ class SearchService {
               albLower != 'unknown' &&
               albLower != 'various artists' &&
               albLower != 'studio album' &&
-              seen.add(albLower)) {
+              (qLower.length > 3 || isAlbumOrMovieEntityMatch(alb, qLower) || albLower == qLower || albLower.startsWith('$qLower ')) && seen.add(albLower)) {
             extractedAlbums.add({
               'id': alb.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_').toLowerCase(),
               'title': alb,
-              'artist': s.artist,
+              'artist': s.primaryArtist.isNotEmpty ? s.primaryArtist : s.artist,
               'image': s.coverUrl,
               'type': 'Album',
               'is_movie': true,
@@ -605,7 +605,7 @@ class SearchService {
             SearchResults(
               songs: songs,
               saavnSongs: songs,
-              albums: extractedAlbums,
+              albums: extractedAlbums, playlists: ensurePopulatedPlaylists(const [], songs, extractedAlbums, clean, preferredLanguages: [language ?? 'tamil']),
               isFinal: false,
             ),
             language: language,
@@ -751,7 +751,7 @@ class SearchService {
 
     final baseT = t.contains(' - ') ? t.split(' - ').first.trim() : t;
     if (baseT == q) return true;
-    if (q.length >= 3 && (t.startsWith(q) || baseT.startsWith(q))) return true;
+    if (t.startsWith(q) || baseT.startsWith(q)) return true;
 
     // Check "(From <movie>)", "(From \"<movie>\")", "[From <movie>]", "From <movie>"
     final fromMovieRegex = RegExp(
@@ -760,8 +760,8 @@ class SearchService {
     );
     if (fromMovieRegex.hasMatch(t)) return true;
 
-    // Direct containment with word boundaries for queries >= 3 chars
-    if (q.length >= 3) {
+    // Direct containment with word boundaries for queries >= 2 chars
+    if (q.length >= 2) {
       final qWordRegex = RegExp(r'\b' + RegExp.escape(q) + r'\b', caseSensitive: false);
       if (qWordRegex.hasMatch(t)) return true;
     }
@@ -790,7 +790,8 @@ class SearchService {
       final isDirectEntityMatch = cleanQuery.length >= 2 &&
           (isAlbumOrMovieEntityMatch(title, cleanQuery) || cleanBaseTitle == cleanQuery || title.startsWith(cleanQuery));
 
-      if (!isDirectEntityMatch && (songCount <= 1 || title.contains('single') || title.contains('teaser'))) {
+      final isFromSongList = alb['source_type'] == 'extracted_song_album' || alb['is_movie'] == true;
+      if (!isDirectEntityMatch && !isFromSongList && (songCount <= 1 || title.contains('single') || title.contains('teaser'))) {
         continue;
       }
 
@@ -829,6 +830,9 @@ class SearchService {
         final eqA = tA == cleanQuery || (tA.contains(' - ') && tA.split(' - ').first.trim() == cleanQuery);
         final eqB = tB == cleanQuery || (tB.contains(' - ') && tB.split(' - ').first.trim() == cleanQuery);
         if (eqA != eqB) return eqA ? -1 : 1;
+        final isMovieA = a['is_movie'] == true || a['source_type'] == 'extracted_song_album';
+        final isMovieB = b['is_movie'] == true || b['source_type'] == 'extracted_song_album';
+        if (isMovieA != isMovieB) return isMovieA ? -1 : 1;
 
         // Preferred language match precedence: prioritize user's language editions
         final Set<String> targetLangs = {};
@@ -876,6 +880,7 @@ class SearchService {
 
     final filtered = <Map<String, dynamic>>[];
     for (final p in rawPlaylists) {
+      if (p['source'] == 'auto_album' || p['source'] == 'auto_hits') { filtered.add(p); continue; }
       final title = (p['title'] ?? p['name'] ?? '').toString().toLowerCase().trim();
       if (title.isEmpty) continue;
 
@@ -973,12 +978,14 @@ class SearchService {
         result.add({
           'id': candidateAlbum.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_').toLowerCase(),
           'title': candidateAlbum,
-          'artist': s.artist,
+          'artist': s.primaryArtist.isNotEmpty ? s.primaryArtist : s.artist,
           'image': s.coverUrl,
           'type': 'Album',
           'is_movie': isMovie,
           'source': s.source,
           'language': s.language,
+          'source_type': 'extracted_song_album',
+          'song_count': 6,
         });
       }
     }
@@ -1292,8 +1299,17 @@ class SearchService {
       final songs = res[1] as List<Song>;
       final catMovies = res[2] as List<Map<String, dynamic>>;
 
-      final List<Map<String, dynamic>> correlatedAlbums = [];
+      final List<Map<String, dynamic>> correlatedAlbums = []; final qClean = query.toLowerCase().trim(); final qCore = qClean; final initialAlbums = correlatedAlbums;
       final Set<String> seenAlbumNames = {};
+      final typeaheadBundle = _typeaheadBundleCache.get(qClean) ?? _typeaheadBundleCache.get(qCore);
+      if (typeaheadBundle != null && typeaheadBundle.albums.isNotEmpty) {
+        for (final alb in typeaheadBundle.albums) {
+          final t = (alb['title'] ?? alb['name'] ?? '').toString().toLowerCase().trim();
+          if (t.isNotEmpty && seenAlbumNames.add(t)) {
+            initialAlbums.add({...alb, 'type': 'Album', 'is_movie': true});
+          }
+        }
+      }
 
       for (final m in catMovies) {
         final title = (m['title'] ?? '').toString().trim();
@@ -1938,7 +1954,14 @@ class SearchService {
     }
 
     // Album unpack promotion: if song belongs to an album matching query, promote it directly to Songs top rank
-    final albLower = song.album.toLowerCase().trim();
+    String albLower = song.album.toLowerCase().trim();
+    if (albLower.isEmpty || albLower == 'single' || albLower == 'unknown' || albLower == 'unknown album') {
+      final fromMovieRegex = RegExp(r'[\(\[\-]\s*(?:from|ost|soundtrack\s+from)\s*["\x27\u201c\u201d\u2018\u2019]?([^"\x27\u201c\u201d\u2018\u2019\)\]]+)', caseSensitive: false);
+      final match = fromMovieRegex.firstMatch(song.title);
+      if (match != null) {
+        albLower = match.group(1)?.toLowerCase().trim() ?? '';
+      }
+    }
     if (qLower.isNotEmpty && albLower.isNotEmpty) {
       final isAlbMatch = isAlbumOrMovieEntityMatch(albLower, qLower) || (intent.effectiveCoreQuery.isNotEmpty && isAlbumOrMovieEntityMatch(albLower, intent.effectiveCoreQuery));
       if (isAlbMatch) {
@@ -2308,7 +2331,14 @@ class SearchService {
       }();
 
       final Future<List<Song>> transliteratedSaavnFuture = () async {
-        if (intent.transliteratedQuery == intent.cleanQuery) return <Song>[];
+        if (intent.transliteratedQuery == intent.cleanQuery) {
+          if (effectiveLang != null && effectiveLang != 'english' && !intent.cleanQuery.toLowerCase().contains(effectiveLang.toLowerCase())) {
+            try {
+              return await SaavnClient.search('${intent.cleanQuery} $effectiveLang', limit: limit, language: effectiveLang).timeout(const Duration(seconds: 2), onTimeout: () => <Song>[]);
+            } catch (_) { return <Song>[]; }
+          }
+          return <Song>[];
+        }
         try {
           final transQuery = SearchQueryPlanner.formatProviderQuery(intent.transliteratedQuery, explicitLanguage: effectiveLang);
           return await SaavnClient.search(
@@ -2324,18 +2354,20 @@ class SearchService {
 
       final Future<List<Map<String, dynamic>>> albumsFuture = () async {
         try {
-          var alb = await SaavnClient.searchAlbums(saavnSearchQuery, limit: 16)
+          final cachedBundle = _typeaheadBundleCache.get(intent.cleanQuery.toLowerCase()) ?? _typeaheadBundleCache.get(intent.effectiveCoreQuery.toLowerCase());
+          final cachedAlbums = cachedBundle?.albums ?? const <Map<String, dynamic>>[];
+          var alb = await SaavnClient.searchAlbums(intent.cleanQuery, limit: 16)
               .timeout(const Duration(milliseconds: 2000), onTimeout: () => <Map<String, dynamic>>[]);
           if (alb.isEmpty && intent.effectiveCoreQuery != intent.cleanQuery && intent.effectiveCoreQuery != saavnSearchQuery) {
             alb = await SaavnClient.searchAlbums(intent.effectiveCoreQuery, limit: 16)
                 .timeout(const Duration(milliseconds: 2000), onTimeout: () => <Map<String, dynamic>>[]);
           }
-          if (alb.isEmpty && intent.cleanQuery.toLowerCase() != saavnSearchQuery.toLowerCase()) {
-            final cleanAlbs = await SaavnClient.searchAlbums(intent.cleanQuery, limit: 16)
+          if (alb.isEmpty && saavnSearchQuery.toLowerCase() != intent.cleanQuery.toLowerCase()) {
+            final cleanAlbs = await SaavnClient.searchAlbums(saavnSearchQuery, limit: 16)
                 .timeout(const Duration(milliseconds: 2000), onTimeout: () => <Map<String, dynamic>>[]);
             alb.addAll(cleanAlbs);
           }
-          return alb;
+          return cachedAlbums.isNotEmpty ? [...cachedAlbums, ...alb] : alb;
         } catch (e) {
           debugPrint('[SearchService] Upstream Saavn albums search fault isolated: $e');
           return <Map<String, dynamic>>[];
@@ -2360,6 +2392,8 @@ class SearchService {
 
       final Future<List<Map<String, dynamic>>> playlistsFuture = () async {
         try {
+          final pList = await SaavnClient.searchPlaylists(intent.cleanQuery, limit: 10, language: effectiveLang).timeout(const Duration(seconds: 2), onTimeout: () => <Map<String, dynamic>>[]);
+          if (pList.isNotEmpty || saavnSearchQuery.toLowerCase() == intent.cleanQuery.toLowerCase()) return pList;
           return await SaavnClient.searchPlaylists(saavnSearchQuery, limit: 10, language: effectiveLang)
               .timeout(const Duration(seconds: 2), onTimeout: () => <Map<String, dynamic>>[]);
         } catch (e) {
@@ -2390,7 +2424,9 @@ class SearchService {
 
       final Future<List<Map<String, dynamic>>> ytPlaylistsFuture = () async {
         try {
-          return await YouTubeClient.searchPlaylists(ytSearchQuery, limit: 8)
+          final ytPls = await YouTubeClient.searchPlaylists('${intent.cleanQuery} songs', limit: 8).timeout(const Duration(milliseconds: 2500), onTimeout: () => <Map<String, dynamic>>[]);
+          if (ytPls.isNotEmpty) return ytPls;
+          return await YouTubeClient.searchPlaylists(intent.cleanQuery, limit: 8)
               .timeout(const Duration(milliseconds: 2500), onTimeout: () => <Map<String, dynamic>>[]);
         } catch (e) {
           debugPrint('[SearchService] Upstream YouTube playlists search fault isolated: $e');
@@ -2699,9 +2735,18 @@ class SearchService {
       // Populate Albums Tab: Prioritize regional movie/soundtrack albums correlated with top songs
       initialAlbums = [];
       final Set<String> seenAlbumNames = {};
+      final typeaheadBundle = _typeaheadBundleCache.get(qClean) ?? _typeaheadBundleCache.get(qCore);
+      if (typeaheadBundle != null && typeaheadBundle.albums.isNotEmpty) {
+        for (final alb in typeaheadBundle.albums) {
+          final t = (alb['title'] ?? alb['name'] ?? '').toString().toLowerCase().trim();
+          if (t.isNotEmpty && seenAlbumNames.add(t)) {
+            initialAlbums.add({...alb, 'type': 'Album', 'is_movie': true});
+          }
+        }
+      }
 
       // 1. Correlate matched songs with their parent movie/soundtrack albums (Highest user relevance, e.g. "Kiss" by Jen Martin)
-      for (final s in rankedSaavn.take(6)) {
+      for (final s in rankedSaavn.take(6)) { final isAlbRel = qClean.length > 3 || isAlbumOrMovieEntityMatch(s.album, qClean) || (qCore.isNotEmpty && isAlbumOrMovieEntityMatch(s.album, qCore)) || s.album.toLowerCase().trim() == qClean || s.album.toLowerCase().trim().startsWith('$qClean ');
         final alb = s.album.trim();
         final albLower = alb.toLowerCase();
         if (alb.isNotEmpty &&
@@ -2709,11 +2754,11 @@ class SearchService {
             albLower != 'unknown' &&
             albLower != 'various artists' &&
             albLower != 'studio album' &&
-            seenAlbumNames.add(albLower)) {
+            isAlbRel && seenAlbumNames.add(albLower)) {
           initialAlbums.add({
             'id': s.album.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_').toLowerCase(),
             'title': alb,
-            'artist': s.artist,
+            'artist': s.primaryArtist.isNotEmpty ? s.primaryArtist : s.artist,
             'image': s.coverUrl,
             'type': 'Album',
             'is_movie': true,

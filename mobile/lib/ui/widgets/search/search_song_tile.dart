@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 // import 'package:cached_network_image/cached_network_image.dart';
 import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
+import '../../../logic/search_query_planner.dart';
 import '../../../services/player_handler.dart';
 import '../../../services/favorites_manager.dart';
 import '../../../services/artist_sanitizer.dart';
@@ -116,25 +117,41 @@ class SearchSongTile extends StatelessWidget {
         cleanAlbum.toLowerCase() != cleanTitle.toLowerCase();
     final subtitleText = hasGenuineAlbum ? '$displayArtists • $cleanAlbum' : displayArtists;
 
-    // Filter out internal streaming source mirrors (identical title, language, and original status)
+    // Filter out internal streaming source mirrors (identical audio across YouTube/Saavn)
+    // Only surface genuine artistic alternate versions (Remix, Lofi, Acoustic, distinct language)
     final distinctVersions = song.versions.where((v) {
-      final isSameTitle = v.normalizedTitle == song.normalizedTitle;
-      final isSameLang = (v.language ?? '').toLowerCase().trim() == (song.language ?? '').toLowerCase().trim();
-      final isBothOriginal = v.versionTag == 'Original' && song.versionTag == 'Original';
-      return !(isSameTitle && isSameLang && isBothOriginal);
+      final isMirror = SearchQueryPlanner.isSameSong(
+        titleA: v.title,
+        artistsA: v.artist,
+        titleB: song.title,
+        artistsB: song.artist,
+      );
+      final hasDistinctTag = (v.versionTag != null && v.versionTag != 'Original' && v.versionTag != 'Studio') ||
+          (song.versionTag != null && song.versionTag != 'Original' && song.versionTag != 'Studio');
+      final hasMixKeyword = RegExp(r'\b(remix|lo[\s\-]?fi|slowed|reverb|8d|mashup|acoustic|unplugged)\b', caseSensitive: false).hasMatch(v.title);
+      final hasExplicitLangDiff = v.language != null && song.language != null &&
+          v.language!.trim().isNotEmpty && song.language!.trim().isNotEmpty &&
+          v.language!.toLowerCase().trim() != song.language!.toLowerCase().trim();
+
+      if (isMirror && !hasDistinctTag && !hasMixKeyword && !hasExplicitLangDiff) {
+        return false; // Streaming fallback / audio mirror -> do not clutter UI with version badge
+      }
+      return hasDistinctTag || hasMixKeyword || hasExplicitLangDiff;
     }).toList();
 
-    String badgeLabel = '+${distinctVersions.length} Mixes ▾';
+    String badgeLabel = '+${distinctVersions.length} Versions ▾';
     if (distinctVersions.isNotEmpty) {
-      final hasMix = distinctVersions.any((v) => v.versionTag == 'Remix' || v.versionTag == 'Lofi' || RegExp(r'\b(remix|lofi|lo-fi|mix|mashup)\b', caseSensitive: false).hasMatch(v.title));
+      final hasMix = distinctVersions.any((v) =>
+          v.versionTag == 'Remix' || v.versionTag == 'Lofi' ||
+          RegExp(r'\b(remix|lo[\s\-]?fi|slowed|reverb|8d|mashup)\b', caseSensitive: false).hasMatch(v.title));
       final hasLangDiff = distinctVersions.any((v) =>
-          v.language != null && song.language != null && v.language!.toLowerCase().trim() != song.language!.toLowerCase().trim());
+          v.language != null && song.language != null &&
+          v.language!.trim().isNotEmpty && song.language!.trim().isNotEmpty &&
+          v.language!.toLowerCase().trim() != song.language!.toLowerCase().trim());
       if (hasLangDiff && !hasMix) {
         badgeLabel = '+${distinctVersions.length} Langs ▾';
       } else if (hasMix) {
         badgeLabel = '+${distinctVersions.length} Mixes ▾';
-      } else {
-        badgeLabel = '+${distinctVersions.length} Versions ▾';
       }
     }
 

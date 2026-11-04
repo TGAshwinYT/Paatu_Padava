@@ -107,7 +107,12 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
     final List<Song> allSongs = (state.songs as List<dynamic>?)?.cast<Song>() ?? <Song>[];
     final List<Map<String, dynamic>> albums = (state.albums as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? [];
     final List<Map<String, dynamic>> artists = (state.artists as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? [];
-    final List<Map<String, dynamic>> playlists = (state.playlists as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? [];
+    final rawPlaylists = (state.playlists as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? [];
+    final List<Map<String, dynamic>> playlists = rawPlaylists.isNotEmpty
+        ? rawPlaylists
+        : ((allSongs.isNotEmpty || albums.isNotEmpty)
+            ? SearchService.ensurePopulatedPlaylists(const [], allSongs, albums, widget.query)
+            : const <Map<String, dynamic>>[]);
 
     if (allSongs.isEmpty && albums.isEmpty && artists.isEmpty && playlists.isEmpty) {
       return Center(

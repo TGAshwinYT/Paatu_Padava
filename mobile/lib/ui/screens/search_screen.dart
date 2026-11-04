@@ -272,7 +272,8 @@ class _SearchScreenState extends State<SearchScreen> {
           _isInitialLoadingNotifier.value = false;
           continue;
         }
-        if (hasCachedResults && !unified.isFinal) continue;
+        if (hasCachedResults && !unified.isFinal &&
+            _resultsNotifier.value.albums.isNotEmpty && _resultsNotifier.value.playlists.isNotEmpty) continue;
 
         if (hasCachedResults && (unified.songs.isEmpty || unified.error != null)) {
           if (unified.error != null && mounted) {

@@ -99,3 +99,23 @@ flowchart LR
    * Run `dart-mcp-server` tool `analyze_files` on all modified paths. Require **0 errors**.
    * Run corresponding unit tests or create an explicit regression test in `mobile/test/`.
    * Confirm file count $> 400$ lines remains $\le 55$ and GoogleFonts calls remain $\le 383$.
+
+---
+
+## 6. Operational Discipline & Anti-Failure Rules (Andrej Karpathy Guidelines)
+
+Every agent session must adhere to the four operational principles (`.agent/skills/karpathy-guidelines/`):
+
+1. **Think Before Coding**:
+   * Never assume or guess user intent without tracing code invariants and upstream data contracts first.
+   * Clarify ambiguities and map out second-order ripple effects before touching logic.
+2. **Simplicity First**:
+   * Implement the minimum code needed to solve the problem completely.
+   * Avoid speculative abstractions, unnecessary wrappers, or architectural churn.
+3. **Surgical Changes**:
+   * Modify only the exact lines and files directly involved in the fix or feature.
+   * Zero drive-by refactoring, formatting shifts, or docstring rewriting on unrelated code.
+4. **Goal-Driven Execution**:
+   * Define concrete verification criteria up front (0 analyzer errors, passing unit/layout tests).
+   * Verify all edge cases (nullability, multi-language parity, empty states) before declaring completion.
+

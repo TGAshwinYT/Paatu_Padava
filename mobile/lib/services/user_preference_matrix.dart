@@ -124,7 +124,15 @@ class UserPreferenceMatrix {
     if (q.isEmpty) return 0.0;
     if (SearchService.isAlbumOrMovieEntityMatch(albumLower, q)) {
       return 1.0;
-    } else if (titleLower == q) {
+    }
+    // Check if title contains '(From "Movie")' matching the query (crucial for YouTube tracks with empty album)
+    final fromMovieRegex = RegExp(r'[\(\[\-]\s*(?:from|ost|soundtrack\s+from)\s*["\x27\u201c\u201d\u2018\u2019]?([^"\x27\u201c\u201d\u2018\u2019\)\]]+)', caseSensitive: false);
+    final match = fromMovieRegex.firstMatch(titleLower);
+    final extractedMovie = match?.group(1)?.trim() ?? '';
+    if (extractedMovie.isNotEmpty && SearchService.isAlbumOrMovieEntityMatch(extractedMovie, q)) {
+      return 1.0;
+    }
+    if (titleLower == q) {
       return 0.98;
     } else if (titleLower.startsWith('$q ') || titleLower.startsWith('$q-') || (q.length > 3 && titleLower.startsWith(q))) {
       return 0.88;
@@ -189,7 +197,26 @@ class UserPreferenceMatrix {
 
       // Weighted Multi-Factor Score: 85% Query Relevance + 15% User Personal Affinity
       final effectiveAffinity = relevance >= 0.45 ? userAffinity : (userAffinity * 0.30);
-      final compositeScore = (0.85 * relevance) + (0.15 * effectiveAffinity);
+      double compositeScore = (0.85 * relevance) + (0.15 * effectiveAffinity);
+
+      // Multi-Language Parity: Prioritize songs in user's preferred languages
+      final targetLangs = (preferredLanguages ?? SettingsManager.preferredLanguages)
+          .map((l) => l.toLowerCase().trim())
+          .where((l) => l.isNotEmpty)
+          .toSet();
+
+      if (targetLangs.isNotEmpty) {
+        final sLang = song.language?.toLowerCase().trim() ?? '';
+        final titleHasPref = targetLangs.any((l) => titleLower.contains(l));
+        final albumHasPref = targetLangs.any((l) => albumLower.contains(l));
+        final isPreferred = targetLangs.contains(sLang) || titleHasPref || albumHasPref;
+
+        if (isPreferred) {
+          compositeScore *= 1.25; // First-class preferred language boost (+25%)
+        } else if (sLang.isNotEmpty && !targetLangs.contains(sLang) && sLang != 'english') {
+          compositeScore *= 0.80; // Secondary regional language demotion when preferred languages specified
+        }
+      }
 
       return MapEntry(compositeScore, song);
     }).toList();

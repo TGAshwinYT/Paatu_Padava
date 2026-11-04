@@ -54,7 +54,7 @@ class SearchArtistsList extends StatelessWidget {
               ),
             );
           },
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+          contentPadding: EdgeInsets.symmetric(horizontal: AppDimensions.screenPadding(context), vertical: 4),
           leading: CircleAvatar(
             radius: 26,
             backgroundColor: AppColors.surfaceElevated,

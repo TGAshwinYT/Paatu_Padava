@@ -168,7 +168,7 @@ class SearchSongTile extends StatelessWidget {
           onTap();
         }
       },
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 3),
+      contentPadding: EdgeInsets.symmetric(horizontal: AppDimensions.screenPadding(context), vertical: 3),
       leading: GestureDetector(
         onTap: () {
           HapticFeedback.lightImpact();
@@ -188,14 +188,14 @@ class SearchSongTile extends StatelessWidget {
             CascadingCoverImage(
               imageUrl: song.coverUrl,
               seed: '${song.title}_${song.artist}',
-              width: 50,
-              height: 50,
+              width: AppDimensions.songTileCoverSize(context),
+              height: AppDimensions.songTileCoverSize(context),
               borderRadius: 10,
             ),
             if (isResolving)
               Container(
-                width: 50,
-                height: 50,
+                width: AppDimensions.songTileCoverSize(context),
+                height: AppDimensions.songTileCoverSize(context),
                 decoration: BoxDecoration(
                   color: Colors.black.withValues(alpha: 0.60),
                   borderRadius: BorderRadius.circular(10),

@@ -103,7 +103,7 @@ class HomeSongCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cleanTitle = _unescape.convert(Song.sanitize(song.title));
     final cleanArtist = _unescape.convert(Song.sanitize(song.artist));
-    final cardWidth = width ?? (MediaQuery.of(context).size.width * 0.36).clamp(130.0, 180.0);
+    final cardWidth = width ?? AppDimensions.homeCardWidth(context);
 
     return GestureDetector(
       onTap: onTap,

@@ -252,6 +252,17 @@ class PaatuPadavaApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           themeMode: ThemeMode.dark,
           darkTheme: AppTheme.getTheme(themeMode),
+          builder: (context, child) {
+            final mediaQuery = MediaQuery.of(context);
+            final clampedScaler = mediaQuery.textScaler.clamp(
+              minScaleFactor: 0.85,
+              maxScaleFactor: 1.30,
+            );
+            return MediaQuery(
+              data: mediaQuery.copyWith(textScaler: clampedScaler),
+              child: child!,
+            );
+          },
           home: const MainNavigation(),
         );
       },

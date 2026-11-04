@@ -427,12 +427,21 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                             ),
 
                             // Middle Content: Album Artwork with Double-Tap Heart Interaction
-                            RepaintBoundary(
-                              child: SizedBox(
-                                height: MediaQuery.of(context).size.width * 0.82,
-                                child: PlayerGestureDetector(
-                                  onDoubleTap: () => _handleArtworkDoubleTap(song),
-                                  child: _buildArtworkView(song),
+                            Flexible(
+                              child: RepaintBoundary(
+                                child: LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    final maxAvailable = constraints.maxHeight;
+                                    final screenWidth = MediaQuery.sizeOf(context).width;
+                                    final targetSize = (screenWidth * 0.78).clamp(180.0, maxAvailable > 0 ? maxAvailable : 340.0);
+                                    return SizedBox(
+                                      height: targetSize,
+                                      child: PlayerGestureDetector(
+                                        onDoubleTap: () => _handleArtworkDoubleTap(song),
+                                        child: _buildArtworkView(song, targetSize),
+                                      ),
+                                    );
+                                  },
                                 ),
                               ),
                             ),
@@ -780,14 +789,15 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     );
   }
 
-  Widget _buildArtworkView(Song song) {
+  Widget _buildArtworkView(Song song, [double? size]) {
+    final double artSize = size ?? (MediaQuery.sizeOf(context).width * 0.78).clamp(180.0, 340.0);
     return Center(
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onDoubleTap: () => _handleArtworkDoubleTap(song),
         child: Container(
-          width: MediaQuery.of(context).size.width * 0.78,
-          height: MediaQuery.of(context).size.width * 0.78,
+          width: artSize,
+          height: artSize,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(28),
             boxShadow: [

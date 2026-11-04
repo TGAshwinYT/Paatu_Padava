@@ -28,17 +28,18 @@ class HomeSongTile extends StatelessWidget {
       builder: (context, currentSong, _) {
         final isPlaying = currentSong?.id == song.id;
 
+        final coverSize = AppDimensions.songTileCoverSize(context);
         return ListTile(
           onTap: onTap,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 3),
+          contentPadding: EdgeInsets.symmetric(horizontal: AppDimensions.screenPadding(context), vertical: 3),
           leading: Stack(
             alignment: Alignment.center,
             children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(10),
                 child: SizedBox(
-                  width: 50,
-                  height: 50,
+                  width: coverSize,
+                  height: coverSize,
                   child: CachedNetworkImage(
                     imageUrl: song.coverUrl,
                     memCacheWidth: 120,
@@ -50,8 +51,8 @@ class HomeSongTile extends StatelessWidget {
               ),
               if (isPlaying)
                 Container(
-                  width: 50,
-                  height: 50,
+                  width: coverSize,
+                  height: coverSize,
                   decoration: BoxDecoration(
                     color: Colors.black.withValues(alpha: 0.55),
                     borderRadius: BorderRadius.circular(10),

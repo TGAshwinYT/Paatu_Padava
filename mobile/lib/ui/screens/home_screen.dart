@@ -63,9 +63,8 @@ class _HomeScreenState extends State<HomeScreen> {
             final feedProvider = HomeFeedProvider.instance;
             final feedState = feedProvider.state;
             final currentLang = feedProvider.currentLanguage;
-            final screenWidth = MediaQuery.of(context).size.width;
-            final cardWidth = (screenWidth * 0.36).clamp(130.0, 180.0);
-            final carouselHeight = cardWidth + 58.0;
+            final cardWidth = AppDimensions.homeCardWidth(context);
+            final carouselHeight = AppDimensions.homeCarouselHeight(context, cardWidth);
 
             return RefreshIndicator(
               color: AppColors.neonViolet,

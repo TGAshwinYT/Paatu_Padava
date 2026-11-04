@@ -591,7 +591,7 @@ class SearchService {
             extractedAlbums.add({
               'id': alb.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_').toLowerCase(),
               'title': alb,
-              'artist': s.primaryArtist.isNotEmpty ? s.primaryArtist : s.artist,
+              'artist': s.artist,
               'image': s.coverUrl,
               'type': 'Album',
               'is_movie': true,
@@ -978,7 +978,7 @@ class SearchService {
         result.add({
           'id': candidateAlbum.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_').toLowerCase(),
           'title': candidateAlbum,
-          'artist': s.primaryArtist.isNotEmpty ? s.primaryArtist : s.artist,
+          'artist': s.artist,
           'image': s.coverUrl,
           'type': 'Album',
           'is_movie': isMovie,
@@ -2758,7 +2758,7 @@ class SearchService {
           initialAlbums.add({
             'id': s.album.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_').toLowerCase(),
             'title': alb,
-            'artist': s.primaryArtist.isNotEmpty ? s.primaryArtist : s.artist,
+            'artist': s.artist,
             'image': s.coverUrl,
             'type': 'Album',
             'is_movie': true,

@@ -614,7 +614,7 @@ class AudioQueueHandler {
         } else if (SleepTimerService.instance.stopAtEndOfQueue) {
           _isAdvancing = false;
           SleepTimerService.instance.triggerSleepNow();
-          await player.pause();
+          
           startIdleTimer();
         } else if (_effectiveLoopMode == LoopMode.all && _contextQueue.isNotEmpty) {
           handleRepeatAllLoop();

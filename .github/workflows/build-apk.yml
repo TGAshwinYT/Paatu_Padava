@@ -135,8 +135,6 @@ jobs:
             echo "Attempt $i of $MAX_RETRIES: Building release APK..."
             if flutter build apk --release -t lib/main.dart --android-skip-build-dependency-validation \
                 --split-per-abi \
-                --obfuscate \
-                --split-debug-info=symbols \
                 --build-number=${{ github.run_number }} \
                 --dart-define=SUPABASE_URL="$CLEAN_URL" \
                 --dart-define=SUPABASE_ANON_KEY="$CLEAN_KEY" \

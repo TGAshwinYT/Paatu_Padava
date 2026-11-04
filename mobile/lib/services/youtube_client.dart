@@ -186,6 +186,12 @@ class YouTubeClient {
       return true;
     }
 
+    // Secondary check: candidate title may have inverted format (e.g. "Movie | Song Video")
+    final rawCandClean = candidate.title.toLowerCase().replaceAll(RegExp(r'[^\p{L}\p{N}\s]', unicode: true), ' ');
+    if (rawCandClean.contains(normTarget)) {
+      return true;
+    }
+
     // Token overlap: at least 50% of target words in candidate
     final targetWords = normTarget.split(' ').where((w) => w.length > 2).toSet();
     final candWords = normCand.split(' ').where((w) => w.length > 2).toSet();

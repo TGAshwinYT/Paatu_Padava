@@ -1298,4 +1298,28 @@ class SongRepository {
       return <Map<String, dynamic>>[];
     }
   }
+
+  /// Resolves verified high-resolution artist avatar from memory cache, local CatalogDatabase, or remote providers.
+  static Future<String?> resolveArtistAvatar(String artistName) async {
+    final norm = normalizeArtist(artistName);
+    if (_verifiedArtistAvatars.containsKey(norm)) {
+      return _verifiedArtistAvatars[norm];
+    }
+    final catalogImg = CatalogDatabase.getArtistProfileImage(artistName);
+    if (catalogImg != null && catalogImg.isNotEmpty) {
+      _verifiedArtistAvatars[norm] = catalogImg;
+      return catalogImg;
+    }
+    try {
+      final saavnArtists = await SaavnClient.searchArtists(artistName, limit: 3);
+      for (final a in saavnArtists) {
+        final aImg = (a['image'] ?? '').toString();
+        if (aImg.isNotEmpty) {
+          _verifiedArtistAvatars[norm] = aImg;
+          return aImg;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
 }

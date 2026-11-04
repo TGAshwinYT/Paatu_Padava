@@ -172,33 +172,28 @@ class _SearchScreenState extends State<SearchScreen> {
             ? _suggestionsNotifier.value.where((s) => s.toLowerCase().contains(lower)).toList()
             : [clean, if (!lower.contains(' song')) '$clean songs', if (!lower.contains(' hit')) '$clean hits']);
 
-    _typeaheadDebounceTimer = Timer(const Duration(milliseconds: 300), () {
+    _typeaheadDebounceTimer = Timer(const Duration(milliseconds: 180), () {
       final intent = SearchService.understandQuery(lower);
       SearchService.prewarmQuery(
         clean,
         language: intent.explicitLanguage,
         onPrewarmed: (prewarmedSongs, prewarmedAlbums) {
           if (mounted && _searchController.text.trim() == clean && !_hasSearchedNotifier.value) {
-            if (_localMatchesNotifier.value.isEmpty && prewarmedSongs.isNotEmpty) {
-              _localMatchesNotifier.value = prewarmedSongs;
-            }
-            if (_matchingAlbumsNotifier.value.isEmpty && prewarmedAlbums.isNotEmpty) {
-              _matchingAlbumsNotifier.value = prewarmedAlbums;
-            }
+            if (_localMatchesNotifier.value.isEmpty && prewarmedSongs.isNotEmpty) _localMatchesNotifier.value = prewarmedSongs;
+            if (_matchingAlbumsNotifier.value.isEmpty && prewarmedAlbums.isNotEmpty) _matchingAlbumsNotifier.value = prewarmedAlbums;
           }
         },
       );
-      SearchService.getTypeaheadBundle(
-        clean,
-        localTrie: _localSearchTrie,
-        limit: 5,
-      ).then((bundle) {
+      void applyBundle(SearchTypeaheadBundle b) {
         if (mounted && _searchController.text.trim() == clean && !_hasSearchedNotifier.value) {
-          if (bundle.completions.isNotEmpty) _suggestionsNotifier.value = bundle.completions;
-          if (bundle.songs.isNotEmpty) _localMatchesNotifier.value = bundle.songs;
-          if (bundle.albums.isNotEmpty) _matchingAlbumsNotifier.value = bundle.albums;
+          if (b.completions.isNotEmpty) _suggestionsNotifier.value = b.completions;
+          if (b.songs.isNotEmpty) _localMatchesNotifier.value = b.songs;
+          if (b.albums.isNotEmpty) _matchingAlbumsNotifier.value = b.albums;
         }
-      }).catchError((e, stack) => AppLogger.log('SearchScreen', 'Typeahead fetch error: $e', level: LogLevel.warn));
+      }
+      SearchService.getTypeaheadBundle(clean, localTrie: _localSearchTrie, limit: 5, onPartial: applyBundle)
+          .then(applyBundle)
+          .catchError((e, stack) => AppLogger.log('SearchScreen', 'Typeahead fetch error: $e', level: LogLevel.warn));
     });
   }
 

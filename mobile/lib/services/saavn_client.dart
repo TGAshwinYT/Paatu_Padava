@@ -12,6 +12,7 @@ import '../data/repositories/song_repository.dart';
 import '../logic/track_quality_filter.dart';
 
 class SaavnClient {
+  static final http.Client _client = http.Client();
   static const String baseUrl = 'https://www.jiosaavn.com/api.php';
 
   static const String allIndianLanguagesCookie =
@@ -145,7 +146,7 @@ class SaavnClient {
         '_marker': '0',
         'ctx': 'android',
       });
-      final response = await http.get(uri, headers: getHeaders()).timeout(const Duration(milliseconds: 3000));
+      final response = await _client.get(uri, headers: getHeaders()).timeout(const Duration(milliseconds: 3000));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data is Map && data.containsKey(cleanId)) {
@@ -171,7 +172,7 @@ class SaavnClient {
 
     try {
       final uri = Uri.parse('$baseUrl?__call=autocomplete.get&_format=json&query=${Uri.encodeComponent(clean)}');
-      final response = await http.get(uri, headers: getHeaders()).timeout(const Duration(milliseconds: 2500));
+      final response = await _client.get(uri, headers: getHeaders()).timeout(const Duration(milliseconds: 2500));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data is Map) {
@@ -323,7 +324,7 @@ class SaavnClient {
           : '';
       final url = 'https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&_marker=0&api_version=4&ctx=web6dot0&n=$limit&p=$page&q=${Uri.encodeComponent(clean)}$langParam';
       final uri = Uri.parse(url);
-      final response = await http.get(uri, headers: getHeaders(language)).timeout(const Duration(seconds: 5));
+      final response = await _client.get(uri, headers: getHeaders(language)).timeout(const Duration(seconds: 5));
       if (response.statusCode != 200) return [];
 
       final dynamic data = (response.body.isNotEmpty) ? json.decode(response.body) : null;
@@ -395,7 +396,7 @@ class SaavnClient {
     if (clean.isEmpty) return null;
     try {
       final url = 'https://www.jiosaavn.com/api.php?__call=search.getArtistResults&_format=json&_marker=0&api_version=4&ctx=web6dot0&n=2&p=1&q=${Uri.encodeComponent(clean)}';
-      final response = await http.get(Uri.parse(url), headers: getHeaders()).timeout(const Duration(seconds: 3));
+      final response = await _client.get(Uri.parse(url), headers: getHeaders()).timeout(const Duration(seconds: 3));
 
       if (response.statusCode != 200) return null;
       final data = json.decode(response.body);
@@ -433,7 +434,7 @@ class SaavnClient {
         if (isSpecificLang) 'languages': language.toLowerCase().trim(),
       });
 
-      final response = await http.get(uri, headers: getHeaders(language)).timeout(const Duration(seconds: 6));
+      final response = await _client.get(uri, headers: getHeaders(language)).timeout(const Duration(seconds: 6));
       if (response.statusCode != 200) return [];
 
       final data = json.decode(response.body);
@@ -518,7 +519,7 @@ class SaavnClient {
         if (language != null && language.isNotEmpty) 'languages': language.toLowerCase().trim(),
       });
 
-      final response = await http.get(uri, headers: getHeaders(language)).timeout(const Duration(seconds: 6));
+      final response = await _client.get(uri, headers: getHeaders(language)).timeout(const Duration(seconds: 6));
       if (response.statusCode != 200) return [];
 
       final data = json.decode(response.body);
@@ -574,7 +575,7 @@ class SaavnClient {
         if (isSpecificLang) 'languages': language.toLowerCase().trim(),
       });
 
-      final response = await http.get(uri, headers: getHeaders(language)).timeout(const Duration(seconds: 6));
+      final response = await _client.get(uri, headers: getHeaders(language)).timeout(const Duration(seconds: 6));
       if (response.statusCode != 200) return [];
 
       final data = json.decode(response.body);
@@ -620,7 +621,7 @@ class SaavnClient {
         'listid': playlistId.trim(),
       });
 
-      final response = await http.get(uri, headers: getHeaders()).timeout(const Duration(seconds: 6));
+      final response = await _client.get(uri, headers: getHeaders()).timeout(const Duration(seconds: 6));
       if (response.statusCode != 200) return null;
 
       final data = json.decode(response.body);
@@ -664,7 +665,7 @@ class SaavnClient {
         'albumid': albumId,
       });
 
-      final response = await http.get(uri, headers: getHeaders()).timeout(const Duration(seconds: 6));
+      final response = await _client.get(uri, headers: getHeaders()).timeout(const Duration(seconds: 6));
       if (response.statusCode != 200) return null;
 
       final data = json.decode(response.body);
@@ -713,7 +714,7 @@ class SaavnClient {
         'n_album': '20',
       });
 
-      final response = await http.get(uri, headers: getHeaders()).timeout(const Duration(seconds: 6));
+      final response = await _client.get(uri, headers: getHeaders()).timeout(const Duration(seconds: 6));
       if (response.statusCode != 200) return null;
 
       final data = json.decode(response.body);
@@ -753,7 +754,7 @@ class SaavnClient {
         'n_album': limit.toString(),
       });
 
-      final response = await http.get(uri, headers: getHeaders()).timeout(const Duration(seconds: 5));
+      final response = await _client.get(uri, headers: getHeaders()).timeout(const Duration(seconds: 5));
       if (response.statusCode != 200) return const [];
 
       var body = response.body.trim();
@@ -815,7 +816,7 @@ class SaavnClient {
         if (language != null && language.isNotEmpty) 'language': language.toLowerCase(),
       });
 
-      final response = await http.get(uri, headers: getHeaders(language)).timeout(const Duration(seconds: 6));
+      final response = await _client.get(uri, headers: getHeaders(language)).timeout(const Duration(seconds: 6));
       if (response.statusCode != 200) return [];
 
       final dynamic data = (response.body.isNotEmpty) ? json.decode(response.body) : null;

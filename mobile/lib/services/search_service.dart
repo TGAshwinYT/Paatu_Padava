@@ -486,6 +486,7 @@ class SearchService {
     String query, {
     PrefixTrie<String>? localTrie,
     int limit = 6,
+    void Function(SearchTypeaheadBundle partial)? onPartial,
   }) async {
     final clean = query.trim();
     if (clean.isEmpty) return const SearchTypeaheadBundle();
@@ -495,11 +496,48 @@ class SearchService {
     if (cached != null) return cached;
 
     final ytFuture = YouTubeClient.getSearchSuggestions(clean)
-        .timeout(const Duration(milliseconds: 600), onTimeout: () => <String>[])
+        .timeout(const Duration(milliseconds: 350), onTimeout: () => <String>[])
         .catchError((_) => <String>[]);
     final saavnFuture = SaavnClient.getAutocompleteData(clean)
         .timeout(const Duration(milliseconds: 2500), onTimeout: () => <String, dynamic>{})
         .catchError((_) => <String, dynamic>{});
+
+    if (onPartial != null) {
+      saavnFuture.then((saavnData) {
+        final partialComps = <String>[];
+        final seen = <String>{};
+        if (localTrie != null) {
+          for (final m in localTrie.findByPrefix(clean, limit: 3)) {
+            final t = m.term.trim();
+            if (t.isNotEmpty && !YouTubeClient.isJunkSuggestion(t) && seen.add(t.toLowerCase())) {
+              partialComps.add(t);
+            }
+          }
+        }
+        final saavnComps = (saavnData['completions'] as List<dynamic>?)?.cast<String>() ?? <String>[];
+        for (final s in saavnComps) {
+          final t = s.trim();
+          if (partialComps.length < limit && t.isNotEmpty && !YouTubeClient.isJunkSuggestion(t) && seen.add(t.toLowerCase())) {
+            partialComps.add(t);
+          }
+        }
+        var sSongs = (saavnData['songs'] as List<dynamic>?)?.cast<Song>() ?? <Song>[];
+        var sAlbums = (saavnData['albums'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? <Map<String, dynamic>>[];
+        if (sSongs.isEmpty) {
+          final cachedSearch = SearchCache.get(clean);
+          if (cachedSearch != null && cachedSearch.songs.isNotEmpty) sSongs = cachedSearch.songs;
+        }
+        if (sAlbums.isEmpty) {
+          final cachedSearch = SearchCache.get(clean);
+          if (cachedSearch != null && cachedSearch.albums.isNotEmpty) sAlbums = cachedSearch.albums;
+        }
+        onPartial(SearchTypeaheadBundle(
+          completions: partialComps,
+          songs: sSongs.take(3).toList(),
+          albums: sAlbums.take(2).toList(),
+        ));
+      }).catchError((_) {});
+    }
 
     final res = await Future.wait([ytFuture, saavnFuture]);
     final ytCompletions = res[0] as List<String>;

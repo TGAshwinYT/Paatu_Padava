@@ -772,6 +772,8 @@ class SearchService {
   static List<Map<String, dynamic>> filterGenuineAlbums(
     List<Map<String, dynamic>> rawAlbums, {
     String? query,
+    String? preferredLanguage,
+    List<String>? preferredLanguages,
   }) {
     final valid = <Map<String, dynamic>>[];
     final cleanQuery = (query ?? '').trim().toLowerCase();
@@ -827,6 +829,25 @@ class SearchService {
         final eqA = tA == cleanQuery || (tA.contains(' - ') && tA.split(' - ').first.trim() == cleanQuery);
         final eqB = tB == cleanQuery || (tB.contains(' - ') && tB.split(' - ').first.trim() == cleanQuery);
         if (eqA != eqB) return eqA ? -1 : 1;
+
+        // Preferred language match precedence: prioritize user's language editions
+        final Set<String> targetLangs = {};
+        if (preferredLanguage != null && preferredLanguage.trim().isNotEmpty) {
+          targetLangs.add(preferredLanguage.trim().toLowerCase());
+        }
+        if (preferredLanguages != null) {
+          for (final l in preferredLanguages) {
+            final t = l.trim().toLowerCase();
+            if (t.isNotEmpty) targetLangs.add(t);
+          }
+        }
+        if (targetLangs.isNotEmpty) {
+          final aLang = (a['language'] ?? '').toString().toLowerCase().trim();
+          final bLang = (b['language'] ?? '').toString().toLowerCase().trim();
+          final aMatch = targetLangs.contains(aLang) || targetLangs.any((l) => tA.contains(l));
+          final bMatch = targetLangs.contains(bLang) || targetLangs.any((l) => tB.contains(l));
+          if (aMatch != bMatch) return aMatch ? -1 : 1;
+        }
 
         final scA = int.tryParse(a['song_count']?.toString() ?? '0') ?? 0;
         final scB = int.tryParse(b['song_count']?.toString() ?? '0') ?? 0;
@@ -891,6 +912,128 @@ class SearchService {
       filtered.add(p);
     }
     return filtered;
+  }
+
+  /// Dynamically extracts and synthesizes clean movie and soundtrack albums from a list of songs.
+  /// Eliminates single noise and extracts the true parent movie/soundtrack entity (e.g. from "(From 'Hi')").
+  static List<Map<String, dynamic>> extractAlbumsFromSongList(
+    List<Song> songs, {
+    String? query,
+    List<Map<String, dynamic>>? existingAlbums,
+    List<String>? preferredLanguages,
+  }) {
+    final List<Map<String, dynamic>> result = existingAlbums != null ? List.from(existingAlbums) : [];
+    final Set<String> seenAlbumNames = {
+      for (final a in result) (a['title'] ?? '').toString().toLowerCase().trim()
+    };
+    final qClean = (query ?? '').toLowerCase().trim();
+
+    final RegExp fromMovieRegex = RegExp(
+      r'[\(\[]\s*(?:from|ost|soundtrack\s+from)\s+["\x27\u201c\u201d\u2018\u2019]?([^"\x27\u201c\u201d\u2018\u2019\)\]]+)["\x27\u201c\u201d\u2018\u2019]?\s*[\)\]]',
+      caseSensitive: false,
+    );
+
+    for (final s in songs) {
+      String candidateAlbum = s.album.trim();
+
+      if (candidateAlbum.isEmpty ||
+          candidateAlbum.toLowerCase() == 'single' ||
+          candidateAlbum.toLowerCase() == 'unknown' ||
+          candidateAlbum.toLowerCase() == 'unknown album' ||
+          candidateAlbum.toLowerCase() == s.title.toLowerCase().trim() ||
+          candidateAlbum.toLowerCase().endsWith('- single')) {
+        final match = fromMovieRegex.firstMatch(s.title) ?? fromMovieRegex.firstMatch(s.album);
+        if (match != null) {
+          final extracted = match.group(1)?.trim();
+          if (extracted != null && extracted.isNotEmpty) {
+            candidateAlbum = extracted;
+          }
+        }
+      }
+
+      candidateAlbum = candidateAlbum
+          .replaceAll(RegExp(r'\s*-\s*Single$', caseSensitive: false), '')
+          .replaceAll(RegExp(r'\s*\((?:Original Motion Picture Soundtrack|OST|Original Soundtrack)\)$', caseSensitive: false), '')
+          .trim();
+
+      final albLower = candidateAlbum.toLowerCase();
+      if (albLower.isEmpty ||
+          albLower == 'single' ||
+          albLower == 'unknown' ||
+          albLower == 'unknown album' ||
+          albLower == 'various artists' ||
+          albLower == 'studio album') {
+        continue;
+      }
+
+      if (seenAlbumNames.add(albLower)) {
+        final isMovie = s.album.toLowerCase().contains('from') ||
+            s.title.toLowerCase().contains('from') ||
+            (qClean.isNotEmpty && isAlbumOrMovieEntityMatch(candidateAlbum, qClean));
+        result.add({
+          'id': candidateAlbum.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_').toLowerCase(),
+          'title': candidateAlbum,
+          'artist': s.artist,
+          'image': s.coverUrl,
+          'type': 'Album',
+          'is_movie': isMovie,
+          'source': s.source,
+          'language': s.language,
+        });
+      }
+    }
+
+    return filterGenuineAlbums(result, query: query, preferredLanguages: preferredLanguages);
+  }
+
+  /// Ensures playlists section is never empty when valid songs or albums exist for the search query.
+  static List<Map<String, dynamic>> ensurePopulatedPlaylists(
+    List<Map<String, dynamic>> providerPlaylists,
+    List<Song> songs,
+    List<Map<String, dynamic>> albums,
+    String query, {
+    List<String>? preferredLanguages,
+  }) {
+    final List<Map<String, dynamic>> result = List.from(providerPlaylists);
+    final Set<String> seenIds = {
+      for (final p in result) (p['id'] ?? p['title'] ?? '').toString().toLowerCase().trim()
+    };
+    final cleanQ = query.trim();
+    if (cleanQ.isEmpty) return result;
+
+    for (final alb in albums.take(3)) {
+      final title = (alb['title'] ?? alb['name'] ?? '').toString().trim();
+      final id = 'pl_${title.toLowerCase().replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_')}_ost';
+      if (title.isNotEmpty && seenIds.add(id)) {
+        result.add({
+          'id': id,
+          'title': '$title Soundtracks',
+          'artist': alb['artist'] ?? alb['composer'] ?? 'Various Artists',
+          'image': alb['image'] ?? alb['cover_url'] ?? (songs.isNotEmpty ? songs.first.coverUrl : ''),
+          'type': 'Playlist',
+          'source': 'auto_album',
+          'song_count': alb['song_count'] ?? 10,
+        });
+      }
+    }
+
+    if (result.length < 3 && songs.isNotEmpty) {
+      final bestOfTitle = '${SearchQueryPlanner.cleanTitle(cleanQ)} Hits';
+      final bestOfId = 'pl_${cleanQ.toLowerCase().replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_')}_hits';
+      if (seenIds.add(bestOfId)) {
+        result.insert(0, {
+          'id': bestOfId,
+          'title': bestOfTitle,
+          'artist': songs.first.artist,
+          'image': songs.first.coverUrl,
+          'type': 'Playlist',
+          'source': 'auto_hits',
+          'song_count': songs.length,
+        });
+      }
+    }
+
+    return result;
   }
 
   /// Synthesizes dynamic 'Movie Soundtrack' auto-playlists directly from album metadata
@@ -1799,7 +1942,15 @@ class SearchService {
     if (qLower.isNotEmpty && albLower.isNotEmpty) {
       final isAlbMatch = isAlbumOrMovieEntityMatch(albLower, qLower) || (intent.effectiveCoreQuery.isNotEmpty && isAlbumOrMovieEntityMatch(albLower, intent.effectiveCoreQuery));
       if (isAlbMatch) {
-        score = 1.0;
+        if (preferredLanguages != null && preferredLanguages.isNotEmpty) {
+          final targetLangs = preferredLanguages.map((l) => l.toLowerCase().trim()).toSet();
+          final songLang = song.language?.toLowerCase().trim() ?? '';
+          final matchesLang = targetLangs.contains(songLang) ||
+              targetLangs.any((l) => song.title.toLowerCase().contains(l) || song.album.toLowerCase().contains(l));
+          score = matchesLang ? 1.0 : 0.85;
+        } else {
+          score = 1.0;
+        }
       } else if (albLower.startsWith('$qLower ') || albLower.startsWith('$qLower-') || albLower.startsWith('$qLower (')) {
         score = (score + 0.35).clamp(0.0, 1.0);
       }
@@ -1852,12 +2003,23 @@ class SearchService {
     MapEntry<double, Song> b,
     String queryLower, {
     Map<String, int>? arrivalOrder,
+    List<String>? preferredLanguages,
   }) {
     final scoreCmp = b.key.compareTo(a.key);
     if (scoreCmp != 0) return scoreCmp;
 
     final songA = a.value;
     final songB = b.value;
+
+    // Preferred language match precedence for tied songs
+    if (preferredLanguages != null && preferredLanguages.isNotEmpty) {
+      final targetLangs = preferredLanguages.map((l) => l.toLowerCase().trim()).toSet();
+      final aLang = songA.language?.toLowerCase().trim() ?? '';
+      final bLang = songB.language?.toLowerCase().trim() ?? '';
+      final aMatch = targetLangs.contains(aLang) || targetLangs.any((l) => songA.title.toLowerCase().contains(l));
+      final bMatch = targetLangs.contains(bLang) || targetLangs.any((l) => songB.title.toLowerCase().contains(l));
+      if (aMatch != bMatch) return aMatch ? -1 : 1;
+    }
 
     // 1. Movie Soundtrack Match Precedence: Child tracks of matched film entity outrank standalone singles
     final albA = songA.album.toLowerCase().trim();
@@ -2130,6 +2292,12 @@ class SearchService {
               language: effectiveLang,
             ).timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]);
           }
+          if (results.isEmpty && effectiveLang != null && intent.explicitLanguage == null) {
+            results = await SaavnClient.search(
+              intent.cleanQuery,
+              limit: limit,
+            ).timeout(const Duration(seconds: 4), onTimeout: () => <Song>[]);
+          }
           return results;
         } catch (e) {
           saavnFailed = true;
@@ -2310,6 +2478,7 @@ class SearchService {
       final canonicalSaavnEarly = SongRepository.groupCanonicalSongs(
         combinedSaavnEarly,
         preferredLanguage: effectiveLang,
+        preferredLanguages: prefLangs,
       );
 
       List<Song> candidateSaavnEarly = intent.explicitLanguage != null
@@ -2334,7 +2503,7 @@ class SearchService {
       final Map<String, int> saavnArrivalEarly = {
         for (int i = 0; i < candidateSaavnEarly.length; i++) candidateSaavnEarly[i].id: i
       };
-      scoredSaavnEarly.sort((a, b) => compareRankedEntries(a, b, qClean, arrivalOrder: saavnArrivalEarly));
+      scoredSaavnEarly.sort((a, b) => compareRankedEntries(a, b, qClean, arrivalOrder: saavnArrivalEarly, preferredLanguages: prefLangs));
       final rankedSaavnEarly = scoredSaavnEarly.map((e) => e.value).toList();
 
       Map<String, dynamic>? initialTopResultEarly;
@@ -2354,30 +2523,19 @@ class SearchService {
       }
 
       if (rankedSaavnEarly.isNotEmpty) {
-        final List<Map<String, dynamic>> earlyExtractedAlbums = [...phase0Albums];
-        final Set<String> earlySeenAlbums = {
-          for (final a in earlyExtractedAlbums) (a['title'] ?? '').toString().toLowerCase().trim()
-        };
-        for (final s in rankedSaavnEarly.take(6)) {
-          final alb = s.album.trim();
-          final albLower = alb.toLowerCase();
-          if (alb.isNotEmpty &&
-              albLower != 'single' &&
-              albLower != 'unknown' &&
-              albLower != 'various artists' &&
-              albLower != 'studio album' &&
-              earlySeenAlbums.add(albLower)) {
-            earlyExtractedAlbums.add({
-              'id': s.album.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_').toLowerCase(),
-              'title': alb,
-              'artist': s.artist,
-              'image': s.coverUrl,
-              'type': 'Album',
-              'is_movie': true,
-              'source': s.source,
-            });
-          }
-        }
+        final earlyExtractedAlbums = extractAlbumsFromSongList(
+          rankedSaavnEarly,
+          query: intent.cleanQuery,
+          existingAlbums: phase0Albums,
+          preferredLanguages: prefLangs,
+        );
+        final earlyExtractedPlaylists = ensurePopulatedPlaylists(
+          phase0Playlists,
+          rankedSaavnEarly,
+          earlyExtractedAlbums,
+          intent.cleanQuery,
+          preferredLanguages: prefLangs,
+        );
 
         lastEmittedBundle = SearchResults(
           songs: rankedSaavnEarly,
@@ -2386,7 +2544,7 @@ class SearchService {
           audiusSongs: const [],
           albums: earlyExtractedAlbums,
           artists: catArtists,
-          playlists: phase0Playlists,
+          playlists: earlyExtractedPlaylists,
           topResult: initialTopResultEarly,
           didYouMean: null,
           error: null,
@@ -2471,6 +2629,7 @@ class SearchService {
       final canonicalSaavn = SongRepository.groupCanonicalSongs(
         combinedSaavn,
         preferredLanguage: effectiveLang,
+        preferredLanguages: prefLangs,
       );
 
       List<Song> candidateSaavn = intent.explicitLanguage != null
@@ -2495,7 +2654,7 @@ class SearchService {
       final Map<String, int> saavnArrival = {
         for (int i = 0; i < candidateSaavn.length; i++) candidateSaavn[i].id: i
       };
-      scoredSaavn.sort((a, b) => compareRankedEntries(a, b, qClean, arrivalOrder: saavnArrival));
+      scoredSaavn.sort((a, b) => compareRankedEntries(a, b, qClean, arrivalOrder: saavnArrival, preferredLanguages: prefLangs));
       final rankedSaavn = scoredSaavn.map((e) => e.value).toList();
 
       // If the search query targets an artist (e.g. "Anirudh Ravichander", "A.R. Rahman"),
@@ -2579,12 +2738,19 @@ class SearchService {
       }
 
       // 3. Raw albums from JioSaavn search (filtered to ensure regional parity)
-      for (final alb in filterGenuineAlbums(rawAlbums, query: intent.cleanQuery)) {
+      for (final alb in filterGenuineAlbums(rawAlbums, query: intent.cleanQuery, preferredLanguages: prefLangs)) {
         final t = (alb['title'] ?? alb['name'] ?? '').toString().toLowerCase().trim();
         if (t.isNotEmpty && seenAlbumNames.add(t)) {
           initialAlbums.add(alb);
         }
       }
+
+      initialAlbums = extractAlbumsFromSongList(
+        rankedSaavn,
+        query: intent.cleanQuery,
+        existingAlbums: initialAlbums,
+        preferredLanguages: prefLangs,
+      );
 
       // Auto-playlists: Synthesize 'Movie Soundtrack' playlists directly from albums & catalog movies
       final autoPlaylists = generateAutoPlaylistsFromAlbums(initialAlbums);
@@ -2593,7 +2759,13 @@ class SearchService {
         query: intent.cleanQuery,
         language: effectiveLang,
       );
-      initialPlaylists = mergePlaylists(autoPlaylists, filteredRawPlaylists);
+      initialPlaylists = ensurePopulatedPlaylists(
+        mergePlaylists(autoPlaylists, filteredRawPlaylists),
+        rankedSaavn,
+        initialAlbums,
+        intent.cleanQuery,
+        preferredLanguages: prefLangs,
+      );
 
       // Populate Artists Tab: Merge direct artists with Master Catalog artists and song composers/singers
       initialArtists = [];
@@ -2729,7 +2901,7 @@ class SearchService {
       );
       final finalPlaylists = mergePlaylists(initialPlaylists, filteredYtPlaylists);
 
-      final groupedYt = SongRepository.groupCanonicalSongs(rawYt, preferredLanguage: effectiveLang);
+      final groupedYt = SongRepository.groupCanonicalSongs(rawYt, preferredLanguage: effectiveLang, preferredLanguages: prefLangs);
       final deduplicatedYt = SongRepository.deduplicateSongs(groupedYt);
       List<Song> candidateYt = intent.explicitLanguage != null
           ? SongRepository.filterByLanguage(deduplicatedYt, intent.explicitLanguage!)
@@ -2756,7 +2928,7 @@ class SearchService {
       final Map<String, int> ytArrival = {
         for (int i = 0; i < candidateYt.length; i++) candidateYt[i].id: i
       };
-      scoredYt.sort((a, b) => compareRankedEntries(a, b, qClean, arrivalOrder: ytArrival));
+      scoredYt.sort((a, b) => compareRankedEntries(a, b, qClean, arrivalOrder: ytArrival, preferredLanguages: prefLangs));
       final rankedYt = scoredYt.map((e) => e.value).toList();
 
       // Elevate exact singles first, then soundtrack songs, then remaining Saavn tracks
@@ -2797,6 +2969,7 @@ class SearchService {
         mergedSongs,
         intent.cleanQuery,
         intent: intent,
+        preferredLanguages: prefLangs,
       );
 
       // Crown Top Result from userRankedSongs.first AFTER preference re-ranking
@@ -2862,14 +3035,28 @@ class SearchService {
         searchError = AppError.offline(debugDetails: 'All upstream providers failed for "${intent.cleanQuery}"');
       }
 
+      final finalAlbums = extractAlbumsFromSongList(
+        userRankedSongs,
+        query: intent.cleanQuery,
+        existingAlbums: initialAlbums,
+        preferredLanguages: prefLangs,
+      );
+      final populatedFinalPlaylists = ensurePopulatedPlaylists(
+        finalPlaylists,
+        userRankedSongs,
+        finalAlbums,
+        intent.cleanQuery,
+        preferredLanguages: prefLangs,
+      );
+
       final finalBundle = SearchResults(
         songs: userRankedSongs,
         ytSongs: rankedYt.isNotEmpty ? rankedYt : ytSongs,
         saavnSongs: rankedSaavn,
         audiusSongs: const [],
-        albums: initialAlbums,
+        albums: finalAlbums,
         artists: finalArtists,
-        playlists: finalPlaylists,
+        playlists: populatedFinalPlaylists,
         topResult: finalTopResult,
         didYouMean: didYouMean,
         error: searchError,

@@ -222,12 +222,12 @@ class _SearchScreenState extends State<SearchScreen> {
     _hasSearchedNotifier.value = true;
     _updateCanPop();
 
-    // SWR Instant Cache Check: Symmetric lookup with explicit language
+    // SWR Instant Cache Check: Symmetric lookup with explicit language or user preference
     final intent = SearchService.understandQuery(clean.toLowerCase());
-    final effectiveLang = intent.explicitLanguage;
+    final prefLangs = SettingsManager.preferredLanguages;
+    final effectiveLang = intent.explicitLanguage ?? prefLangs.firstWhere((l) => l.toLowerCase() != 'english', orElse: () => prefLangs.firstOrNull ?? 'tamil');
     final cached = SearchCache.get(clean, language: effectiveLang) ?? SearchCache.get(clean);
     bool hasCachedResults = false;
-
     if (cached != null && cached.songs.isNotEmpty) {
       hasCachedResults = true;
       _resultsNotifier.value = SearchResultsState(

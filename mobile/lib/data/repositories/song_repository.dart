@@ -317,6 +317,7 @@ class SongRepository {
   static List<Song> groupCanonicalSongs(
     Iterable<Song> songs, {
     String? preferredLanguage,
+    List<String>? preferredLanguages,
   }) {
     if (songs.isEmpty) return [];
 
@@ -328,27 +329,38 @@ class SongRepository {
     }
 
     final List<Song> canonicalList = [];
-    final prefLangLower = preferredLanguage?.toLowerCase().trim();
+    final Set<String> targetLangs = {};
+    if (preferredLanguage != null && preferredLanguage.trim().isNotEmpty) {
+      targetLangs.add(preferredLanguage.trim().toLowerCase());
+    }
+    if (preferredLanguages != null) {
+      for (final l in preferredLanguages) {
+        final t = l.trim().toLowerCase();
+        if (t.isNotEmpty) targetLangs.add(t);
+      }
+    }
 
     for (final group in groups.values) {
       if (group.isEmpty) continue;
 
       group.sort((a, b) {
-        // 1. Official album art preference
-        if (a.hasOfficialAlbumArt && !b.hasOfficialAlbumArt) return -1;
-        if (!a.hasOfficialAlbumArt && b.hasOfficialAlbumArt) return 1;
-
-        // 2. High fidelity source preference (Saavn 320kbps over YouTube)
-        if (a.source == 'saavn' && b.source != 'saavn') return -1;
-        if (a.source != 'saavn' && b.source == 'saavn') return 1;
-
-        // 3. Preferred language matching
-        if (prefLangLower != null && prefLangLower.isNotEmpty) {
-          final aMatch = a.language?.toLowerCase() == prefLangLower;
-          final bMatch = b.language?.toLowerCase() == prefLangLower;
+        // 1. Preferred language matching (multi-language parity: promote user's preferred language as primary)
+        if (targetLangs.isNotEmpty) {
+          final aLang = a.language?.toLowerCase().trim() ?? '';
+          final bLang = b.language?.toLowerCase().trim() ?? '';
+          final aMatch = targetLangs.contains(aLang) || targetLangs.any((l) => a.title.toLowerCase().contains(l));
+          final bMatch = targetLangs.contains(bLang) || targetLangs.any((l) => b.title.toLowerCase().contains(l));
           if (aMatch && !bMatch) return -1;
           if (!aMatch && bMatch) return 1;
         }
+
+        // 2. Official album art preference
+        if (a.hasOfficialAlbumArt && !b.hasOfficialAlbumArt) return -1;
+        if (!a.hasOfficialAlbumArt && b.hasOfficialAlbumArt) return 1;
+
+        // 3. High fidelity source preference (Saavn 320kbps over YouTube)
+        if (a.source == 'saavn' && b.source != 'saavn') return -1;
+        if (a.source != 'saavn' && b.source == 'saavn') return 1;
 
         // 4. Prefer Original track over remix/lofi for primary entry
         final aOrig = a.versionTag == 'Original';

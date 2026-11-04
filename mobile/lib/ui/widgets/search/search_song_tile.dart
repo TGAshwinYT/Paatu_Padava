@@ -116,6 +116,28 @@ class SearchSongTile extends StatelessWidget {
         cleanAlbum.toLowerCase() != cleanTitle.toLowerCase();
     final subtitleText = hasGenuineAlbum ? '$displayArtists • $cleanAlbum' : displayArtists;
 
+    // Filter out internal streaming source mirrors (identical title, language, and original status)
+    final distinctVersions = song.versions.where((v) {
+      final isSameTitle = v.normalizedTitle == song.normalizedTitle;
+      final isSameLang = (v.language ?? '').toLowerCase().trim() == (song.language ?? '').toLowerCase().trim();
+      final isBothOriginal = v.versionTag == 'Original' && song.versionTag == 'Original';
+      return !(isSameTitle && isSameLang && isBothOriginal);
+    }).toList();
+
+    String badgeLabel = '+${distinctVersions.length} Mixes ▾';
+    if (distinctVersions.isNotEmpty) {
+      final hasMix = distinctVersions.any((v) => v.versionTag == 'Remix' || v.versionTag == 'Lofi' || RegExp(r'\b(remix|lofi|lo-fi|mix|mashup)\b', caseSensitive: false).hasMatch(v.title));
+      final hasLangDiff = distinctVersions.any((v) =>
+          v.language != null && song.language != null && v.language!.toLowerCase().trim() != song.language!.toLowerCase().trim());
+      if (hasLangDiff && !hasMix) {
+        badgeLabel = '+${distinctVersions.length} Langs ▾';
+      } else if (hasMix) {
+        badgeLabel = '+${distinctVersions.length} Mixes ▾';
+      } else {
+        badgeLabel = '+${distinctVersions.length} Versions ▾';
+      }
+    }
+
     return ListTile(
       onTap: () {
         FocusScope.of(context).unfocus();
@@ -230,7 +252,7 @@ class SearchSongTile extends StatelessWidget {
               ),
             ),
           ),
-          if (song.versions.isNotEmpty && onShowVersions != null)
+          if (distinctVersions.isNotEmpty && onShowVersions != null)
             GestureDetector(
               onTap: onShowVersions,
               child: Container(
@@ -247,7 +269,7 @@ class SearchSongTile extends StatelessWidget {
                     const Icon(Icons.auto_awesome, size: 10, color: AppColors.neonViolet),
                     const SizedBox(width: 3),
                     Text(
-                      '+${song.versions.length} Mixes ▾',
+                      badgeLabel,
                       style: GoogleFonts.outfit(
                         fontSize: 9.5,
                         fontWeight: FontWeight.bold,

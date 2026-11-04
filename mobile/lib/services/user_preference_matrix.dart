@@ -3,6 +3,7 @@ import '../models/song.dart';
 import 'favorites_manager.dart';
 import 'history_manager.dart';
 import 'artist_sanitizer.dart';
+import 'settings_manager.dart';
 
 /// Dynamic On-Device User Preference Matrix for Paatu Padava.
 /// Re-ranks search results and recommended queues by learning the user's personal
@@ -150,6 +151,7 @@ class UserPreferenceMatrix {
     QueryIntent? intent,
     List<Song>? likedSongs,
     List<Song>? historySongs,
+    List<String>? preferredLanguages,
   }) {
     if (candidates.isEmpty) return candidates;
     final qLower = query.trim().toLowerCase();
@@ -209,6 +211,18 @@ class UserPreferenceMatrix {
       final aAlbumMatch = SearchService.isAlbumOrMovieEntityMatch(albA, qLower) ? 1 : 0;
       final bAlbumMatch = SearchService.isAlbumOrMovieEntityMatch(albB, qLower) ? 1 : 0;
       if (aAlbumMatch != bAlbumMatch) return bAlbumMatch.compareTo(aAlbumMatch);
+
+      final targetLangs = (preferredLanguages ?? SettingsManager.preferredLanguages)
+          .map((l) => l.toLowerCase().trim())
+          .where((l) => l.isNotEmpty)
+          .toSet();
+      if (targetLangs.isNotEmpty) {
+        final aLang = sA.language?.toLowerCase().trim() ?? '';
+        final bLang = sB.language?.toLowerCase().trim() ?? '';
+        final aMatch = targetLangs.contains(aLang) || targetLangs.any((l) => sA.title.toLowerCase().contains(l));
+        final bMatch = targetLangs.contains(bLang) || targetLangs.any((l) => sB.title.toLowerCase().contains(l));
+        if (aMatch != bMatch) return aMatch ? -1 : 1;
+      }
 
       // If both tracks belong to the SAME matched movie/soundtrack entity, preserve official tracklist order!
       if (aAlbumMatch == 1 && bAlbumMatch == 1 && albA == albB) {

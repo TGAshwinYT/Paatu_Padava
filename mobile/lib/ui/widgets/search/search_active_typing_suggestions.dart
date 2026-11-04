@@ -4,11 +4,24 @@ import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
 import '../../../services/favorites_manager.dart';
 import '../../../services/search_history_manager.dart';
+import '../../../services/youtube_client.dart';
 import '../../theme/app_theme.dart';
 import '../../screens/album_screen.dart';
 
 class SearchActiveTypingSuggestions extends StatelessWidget {
   static final HtmlUnescape _unescape = HtmlUnescape();
+
+  static final RegExp _mixOrBgmRegex = RegExp(
+    r'\b(bgm|theme|ost|score|background\s*score|instrumental|remix|mashup|lo[\s\-]?fi|slowed|reverb|acoustic|reprise|extended|mix|version|soundtrack)\b',
+    caseSensitive: false,
+  );
+
+  static bool _isMixOrBgmOrOst(Song s) {
+    if (s.duration > 0 && s.duration < 45) return true;
+    if (_mixOrBgmRegex.hasMatch(s.title)) return true;
+    if (_mixOrBgmRegex.hasMatch(s.album)) return true;
+    return false;
+  }
 
   final List<Song> localSongMatches;
   final List<Map<String, dynamic>> matchingAlbums;
@@ -48,48 +61,19 @@ class SearchActiveTypingSuggestions extends StatelessWidget {
 
     final historyQueries = SearchHistoryManager.historyNotifier.value.map((h) => h.toLowerCase().trim()).toSet();
 
+    final orderedSongMatches = [
+      ...localSongMatches.where((s) => !_isMixOrBgmOrOst(s)),
+      ...localSongMatches.where((s) => _isMixOrBgmOrOst(s)),
+    ];
+
+    final hasEntities = orderedSongMatches.isNotEmpty || matchingAlbums.isNotEmpty;
+    final maxCompletions = hasEntities ? 3 : 5;
+
     return ListView(
       padding: const EdgeInsets.fromLTRB(0, 4, 0, 120),
       children: [
-        // 1. Autocomplete Search Suggestions (Flat, borderless Spotify standard)
-        if (effectiveCompletions.isNotEmpty) ...[
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 6, 16, 4),
-            child: Text(
-              'SEARCH SUGGESTIONS',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.8),
-            ),
-          ),
-          ...effectiveCompletions.take(5).map((q) {
-            final clean = _unescape.convert(Song.sanitize(q));
-            final isHistory = historyQueries.contains(clean.toLowerCase().trim());
-            return ListTile(
-              dense: true,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
-              leading: Icon(
-                isHistory ? Icons.history_rounded : Icons.search_rounded,
-                color: Colors.white70,
-                size: 22,
-              ),
-              title: Text(
-                clean,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white, fontSize: 14.5, fontWeight: FontWeight.w400),
-              ),
-              trailing: IconButton(
-                icon: const Icon(Icons.north_west_rounded, color: Colors.white54, size: 18),
-                tooltip: 'Insert to search',
-                onPressed: () => onAppendQuery(q),
-              ),
-              onTap: () => onSelectQuery(q),
-            );
-          }),
-          const SizedBox(height: 8),
-        ],
-
-        // 2. Direct Matching Entities (Songs)
-        if (localSongMatches.isNotEmpty) ...[
+        // 1. Direct Matching Entities (Songs) - Rendered at top above keyboard fold
+        if (orderedSongMatches.isNotEmpty) ...[
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 6, 16, 4),
             child: Row(
@@ -97,13 +81,13 @@ class SearchActiveTypingSuggestions extends StatelessWidget {
                 Icon(Icons.music_note_rounded, size: 13, color: AppColors.electricCyan),
                 SizedBox(width: 4),
                 Text(
-                  'INSTANT MATCHES',
+                  'SONGS',
                   style: TextStyle(color: AppColors.electricCyan, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.8),
                 ),
               ],
             ),
           ),
-          ...localSongMatches.take(3).map((song) {
+          ...orderedSongMatches.take(3).map((song) {
             final cleanTitle = _unescape.convert(Song.sanitize(song.title));
             final cleanArtist = _unescape.convert(Song.sanitize(song.artist));
 
@@ -172,10 +156,10 @@ class SearchActiveTypingSuggestions extends StatelessWidget {
               },
             );
           }),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
         ],
 
-        // 3. Direct Matching Entities (Albums)
+        // 2. Direct Matching Entities (Albums)
         if (matchingAlbums.isNotEmpty) ...[
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 6, 16, 4),
@@ -245,6 +229,43 @@ class SearchActiveTypingSuggestions extends StatelessWidget {
                 style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5),
               ),
               trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white38, size: 20),
+            );
+          }),
+          const SizedBox(height: 6),
+        ],
+
+        // 3. Autocomplete Search Suggestions (Flat, borderless Spotify standard)
+        if (effectiveCompletions.isNotEmpty) ...[
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 6, 16, 4),
+            child: Text(
+              'SEARCH SUGGESTIONS',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.8),
+            ),
+          ),
+          ...effectiveCompletions.take(maxCompletions).map((q) {
+            final clean = _unescape.convert(Song.sanitize(q));
+            final isHistory = historyQueries.contains(clean.toLowerCase().trim());
+            return ListTile(
+              dense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+              leading: Icon(
+                isHistory ? Icons.history_rounded : Icons.search_rounded,
+                color: Colors.white70,
+                size: 22,
+              ),
+              title: Text(
+                clean,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontSize: 14.5, fontWeight: FontWeight.w400),
+              ),
+              trailing: IconButton(
+                icon: const Icon(Icons.north_west_rounded, color: Colors.white54, size: 18),
+                tooltip: 'Insert to search',
+                onPressed: () => onAppendQuery(q),
+              ),
+              onTap: () => onSelectQuery(q),
             );
           }),
         ],

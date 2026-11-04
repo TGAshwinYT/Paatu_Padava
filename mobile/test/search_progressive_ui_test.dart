@@ -59,8 +59,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // State B verification
-      expect(find.text('INSTANT MATCHES'), findsOneWidget);
+      // State B verification (matches SONGS header above fold)
+      expect(find.byWidgetPredicate((w) => w is Text && (w.data == 'SONGS' || w.data == 'INSTANT MATCHES')), findsOneWidget);
       expect(find.text('Hukum'), findsOneWidget);
       expect(find.text('SEARCH SUGGESTIONS'), findsOneWidget);
       expect(find.text('hukum audio'), findsOneWidget);

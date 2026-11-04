@@ -174,7 +174,20 @@ class _SearchScreenState extends State<SearchScreen> {
 
     _typeaheadDebounceTimer = Timer(const Duration(milliseconds: 300), () {
       final intent = SearchService.understandQuery(lower);
-      SearchService.prewarmQuery(clean, language: intent.explicitLanguage);
+      SearchService.prewarmQuery(
+        clean,
+        language: intent.explicitLanguage,
+        onPrewarmed: (prewarmedSongs, prewarmedAlbums) {
+          if (mounted && _searchController.text.trim() == clean && !_hasSearchedNotifier.value) {
+            if (_localMatchesNotifier.value.isEmpty && prewarmedSongs.isNotEmpty) {
+              _localMatchesNotifier.value = prewarmedSongs;
+            }
+            if (_matchingAlbumsNotifier.value.isEmpty && prewarmedAlbums.isNotEmpty) {
+              _matchingAlbumsNotifier.value = prewarmedAlbums;
+            }
+          }
+        },
+      );
       SearchService.getTypeaheadBundle(
         clean,
         localTrie: _localSearchTrie,
@@ -182,8 +195,8 @@ class _SearchScreenState extends State<SearchScreen> {
       ).then((bundle) {
         if (mounted && _searchController.text.trim() == clean && !_hasSearchedNotifier.value) {
           if (bundle.completions.isNotEmpty) _suggestionsNotifier.value = bundle.completions;
-          _localMatchesNotifier.value = bundle.songs;
-          _matchingAlbumsNotifier.value = bundle.albums;
+          if (bundle.songs.isNotEmpty) _localMatchesNotifier.value = bundle.songs;
+          if (bundle.albums.isNotEmpty) _matchingAlbumsNotifier.value = bundle.albums;
         }
       }).catchError((e, stack) => AppLogger.log('SearchScreen', 'Typeahead fetch error: $e', level: LogLevel.warn));
     });

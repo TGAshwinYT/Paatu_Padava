@@ -26,7 +26,7 @@ class SearchArtistTile extends StatelessWidget {
     final id = artist['id']?.toString() ?? '';
     final rawName = artist['name']?.toString() ?? artist['title']?.toString() ?? '';
     final name = _unescape.convert(Song.sanitize(rawName));
-    final img = artist['image']?.toString() ?? artist['cover_url']?.toString() ?? '';
+    final img = artist['image']?.toString() ?? artist['cover_url']?.toString() ?? artist['fallback_image']?.toString() ?? '';
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),

@@ -483,6 +483,26 @@ class DefaultStreamResolver implements StreamResolver {
             : 'Bypassing Saavn Stage A/B search: "${song.title}" is a long-form compilation (${song.duration}s). Direct YouTube extraction prioritized.',
       );
     } else {
+      // ── STAGE 0 (Direct JioSaavn PID Details Lookup <150ms) ──
+      if (!forceYouTubeFallback &&
+          (song.source == 'saavn' || (!song.id.startsWith('cat_') && song.id.length != 11))) {
+        try {
+          final directSong = await SaavnClient.getSongDetails(song.id);
+          if (directSong != null && directSong.streamUrl != null && directSong.streamUrl!.contains('saavncdn.com')) {
+            AppLogger.log('StreamResolver', 'Direct Saavn PID details resolved for "${song.title}": ${directSong.streamUrl}');
+            song.source = 'saavn';
+            song.streamUrl = directSong.streamUrl;
+            if (directSong.duration > 0 && song.duration == 0) {
+              song.duration = directSong.duration;
+            }
+            cacheStream(song.id, directSong.streamUrl!, source: 'saavn');
+            return directSong.streamUrl;
+          }
+        } catch (e) {
+          AppLogger.log('StreamResolver', 'Direct Saavn PID details notice for ${song.id}: $e');
+        }
+      }
+
       // ── STAGE A (Exact Clean Title + Primary Artist on Saavn) ──
       // Strip parentheticals (From ...), [Official ...], quotes, and featured artists.
       // Take song title before '-' or '(' and first artist name (e.g. "Hukum Anirudh").

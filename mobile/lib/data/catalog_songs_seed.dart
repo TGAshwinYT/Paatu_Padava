@@ -116,36 +116,36 @@ class CatalogSongsSeed {
     CatalogSong(
       id: 'cat_roja_chinna_chinna_aasai', title: 'Chinna Chinna Aasai', movieTitle: 'Roja', movieId: 'roja_1992',
       composer: 'A.R. Rahman', singers: 'Minmini', starring: 'Arvind Swamy, Madhoo',
-      year: 1992, duration: 295, coverUrl: 'https://c.saavncdn.com/500/Roja-Tamil-1992-500x500.jpg', createdAt: 713900000,
+      year: 1992, duration: 295, coverUrl: 'https://c.saavncdn.com/702/Roja-Tamil-1992-20251011230302-500x500.jpg', createdAt: 713900000,
     ),
     CatalogSong(
       id: 'cat_roja_pudhu_vellai_mazhai', title: 'Pudhu Vellai Mazhai', movieTitle: 'Roja', movieId: 'roja_1992',
       composer: 'A.R. Rahman', singers: 'Unni Menon, Sujatha Mohan', starring: 'Arvind Swamy, Madhoo',
-      year: 1992, duration: 316, coverUrl: 'https://c.saavncdn.com/500/Roja-Tamil-1992-500x500.jpg', createdAt: 713900000,
+      year: 1992, duration: 316, coverUrl: 'https://c.saavncdn.com/702/Roja-Tamil-1992-20251011230302-500x500.jpg', createdAt: 713900000,
     ),
 
     // --- VINNAITHAANDI VARUVAAYAA (2010) ---
     CatalogSong(
       id: 'cat_vtv_hosanna', title: 'Hosanna', movieTitle: 'Vinnaithaandi Varuvaayaa', movieId: 'vinnaithaandi_varuvaayaa_2010',
       composer: 'A.R. Rahman', singers: 'Vijay Prakash, Suzanne D\'Mello, Blaaze', starring: 'Silambarasan TR, Trisha Krishnan',
-      year: 2010, duration: 331, coverUrl: 'https://c.saavncdn.com/500/Vinnaithaandi-Varuvaayaa-Tamil-2010-500x500.jpg', createdAt: 1263000000,
+      year: 2010, duration: 331, coverUrl: 'https://c.saavncdn.com/880/Vinnaithaandi-Varuvaayaa-Tamil-2010-20260120201226-500x500.jpg', createdAt: 1263000000,
     ),
     CatalogSong(
       id: 'cat_vtv_aaromale', title: 'Aaromale', movieTitle: 'Vinnaithaandi Varuvaayaa', movieId: 'vinnaithaandi_varuvaayaa_2010',
       composer: 'A.R. Rahman', singers: 'Alphons Joseph', starring: 'Silambarasan TR',
-      year: 2010, duration: 346, coverUrl: 'https://c.saavncdn.com/500/Vinnaithaandi-Varuvaayaa-Tamil-2010-500x500.jpg', createdAt: 1263000000,
+      year: 2010, duration: 346, coverUrl: 'https://c.saavncdn.com/880/Vinnaithaandi-Varuvaayaa-Tamil-2010-20260120201226-500x500.jpg', createdAt: 1263000000,
     ),
 
     // --- PAIYAA (2010) ---
     CatalogSong(
       id: 'cat_paiyaa_thuli_thuli', title: 'Thuli Thuli', movieTitle: 'Paiyaa', movieId: 'paiyaa_2010',
       composer: 'Yuvan Shankar Raja', singers: 'Haricharan, Tanvi Shah', starring: 'Karthi, Tamannaah Bhatia',
-      year: 2010, duration: 284, coverUrl: 'https://c.saavncdn.com/500/Paiyaa-Tamil-2010-500x500.jpg', createdAt: 1260000000,
+      year: 2010, duration: 284, coverUrl: 'https://c.saavncdn.com/984/Paiya-Tamil-2010-20200620134043-500x500.jpg', createdAt: 1260000000,
     ),
     CatalogSong(
       id: 'cat_paiyaa_adada_mazhaida', title: 'Adada Mazhaida', movieTitle: 'Paiyaa', movieId: 'paiyaa_2010',
       composer: 'Yuvan Shankar Raja', singers: 'Rahul Nambiar, Saindhavi', starring: 'Karthi, Tamannaah Bhatia',
-      year: 2010, duration: 254, coverUrl: 'https://c.saavncdn.com/500/Paiyaa-Tamil-2010-500x500.jpg', createdAt: 1260000000,
+      year: 2010, duration: 254, coverUrl: 'https://c.saavncdn.com/984/Paiya-Tamil-2010-20200620134043-500x500.jpg', createdAt: 1260000000,
     ),
 
     // --- INDEPENDENT CHARTBUSTERS ---
@@ -162,28 +162,28 @@ class CatalogSongsSeed {
     CatalogSong(
       id: 'cat_enjoy_enjaami', title: 'Enjoy Enjaami', movieTitle: 'Maajja', movieId: null,
       composer: 'Santhosh Narayanan', singers: 'Dhee, Arivu', starring: 'Dhee, Arivu',
-      year: 2021, duration: 250, coverUrl: 'https://c.saavncdn.com/500/Enjoy-Enjaami-Tamil-2021-500x500.jpg', createdAt: 1615000000,
+      year: 2021, duration: 250, coverUrl: 'https://c.saavncdn.com/940/Enjoy-Enjaami-Tamil-2021-20260227060111-500x500.jpg', createdAt: 1615000000,
     ),
 
     // --- MEESAYA MURUKKU (2017) ---
     CatalogSong(
       id: 'cat_meesaya_murukku_title', title: 'Meesaya Murukku', movieTitle: 'Meesaya Murukku', movieId: 'meesaya_murukku_2017',
       composer: 'Hiphop Tamizha', singers: 'Hiphop Tamizha, Kharesma Ravichandran', starring: 'Hiphop Tamizha Aadhi, Aathmika',
-      year: 2017, duration: 224, coverUrl: 'https://c.saavncdn.com/500/Meesaya-Murukku-Tamil-2017-500x500.jpg', createdAt: 1500000000,
+      year: 2017, duration: 224, coverUrl: 'https://c.saavncdn.com/091/Meesaya-Murukku-Original-Motion-Picture-Soundtrack-Tamil-2017-20250910160527-500x500.jpg', createdAt: 1500000000,
     ),
 
     // --- BAASHA (1995) ---
     CatalogSong(
       id: 'cat_baasha_naan_autokaaran', title: 'Naan Autokaaran', movieTitle: 'Baasha', movieId: 'baasha_1995',
       composer: 'Deva', singers: 'S.P. Balasubrahmanyam', starring: 'Rajinikanth',
-      year: 1995, duration: 284, coverUrl: 'https://c.saavncdn.com/500/Baasha-Tamil-1995-500x500.jpg', createdAt: 790000000,
+      year: 1995, duration: 284, coverUrl: 'https://c.saavncdn.com/995/Baasha-Tamil-1995-20260114164427-500x500.jpg', createdAt: 790000000,
     ),
 
     // --- GHILLI (2004) ---
     CatalogSong(
       id: 'cat_ghilli_appadi_podu', title: 'Appadi Podu', movieTitle: 'Ghilli', movieId: 'ghilli_2004',
       composer: 'Vidyasagar', singers: 'KK, Anuradha Sriram', starring: 'Thalapathy Vijay, Trisha Krishnan',
-      year: 2004, duration: 334, coverUrl: 'https://c.saavncdn.com/500/Ghilli-Tamil-2004-500x500.jpg', createdAt: 1080000000,
+      year: 2004, duration: 334, coverUrl: 'https://c.saavncdn.com/278/Gilli-Tamil-Tamil-2004-20190110130805-500x500.jpg', createdAt: 1080000000,
     ),
   ];
 }

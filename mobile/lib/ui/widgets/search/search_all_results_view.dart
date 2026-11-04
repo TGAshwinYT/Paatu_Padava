@@ -43,11 +43,25 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
 
   // Memoized collections precomputed on state change (NOT on every build frame)
   List<Song> _fanMixes = const [];
+  List<Song> _pureSongs = const [];
 
   static final RegExp _mixOrBgmRegex = RegExp(
-    r'\b(bgm|theme|ost|score|instrumental|remix|mashup|lo[\s\-]?fi|slowed|reverb|acoustic|reprise|extended|mix|version|soundtrack)\b',
+    r'\b(bgm|theme|ost|score|background\s*score|instrumental|remix|mashup|lo[\s\-]?fi|slowed|reverb|acoustic|reprise|extended|mix|version|soundtrack)\b',
     caseSensitive: false,
   );
+
+  static bool isMixOrBgmOrOst(Song s) {
+    if (s.duration > 0 && s.duration < TrackQualityFilter.minSongDurationSec) return true;
+    if (_mixOrBgmRegex.hasMatch(s.title)) return true;
+    if (_mixOrBgmRegex.hasMatch(s.album)) return true;
+    final cls = TrackQualityFilter.classifyTrack(
+      title: s.title,
+      durationSec: s.duration,
+      source: s.source,
+      artist: s.artist,
+    );
+    return cls == ContentClassification.fanMixOrVersion;
+  }
 
   @override
   void initState() {
@@ -67,38 +81,24 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
     final List<Song> allSongs = (widget.state.songs as List<dynamic>?)?.cast<Song>() ?? <Song>[];
 
     final mixes = <Song>[];
+    final pure = <Song>[];
 
     for (final s in allSongs) {
-      final cls = TrackQualityFilter.classifyTrack(
-        title: s.title,
-        durationSec: s.duration,
-        source: s.source,
-        artist: s.artist,
-      );
-
-      final isMix = cls == ContentClassification.fanMixOrVersion || _mixOrBgmRegex.hasMatch(s.title);
-      if (isMix && !mixes.any((m) => m.id == s.id)) {
-        mixes.add(s);
+      if (isMixOrBgmOrOst(s)) {
+        if (!mixes.any((m) => m.id == s.id)) mixes.add(s);
+      } else {
+        if (!pure.any((p) => p.id == s.id)) pure.add(s);
       }
 
       for (final v in s.versions) {
-        final isVVersion = v.versionTag == 'Remix' ||
-            v.versionTag == 'Lofi' ||
-            _mixOrBgmRegex.hasMatch(v.title) ||
-            TrackQualityFilter.classifyTrack(
-                  title: v.title,
-                  durationSec: v.duration,
-                  source: v.source,
-                  artist: v.artist,
-                ) ==
-                ContentClassification.fanMixOrVersion;
-        if (isVVersion && !mixes.any((m) => m.id == v.id)) {
-          mixes.add(v);
+        if (isMixOrBgmOrOst(v) || v.versionTag == 'Remix' || v.versionTag == 'Lofi') {
+          if (!mixes.any((m) => m.id == v.id)) mixes.add(v);
         }
       }
     }
 
     _fanMixes = mixes;
+    _pureSongs = pure.isNotEmpty ? pure : allSongs;
   }
 
   @override
@@ -139,7 +139,7 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
         Expanded(
           child: _selectedFilter == 'Songs'
               ? SearchPaginatedSongsView(
-                  initialSongs: allSongs,
+                  initialSongs: _pureSongs,
                   query: widget.query,
                   onSongTap: widget.onSongTap,
                   onShowOptions: widget.onShowOptions,
@@ -155,9 +155,9 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
 
               // Tab: All
               if (_selectedFilter == 'All') ...[
-                if (allSongs.isNotEmpty) ...[
-                  _buildSectionHeader('Songs', onSeeAll: allSongs.length > 5 ? () => setState(() => _selectedFilter = 'Songs') : null),
-                  ...allSongs.take(5).map((song) => _buildSongTile(song)),
+                if (_pureSongs.isNotEmpty) ...[
+                  _buildSectionHeader('Songs', onSeeAll: _pureSongs.length > 5 ? () => setState(() => _selectedFilter = 'Songs') : null),
+                  ..._pureSongs.take(5).map((song) => _buildSongTile(song)),
                 ],
                 if (albums.isNotEmpty) ...[
                   _buildSectionHeader('Albums', onSeeAll: albums.length > 4 ? () => setState(() => _selectedFilter = 'Albums') : null),

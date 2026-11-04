@@ -237,6 +237,14 @@ class YouTubeClient {
 
   /// Direct client-side search autocomplete / suggestions via Google Suggest endpoint.
   /// Works with sub-40ms latency directly on device with zero-server dependency.
+  static final RegExp _suggestionJunkRegex = RegExp(
+    r'\b(whatsapp\s*status|status\s*video|status|reels?|shorts?|reaction|review|interview|scenes?|dialogues?|comedy|ringtones?|download|4k\s*status|full\s*screen|black\s*screen|bgm\s*ringtone)\b',
+    caseSensitive: false,
+  );
+
+  /// Validates whether a suggestion term is genuine music query vs video junk
+  static bool isJunkSuggestion(String term) => _suggestionJunkRegex.hasMatch(term.toLowerCase());
+
   static Future<List<String>> getSearchSuggestions(String query) async {
     final clean = query.trim();
     if (clean.isEmpty) return [];
@@ -256,10 +264,10 @@ class YouTubeClient {
           for (final item in decoded[1]) {
             if (item is List && item.isNotEmpty) {
               final term = item[0]?.toString().trim();
-              if (term != null && term.isNotEmpty) {
+              if (term != null && term.isNotEmpty && !isJunkSuggestion(term)) {
                 suggestions.add(term);
               }
-            } else if (item is String && item.trim().isNotEmpty) {
+            } else if (item is String && item.trim().isNotEmpty && !isJunkSuggestion(item.trim())) {
               suggestions.add(item.trim());
             }
           }
@@ -276,7 +284,10 @@ class YouTubeClient {
         if (res.statusCode == 200) {
           final decoded = jsonDecode(res.body);
           if (decoded is List && decoded.length >= 2 && decoded[1] is List) {
-            return (decoded[1] as List).map((e) => e.toString().trim()).where((s) => s.isNotEmpty).toList();
+            return (decoded[1] as List)
+                .map((e) => e.toString().trim())
+                .where((s) => s.isNotEmpty && !isJunkSuggestion(s))
+                .toList();
           }
         }
       } catch (_) {}

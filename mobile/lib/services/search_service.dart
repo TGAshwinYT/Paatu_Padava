@@ -498,7 +498,7 @@ class SearchService {
         .timeout(const Duration(milliseconds: 600), onTimeout: () => <String>[])
         .catchError((_) => <String>[]);
     final saavnFuture = SaavnClient.getAutocompleteData(clean)
-        .timeout(const Duration(milliseconds: 1200), onTimeout: () => <String, dynamic>{})
+        .timeout(const Duration(milliseconds: 2500), onTimeout: () => <String, dynamic>{})
         .catchError((_) => <String, dynamic>{});
 
     final res = await Future.wait([ytFuture, saavnFuture]);
@@ -510,7 +510,7 @@ class SearchService {
 
     void addComp(String s) {
       final t = s.trim();
-      if (t.isNotEmpty && seen.add(t.toLowerCase())) {
+      if (t.isNotEmpty && !YouTubeClient.isJunkSuggestion(t) && seen.add(t.toLowerCase())) {
         completions.add(t);
       }
     }
@@ -532,8 +532,21 @@ class SearchService {
       addComp(s);
     }
 
-    final songs = (saavnData['songs'] as List<dynamic>?)?.cast<Song>() ?? <Song>[];
-    final albums = (saavnData['albums'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? <Map<String, dynamic>>[];
+    var songs = (saavnData['songs'] as List<dynamic>?)?.cast<Song>() ?? <Song>[];
+    var albums = (saavnData['albums'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? <Map<String, dynamic>>[];
+
+    if (songs.isEmpty) {
+      final cachedSearch = SearchCache.get(clean);
+      if (cachedSearch != null && cachedSearch.songs.isNotEmpty) {
+        songs = cachedSearch.songs;
+      }
+    }
+    if (albums.isEmpty) {
+      final cachedSearch = SearchCache.get(clean);
+      if (cachedSearch != null && cachedSearch.albums.isNotEmpty) {
+        albums = cachedSearch.albums;
+      }
+    }
 
     final bundle = SearchTypeaheadBundle(
       completions: completions,
@@ -546,38 +559,47 @@ class SearchService {
   }
 
   /// Pre-warms the primary search query in the background on debounced typing pauses (300ms).
-  static void prewarmQuery(String query, {String? language}) {
+  static void prewarmQuery(
+    String query, {
+    String? language,
+    void Function(List<Song> songs, List<Map<String, dynamic>> albums)? onPrewarmed,
+  }) {
     final clean = query.trim();
     if (clean.length < 2) return;
     final cached = SearchCache.get(clean, language: language);
-    if (cached != null) return;
+    if (cached != null) {
+      if (cached.songs.isNotEmpty || cached.albums.isNotEmpty) {
+        onPrewarmed?.call(cached.songs.take(3).toList(), cached.albums.take(2).toList());
+      }
+      return;
+    }
 
     SaavnClient.search(clean, limit: 25, language: language).then((songs) {
       if (songs.isNotEmpty) {
         final existing = SearchCache.get(clean, language: language);
-        if (existing == null) {
-          final extractedAlbums = <Map<String, dynamic>>[];
-          final seen = <String>{};
-          for (final s in songs.take(6)) {
-            final alb = s.album.trim();
-            final albLower = alb.toLowerCase();
-            if (alb.isNotEmpty &&
-                albLower != 'single' &&
-                albLower != 'unknown' &&
-                albLower != 'various artists' &&
-                albLower != 'studio album' &&
-                seen.add(albLower)) {
-              extractedAlbums.add({
-                'id': alb.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_').toLowerCase(),
-                'title': alb,
-                'artist': s.artist,
-                'image': s.coverUrl,
-                'type': 'Album',
-                'is_movie': true,
-                'source': s.source,
-              });
-            }
+        final extractedAlbums = <Map<String, dynamic>>[];
+        final seen = <String>{};
+        for (final s in songs.take(6)) {
+          final alb = s.album.trim();
+          final albLower = alb.toLowerCase();
+          if (alb.isNotEmpty &&
+              albLower != 'single' &&
+              albLower != 'unknown' &&
+              albLower != 'various artists' &&
+              albLower != 'studio album' &&
+              seen.add(albLower)) {
+            extractedAlbums.add({
+              'id': alb.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_').toLowerCase(),
+              'title': alb,
+              'artist': s.artist,
+              'image': s.coverUrl,
+              'type': 'Album',
+              'is_movie': true,
+              'source': s.source,
+            });
           }
+        }
+        if (existing == null) {
           SearchCache.put(
             clean,
             SearchResults(
@@ -589,6 +611,7 @@ class SearchService {
             language: language,
           );
         }
+        onPrewarmed?.call(songs.take(3).toList(), extractedAlbums.take(2).toList());
       }
     }).catchError((_) {});
   }
@@ -2513,33 +2536,11 @@ class SearchService {
         }
       }();
 
-      // Populate Albums Tab: Merge genuine albums with artist discography and Master Catalog movies
+      // Populate Albums Tab: Prioritize regional movie/soundtrack albums correlated with top songs
       initialAlbums = [];
       final Set<String> seenAlbumNames = {};
 
-      for (final alb in filterGenuineAlbums(rawAlbums, query: intent.cleanQuery)) {
-        final t = (alb['title'] ?? alb['name'] ?? '').toString().toLowerCase().trim();
-        if (t.isNotEmpty && seenAlbumNames.add(t)) {
-          initialAlbums.add(alb);
-        }
-      }
-
-      for (final cm in catMovies) {
-        final t = (cm['title'] ?? '').toString().toLowerCase().trim();
-        if (t.isNotEmpty && seenAlbumNames.add(t)) {
-          var img = cm['image'] ?? cm['cover_url'] ?? '';
-          if (img.toString().isEmpty || img.toString().contains('default')) {
-            img = CatalogDatabase.getMoviePoster(cm['title']?.toString() ?? '') ?? '';
-          }
-          initialAlbums.add({
-            ...cm,
-            'image': img,
-            'artist': cm['artist'] ?? cm['composer'] ?? '',
-          });
-        }
-      }
-
-      // Correlate matched songs with their parent movie/soundtrack albums
+      // 1. Correlate matched songs with their parent movie/soundtrack albums (Highest user relevance, e.g. "Kiss" by Jen Martin)
       for (final s in rankedSaavn.take(6)) {
         final alb = s.album.trim();
         final albLower = alb.toLowerCase();
@@ -2558,6 +2559,30 @@ class SearchService {
             'is_movie': true,
             'source': s.source,
           });
+        }
+      }
+
+      // 2. Master Catalog verified movies
+      for (final cm in catMovies) {
+        final t = (cm['title'] ?? '').toString().toLowerCase().trim();
+        if (t.isNotEmpty && seenAlbumNames.add(t)) {
+          var img = cm['image'] ?? cm['cover_url'] ?? '';
+          if (img.toString().isEmpty || img.toString().contains('default')) {
+            img = CatalogDatabase.getMoviePoster(cm['title']?.toString() ?? '') ?? '';
+          }
+          initialAlbums.add({
+            ...cm,
+            'image': img,
+            'artist': cm['artist'] ?? cm['composer'] ?? '',
+          });
+        }
+      }
+
+      // 3. Raw albums from JioSaavn search (filtered to ensure regional parity)
+      for (final alb in filterGenuineAlbums(rawAlbums, query: intent.cleanQuery)) {
+        final t = (alb['title'] ?? alb['name'] ?? '').toString().toLowerCase().trim();
+        if (t.isNotEmpty && seenAlbumNames.add(t)) {
+          initialAlbums.add(alb);
         }
       }
 

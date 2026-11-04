@@ -226,6 +226,7 @@ class CoverArtResolver {
   static bool _isSaavnCover(String url) {
     if (url.isEmpty || _isPlaceholder(url)) return false;
     final lower = url.toLowerCase();
+    if (lower.contains('saavncdn.com/500/')) return false;
     return lower.contains('saavncdn.com') || lower.contains('jiosaavn');
   }
 
@@ -470,7 +471,9 @@ class CoverArtResolver {
 
   /// Detects whether a cover URL is an unwanted placeholder (Unsplash stock photo)
   static bool _isPlaceholder(String url) {
-    return url.contains('unsplash.com') || url.contains('photo-1470225620780-dba8ba36b745');
+    return url.contains('unsplash.com') ||
+        url.contains('photo-1470225620780-dba8ba36b745') ||
+        url.contains('saavncdn.com/500/');
   }
 
   /// Helper to test if a given URL is a 16:9 YouTube video thumbnail (letterboxed or frame capture)

@@ -482,12 +482,14 @@ class CatalogDatabase {
         final key = lowerArt;
         if (!map.containsKey(key)) {
           final img = getArtistProfileImage(art) ?? '';
+          final fallbackImg = (song.coverUrl.isNotEmpty && !song.coverUrl.contains('default')) ? song.coverUrl : '';
           map[key] = {
             'id': 'art_${key.replaceAll(' ', '_')}',
             'name': art,
             'title': art,
             'role': 'Singer / Composer',
-            'image': img,
+            'image': img.isNotEmpty ? img : fallbackImg,
+            'fallback_image': fallbackImg,
             'is_verified': img.isNotEmpty,
           };
           if (map.length >= limit) break;

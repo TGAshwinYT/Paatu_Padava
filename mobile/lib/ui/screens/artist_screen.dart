@@ -10,6 +10,7 @@ import '../../services/spotify_import_service.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/search/search_song_options_sheet.dart';
 import '../../logic/stream_resolver.dart';
+import '../../services/saavn_client.dart';
 
 class ArtistScreen extends StatefulWidget {
   final String artistId;
@@ -63,6 +64,18 @@ class _ArtistScreenState extends State<ArtistScreen> {
       if (spotifyImg != null && spotifyImg.isNotEmpty && mounted) {
         setState(() => _resolvedImageUrl = spotifyImg);
         return;
+      }
+    } catch (_) {}
+
+    try {
+      final saavnArtists = await SaavnClient.searchArtists(widget.artistName, limit: 3);
+      for (final a in saavnArtists) {
+        final aImg = (a['image'] ?? '').toString();
+        if (aImg.isNotEmpty && mounted) {
+          setState(() => _resolvedImageUrl = aImg);
+          SongRepository.verifiedArtistAvatars[norm] = aImg;
+          return;
+        }
       }
     } catch (_) {}
   }

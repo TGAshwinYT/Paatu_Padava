@@ -8,8 +8,8 @@ class YouTubeTitleCleaner {
     var cleaned = Song.sanitize(title);
     // Remove leading @handle mentions (e.g. "@SaiAbhyankkar - Pavazha Malli" -> "Pavazha Malli")
     cleaned = cleaned.replaceAll(RegExp(r'^@[a-zA-Z0-9_.]+\s*[-:|~–—]?\s*'), '');
-    // Strip anything after pipe '|'
-    cleaned = cleaned.replaceAll(RegExp(r'\|.*$'), ' ');
+    // Replace pipe '|' with space so that titles like "MovieName | SongName" retain both parts
+    cleaned = cleaned.replaceAll('|', ' ');
     // Remove bracketed info like [Official Video], (4K), | Lyrical, (Tamil), etc.
     cleaned = cleaned.replaceAll(RegExp(r'[\(\[\{].*?[\)\]\}]'), ' ');
     // Strip multi-word video/song markers first, then single words

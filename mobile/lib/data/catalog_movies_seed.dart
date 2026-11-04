@@ -46,7 +46,7 @@ class CatalogMoviesSeed {
       composer: 'A.R. Rahman',
       starring: 'Arvind Swamy, Madhoo',
       director: 'Mani Ratnam',
-      coverUrl: 'https://c.saavncdn.com/500/Roja-Tamil-1992-500x500.jpg',
+      coverUrl: 'https://c.saavncdn.com/702/Roja-Tamil-1992-20251011230302-500x500.jpg',
     ),
     CatalogMovie(
       id: 'vinnaithaandi_varuvaayaa_2010',
@@ -55,7 +55,7 @@ class CatalogMoviesSeed {
       composer: 'A.R. Rahman',
       starring: 'Silambarasan TR, Trisha Krishnan',
       director: 'Gautham Vasudev Menon',
-      coverUrl: 'https://c.saavncdn.com/500/Vinnaithaandi-Varuvaayaa-Tamil-2010-500x500.jpg',
+      coverUrl: 'https://c.saavncdn.com/880/Vinnaithaandi-Varuvaayaa-Tamil-2010-20260120201226-500x500.jpg',
     ),
     CatalogMovie(
       id: 'paiyaa_2010',
@@ -64,7 +64,7 @@ class CatalogMoviesSeed {
       composer: 'Yuvan Shankar Raja',
       starring: 'Karthi, Tamannaah Bhatia',
       director: 'N. Lingusamy',
-      coverUrl: 'https://c.saavncdn.com/500/Paiyaa-Tamil-2010-500x500.jpg',
+      coverUrl: 'https://c.saavncdn.com/984/Paiya-Tamil-2010-20200620134043-500x500.jpg',
     ),
     CatalogMovie(
       id: 'vettaiyan_2024',
@@ -100,7 +100,7 @@ class CatalogMoviesSeed {
       composer: 'Harris Jayaraj',
       starring: 'Suriya, Simran, Sameera Reddy, Divya Spandana',
       director: 'Gautham Vasudev Menon',
-      coverUrl: 'https://c.saavncdn.com/500/Vaaranam-Aayiram-Tamil-2008-500x500.jpg',
+      coverUrl: 'https://c.saavncdn.com/635/Vaaranam-Aayiram-Tamil-2008-20190629141128-500x500.jpg',
     ),
     CatalogMovie(
       id: 'karnan_2021',
@@ -109,7 +109,7 @@ class CatalogMoviesSeed {
       composer: 'Santhosh Narayanan',
       starring: 'Dhanush, Rajisha Vijayan, Lal',
       director: 'Mari Selvaraj',
-      coverUrl: 'https://c.saavncdn.com/500/Karnan-Tamil-2021-500x500.jpg',
+      coverUrl: 'https://c.saavncdn.com/923/Karnan-Original-Motion-Picture-Soundtrack-Unknown-2021-20251024161312-500x500.jpg',
     ),
     CatalogMovie(
       id: 'thalapathi_1991',
@@ -118,7 +118,7 @@ class CatalogMoviesSeed {
       composer: 'Ilaiyaraaja',
       starring: 'Rajinikanth, Mammootty, Shobana',
       director: 'Mani Ratnam',
-      coverUrl: 'https://c.saavncdn.com/500/Thalapathi-Tamil-1991-500x500.jpg',
+      coverUrl: 'https://c.saavncdn.com/999/Thalapathi-Tamil-1991-20260402123004-500x500.jpg',
     ),
     CatalogMovie(
       id: 'baasha_1995',
@@ -127,7 +127,7 @@ class CatalogMoviesSeed {
       composer: 'Deva',
       starring: 'Rajinikanth, Nagma, Raghuvaran',
       director: 'Suresh Krissna',
-      coverUrl: 'https://c.saavncdn.com/500/Baasha-Tamil-1995-500x500.jpg',
+      coverUrl: 'https://c.saavncdn.com/995/Baasha-Tamil-1995-20260114164427-500x500.jpg',
     ),
     CatalogMovie(
       id: 'ghilli_2004',
@@ -136,7 +136,7 @@ class CatalogMoviesSeed {
       composer: 'Vidyasagar',
       starring: 'Thalapathy Vijay, Trisha Krishnan, Prakash Raj',
       director: 'Dharani',
-      coverUrl: 'https://c.saavncdn.com/500/Ghilli-Tamil-2004-500x500.jpg',
+      coverUrl: 'https://c.saavncdn.com/278/Gilli-Tamil-Tamil-2004-20190110130805-500x500.jpg',
     ),
     CatalogMovie(
       id: 'meesaya_murukku_2017',
@@ -145,7 +145,7 @@ class CatalogMoviesSeed {
       composer: 'Hiphop Tamizha',
       starring: 'Hiphop Tamizha Aadhi, Aathmika, Vivek',
       director: 'Hiphop Tamizha Aadhi',
-      coverUrl: 'https://c.saavncdn.com/500/Meesaya-Murukku-Tamil-2017-500x500.jpg',
+      coverUrl: 'https://c.saavncdn.com/091/Meesaya-Murukku-Original-Motion-Picture-Soundtrack-Tamil-2017-20250910160527-500x500.jpg',
     ),
   ];
 }

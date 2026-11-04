@@ -2235,8 +2235,9 @@ class SearchService {
     }
 
     final prefLangs = SettingsManager.preferredLanguages;
+    final defaultLang = prefLangs.firstWhere((l) => l.toLowerCase() != 'english', orElse: () => prefLangs.firstOrNull ?? 'tamil');
     final effectiveLang = intent.explicitLanguage ??
-        (language != null && language.isNotEmpty && language.toLowerCase() != 'all' && language.toLowerCase() != 'any' ? language : null);
+        (language != null && language.isNotEmpty && language.toLowerCase() != 'all' && language.toLowerCase() != 'any' ? language : defaultLang);
 
     // SWR (Stale-While-Revalidate): Yield fast LRU in-memory cache immediately (0ms),
     // then continue executing network pipeline to revalidate fresh catalog versions.

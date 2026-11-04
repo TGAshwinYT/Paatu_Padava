@@ -2293,7 +2293,7 @@ class SearchService {
               language: effectiveLang,
             ).timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]);
           }
-          if (results.isEmpty && effectiveLang != null && intent.explicitLanguage == null) {
+          if (results.isEmpty && intent.explicitLanguage == null) {
             results = await SaavnClient.search(
               intent.cleanQuery,
               limit: limit,

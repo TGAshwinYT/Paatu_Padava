@@ -62,7 +62,13 @@ class DownloadManager {
     }
   }
 
+  static String? _documentsDirPath;
+
   static Future<void> init() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      _documentsDirPath = dir.path;
+    } catch (_) {}
     if (!Hive.isBoxOpen(boxName)) {
       await Hive.openBox(boxName);
     }
@@ -94,8 +100,8 @@ class DownloadManager {
     final data = _box.get(songId);
     if (data != null && data is Map) {
       final path = data['localFilePath']?.toString();
-      if (path != null && File(path).existsSync()) {
-        return path;
+      if (path != null && (File(path).existsSync() || (_documentsDirPath != null && File('$_documentsDirPath/offline_audio/${path.split('/').last.split('\\').last}').existsSync()))) {
+        return File(path).existsSync() ? path : '$_documentsDirPath/offline_audio/${path.split('/').last.split('\\').last}';
       }
     }
     return null;
@@ -109,8 +115,8 @@ class DownloadManager {
       if (data != null && data is Map) {
         final song = Song.fromMap(data);
         // Verify local file exists on disk
-        if (song.localFilePath != null && File(song.localFilePath!).existsSync()) {
-          songs.add(song);
+        final p = getLocalFilePath(song.id); if (p != null) {
+          songs.add(song.copyWith(localFilePath: p));
         }
       }
     }

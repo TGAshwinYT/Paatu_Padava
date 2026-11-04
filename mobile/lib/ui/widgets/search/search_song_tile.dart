@@ -126,8 +126,8 @@ class SearchSongTile extends StatelessWidget {
         titleB: song.title,
         artistsB: song.artist,
       );
-      final hasDistinctTag = (v.versionTag != null && v.versionTag != 'Original' && v.versionTag != 'Studio') ||
-          (song.versionTag != null && song.versionTag != 'Original' && song.versionTag != 'Studio');
+      final hasDistinctTag = (v.versionTag != 'Original' && v.versionTag != 'Studio') ||
+          (song.versionTag != 'Original' && song.versionTag != 'Studio');
       final hasMixKeyword = RegExp(r'\b(remix|lo[\s\-]?fi|slowed|reverb|8d|mashup|acoustic|unplugged)\b', caseSensitive: false).hasMatch(v.title);
       final hasExplicitLangDiff = v.language != null && song.language != null &&
           v.language!.trim().isNotEmpty && song.language!.trim().isNotEmpty &&

@@ -2332,7 +2332,7 @@ class SearchService {
 
       final Future<List<Song>> transliteratedSaavnFuture = () async {
         if (intent.transliteratedQuery == intent.cleanQuery) {
-          if (effectiveLang != null && effectiveLang != 'english' && !intent.cleanQuery.toLowerCase().contains(effectiveLang.toLowerCase())) {
+          if (effectiveLang != 'english' && !intent.cleanQuery.toLowerCase().contains(effectiveLang.toLowerCase())) {
             try {
               return await SaavnClient.search('${intent.cleanQuery} $effectiveLang', limit: limit, language: effectiveLang).timeout(const Duration(seconds: 2), onTimeout: () => <Song>[]);
             } catch (_) { return <Song>[]; }

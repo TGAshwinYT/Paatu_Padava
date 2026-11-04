@@ -235,8 +235,7 @@ class _SearchScreenState extends State<SearchScreen> {
       );
       _isInitialLoadingNotifier.value = false;
     } else {
-      _resultsNotifier.value = const SearchResultsState();
-      _isInitialLoadingNotifier.value = true;
+      _resultsNotifier.value = const SearchResultsState(); _isInitialLoadingNotifier.value = true;
     }
     _isSearchingNotifier.value = true;
 
@@ -273,7 +272,9 @@ class _SearchScreenState extends State<SearchScreen> {
           continue;
         }
         if (hasCachedResults && !unified.isFinal &&
-            _resultsNotifier.value.albums.isNotEmpty && _resultsNotifier.value.playlists.isNotEmpty) continue;
+            _resultsNotifier.value.albums.isNotEmpty && _resultsNotifier.value.playlists.isNotEmpty) {
+          continue;
+        }
 
         if (hasCachedResults && (unified.songs.isEmpty || unified.error != null)) {
           if (unified.error != null && mounted) {
@@ -312,9 +313,7 @@ class _SearchScreenState extends State<SearchScreen> {
       if (mounted && currentRequestId == _searchRequestId) {
         if (_resultsNotifier.value.isEmpty) {
           _resultsNotifier.value = SearchResultsState(error: ErrorHandler.resolve(e, stackTrace: stack, context: 'SearchScreen._executeSearch'));
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't refresh, showing saved results"), duration: Duration(seconds: 2)));
-        }
+        } else { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't refresh, showing saved results"), duration: Duration(seconds: 2))); }
         _isSearchingNotifier.value = _isInitialLoadingNotifier.value = false;
       }
     }

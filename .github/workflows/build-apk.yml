@@ -34,6 +34,9 @@ jobs:
         working-directory: mobile
         run: flutter pub get
 
+      - name: Generate iOS App Icons
+        working-directory: mobile
+        run: dart run flutter_launcher_icons
       - name: Analyze Flutter Code
         working-directory: mobile
         run: flutter analyze 2>&1 | tee analyze.txt
@@ -180,6 +183,10 @@ jobs:
       - name: Get Dependencies
         working-directory: mobile
         run: flutter pub get
+
+      - name: Generate iOS App Icons
+        working-directory: mobile
+        run: dart run flutter_launcher_icons
 
       - name: Cache CocoaPods
         uses: actions/cache@v4

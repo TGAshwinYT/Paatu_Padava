@@ -4,9 +4,12 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    tags:
+      - 'v*'
     paths:
       - 'mobile/**'
       - '.github/workflows/build-apk.yml'
+      - 'RELEASE_NOTES.md'
 
 jobs:
   build-android:
@@ -286,3 +289,54 @@ jobs:
           name: appetize-ios-simulator-build
           path: mobile/build/ios/iphonesimulator/Runner.zip
           retention-days: 30
+
+  publish-release:
+    name: Publish Official GitHub Release
+    needs: [build-android, build-ios]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download Android APK Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: paatu-padava-release-apks
+          path: release-assets
+
+      - name: Download iOS Device IPA Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: paatu-padava-ios-device-ipa-FOR-PHYSICAL-IPHONES-ONLY
+          path: release-assets
+
+      - name: Download Appetize Simulator Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: appetize-ios-simulator-build
+          path: release-assets
+
+      - name: Prepare Release Binary Names
+        working-directory: release-assets
+        run: |
+          echo "== Validating and renaming release binaries =="
+          if [ -f Runner.zip ]; then
+            mv Runner.zip PaatuPadava-Appetize-Simulator.zip
+          fi
+          ls -la
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Paatu Padava ${{ github.ref_name }}"
+          tag_name: ${{ github.ref }}
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: false
+          files: |
+            release-assets/*.apk
+            release-assets/*.ipa
+            release-assets/*.zip

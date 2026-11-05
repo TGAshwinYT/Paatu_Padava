@@ -379,13 +379,13 @@ class AudioQueueHandler {
   Timer? get idleTimeoutTimer => _idleTimeoutTimer;
   bool get isIdleTimeoutActive => _idleTimeoutTimer != null && _idleTimeoutTimer!.isActive;
 
-  void startIdleTimer({Duration timeout = const Duration(seconds: 45)}) {
+  void startIdleTimer({Duration timeout = const Duration(minutes: 15)}) {
     cancelIdleTimer();
     if (player.playing || _isLoading || _isPreparing || _isAdvancing) return;
     _idleTimeoutTimer = Timer(timeout, () {
       handleIdleRelease();
     });
-    AppLogger.log('AudioQueueHandler', 'Started 45-second idle timeout countdown');
+    AppLogger.log('AudioQueueHandler', 'Started 15-minute idle timeout countdown');
   }
 
   void cancelIdleTimer() {
@@ -402,18 +402,18 @@ class AudioQueueHandler {
       cancelIdleTimer();
       return;
     }
-    AppLogger.log('AudioQueueHandler', '45-second idle timeout reached. Downgrading notification & releasing WakeLocks.');
+    AppLogger.log('AudioQueueHandler', '15-minute idle timeout reached. Releasing idle resources.');
     YouTubeClient.closeIdleClient();
 
     try {
       final session = await AudioSession.instance;
-      await session.setActive(false);
+      if (_currentTrack == null) await session.setActive(false);
     } catch (e, stack) {
       AppLogger.recordError(e, stack, context: 'AudioSession.setActive(false)');
     }
 
     try {
-      await BatteryOptimizationService.detachForeground();
+      if (_currentTrack == null) await BatteryOptimizationService.detachForeground();
     } catch (_) {}
 
     onIdleRelease?.call();
@@ -620,7 +620,7 @@ class AudioQueueHandler {
           handleRepeatAllLoop();
         } else if (SettingsManager.isAutoplayEnabled && current != null && isAudioHandlerInitialized) {
           _isAdvancing = false;
-          audioHandler.handleAutoplayQueueEnd(_lastCompletedSeedSong ?? current);
+          audioHandler.handleAutoplayQueueEnd(_lastCompletedSeedSong ?? current).whenComplete(() => _isAdvancing = false);
         } else {
           _isAdvancing = false;
           startIdleTimer();
@@ -1144,7 +1144,7 @@ class AudioQueueHandler {
       // Build initial sliding window: [activeTrack, nextTrack]
       final List<AudioSource> sources = [];
       final activeSrc = (activeSong.streamUrl != null && activeSong.streamUrl!.isNotEmpty)
-          ? await _buildAudioSource(activeSong, allowNetworkResolve: false)
+          ? await _buildAudioSource(activeSong, allowNetworkResolve: true)
           : null;
 
       if (activeSrc != null) {
@@ -1843,7 +1843,7 @@ class AudioQueueHandler {
       onSongChanged?.call(song);
 
       // Build audio source
-      final activeSrc = await _buildAudioSource(song, allowNetworkResolve: false);
+      final activeSrc = await _buildAudioSource(song, allowNetworkResolve: true);
       if (token != _sessionToken || activeToken != _activeLoadToken) return;
 
       if (activeSrc == null) {

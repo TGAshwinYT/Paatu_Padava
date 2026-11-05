@@ -267,8 +267,11 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
             AudioPlayer(
               audioLoadConfiguration: const AudioLoadConfiguration(
                 androidLoadControl: AndroidLoadControl(
-                  bufferForPlaybackDuration: Duration(milliseconds: 400),
-                  bufferForPlaybackAfterRebufferDuration: Duration(milliseconds: 1000),
+                  minBufferDuration: Duration(seconds: 20),
+                  maxBufferDuration: Duration(seconds: 50),
+                  bufferForPlaybackDuration: Duration(milliseconds: 1000),
+                  bufferForPlaybackAfterRebufferDuration: Duration(seconds: 3),
+                  backBufferDuration: Duration(seconds: 10),
                 ),
               ),
               androidApplyAudioAttributes: true,
@@ -407,9 +410,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   }
 
   void _handleIdleRelease() {
-    AppLogger.log('PaatuAudioHandler', '45-second idle timeout: downgrading notification & releasing WakeLocks');
-    _isForegroundDowngraded = true;
-    _broadcastState(downgradeNotification: true);
+    AppLogger.log('PaatuAudioHandler', 'Idle timeout reached: maintaining paused state');
+    // Do not downgrade foreground so notification remains interactive
+    _broadcastState();
   }
 
   void _onActiveTrackChanged(Song song) {
@@ -568,7 +571,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     final playing = _player.playing;
     final AudioProcessingState processingState;
     if (downgradeNotification || _isForegroundDowngraded) {
-      processingState = AudioProcessingState.idle;
+      processingState = (currentSong != null) ? AudioProcessingState.ready : AudioProcessingState.idle;
     } else {
       processingState = const {
         ProcessingState.idle: AudioProcessingState.idle,
@@ -1161,8 +1164,8 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       AppLogger.debug('PaatuAudioHandler', 'AudioSession setActive(false) notice on stop: $e');
     }
     await _player.stop();
-    _isForegroundDowngraded = true;
-    _broadcastState(downgradeNotification: true);
+    // Do not downgrade foreground so notification remains interactive
+    _broadcastState();
     await super.stop();
   }
 

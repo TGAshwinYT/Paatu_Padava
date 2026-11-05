@@ -96,8 +96,8 @@ Future<void> main() async {
         config: const AudioServiceConfig(
           androidNotificationChannelId: 'com.paatupaadava.music.channel.audio',
           androidNotificationChannelName: 'Paatu Padava Playback',
-          androidNotificationOngoing: true,
-          androidStopForegroundOnPause: true,
+          androidNotificationOngoing: false,
+          androidStopForegroundOnPause: false,
           androidNotificationIcon: 'drawable/ic_notification',
         ),
       );

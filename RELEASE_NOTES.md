@@ -64,6 +64,12 @@ This milestone release introduces **Search Result Single-Track Isolation**, a ma
   * Replaced the generic `♪` musical note vector in `res/drawable/ic_notification.xml` with the official Paatu Padava **Veena & Over-Ear Headphones logo vector silhouette** for the Android lock screen and notification shade.
   * Configured `flutter_launcher_icons` with `remove_alpha_ios: true` for Apple App Store compliance and authentic logo display on iOS Lock Screen, Dynamic Island, and Control Center.
   * Added Studio-Grade Lock Screen Metadata cleaning in `TrackEntity.toMediaItem()`: automatically strips YouTube video noise, pipe tags (`|`), and movie suffixes, displaying clean titles with refined `Artist • Album` subtitles on both Android and iOS lock screens.
+* **Background Audio Resilience & Notification Freeze Fix (Android & iOS)**:
+  * Disabled `androidStopForegroundOnPause: false`: prevents aggressive Android OEM battery managers (ColorOS, OxygenOS, HyperOS, OneUI) from killing the audio service process during track transitions or while paused.
+  * Fixed `allowNetworkResolve: true` for auto-suggested and autoplay tracks in `AudioQueueHandler`, eliminating the circuit-breaker playback halt that automatically stopped music mid-session.
+  * Increased aggressive 45-second idle timeout to 15 minutes, preserving the active `AudioProcessingState.ready` session so lock screen and notification media controls never freeze or become unresponsive.
+  * Upgraded ExoPlayer buffer configuration to 20-second minimum duration and 10-second back buffer, preventing streaming underflows when the device is idle or screen is turned off.
+  * Enabled persistent background playback by default in `SettingsManager` and added `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` in `AndroidManifest.xml`.
 * **CI / CD Automated Release Pipeline (Android & iOS)**:
   * Upgraded Main Release workflow (`.github/workflows/build-apk.yml`) to generate **all target formats simultaneously**: Android ABI-split APKs, iOS Device Release IPA (`PaatuPadava-iOS-Device.ipa` for real iPhones), and Appetize.io Simulator Zip (`PaatuPadava-Appetize-Simulator.zip` with `Runner.app` at root for browser emulation).
   * Maintained dedicated test workflow (`.github/workflows/build-ios-test.yml`) for on-demand dispatch and PR testing.

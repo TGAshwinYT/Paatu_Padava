@@ -43,7 +43,7 @@ class SettingsManager {
   static final ValueNotifier<String> homeTop10ChartLayoutNotifier = ValueNotifier<String>('vertical');
   static final ValueNotifier<bool> homeRememberFeelingNotifier = ValueNotifier<bool>(false);
   static final ValueNotifier<bool> homeShowQuickPicksNotifier = ValueNotifier<bool>(true);
-  static final ValueNotifier<bool> persistentBackgroundPlaybackNotifier = ValueNotifier<bool>(false);
+  static final ValueNotifier<bool> persistentBackgroundPlaybackNotifier = ValueNotifier<bool>(true);
   static final ValueNotifier<bool> smartDownloadsEnabledNotifier = ValueNotifier<bool>(true);
   static final ValueNotifier<int> smartDownloadsCapNotifier = ValueNotifier<int>(50);
 

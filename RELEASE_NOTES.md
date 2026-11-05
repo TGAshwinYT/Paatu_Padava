@@ -64,6 +64,9 @@ This milestone release introduces **Search Result Single-Track Isolation**, a ma
   * Replaced the generic `♪` musical note vector in `res/drawable/ic_notification.xml` with the official Paatu Padava **Veena & Over-Ear Headphones logo vector silhouette** for the Android lock screen and notification shade.
   * Configured `flutter_launcher_icons` with `remove_alpha_ios: true` for Apple App Store compliance and authentic logo display on iOS Lock Screen, Dynamic Island, and Control Center.
   * Added Studio-Grade Lock Screen Metadata cleaning in `TrackEntity.toMediaItem()`: automatically strips YouTube video noise, pipe tags (`|`), and movie suffixes, displaying clean titles with refined `Artist • Album` subtitles on both Android and iOS lock screens.
+* **CI / CD Automated Release Pipeline (Android & iOS)**:
+  * Created dedicated iOS Testing workflow (`.github/workflows/build-ios-test.yml`) allowing one-click manual dispatch or PR builds on Apple Silicon (`macos-14`), packaging unsigned IPA (`PaatuPadava-iOS-Test.ipa`) and iOS Simulator bundles (`PaatuPadava-iOS-Simulator.app.zip`).
+  * Upgraded Main Release workflow (`.github/workflows/build-apk.yml`) to build both **Android APKs** (arm64, armeabi-v7a, x86_64) and **iOS Release IPA** (`PaatuPadava-iOS-Release.ipa`) in parallel on every main push and manual dispatch.
 * **Audio Pipeline**:
   * Fixed consecutive track skipping bugs on stream errors with automatic progressive bitrate step-down (320k ➔ 160k ➔ 96k ➔ YouTube Fallback).
   * Cleaned up UI parameter artifacts in `SleepTimerSheet`.

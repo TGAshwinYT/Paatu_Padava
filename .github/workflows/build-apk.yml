@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Release (Android & iOS)
 
 on:
   workflow_dispatch:
@@ -9,8 +9,8 @@ on:
       - '.github/workflows/build-apk.yml'
 
 jobs:
-  build:
-    name: Build Flutter APK
+  build-android:
+    name: Build Flutter Android APK
     runs-on: ubuntu-latest
 
     steps:
@@ -161,4 +161,73 @@ jobs:
           name: paatu-padava-release-apks
           path: |
             mobile/build/app/outputs/flutter-apk/*.apk
+          retention-days: 30
+
+  build-ios:
+    name: Build Flutter iOS Release (IPA)
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Get Dependencies
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: mobile/ios/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('mobile/ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: Install CocoaPods Dependencies
+        working-directory: mobile/ios
+        run: pod install --repo-update
+
+      - name: Build Release iOS Bundle
+        working-directory: mobile
+        run: |
+          GIT_SHA="${{ github.sha }}"
+          SHORT_SHA="${GIT_SHA:0:7}"
+          BUILD_TIME=$(date -u +'%Y-%m-%d %H:%M UTC')
+
+          CLEAN_URL=$(printf '%s' "${{ secrets.SUPABASE_URL }}" | tr -d '\r\n "' | sed "s/'//g" | sed 's:/*$::')
+          CLEAN_KEY=$(printf '%s' "${{ secrets.SUPABASE_ANON_KEY }}" | tr -d '\r\n "' | sed "s/'//g")
+          SPOTIFY_ID=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_ID }}" | tr -d '\r\n "' | sed "s/'//g")
+          SPOTIFY_SECRET=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_SECRET }}" | tr -d '\r\n "' | sed "s/'//g")
+
+          echo "Building iOS Release bundle with Git commit: $SHORT_SHA ($BUILD_TIME)..."
+
+          flutter build ios --release --no-codesign \
+            --build-number=${{ github.run_number }} \
+            --dart-define=SUPABASE_URL="$CLEAN_URL" \
+            --dart-define=SUPABASE_ANON_KEY="$CLEAN_KEY" \
+            --dart-define=SPOTIFY_CLIENT_ID="$SPOTIFY_ID" \
+            --dart-define=SPOTIFY_CLIENT_SECRET="$SPOTIFY_SECRET" \
+            --dart-define=GIT_COMMIT="$SHORT_SHA" \
+            --dart-define=BUILD_TIME="$BUILD_TIME"
+
+      - name: Package Release IPA
+        working-directory: mobile
+        run: |
+          mkdir -p build/ios/ipa/Payload
+          cp -r build/ios/iphoneos/Runner.app build/ios/ipa/Payload/
+          cd build/ios/ipa
+          zip -qr PaatuPadava-iOS-Release.ipa Payload
+          echo "✅ Packaged PaatuPadava-iOS-Release.ipa successfully."
+
+      - name: Upload iOS IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: paatu-padava-release-ios-ipa
+          path: mobile/build/ios/ipa/PaatuPadava-iOS-Release.ipa
           retention-days: 30

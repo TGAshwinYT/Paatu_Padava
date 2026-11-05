@@ -60,6 +60,10 @@ This milestone release introduces **Search Result Single-Track Isolation**, a ma
 * **Queue Sheet & UI Polish**:
   * Fixed title row and `Up Next` count badge overlapping onto the shuffle button on compact screen widths.
   * Cleaned up Smart Shuffle toggle styling by removing the boxed border container.
+* **System Media Controls & Brand Identity (Android & iOS)**:
+  * Replaced the generic `♪` musical note vector in `res/drawable/ic_notification.xml` with the official Paatu Padava **Veena & Over-Ear Headphones logo vector silhouette** for the Android lock screen and notification shade.
+  * Configured `flutter_launcher_icons` with `remove_alpha_ios: true` for Apple App Store compliance and authentic logo display on iOS Lock Screen, Dynamic Island, and Control Center.
+  * Added Studio-Grade Lock Screen Metadata cleaning in `TrackEntity.toMediaItem()`: automatically strips YouTube video noise, pipe tags (`|`), and movie suffixes, displaying clean titles with refined `Artist • Album` subtitles on both Android and iOS lock screens.
 * **Audio Pipeline**:
   * Fixed consecutive track skipping bugs on stream errors with automatic progressive bitrate step-down (320k ➔ 160k ➔ 96k ➔ YouTube Fallback).
   * Cleaned up UI parameter artifacts in `SleepTimerSheet`.

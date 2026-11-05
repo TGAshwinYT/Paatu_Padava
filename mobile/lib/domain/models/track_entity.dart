@@ -288,13 +288,42 @@ class TrackEntity {
   static TrackEntity fromSong(TrackEntity song) => song;
   static TrackEntity fromTrackEntity(TrackEntity track) => track;
 
+  /// Studio-grade clean title for system lock screen and notification display.
+  String get displayTitle {
+    var text = title.trim();
+    if (text.contains('|')) {
+      final parts = text.split('|');
+      if (parts.first.trim().isNotEmpty) {
+        text = parts.first.trim();
+      }
+    }
+    text = text.replaceAll(RegExp(r'\[(official\s*)?(video|music\s*video|audio|lyric(al)?\s*video|hd|4k|visualizer|teaser|trailer)\]', caseSensitive: false), '').trim();
+    text = text.replaceAll(RegExp(r'-\s*(official\s*)?(video|music\s*video|audio|lyric(al)?\s*video|hd|4k).*$', caseSensitive: false), '').trim();
+    return text.isNotEmpty ? text : title;
+  }
+
+  /// Studio-grade clean subtitle (Artist • Album) for system lock screen display.
+  String get displaySubtitle {
+    final cleanArt = artist.trim();
+    final cleanAlb = (album.trim().isNotEmpty && album.toLowerCase() != 'unknown album' && album.toLowerCase() != cleanArt.toLowerCase())
+        ? album.trim()
+        : '';
+    if (cleanAlb.isNotEmpty && !cleanArt.toLowerCase().contains(cleanAlb.toLowerCase())) {
+      return '$cleanArt • $cleanAlb';
+    }
+    return cleanArt;
+  }
+
   /// Converts to audio_service MediaItem for lock screen and system notification
   MediaItem toMediaItem() {
     final cached = CoverArtResolver.getCachedCover(id);
     final effectiveCover = (cached != null && cached.isNotEmpty) ? cached : coverUrl;
     return MediaItem(
       id: id,
-      title: title,
+      title: displayTitle,
+      displayTitle: displayTitle,
+      displaySubtitle: displaySubtitle,
+      displayDescription: album,
       artist: artist,
       album: album,
       duration: duration > 0 ? Duration(seconds: duration) : null,

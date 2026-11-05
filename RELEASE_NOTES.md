@@ -4,11 +4,31 @@ Welcome to the comprehensive release notes for **Paatu Padava Mobile**. This doc
 
 ---
 
-## 🚀 v2.5.0 (Latest Release)
+## 🚀 v2.5.0 (Latest Release — Build 7)
 
-This milestone release introduces **Search Result Single-Track Isolation**, a major **Queue Management Overhaul** (swipe-to-dismiss & "Save Queue as Playlist"), and an **Android Doze-Proof Wall-Clock Sleep Timer Engine**.
+This milestone release introduces **Search Result Single-Track Isolation**, a major **Queue Management Overhaul** (swipe-to-dismiss & "Save Queue as Playlist"), an **Android Doze-Proof Wall-Clock Sleep Timer Engine**, **Persistent Background Audio Foreground Services**, and **Direct Appetize.io Simulator Support**.
 
-### ✨ Highlights & New Features (v2.5.0)
+### ✨ Highlights & New Features (v2.5.0+7)
+
+#### 🍏 iOS Simulator & Appetize.io Automation
+* **Dedicated Appetize.io Simulator Bundle (`Runner.zip`)**:
+  * Resolves the *"App is not a simulator build"* error by packaging an x86_64/arm64-simulator `.app` directly with symlinks (`zip -ry`).
+  * Instant zero-config drag-and-drop into the Appetize.io web browser simulator.
+* **Native macOS `sips` App Icon Pipeline**:
+  * Eradicated the pub dependency version conflict (`ZLibDecoder.decodeLazy`).
+  * Generates all 15 iOS icon resolutions (from 20x20 up to the 1024x1024 Appetize/App Store marketing banner) natively in < 0.2 seconds.
+* **Separated Physical IPA vs Simulator Zip Artifacts**:
+  * Clear artifact labeling (`paatu-padava-ios-device-ipa-FOR-PHYSICAL-IPHONES-ONLY` vs `appetize-ios-simulator-build`) to eliminate format mismatches.
+
+#### 🛡️ Background Audio Immunity & Notification Resilience
+* **Persistent Foreground Audio Service**:
+  * Configured `androidStopForegroundOnPause: false` and `androidNotificationOngoing: false`.
+  * Prevents aggressive Android OEM battery savers (OxygenOS, ColorOS, HyperOS, OneUI) from killing the audio engine and freezing the notification bar when idle or paused.
+* **ExoPlayer 50s Buffer & Network Auto-Resolution**:
+  * Upgraded `AndroidLoadControl` with a 50-second buffer pool and 3-second rebuffering margin.
+  * Restored network resolution on upcoming tracks to eliminate idle circuit-breaker stalls.
+* **Doze-Proof Idle Timeout (15 Minutes)**:
+  * AudioSession deactivation now strictly verifies that no track is loaded (`_currentTrack == null`) before detaching transport controls.
 
 #### 🔍 Search Result Single-Track Isolation & Seamless Autoplay
 * **Single-Track Playback Isolation**:

@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../logic/smart_shuffle_controller.dart';
 import '../../models/song.dart';
 import '../../domain/models/track_entity.dart';

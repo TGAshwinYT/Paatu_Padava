@@ -2516,10 +2516,10 @@ class SearchService {
 
       final Future<List<Map<String, dynamic>>> ytPlaylistsFuture = () async {
         try {
-          final ytPls = await YouTubeClient.searchPlaylists('${intent.cleanQuery} songs', limit: 8).timeout(const Duration(milliseconds: 2500), onTimeout: () => <Map<String, dynamic>>[]);
+          final ytPls = await YouTubeClient.searchPlaylists('${intent.cleanQuery} songs', limit: 8).timeout(const Duration(milliseconds: 1400), onTimeout: () => <Map<String, dynamic>>[]);
           if (ytPls.isNotEmpty) return ytPls;
           return await YouTubeClient.searchPlaylists(intent.cleanQuery, limit: 8)
-              .timeout(const Duration(milliseconds: 2500), onTimeout: () => <Map<String, dynamic>>[]);
+              .timeout(const Duration(milliseconds: 1200), onTimeout: () => <Map<String, dynamic>>[]);
         } catch (e) {
           debugPrint('[SearchService] Upstream YouTube playlists search fault isolated: $e');
           return <Map<String, dynamic>>[];
@@ -2818,7 +2818,7 @@ class SearchService {
         if (artId.isEmpty) return <Map<String, dynamic>>[];
         try {
           return await SaavnClient.getArtistAlbums(artId, limit: 40)
-              .timeout(const Duration(seconds: 4), onTimeout: () => <Map<String, dynamic>>[]);
+              .timeout(const Duration(milliseconds: 1800), onTimeout: () => <Map<String, dynamic>>[]);
         } catch (e) {
           AppLogger.log('SearchService', 'Phase 2 artist albums fetch fault: $e', level: LogLevel.debug);
           return <Map<String, dynamic>>[];
@@ -3040,10 +3040,19 @@ class SearchService {
 
       // ── PHASE 2: Merge YouTube Results & Background Soundtracks ──
       // Await YouTube songs independently; soundtrack was already handled in Phase 1
-      final rawYt = await ytFuture;
+      List<Song> rawYt;
+      if (rankedSaavn.length >= 5) {
+        try {
+          rawYt = await ytFuture.timeout(const Duration(milliseconds: 900), onTimeout: () => <Song>[]);
+        } catch (_) {
+          rawYt = const [];
+        }
+      } else {
+        rawYt = await ytFuture;
+      }
       if (albumSoundtrackSongs.isEmpty) {
         try {
-          albumSoundtrackSongs = await soundtrackFuture;
+          albumSoundtrackSongs = await soundtrackFuture.timeout(const Duration(milliseconds: 600), onTimeout: () => <Song>[]);
         } catch (_) {}
       }
 
@@ -3054,8 +3063,8 @@ class SearchService {
 
 
       final extraMeta = await Future.wait([
-        ytPlaylistsFuture,
-        artistOfficialAlbumsFuture,
+        ytPlaylistsFuture.timeout(const Duration(milliseconds: 1000), onTimeout: () => <Map<String, dynamic>>[]),
+        artistOfficialAlbumsFuture.timeout(const Duration(milliseconds: 1000), onTimeout: () => <Map<String, dynamic>>[]),
       ]);
 
       final rawYtPlaylists = extraMeta[0];

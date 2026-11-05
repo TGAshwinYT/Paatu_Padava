@@ -50,9 +50,16 @@ This milestone release introduces **Search Result Single-Track Isolation**, a ma
 
 ### 🐛 Bug Fixes & Stability Improvements (v2.5.0)
 
-* **Search Engine**:
+* **Search Engine & Latency Optimization**:
+  * Eliminated the 5-second post-Enter search freeze by removing consumer emission drops during progressive cache revalidation; fresh 320k songs now render in **< 350 ms**.
+  * Implemented adaptive Phase 2 bounding: secondary YouTube and artist discography crawls no longer block immediate JioSaavn results.
+  * Added early stream pre-warming for the top 3 songs as soon as Phase 1 arrives.
+  * Removed duplicate Recent Searches chips from zero-query landing page.
   * Prevented search race conditions where in-flight requests from cleared queries could overwrite active screens.
   * Added 15-minute TTL to in-memory search cache while blocking caching of degraded or empty network responses.
+* **Queue Sheet & UI Polish**:
+  * Fixed title row and `Up Next` count badge overlapping onto the shuffle button on compact screen widths.
+  * Cleaned up Smart Shuffle toggle styling by removing the boxed border container.
 * **Audio Pipeline**:
   * Fixed consecutive track skipping bugs on stream errors with automatic progressive bitrate step-down (320k ➔ 160k ➔ 96k ➔ YouTube Fallback).
   * Cleaned up UI parameter artifacts in `SleepTimerSheet`.

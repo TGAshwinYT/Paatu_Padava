@@ -267,7 +267,7 @@ class _SearchScreenState extends State<SearchScreen> {
           continue;
         }
         if (hasCachedResults && !unified.isFinal &&
-            _resultsNotifier.value.albums.isNotEmpty && _resultsNotifier.value.playlists.isNotEmpty) {
+            _resultsNotifier.value.songs.isNotEmpty && unified.songs.length < _resultsNotifier.value.songs.length) {
           continue;
         }
 
@@ -298,7 +298,7 @@ class _SearchScreenState extends State<SearchScreen> {
             playlists: unified.playlists, didYouMean: unified.didYouMean, error: unified.error,
           );
         }
-        if (unified.songs.isNotEmpty || unified.albums.isNotEmpty || unified.artists.isNotEmpty) { _isInitialLoadingNotifier.value = false; }
+        if (unified.songs.isNotEmpty || unified.albums.isNotEmpty || unified.artists.isNotEmpty) { _isInitialLoadingNotifier.value = false; if (unified.songs.isNotEmpty) DefaultStreamResolver.prewarmSongs(unified.songs, limit: 3); }
       }
       if (mounted && currentRequestId == _searchRequestId) {
         _isSearchingNotifier.value = _isInitialLoadingNotifier.value = false;

@@ -48,26 +48,27 @@ jobs:
         working-directory: mobile/ios
         run: pod install --repo-update
 
-      - name: Prepare Dart Define Flags
-        id: defines
+      - name: Build Unsigned iOS IPA (Device Testing)
+        if: ${{ github.event.inputs.build_target == 'ipa' || github.event.inputs.build_target == 'both' || github.event_name == 'pull_request' }}
+        working-directory: mobile
         run: |
           GIT_SHA="${{ github.sha }}"
           SHORT_SHA="${GIT_SHA:0:7}"
-          BUILD_TIME=$(date -u +'%Y-%m-%d %H:%M UTC')
+          BUILD_TIME=$(date -u +'%Y-%m-%d_%H:%M_UTC')
 
           CLEAN_URL=$(printf '%s' "${{ secrets.SUPABASE_URL }}" | tr -d '\r\n "' | sed "s/'//g" | sed 's:/*$::')
           CLEAN_KEY=$(printf '%s' "${{ secrets.SUPABASE_ANON_KEY }}" | tr -d '\r\n "' | sed "s/'//g")
           SPOTIFY_ID=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_ID }}" | tr -d '\r\n "' | sed "s/'//g")
           SPOTIFY_SECRET=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_SECRET }}" | tr -d '\r\n "' | sed "s/'//g")
 
-          echo "DEFINES=--dart-define=SUPABASE_URL=$CLEAN_URL --dart-define=SUPABASE_ANON_KEY=$CLEAN_KEY --dart-define=SPOTIFY_CLIENT_ID=$SPOTIFY_ID --dart-define=SPOTIFY_CLIENT_SECRET=$SPOTIFY_SECRET --dart-define=GIT_COMMIT=$SHORT_SHA --dart-define=BUILD_TIME=$BUILD_TIME" >> $GITHUB_ENV
-
-      - name: Build Unsigned iOS IPA (Device Testing)
-        if: ${{ github.event.inputs.build_target == 'ipa' || github.event.inputs.build_target == 'both' || github.event_name == 'pull_request' }}
-        working-directory: mobile
-        run: |
           echo "Building iOS release bundle without codesign..."
-          flutter build ios --release --no-codesign ${{ env.DEFINES }}
+          flutter build ios --release --no-codesign -t lib/main.dart \
+            "--dart-define=SUPABASE_URL=$CLEAN_URL" \
+            "--dart-define=SUPABASE_ANON_KEY=$CLEAN_KEY" \
+            "--dart-define=SPOTIFY_CLIENT_ID=$SPOTIFY_ID" \
+            "--dart-define=SPOTIFY_CLIENT_SECRET=$SPOTIFY_SECRET" \
+            "--dart-define=GIT_COMMIT=$SHORT_SHA" \
+            "--dart-define=BUILD_TIME=$BUILD_TIME"
 
           echo "Packaging into test IPA..."
           mkdir -p build/ios/test-ipa/Payload
@@ -88,19 +89,31 @@ jobs:
         if: ${{ github.event.inputs.build_target == 'simulator' || github.event.inputs.build_target == 'both' }}
         working-directory: mobile
         run: |
-          echo "Building iOS Simulator bundle for Appetize.io..."
-          flutter build ios --simulator --debug ${{ env.DEFINES }}
+          GIT_SHA="${{ github.sha }}"
+          SHORT_SHA="${GIT_SHA:0:7}"
+          BUILD_TIME=$(date -u +'%Y-%m-%d_%H:%M_UTC')
 
-          echo "Packaging standalone zip with Runner.app at root for Appetize..."
-          mkdir -p build/ios/appetize-dist
-          cd build/ios/iphonesimulator
-          zip -qr ../appetize-dist/PaatuPadava-Appetize-iOS.zip Runner.app
-          echo "✅ Packaged PaatuPadava-Appetize-iOS.zip successfully."
+          CLEAN_URL=$(printf '%s' "${{ secrets.SUPABASE_URL }}" | tr -d '\r\n "' | sed "s/'//g" | sed 's:/*$::')
+          CLEAN_KEY=$(printf '%s' "${{ secrets.SUPABASE_ANON_KEY }}" | tr -d '\r\n "' | sed "s/'//g")
+          SPOTIFY_ID=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_ID }}" | tr -d '\r\n "' | sed "s/'//g")
+          SPOTIFY_SECRET=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_SECRET }}" | tr -d '\r\n "' | sed "s/'//g")
+
+          echo "Building iOS Simulator bundle for Appetize.io..."
+          flutter build ios --simulator --debug -t lib/main.dart \
+            "--dart-define=SUPABASE_URL=$CLEAN_URL" \
+            "--dart-define=SUPABASE_ANON_KEY=$CLEAN_KEY" \
+            "--dart-define=SPOTIFY_CLIENT_ID=$SPOTIFY_ID" \
+            "--dart-define=SPOTIFY_CLIENT_SECRET=$SPOTIFY_SECRET" \
+            "--dart-define=GIT_COMMIT=$SHORT_SHA" \
+            "--dart-define=BUILD_TIME=$BUILD_TIME"
+
+          echo "Simulator build finished. Validating Runner.app..."
+          ls -la build/ios/iphonesimulator/Runner.app
 
       - name: Upload Appetize.io Ready Bundle
         if: ${{ github.event.inputs.build_target == 'simulator' || github.event.inputs.build_target == 'both' }}
         uses: actions/upload-artifact@v4
         with:
-          name: paatu-padava-appetize-simulator-zip
-          path: mobile/build/ios/appetize-dist/PaatuPadava-Appetize-iOS.zip
+          name: paatu-padava-appetize-simulator
+          path: mobile/build/ios/iphonesimulator/Runner.app
           retention-days: 14

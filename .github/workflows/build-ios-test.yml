@@ -84,23 +84,23 @@ jobs:
           path: mobile/build/ios/test-ipa/PaatuPadava-iOS-Test.ipa
           retention-days: 14
 
-      - name: Build iOS Simulator App
+      - name: Build iOS Simulator App (Appetize.io Compatible)
         if: ${{ github.event.inputs.build_target == 'simulator' || github.event.inputs.build_target == 'both' }}
         working-directory: mobile
         run: |
-          echo "Building iOS Simulator bundle..."
+          echo "Building iOS Simulator bundle for Appetize.io..."
           flutter build ios --simulator --debug ${{ env.DEFINES }}
 
-          echo "Zipping Simulator Runner.app..."
-          mkdir -p build/ios/simulator-dist
+          echo "Packaging standalone zip with Runner.app at root for Appetize..."
+          mkdir -p build/ios/appetize-dist
           cd build/ios/iphonesimulator
-          zip -qr ../simulator-dist/PaatuPadava-iOS-Simulator.app.zip Runner.app
-          echo "✅ Packaged PaatuPadava-iOS-Simulator.app.zip."
+          zip -qr ../appetize-dist/PaatuPadava-Appetize-iOS.zip Runner.app
+          echo "✅ Packaged PaatuPadava-Appetize-iOS.zip successfully."
 
-      - name: Upload Simulator App
+      - name: Upload Appetize.io Ready Bundle
         if: ${{ github.event.inputs.build_target == 'simulator' || github.event.inputs.build_target == 'both' }}
         uses: actions/upload-artifact@v4
         with:
-          name: paatu-padava-ios-simulator-app
-          path: mobile/build/ios/simulator-dist/PaatuPadava-iOS-Simulator.app.zip
+          name: paatu-padava-appetize-ios
+          path: mobile/build/ios/iphonesimulator/Runner.app
           retention-days: 14

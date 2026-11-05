@@ -73,35 +73,17 @@ class _QueueSheetState extends State<QueueSheet> {
 
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Row(
-                              children: [
-                                const Text(
-                                  'Playback Queue',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF6366F1).withValues(alpha: 0.2),
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.4)),
-                                  ),
-                                  child: Text(
-                                    'Up Next ($upcomingCount)',
-                                    style: const TextStyle(
-                                      color: Color(0xFF818CF8),
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                              ],
+                            const Text(
+                              'Playback Queue',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                             const SizedBox(height: 2),
                             Text(
@@ -123,6 +105,7 @@ class _QueueSheetState extends State<QueueSheet> {
                 ),
               ),
               Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   // 3-State Spotify Smart Shuffle Button
                   ValueListenableBuilder<SmartShuffleMode>(
@@ -150,34 +133,25 @@ class _QueueSheetState extends State<QueueSheet> {
                           break;
                       }
 
-                      return Container(
-                        margin: const EdgeInsets.only(right: 4),
-                        decoration: BoxDecoration(
-                          color: mode == SmartShuffleMode.smart
-                              ? const Color(0xFF1DB954).withValues(alpha: 0.15)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(12),
-                          border: mode == SmartShuffleMode.smart
-                              ? Border.all(color: const Color(0xFF1DB954).withValues(alpha: 0.3))
-                              : null,
-                        ),
-                        child: IconButton(
-                          icon: Icon(icon, color: color, size: 22),
-                          tooltip: tooltip,
-                          onPressed: () {
-                            audioHandler.toggleSmartShuffle();
-                            final newMode = audioHandler.smartShuffleController.mode;
-                            final msg = newMode == SmartShuffleMode.smart
-                                ? '✨ Smart Shuffle Enabled: Recommendations will interleave'
-                                : (newMode == SmartShuffleMode.standard
-                                    ? '🔀 Standard Shuffle Enabled'
-                                    : '➡️ Sequential Playback (Shuffle Off)');
-                            ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(msg), duration: const Duration(seconds: 2)),
-                            );
-                          },
-                        ),
+                      return IconButton(
+                        icon: Icon(icon, color: color, size: 22),
+                        tooltip: tooltip,
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+                        onPressed: () {
+                          audioHandler.toggleSmartShuffle();
+                          final newMode = audioHandler.smartShuffleController.mode;
+                          final msg = newMode == SmartShuffleMode.smart
+                              ? '✨ Smart Shuffle Enabled: Recommendations will interleave'
+                              : (newMode == SmartShuffleMode.standard
+                                  ? '🔀 Standard Shuffle Enabled'
+                                  : '➡️ Sequential Playback (Shuffle Off)');
+                          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(msg), duration: const Duration(seconds: 2)),
+                          );
+                        },
                       );
                     },
                   ),
@@ -188,6 +162,9 @@ class _QueueSheetState extends State<QueueSheet> {
                     builder: (context, playlist, _) => IconButton(
                       icon: const Icon(Icons.bookmark_add_rounded, color: Colors.white70),
                       tooltip: 'Save Queue as Playlist',
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
                       onPressed: () {
                         if (playlist.isEmpty) {
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -204,6 +181,9 @@ class _QueueSheetState extends State<QueueSheet> {
                   IconButton(
                     icon: const Icon(Icons.delete_sweep_rounded, color: Colors.white70),
                     tooltip: 'Clear Queue',
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
                     onPressed: () {
                       audioHandler.clearQueue();
                       Navigator.pop(context);

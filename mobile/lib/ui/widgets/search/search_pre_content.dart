@@ -104,57 +104,7 @@ class SearchPreContent extends StatelessWidget {
           ),
         ),
 
-
-
-        // 2. Recent Searches (Query History Chips)
-        ValueListenableBuilder<List<String>>(
-          valueListenable: SearchHistoryManager.historyNotifier,
-          builder: (context, history, _) {
-            if (history.isEmpty) return const SizedBox.shrink();
-
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Recent Searches',
-                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                    TextButton(
-                      onPressed: () => SearchHistoryManager.clear(),
-                      child: const Text(
-                        'Clear',
-                        style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                      ),
-                    ),
-                  ],
-                ),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: history.take(8).map((query) {
-                    return ActionChip(
-                      backgroundColor: AppColors.surfaceElevated,
-                      side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                      avatar: const Icon(Icons.history_rounded, size: 16, color: AppColors.neonViolet),
-                      label: Text(
-                        query,
-                        style: const TextStyle(color: Colors.white, fontSize: 12.5),
-                      ),
-                      onPressed: () => onSelectQuery(query),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 20),
-              ],
-            );
-          },
-        ),
-
-        // 3. Quick Vibe / Era Collections (Functional starting points)
+        // 2. Quick Vibe / Era Collections (Functional starting points)
         Text(
           'Quick Vibes & Eras',
           style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
@@ -225,7 +175,7 @@ class SearchPreContent extends StatelessWidget {
 
         const SizedBox(height: 20),
 
-        // 4. Recently Played / Searched Songs
+        // 3. Recently Played Songs
         ValueListenableBuilder<List<Song>>(
           valueListenable: SearchHistoryManager.recentSongsNotifier,
           builder: (context, recentSongs, _) {
@@ -305,9 +255,7 @@ class SearchPreContent extends StatelessWidget {
           },
         ),
 
-
-
-        // 6. Browse All Category Tiles
+        // 4. Browse All Category Tiles
         Text(
           'Browse All',
           style: GoogleFonts.outfit(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),

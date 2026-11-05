@@ -95,7 +95,11 @@ engine = create_async_engine(
     pool_recycle=int(os.getenv("DB_POOL_RECYCLE", "1800")), # Recycle connections every 30 mins to prevent remote drops
     pool_use_lifo=True,                                   # Reuse hot connections
     connect_args={
-        "ssl": ctx  # This forces asyncpg to use our permissive context
+        "ssl": ctx,
+        # Supabase Supavisor / PgBouncer Transaction Pooler (Port 6543) Compatibility:
+        # Disabling prepared statement caching avoids DuplicatePreparedStatementError under connection pooling
+        "prepared_statement_cache_size": 0,
+        "statement_cache_size": 0,
     }
 )
 AsyncSessionLocal = async_sessionmaker(

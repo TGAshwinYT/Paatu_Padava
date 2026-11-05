@@ -101,6 +101,6 @@ jobs:
         if: ${{ github.event.inputs.build_target == 'simulator' || github.event.inputs.build_target == 'both' }}
         uses: actions/upload-artifact@v4
         with:
-          name: paatu-padava-appetize-ios
-          path: mobile/build/ios/iphonesimulator/Runner.app
+          name: paatu-padava-appetize-simulator-zip
+          path: mobile/build/ios/appetize-dist/PaatuPadava-Appetize-iOS.zip
           retention-days: 14

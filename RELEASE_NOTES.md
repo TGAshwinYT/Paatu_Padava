@@ -65,8 +65,10 @@ This milestone release introduces **Search Result Single-Track Isolation**, a ma
   * Configured `flutter_launcher_icons` with `remove_alpha_ios: true` for Apple App Store compliance and authentic logo display on iOS Lock Screen, Dynamic Island, and Control Center.
   * Added Studio-Grade Lock Screen Metadata cleaning in `TrackEntity.toMediaItem()`: automatically strips YouTube video noise, pipe tags (`|`), and movie suffixes, displaying clean titles with refined `Artist • Album` subtitles on both Android and iOS lock screens.
 * **CI / CD Automated Release Pipeline (Android & iOS)**:
-  * Created dedicated iOS Testing workflow (`.github/workflows/build-ios-test.yml`) allowing one-click manual dispatch or PR builds on Apple Silicon (`macos-14`), packaging unsigned IPA (`PaatuPadava-iOS-Test.ipa`) and iOS Simulator bundles (`PaatuPadava-iOS-Simulator.app.zip`).
-  * Upgraded Main Release workflow (`.github/workflows/build-apk.yml`) to build both **Android APKs** (arm64, armeabi-v7a, x86_64) and **iOS Release IPA** (`PaatuPadava-iOS-Release.ipa`) in parallel on every main push and manual dispatch.
+  * Upgraded Main Release workflow (`.github/workflows/build-apk.yml`) to generate **all target formats simultaneously**: Android ABI-split APKs, iOS Device Release IPA (`PaatuPadava-iOS-Device.ipa` for real iPhones), and Appetize.io Simulator Zip (`PaatuPadava-Appetize-Simulator.zip` with `Runner.app` at root for browser emulation).
+  * Maintained dedicated test workflow (`.github/workflows/build-ios-test.yml`) for on-demand dispatch and PR testing.
+* **Database & Cloud Scaling (Supabase Pooler 6543)**:
+  * Configured backend SQLAlchemy / asyncpg engine with `"prepared_statement_cache_size": 0` and `"statement_cache_size": 0`, enabling seamless compatibility with Supabase's **Supavisor / PgBouncer Connection Pooler** on port `6543` in transaction mode for 10,000+ concurrent connections without session conflicts.
 * **Audio Pipeline**:
   * Fixed consecutive track skipping bugs on stream errors with automatic progressive bitrate step-down (320k ➔ 160k ➔ 96k ➔ YouTube Fallback).
   * Cleaned up UI parameter artifacts in `SleepTimerSheet`.

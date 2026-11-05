@@ -164,7 +164,7 @@ jobs:
           retention-days: 30
 
   build-ios:
-    name: Build Flutter iOS Release (IPA)
+    name: Build Flutter iOS (Device IPA & Appetize Simulator Zip)
     runs-on: macos-14
 
     steps:
@@ -193,7 +193,7 @@ jobs:
         working-directory: mobile/ios
         run: pod install --repo-update
 
-      - name: Build Release iOS Bundle
+      - name: Build Device Release IPA (for Physical iPhones)
         working-directory: mobile
         run: |
           GIT_SHA="${{ github.sha }}"
@@ -205,8 +205,9 @@ jobs:
           SPOTIFY_ID=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_ID }}" | tr -d '\r\n "' | sed "s/'//g")
           SPOTIFY_SECRET=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_SECRET }}" | tr -d '\r\n "' | sed "s/'//g")
 
-          echo "Building iOS Release bundle with Git commit: $SHORT_SHA ($BUILD_TIME)..."
+          echo "DEFINES=--dart-define=SUPABASE_URL=$CLEAN_URL --dart-define=SUPABASE_ANON_KEY=$CLEAN_KEY --dart-define=SPOTIFY_CLIENT_ID=$SPOTIFY_ID --dart-define=SPOTIFY_CLIENT_SECRET=$SPOTIFY_SECRET --dart-define=GIT_COMMIT=$SHORT_SHA --dart-define=BUILD_TIME=$BUILD_TIME" >> $GITHUB_ENV
 
+          echo "== 1. Compiling iOS Release IPA for Physical iPhones =="
           flutter build ios --release --no-codesign \
             --build-number=${{ github.run_number }} \
             --dart-define=SUPABASE_URL="$CLEAN_URL" \
@@ -216,18 +217,33 @@ jobs:
             --dart-define=GIT_COMMIT="$SHORT_SHA" \
             --dart-define=BUILD_TIME="$BUILD_TIME"
 
-      - name: Package Release IPA
-        working-directory: mobile
-        run: |
           mkdir -p build/ios/ipa/Payload
           cp -r build/ios/iphoneos/Runner.app build/ios/ipa/Payload/
           cd build/ios/ipa
-          zip -qr PaatuPadava-iOS-Release.ipa Payload
-          echo "✅ Packaged PaatuPadava-iOS-Release.ipa successfully."
+          zip -qr PaatuPadava-iOS-Device.ipa Payload
+          echo "✅ Packaged PaatuPadava-iOS-Device.ipa successfully."
 
-      - name: Upload iOS IPA Artifact
+      - name: Build Appetize.io iOS Simulator Zip
+        working-directory: mobile
+        run: |
+          echo "== 2. Compiling iOS Simulator Bundle strictly for Appetize.io =="
+          flutter build ios --simulator --debug ${{ env.DEFINES }}
+
+          mkdir -p build/ios/appetize-export
+          cd build/ios/iphonesimulator
+          zip -qr ../appetize-export/PaatuPadava-Appetize-Simulator.zip Runner.app
+          echo "✅ Packaged PaatuPadava-Appetize-Simulator.zip with Runner.app at root."
+
+      - name: Upload iOS Device IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: paatu-padava-release-ios-ipa
-          path: mobile/build/ios/ipa/PaatuPadava-iOS-Release.ipa
+          name: paatu-padava-ios-device-ipa
+          path: mobile/build/ios/ipa/PaatuPadava-iOS-Device.ipa
+          retention-days: 30
+
+      - name: Upload Appetize.io Simulator Zip Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: paatu-padava-appetize-simulator-zip
+          path: mobile/build/ios/appetize-export/PaatuPadava-Appetize-Simulator.zip
           retention-days: 30

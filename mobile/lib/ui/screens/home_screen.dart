@@ -15,11 +15,14 @@ import '../widgets/home/home_song_card.dart';
 import '../widgets/home/home_song_tile.dart';
 import '../widgets/home/guest_mode_banner.dart';
 import '../widgets/home/home_error_view.dart';
-import '../widgets/home/home_shortcut_tile.dart';
+import '../widgets/home/quick_grid_section.dart';
+import '../widgets/home/home_category_pills.dart';
+import '../widgets/home/daily_mix_card.dart';
+import '../widgets/home/decades_mix_card.dart';
+
 import 'artist_screen.dart';
 import 'album_screen.dart';
 import 'settings_screen.dart';
-import 'liked_songs_screen.dart';
 import 'history_screen.dart';
 import '../../services/settings_manager.dart';
 import '../widgets/home/feeling_chips_bar.dart';
@@ -178,6 +181,14 @@ class _HomeScreenState extends State<HomeScreen> {
                               IconButton(
                                 constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                                 padding: const EdgeInsets.all(6),
+                                icon: const Icon(Icons.playlist_add_check_circle_outlined, color: Color(0xFF1DB954), size: 22),
+                                tooltip: 'Import Spotify Playlist',
+                                onPressed: () => SpotifyImportDialog.show(context),
+                              ),
+                              const SizedBox(width: 2),
+                              IconButton(
+                                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                                padding: const EdgeInsets.all(6),
                                 icon: const Icon(Icons.settings_outlined, color: Colors.white, size: 22),
                                 tooltip: 'Settings & Equalizer',
                                 onPressed: () {
@@ -233,89 +244,28 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
 
-                  // YouTube Music Style Feeling & Activity Chips Bar
+                  // Spotify-Style Top Category Filter Pills (All, Playlists, Made For You, Moods)
                   const SliverToBoxAdapter(
                     child: Padding(
-                      padding: EdgeInsets.only(top: 6, bottom: 4),
-                      child: FeelingChipsBar(),
+                      padding: EdgeInsets.only(top: 8, bottom: 6),
+                      child: HomeCategoryPills(),
                     ),
                   ),
 
-                  // Quick Shortcuts 2x2 Grid (Neon Violet & Cyan Theme)
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: HomeShortcutTile(
-                                  title: 'Liked Songs',
-                                  icon: Icons.favorite_rounded,
-                                  iconColor: Colors.white,
-                                  gradient: const [AppColors.deepPurple, AppColors.neonViolet],
-                                  onTap: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(builder: (_) => const LikedSongsScreen()),
-                                    );
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: HomeShortcutTile(
-                                  title: 'Recently Played',
-                                  icon: Icons.history_rounded,
-                                  iconColor: Colors.white,
-                                  gradient: const [Color(0xFF0E7490), AppColors.electricCyan],
-                                  onTap: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(builder: (_) => const HistoryScreen()),
-                                    );
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: HomeShortcutTile(
-                                  title: 'Made For You',
-                                  icon: Icons.auto_awesome_rounded,
-                                  iconColor: Colors.white,
-                                  gradient: const [Color(0xFF7C3AED), Color(0xFF06B6D4)],
-                                  onTap: () {
-                                    if (feedState.madeForYou.isNotEmpty) {
-                                      audioHandler.playSong(feedState.madeForYou.first, queue: feedState.madeForYou);
-                                    } else {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Building your recommendation mix...')),
-                                      );
-                                    }
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: HomeShortcutTile(
-                                  title: 'Import Spotify',
-                                  icon: Icons.album_rounded,
-                                  iconColor: Colors.white,
-                                  gradient: const [Color(0xFF4C1D95), AppColors.deepPurple],
-                                  onTap: () => SpotifyImportDialog.show(context),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                  // Flagship Spotify-Style 2x3 Quick Tiles Grid with instant 1-tap playback
+                  if (feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you')
+                    SliverToBoxAdapter(
+                      child: QuickGridSection(tiles: feedState.quickTiles),
+                    ),
+
+                  // YouTube Music Style Feeling & Activity Chips Bar (shown in All and Moods)
+                  if (feedState.homeFilter == 'all' || feedState.homeFilter == 'moods')
+                    const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.only(top: 6, bottom: 4),
+                        child: FeelingChipsBar(),
                       ),
                     ),
-                  ),
 
                   // Language Chips Bar
                   SliverToBoxAdapter(
@@ -368,8 +318,159 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     )
                   else ...[
+                    // Spotify-Style Clustered Daily Mixes Carousel
+                    if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists' || feedState.homeFilter == 'for_you') &&
+                        feedState.dailyMixes.isNotEmpty) ...[
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      gradient: const LinearGradient(
+                                        colors: [Color(0xFF10B981), Color(0xFF059669)],
+                                      ),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 16),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Your Daily Mixes',
+                                        style: GoogleFonts.outfit(
+                                          color: Colors.white,
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: -0.4,
+                                        ),
+                                      ),
+                                      Text(
+                                        'Clustered around your favorite artists',
+                                        style: GoogleFonts.outfit(
+                                          color: AppColors.textSecondary,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              TextButton(
+                                child: Text(
+                                  'Play All',
+                                  style: GoogleFonts.outfit(
+                                    color: const Color(0xFF10B981),
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                onPressed: () {
+                                  final firstMix = feedState.dailyMixes.first;
+                                  if (firstMix.tracks.isNotEmpty) {
+                                    audioHandler.playSong(firstMix.tracks.first, queue: firstMix.tracks);
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      SliverToBoxAdapter(
+                        child: SizedBox(
+                          height: 220,
+                          child: ListView.separated(
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            scrollDirection: Axis.horizontal,
+                            physics: const BouncingScrollPhysics(),
+                            itemCount: feedState.dailyMixes.length,
+                            separatorBuilder: (_, __) => const SizedBox(width: 4),
+                            itemBuilder: (context, index) {
+                              final mix = feedState.dailyMixes[index];
+                              return DailyMixCard(mix: mix);
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+
+                    // Decades & Golden Era Collections Carousel
+                    if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists') &&
+                        feedState.decadeMixes.isNotEmpty) ...[
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      gradient: const LinearGradient(
+                                        colors: [Color(0xFFF59E0B), Color(0xFFD97706)],
+                                      ),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Icon(Icons.radio_rounded, color: Colors.white, size: 16),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Golden Era & Decades',
+                                        style: GoogleFonts.outfit(
+                                          color: Colors.white,
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: -0.4,
+                                        ),
+                                      ),
+                                      Text(
+                                        '90s vintage classics to modern chartbusters',
+                                        style: GoogleFonts.outfit(
+                                          color: AppColors.textSecondary,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      SliverToBoxAdapter(
+                        child: SizedBox(
+                          height: 215,
+                          child: ListView.separated(
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            scrollDirection: Axis.horizontal,
+                            physics: const BouncingScrollPhysics(),
+                            itemCount: feedState.decadeMixes.length,
+                            separatorBuilder: (_, __) => const SizedBox(width: 4),
+                            itemBuilder: (context, index) {
+                              final mix = feedState.decadeMixes[index];
+                              return DecadesMixCard(mix: mix);
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+
                     // Flagship Spotify-Style Editorial Showcase Hero Banner
-                    if (feedState.heroShowcase != null && feedState.heroShowcase!.tracks.isNotEmpty)
+                    if (feedState.homeFilter == 'all' && feedState.heroShowcase != null && feedState.heroShowcase!.tracks.isNotEmpty)
                       SliverToBoxAdapter(
                         child: TopHitsHeroCard(showcase: feedState.heroShowcase!),
                       ),
@@ -456,19 +557,22 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
 
                     // Spotify & Billboard Style Top 10 Official Ranked Charts
-                    if (feedState.top10Charts.isNotEmpty)
+                    if (feedState.homeFilter == 'all' && feedState.top10Charts.isNotEmpty)
                       SliverToBoxAdapter(
                         child: NumberedChartView(charts: feedState.top10Charts),
                       ),
 
                     // YouTube Music Style Quick Picks 4-Row Column Grid
-                    if (SettingsManager.isHomeShowQuickPicksEnabled && feedState.quickPicks.isNotEmpty)
+                    if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you') &&
+                        SettingsManager.isHomeShowQuickPicksEnabled &&
+                        feedState.quickPicks.isNotEmpty)
                       SliverToBoxAdapter(
                         child: QuickPicksGridCarousel(songs: feedState.quickPicks),
                       ),
 
                     // Apple Music Style Mood & Activity Stations Carousel
-                    if (feedState.feelingMixes.isNotEmpty) ...[
+                    if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'moods') &&
+                        feedState.feelingMixes.isNotEmpty) ...[
                       SliverToBoxAdapter(
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
@@ -529,7 +633,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ],
                     // "Jump Back In" (Recent History Carousel if available)
-                    ValueListenableBuilder<List<Song>>(
+                    if (feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you')
+                      ValueListenableBuilder<List<Song>>(
                       valueListenable: HistoryManager.historyNotifier,
                       builder: (context, recentSongs, _) {
                         final displayHistory = recentSongs.isNotEmpty ? recentSongs : feedState.recentHistory;
@@ -592,7 +697,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
 
                     // "Made For You" (User taste / history-based mix)
-                    if (feedState.madeForYou.isNotEmpty) ...[
+                    if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you') &&
+                        feedState.madeForYou.isNotEmpty) ...[
                       SliverToBoxAdapter(
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
@@ -638,7 +744,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
 
                     // "Trending Across JioSaavn & YouTube" Carousel
-                    if (feedState.trendingMerged.isNotEmpty) ...[
+                    if (feedState.homeFilter == 'all' && feedState.trendingMerged.isNotEmpty) ...[
                       SliverToBoxAdapter(
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
@@ -684,7 +790,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
 
                     // "YouTube Music Trending" Carousel
-                    if (feedState.youtubeTrending.isNotEmpty) ...[
+                    if (feedState.homeFilter == 'all' && feedState.youtubeTrending.isNotEmpty) ...[
                       SliverToBoxAdapter(
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
@@ -730,7 +836,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
 
                     // "Popular Artists" (High-Res Verified Avatars)
-                    if (feedState.popularArtists.isNotEmpty) ...[
+                    if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists') &&
+                        feedState.popularArtists.isNotEmpty) ...[
                       SliverToBoxAdapter(
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
@@ -829,7 +936,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
 
                     // "New Releases" Carousel
-                    if (feedState.newReleases.isNotEmpty) ...[
+                    if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists') &&
+                        feedState.newReleases.isNotEmpty) ...[
                       SliverToBoxAdapter(
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
@@ -881,7 +989,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
 
                     // "Featured Albums"
-                    if (feedState.featuredAlbums.isNotEmpty) ...[
+                    if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists') &&
+                        feedState.featuredAlbums.isNotEmpty) ...[
                       SliverToBoxAdapter(
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
@@ -962,7 +1071,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
 
                     // Bottom Feed: Trending Tracks List
-                    if (feedState.trendingMerged.isNotEmpty) ...[
+                    if (feedState.homeFilter == 'all' && feedState.trendingMerged.isNotEmpty) ...[
                       SliverToBoxAdapter(
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),

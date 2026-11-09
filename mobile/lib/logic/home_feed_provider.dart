@@ -15,6 +15,7 @@ import '../services/artist_sanitizer.dart';
 import '../services/spotify_import_service.dart';
 import '../services/cache_manager.dart';
 import 'stream_resolver.dart';
+import 'client_home_feed_engine.dart';
 import '../domain/models/track_entity.dart';
 import '../domain/models/home_feed_models.dart';
 
@@ -31,6 +32,10 @@ class HomeFeedState {
   final List<RankedChartSong> top10Charts;
   final List<FeelingMix> feelingMixes;
   final List<Song> quickPicks;
+  final List<HomeQuickTile> quickTiles;
+  final List<DailyMix> dailyMixes;
+  final List<DecadeMix> decadeMixes;
+  final String homeFilter;
   final String activeFeeling;
   final bool isLoading;
   final String? error;
@@ -49,6 +54,10 @@ class HomeFeedState {
     this.top10Charts = const [],
     this.feelingMixes = const [],
     this.quickPicks = const [],
+    this.quickTiles = const [],
+    this.dailyMixes = const [],
+    this.decadeMixes = const [],
+    this.homeFilter = 'all',
     this.activeFeeling = 'all',
     this.isLoading = false,
     this.error,
@@ -63,6 +72,9 @@ class HomeFeedState {
       newReleases.isEmpty &&
       popularArtists.isEmpty &&
       featuredAlbums.isEmpty &&
+      quickTiles.isEmpty &&
+      dailyMixes.isEmpty &&
+      decadeMixes.isEmpty &&
       (heroShowcase == null || heroShowcase!.tracks.isEmpty);
 
   HomeFeedState copyWith({
@@ -78,6 +90,10 @@ class HomeFeedState {
     List<RankedChartSong>? top10Charts,
     List<FeelingMix>? feelingMixes,
     List<Song>? quickPicks,
+    List<HomeQuickTile>? quickTiles,
+    List<DailyMix>? dailyMixes,
+    List<DecadeMix>? decadeMixes,
+    String? homeFilter,
     String? activeFeeling,
     bool? isLoading,
     String? error,
@@ -96,6 +112,10 @@ class HomeFeedState {
       top10Charts: top10Charts ?? this.top10Charts,
       feelingMixes: feelingMixes ?? this.feelingMixes,
       quickPicks: quickPicks ?? this.quickPicks,
+      quickTiles: quickTiles ?? this.quickTiles,
+      dailyMixes: dailyMixes ?? this.dailyMixes,
+      decadeMixes: decadeMixes ?? this.decadeMixes,
+      homeFilter: homeFilter ?? this.homeFilter,
       activeFeeling: activeFeeling ?? this.activeFeeling,
       isLoading: isLoading ?? this.isLoading,
       error: error,
@@ -175,6 +195,14 @@ class HomeFeedProvider extends ChangeNotifier {
     loadFeed();
   }
 
+  String get homeFilter => _state.homeFilter;
+
+  void setHomeFilter(String filter) {
+    if (_state.homeFilter == filter) return;
+    _state = _state.copyWith(homeFilter: filter);
+    notifyListeners();
+  }
+
   void setActiveFeeling(String feelingId) {
     if (_state.activeFeeling == feelingId) return;
     _state = _state.copyWith(activeFeeling: feelingId);
@@ -237,8 +265,54 @@ class HomeFeedProvider extends ChangeNotifier {
             [];
 
         final quickPicks = _decodeSongList(raw['quickPicks']);
+        final quickTiles = (raw['quickTiles'] as List<dynamic>?)
+                ?.map((e) {
+                  try {
+                    return HomeQuickTile.fromMap(Map<String, dynamic>.from(e as Map));
+                  } catch (_) {
+                    return null;
+                  }
+                })
+                .whereType<HomeQuickTile>()
+                .toList() ??
+            [];
+
+        final dailyMixes = (raw['dailyMixes'] as List<dynamic>?)
+                ?.map((e) {
+                  try {
+                    return DailyMix.fromMap(Map<String, dynamic>.from(e as Map));
+                  } catch (_) {
+                    return null;
+                  }
+                })
+                .whereType<DailyMix>()
+                .toList() ??
+            [];
+
+        final decadeMixes = (raw['decadeMixes'] as List<dynamic>?)
+                ?.map((e) {
+                  try {
+                    return DecadeMix.fromMap(Map<String, dynamic>.from(e as Map));
+                  } catch (_) {
+                    return null;
+                  }
+                })
+                .whereType<DecadeMix>()
+                .toList() ??
+            [];
+
+        final homeFilter = raw['homeFilter']?.toString() ?? 'all';
         final rememberFeeling = SettingsManager.isHomeRememberFeelingEnabled;
         final savedFeeling = rememberFeeling ? (raw['activeFeeling']?.toString() ?? 'all') : 'all';
+
+        final resolvedQuickTiles = quickTiles.isNotEmpty
+            ? quickTiles
+            : ClientHomeFeedEngine.instance.generateQuickTiles(
+                language: lang,
+                dailyMixes: dailyMixes,
+                decadeMixes: decadeMixes,
+                feedTracks: madeForYou.isNotEmpty ? madeForYou : trendingMerged,
+              );
 
         if (madeForYou.isNotEmpty ||
             trendingMerged.isNotEmpty ||
@@ -258,6 +332,10 @@ class HomeFeedProvider extends ChangeNotifier {
             top10Charts: top10Charts,
             feelingMixes: feelingMixes,
             quickPicks: quickPicks,
+            quickTiles: resolvedQuickTiles,
+            dailyMixes: dailyMixes,
+            decadeMixes: decadeMixes,
+            homeFilter: homeFilter,
             activeFeeling: savedFeeling,
             isLoading: false, // Instant cache-first render: no loading spinner
           );
@@ -287,6 +365,10 @@ class HomeFeedProvider extends ChangeNotifier {
         'top10Charts': feed.top10Charts.map((r) => r.toMap()).toList(),
         'feelingMixes': feed.feelingMixes.map((f) => f.toMap()).toList(),
         'quickPicks': feed.quickPicks.map((s) => s.toMap()).toList(),
+        'quickTiles': feed.quickTiles.map((t) => t.toMap()).toList(),
+        'dailyMixes': feed.dailyMixes.map((m) => m.toMap()).toList(),
+        'decadeMixes': feed.decadeMixes.map((d) => d.toMap()).toList(),
+        'homeFilter': feed.homeFilter,
         'activeFeeling': feed.activeFeeling,
         'cached_at': DateTime.now().millisecondsSinceEpoch,
       };
@@ -426,6 +508,8 @@ class HomeFeedProvider extends ChangeNotifier {
         SongRepository.getTop10RankedCharts(language: lang),
         SongRepository.getFeelingMixes(language: lang),
         SongRepository.getQuickPicks(language: lang),
+        ClientHomeFeedEngine.instance.generateDailyMixes(language: lang),
+        ClientHomeFeedEngine.instance.generateDecadeMixes(language: lang),
       ]);
 
       // SWR Step 2: Consolidated single-payload API request with 3s timeout so sleeping server never delays
@@ -439,6 +523,8 @@ class HomeFeedProvider extends ChangeNotifier {
       final top10Charts = extra[1] as List<RankedChartSong>;
       final feelingMixes = extra[2] as List<FeelingMix>;
       final quickPicks = extra[3] as List<Song>;
+      final freshDailyMixes = extra[4] as List<DailyMix>;
+      final freshDecadeMixes = extra[5] as List<DecadeMix>;
 
       if (unifiedFeed != null &&
           (unifiedFeed['madeForYou'] is List || unifiedFeed['trending'] is List)) {
@@ -500,6 +586,13 @@ class HomeFeedProvider extends ChangeNotifier {
 
         final recentHistory = HistoryManager.getRecentSongs();
 
+        final unifiedQuickTiles = ClientHomeFeedEngine.instance.generateQuickTiles(
+          language: lang,
+          dailyMixes: freshDailyMixes.isNotEmpty ? freshDailyMixes : _state.dailyMixes,
+          decadeMixes: freshDecadeMixes.isNotEmpty ? freshDecadeMixes : _state.decadeMixes,
+          feedTracks: trending.isNotEmpty ? trending : madeForYou,
+        );
+
         _state = HomeFeedState(
           madeForYou: SongRepository.ensureDistinctCovers(SongRepository.deduplicateSongs(madeForYou)),
           trendingMerged: SongRepository.ensureDistinctCovers(SongRepository.deduplicateSongs(trending)),
@@ -513,6 +606,10 @@ class HomeFeedProvider extends ChangeNotifier {
           top10Charts: top10Charts.isNotEmpty ? top10Charts : _state.top10Charts,
           feelingMixes: feelingMixes.isNotEmpty ? feelingMixes : _state.feelingMixes,
           quickPicks: quickPicks.isNotEmpty ? quickPicks : _state.quickPicks,
+          quickTiles: unifiedQuickTiles,
+          dailyMixes: freshDailyMixes.isNotEmpty ? freshDailyMixes : _state.dailyMixes,
+          decadeMixes: freshDecadeMixes.isNotEmpty ? freshDecadeMixes : _state.decadeMixes,
+          homeFilter: _state.homeFilter,
           activeFeeling: _state.activeFeeling,
           isLoading: false,
         );
@@ -566,6 +663,13 @@ class HomeFeedProvider extends ChangeNotifier {
           heroShowcase.tracks.isNotEmpty;
 
       if (hasFreshData || _state.isEmpty) {
+        final fallbackQuickTiles = ClientHomeFeedEngine.instance.generateQuickTiles(
+          language: lang,
+          dailyMixes: freshDailyMixes.isNotEmpty ? freshDailyMixes : _state.dailyMixes,
+          decadeMixes: freshDecadeMixes.isNotEmpty ? freshDecadeMixes : _state.decadeMixes,
+          feedTracks: trendingMerged.isNotEmpty ? trendingMerged : madeForYou,
+        );
+
         _state = HomeFeedState(
           madeForYou: madeForYou.isNotEmpty ? madeForYou : _state.madeForYou,
           trendingMerged: trendingMerged.isNotEmpty ? trendingMerged : _state.trendingMerged,
@@ -579,6 +683,10 @@ class HomeFeedProvider extends ChangeNotifier {
           top10Charts: top10Charts.isNotEmpty ? top10Charts : _state.top10Charts,
           feelingMixes: feelingMixes.isNotEmpty ? feelingMixes : _state.feelingMixes,
           quickPicks: quickPicks.isNotEmpty ? quickPicks : _state.quickPicks,
+          quickTiles: fallbackQuickTiles,
+          dailyMixes: freshDailyMixes.isNotEmpty ? freshDailyMixes : _state.dailyMixes,
+          decadeMixes: freshDecadeMixes.isNotEmpty ? freshDecadeMixes : _state.decadeMixes,
+          homeFilter: _state.homeFilter,
           activeFeeling: _state.activeFeeling,
           isLoading: false,
         );

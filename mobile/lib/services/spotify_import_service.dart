@@ -191,6 +191,159 @@ class SpotifyImportService {
     return first.isNotEmpty ? first : sanitized;
   }
 
+  /// Extracts movie or soundtrack name if embedded in the title (e.g. `(From "Narivetta")`, `[From "Shajahaan"]`).
+  static String? extractMovieFromTitle(String rawTitle) {
+    if (rawTitle.isEmpty) return null;
+    final m = RegExp(
+      r'[\(\[][Ff]rom\s+["\u201c\u201d\u2018\u2019]?([^)\u201d\]"]+)["\u201c\u201d\u2018\u2019]?[\)\]]',
+    ).firstMatch(rawTitle);
+    if (m != null && m.group(1) != null) {
+      final movie = m.group(1)!.trim();
+      return movie.isNotEmpty ? movie : null;
+    }
+    return null;
+  }
+
+  /// Extracts all distinct contributing artists (singers, composers, featured).
+  static List<String> extractAllArtists(String rawArtists) {
+    if (rawArtists.isEmpty) return const [];
+    final sanitized = _unescape.convert(Song.sanitize(rawArtists));
+    return sanitized
+        .split(RegExp(r'[,&/|]|\b(?:feat\.?|ft\.?|and)\b', caseSensitive: false))
+        .map((a) => a.trim().toLowerCase())
+        .where((a) => a.isNotEmpty && a != 'various artists' && a != 'artist')
+        .toList();
+  }
+
+  /// Normalizes common Tanglish / Indic romanization variants for tolerant matching.
+  static String normalizeTanglish(String s) {
+    var t = s.toLowerCase().trim();
+    t = t.replaceAll(RegExp(r'ae\b'), 'e');
+    t = t.replaceAll(RegExp(r'ey\b'), 'e');
+    t = t.replaceAll('dh', 'th');
+    t = t.replaceAll('oo', 'u');
+    t = t.replaceAll('ee', 'i');
+    return t;
+  }
+
+  /// Title similarity with Tanglish transliteration tolerance (e.g. "Melliname" <-> "Mellinamae").
+  static int computeTitleSimilarity(String t1, String t2) {
+    final sim1 = tokenSetRatio(t1.toLowerCase(), t2.toLowerCase());
+    final sim2 = tokenSetRatio(normalizeTanglish(t1), normalizeTanglish(t2));
+    return sim1 > sim2 ? sim1 : sim2;
+  }
+
+  /// Compares full contributing artist sets to preserve playback singers and music directors.
+  static int computeArtistSimilarity(String targetArtists, String candidateArtists) {
+    final targetList = extractAllArtists(targetArtists);
+    final candidateList = extractAllArtists(candidateArtists);
+    if (targetList.isEmpty || candidateList.isEmpty) return 50;
+
+    final targetSet = targetList.toSet();
+    final candidateSet = candidateList.toSet();
+
+    final inter = targetSet.intersection(candidateSet);
+    if (inter.isNotEmpty) {
+      if (inter.length == targetSet.length) return 100;
+      return (70 + 30 * (inter.length / targetSet.length)).round();
+    }
+
+    int partialMatches = 0;
+    for (final t in targetList) {
+      for (final c in candidateList) {
+        if (t.contains(c) || c.contains(t) || tokenSetRatio(t, c) >= 80) {
+          partialMatches++;
+          break;
+        }
+      }
+    }
+
+    if (partialMatches > 0) {
+      return (65 + 35 * (partialMatches / targetList.length)).round();
+    }
+    return 20;
+  }
+
+  /// Compares album or soundtrack titles if present.
+  static int computeAlbumSimilarity(String? targetAlbum, String? candidateAlbum) {
+    if (targetAlbum == null || candidateAlbum == null) return 0;
+    final cTarget = cleanTrackTitle(targetAlbum).toLowerCase().trim();
+    final cCand = cleanTrackTitle(candidateAlbum).toLowerCase().trim();
+    if (cTarget.isEmpty || cCand.isEmpty) return 0;
+    return tokenSetRatio(cTarget, cCand);
+  }
+
+  /// Duration scoring with strict penalties for covers/snippets (> 20s difference).
+  static int computeDurationScore(int targetSec, int candidateSec) {
+    if (targetSec <= 0 || candidateSec <= 0) return 0;
+    final diff = (targetSec - candidateSec).abs();
+    if (diff <= 5) return 20;
+    if (diff <= 12) return 15;
+    if (diff <= 18) return 5;
+    if (diff <= 25) return -20;
+    return -60;
+  }
+
+  /// Multi-dimensional candidate scoring formula combining title, artists, album, and duration.
+  static int scoreCandidate({
+    required SpotifyTrackItem target,
+    required Song candidate,
+    String? movieHint,
+  }) {
+    final cleanTargetTitle = cleanTrackTitle(target.title);
+    final cleanCandTitle = cleanTrackTitle(candidate.title);
+
+    final titleSim = computeTitleSimilarity(cleanTargetTitle, cleanCandTitle);
+    if (titleSim < 50) return -100;
+
+    final artistSim = computeArtistSimilarity(target.artist, candidate.artist);
+
+    final targetAlbum = target.album ?? movieHint;
+    final albumSim = computeAlbumSimilarity(targetAlbum, candidate.album);
+
+    final durScore = computeDurationScore(target.durationSeconds, candidate.duration);
+
+    final int baseScore = (titleSim * 0.40 +
+            artistSim * 0.35 +
+            (targetAlbum != null && targetAlbum.isNotEmpty ? albumSim * 0.25 : artistSim * 0.10))
+        .round();
+
+    return baseScore + durScore;
+  }
+
+  /// Probes whether a stream URL actually exists and returns HTTP 200/206.
+  /// Prevents adding orphaned/deleted CDN items (HTTP 404) to the user's playlist.
+  static Future<bool> isStreamPlayable(String? url) async {
+    if (url == null || url.trim().isEmpty) return false;
+    final clean = url.trim();
+    if (!clean.startsWith('http')) return false;
+
+    Future<bool> probeUrl(String testUrl) async {
+      try {
+        final uri = Uri.parse(testUrl);
+        final client = http.Client();
+        try {
+          final req = http.Request('GET', uri);
+          req.headers['Range'] = 'bytes=0-1024';
+          req.headers['User-Agent'] = _webHeaders['User-Agent']!;
+          final streamedRes = await client.send(req).timeout(const Duration(milliseconds: 1500));
+          return streamedRes.statusCode == 200 || streamedRes.statusCode == 206;
+        } finally {
+          client.close();
+        }
+      } catch (_) {
+        return false;
+      }
+    }
+
+    if (await probeUrl(clean)) return true;
+    if (clean.contains('_320.mp4')) {
+      final fallback160 = clean.replaceAll('_320.mp4', '_160.mp4');
+      if (await probeUrl(fallback160)) return true;
+    }
+    return false;
+  }
+
   /// Check if candidate title contains unwanted tags (karaoke, cover, reaction, snippet)
   static bool _isUnwantedType(String candidateTitle, String originalTitle) {
     final lowerCand = candidateTitle.toLowerCase();
@@ -793,20 +946,18 @@ class SpotifyImportService {
     return null;
   }
 
-  /// 2. Bloomee-Style Two-Tier Matching:
-  /// Matches candidate tracks using fuzzy similarity (tokenSetRatio > 70%)
-  /// and duration tolerance (+/- 10s difference from Spotify's duration).
-  ///
-  /// Priority:
-  /// 1. JioSaavn for direct 320kbps CDN stream.
-  /// 2. YouTube audio fallback if JioSaavn score < 70.
+  /// Multi-Pass Smart Matcher:
+  /// Uses a 2-stage search pipeline (Title+Artist -> Album+Title -> Title-only),
+  /// full-credit multi-artist + album scoring, Tanglish transliteration normalization,
+  /// strict duration window (+/- 15s), and live CDN stream verification probing.
   static Future<Song?> matchSingleTrack(
     SpotifyTrackItem track, {
     String? preferredLanguage,
   }) async {
     final cleanTitle = cleanTrackTitle(track.title);
     final primaryArtist = cleanArtistName(track.artist);
-    final targetDuration = track.durationSeconds;
+    final movieHint = extractMovieFromTitle(track.title);
+    final targetAlbum = track.album ?? movieHint;
 
     // ── Tier 0: Instant Local Master Catalog Match (0ms, 100% verified metadata) ──
     try {
@@ -814,7 +965,7 @@ class SpotifyImportService {
       for (final candidate in localCandidates) {
         if (_isUnwantedType(candidate.title, cleanTitle)) continue;
         final cCleanTitle = cleanTrackTitle(candidate.title);
-        final titleSim = tokenSetRatio(cleanTitle.toLowerCase(), cCleanTitle.toLowerCase());
+        final titleSim = computeTitleSimilarity(cleanTitle, cCleanTitle);
         if (titleSim >= 85) {
           return candidate;
         }
@@ -822,62 +973,79 @@ class SpotifyImportService {
     } catch (_) {}
 
     // ── Tier 1: Search JioSaavn across all languages for pristine 320kbps Stream ──
-    // Do not constrain to a single blanket language filter so multi-lingual playlists match accurately.
     try {
-      final saavnResults = await SaavnClient.search(
-        '$cleanTitle $primaryArtist',
-        limit: 8,
-      );
+      final List<Song> candidates = [];
+      final Set<String> seenIds = {};
 
-      Song? bestSaavn;
-      int bestSaavnScore = -1;
-
-      for (final candidate in saavnResults) {
-        if (_isUnwantedType(candidate.title, cleanTitle)) continue;
-
-        final candidateCleanTitle = cleanTrackTitle(candidate.title);
-        final candidateCleanArtist = cleanArtistName(candidate.artist);
-
-        final titleSim = tokenSetRatio(cleanTitle.toLowerCase(), candidateCleanTitle.toLowerCase());
-        final artistSim = tokenSetRatio(primaryArtist.toLowerCase(), candidateCleanArtist.toLowerCase());
-
-        // Hard rejection if title similarity is too low
-        if (titleSim < 50) continue;
-
-        int score = (titleSim * 0.7 + artistSim * 0.3).round();
-
-        // Duration tolerance verification
-        if (targetDuration > 0 && candidate.duration > 0) {
-          final diff = (candidate.duration - targetDuration).abs();
-          if (diff <= 10) {
-            score += 15; // Within +/- 10s tolerance
-          } else if (diff <= 20) {
-            score += 5;
-          } else if (diff > 35) {
-            score -= 35; // Discard covers, snippets, or teasers
-          } else if (diff > 60) {
-            score -= 60;
+      void addCandidates(List<Song> songs) {
+        for (final s in songs) {
+          if (s.id.isNotEmpty && seenIds.add(s.id)) {
+            candidates.add(s);
           }
-        }
-
-        // Slight tie-breaker bonus for user's preferred language (never exclusionary)
-        if (preferredLanguage != null && candidate.language == preferredLanguage.toLowerCase().trim()) {
-          score += 5;
-        }
-
-        if (score > bestSaavnScore) {
-          bestSaavnScore = score;
-          bestSaavn = candidate;
         }
       }
 
-      if (bestSaavn != null && bestSaavnScore >= 70) {
-        if ((bestSaavn.coverUrl.isEmpty || bestSaavn.coverUrl.contains('default')) &&
+      // Pass 1: Title + Primary Artist
+      final res1 = await SaavnClient.search('$cleanTitle $primaryArtist', limit: 6);
+      addCandidates(res1);
+
+      // Check if Pass 1 yielded a confident candidate (score >= 85)
+      bool hasConfidentMatch = candidates.any((c) =>
+          !_isUnwantedType(c.title, cleanTitle) &&
+          scoreCandidate(target: track, candidate: c, movieHint: movieHint) >= 85);
+
+      // Pass 2: If no confident match and album is available, search Album + Title
+      if (!hasConfidentMatch && targetAlbum != null && targetAlbum.trim().isNotEmpty) {
+        final cleanAlb = cleanTrackTitle(targetAlbum);
+        if (cleanAlb.isNotEmpty && !cleanAlb.toLowerCase().contains(cleanTitle.toLowerCase())) {
+          final res2 = await SaavnClient.search('$cleanAlb $cleanTitle', limit: 6);
+          addCandidates(res2);
+        }
+      }
+
+      // Pass 3: Title-only fallback if still no confident candidate
+      hasConfidentMatch = candidates.any((c) =>
+          !_isUnwantedType(c.title, cleanTitle) &&
+          scoreCandidate(target: track, candidate: c, movieHint: movieHint) >= 85);
+
+      if (!hasConfidentMatch) {
+        final res3 = await SaavnClient.search(cleanTitle, limit: 6);
+        addCandidates(res3);
+      }
+
+      // Score all candidate songs
+      final List<MapEntry<Song, int>> scored = [];
+      for (final candidate in candidates) {
+        if (_isUnwantedType(candidate.title, cleanTitle)) continue;
+        final score = scoreCandidate(target: track, candidate: candidate, movieHint: movieHint);
+        if (score >= 70) {
+          scored.add(MapEntry(candidate, score));
+        }
+      }
+
+      // Sort candidates by score descending
+      scored.sort((a, b) => b.value.compareTo(a.value));
+
+      // Live Stream Health Probe: Select top candidate whose audio stream is verified healthy
+      for (final entry in scored) {
+        var cand = entry.key;
+        if (cand.streamUrl != null && cand.streamUrl!.isNotEmpty) {
+          final isHealthy = await isStreamPlayable(cand.streamUrl);
+          if (!isHealthy) {
+            AppLogger.log(
+              'SpotifyImportService',
+              'Candidate "${cand.title}" [id=${cand.id}] scored ${entry.value} but stream is 404/unplayable. Failing over.',
+            );
+            continue;
+          }
+        }
+
+        if ((cand.coverUrl.isEmpty || cand.coverUrl.contains('default')) &&
             track.coverUrl != null &&
             track.coverUrl!.isNotEmpty) {
-          bestSaavn = bestSaavn.copyWith(coverUrl: track.coverUrl);
+          cand = cand.copyWith(coverUrl: track.coverUrl);
         }
-        return bestSaavn;
+        return cand;
       }
     } catch (e) {
       AppLogger.log('SpotifyImportService', 'Saavn match search notice: $e');
@@ -890,43 +1058,19 @@ class SpotifyImportService {
         limit: 6,
       );
 
-      Song? bestYt;
-      int bestYtScore = -1;
-
+      final List<MapEntry<Song, int>> scoredYt = [];
       for (final candidate in ytResults) {
         if (_isUnwantedType(candidate.title, cleanTitle)) continue;
-
-        final candidateCleanTitle = cleanTrackTitle(candidate.title);
-        final candidateCleanArtist = cleanArtistName(candidate.artist);
-
-        final titleSim = tokenSetRatio(cleanTitle.toLowerCase(), candidateCleanTitle.toLowerCase());
-        final artistSim = tokenSetRatio(primaryArtist.toLowerCase(), candidateCleanArtist.toLowerCase());
-
-        if (titleSim < 50) continue;
-
-        int score = (titleSim * 0.7 + artistSim * 0.3).round();
-
-        // Duration tolerance verification
-        if (targetDuration > 0 && candidate.duration > 0) {
-          final diff = (candidate.duration - targetDuration).abs();
-          if (diff <= 10) {
-            score += 15;
-          } else if (diff <= 20) {
-            score += 5;
-          } else if (diff > 35) {
-            score -= 35;
-          } else if (diff > 60) {
-            score -= 60;
-          }
-        }
-
-        if (score > bestYtScore) {
-          bestYtScore = score;
-          bestYt = candidate;
+        final score = scoreCandidate(target: track, candidate: candidate, movieHint: movieHint);
+        if (score >= 65) {
+          scoredYt.add(MapEntry(candidate, score));
         }
       }
 
-      if (bestYt != null && bestYtScore >= 65) {
+      scoredYt.sort((a, b) => b.value.compareTo(a.value));
+
+      if (scoredYt.isNotEmpty) {
+        var bestYt = scoredYt.first.key;
         if (track.coverUrl != null && track.coverUrl!.isNotEmpty) {
           bestYt = bestYt.copyWith(coverUrl: track.coverUrl);
         }

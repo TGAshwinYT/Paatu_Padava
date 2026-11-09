@@ -37,7 +37,22 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   static final HtmlUnescape _unescape = HtmlUnescape();
-  final List<String> _languages = ['Tamil', 'Telugu', 'Hindi', 'Malayalam', 'English', 'Kannada'];
+
+  List<String> get _displayLanguages {
+    final userLangs = SettingsManager.preferredLanguages;
+    final Set<String> langSet = {};
+    for (final l in userLangs) {
+      final trimmed = l.trim();
+      if (trimmed.isNotEmpty) {
+        langSet.add(trimmed[0].toUpperCase() + trimmed.substring(1).toLowerCase());
+      }
+    }
+    const defaultList = ['Tamil', 'Telugu', 'Hindi', 'Malayalam', 'English', 'Kannada', 'Punjabi'];
+    for (final d in defaultList) {
+      langSet.add(d);
+    }
+    return langSet.toList();
+  }
 
   @override
   void initState() {
@@ -309,10 +324,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: ListView.separated(
                         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
                         scrollDirection: Axis.horizontal,
-                        itemCount: _languages.length,
+                        itemCount: _displayLanguages.length,
                         separatorBuilder: (_, __) => const SizedBox(width: 8),
                         itemBuilder: (context, index) {
-                          final lang = _languages[index];
+                          final lang = _displayLanguages[index];
                           final isSelected = lang.toLowerCase() == currentLang.toLowerCase();
                           return ChoiceChip(
                             label: Text(lang),

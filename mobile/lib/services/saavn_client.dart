@@ -378,7 +378,7 @@ class SaavnClient {
     } catch (e) {
       AppLogger.log('SaavnClient', 'getTrendingSongs error: $e');
     }
-    return search('Tamil Top Hits', language: language);
+    return search('$language Top Hits', language: language);
   }
 
   static Future<List<Song>> getTrending({String language = 'Tamil'}) async {
@@ -398,7 +398,7 @@ class SaavnClient {
     } catch (e) {
       AppLogger.log('SaavnClient', 'getTrending error: $e');
     }
-    return search('Tamil Top Hits', language: language);
+    return search('$language Top Hits', language: language);
   }
 
   /// Direct on-device artist avatar lookup via JioSaavn
@@ -475,7 +475,15 @@ class SaavnClient {
         // When a specific language was requested (e.g. from language tab), apply language match
         if (isSpecificLang) {
           final targetLang = language.toLowerCase().trim();
-          if (targetLang == 'tamil' && RegExp(r'[ऀ-ॿ]').hasMatch(title)) {
+          final dummySong = Song(
+            id: item['id']?.toString() ?? '',
+            title: title,
+            artist: Song.sanitize(more['music'] ?? item['subtitle'] ?? ''),
+            album: title,
+            coverUrl: '',
+            language: albLang,
+          );
+          if (SongRepository.isLanguageMismatch(dummySong, targetLang)) {
             continue;
           }
         }

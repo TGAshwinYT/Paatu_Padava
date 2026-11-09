@@ -142,7 +142,10 @@ List<Song> getLocalFallbackTracks(
     pool.addAll(HistoryManager.getHistory());
   } catch (_) {}
 
-  final targetLanguage = targetLang ?? seedSong.language?.toLowerCase() ?? 'tamil';
+  final targetLanguage = targetLang ??
+      seedSong.language?.toLowerCase() ??
+      SettingsManager.preferredLanguages.firstOrNull?.toLowerCase() ??
+      '';
   final primaryArtist = QueueCooldownManager.normalizeArtistKey(seedSong.primaryArtist);
 
   // Score candidates: Same Artist (score 3) > Same Language (score 2) > Other (score 1)
@@ -276,7 +279,7 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
       final prefLangs = SettingsManager.preferredLanguages;
       final targetLang = (seedSong.language != null && seedSong.language!.isNotEmpty)
           ? seedSong.language!.toLowerCase()
-          : (prefLangs.firstOrNull ?? 'tamil').toLowerCase();
+          : (prefLangs.firstOrNull ?? '').toLowerCase();
 
       final targetBatch = count > 0 ? count : 20;
 
@@ -587,7 +590,7 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
       final prefLangs = SettingsManager.preferredLanguages;
       final targetLang = (seedSong.language != null && seedSong.language!.isNotEmpty)
           ? seedSong.language!.toLowerCase()
-          : (prefLangs.firstOrNull ?? 'tamil').toLowerCase();
+          : (prefLangs.firstOrNull ?? '').toLowerCase();
 
       // 1. Build exclusion set (capped to last 50 tracks in history to prevent pool starvation)
       final Set<String> exclusions = {};
@@ -799,7 +802,7 @@ class UnifiedSmartRadioStrategy implements NextTrackStrategy {
       final prefLangs = SettingsManager.preferredLanguages;
       final targetLang = (seedSong.language != null && seedSong.language!.isNotEmpty)
           ? seedSong.language!.toLowerCase()
-          : (prefLangs.firstOrNull ?? 'tamil').toLowerCase();
+          : (prefLangs.firstOrNull ?? '').toLowerCase();
 
       final targetBatch = count > 0 ? count : 20;
 

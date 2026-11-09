@@ -643,7 +643,7 @@ class SearchService {
             SearchResults(
               songs: songs,
               saavnSongs: songs,
-              albums: extractedAlbums, playlists: ensurePopulatedPlaylists(const [], songs, extractedAlbums, clean, preferredLanguages: [language ?? 'tamil']),
+              albums: extractedAlbums, playlists: ensurePopulatedPlaylists(const [], songs, extractedAlbums, clean, preferredLanguages: language != null ? [language] : SettingsManager.preferredLanguages),
               isFinal: false,
             ),
             language: language,
@@ -956,7 +956,8 @@ class SearchService {
     if (cleanQuery.isEmpty) return rawPlaylists;
 
     final queryTokens = cleanQuery.split(RegExp(r'\s+')).where((t) => t.length >= 2).toSet();
-    final prefLang = (language ?? (SettingsManager.preferredLanguages.isNotEmpty ? SettingsManager.preferredLanguages.first : 'tamil')).toLowerCase().trim();
+    final userPrefList = SettingsManager.preferredLanguages;
+    final prefLang = (language ?? (userPrefList.isNotEmpty ? userPrefList.first : '')).toLowerCase().trim();
     final foreignLangRegex = RegExp(r'\b(kannada|marathi|bhojpuri|punjabi|haryanvi|bengali|gujarati)\b', caseSensitive: false);
 
     final filtered = <Map<String, dynamic>>[];
@@ -2006,7 +2007,9 @@ class SearchService {
 
     // For very short queries (<= 3 chars, e.g. "hi"), reject non-Indian English bedroom-pop noise
     if (qLower.length <= 3) {
-      final userPrefLangs = (preferredLanguages != null && preferredLanguages.isNotEmpty) ? preferredLanguages.map((l) => l.toLowerCase().trim()).toSet() : {'tamil'};
+      final userPrefLangs = (preferredLanguages != null && preferredLanguages.isNotEmpty)
+          ? preferredLanguages.map((l) => l.toLowerCase().trim()).toSet()
+          : SettingsManager.preferredLanguages.map((l) => l.toLowerCase().trim()).toSet();
 
       final hasRegionalMatch = song.source == 'saavn' ||
           userPrefLangs.contains(song.language?.toLowerCase().trim()) ||

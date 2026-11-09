@@ -308,24 +308,19 @@ class HomeFeedProvider extends ChangeNotifier {
     return songs;
   }
 
-  /// Strictly purges cross-language leaks (e.g. Hindi tracks in Tamil playlists)
-  /// when the user's preferred language list does not explicitly include Hindi.
+  /// Strictly purges cross-language leaks according to the user's preferred languages
+  /// and the active feed language, guaranteeing multi-language parity.
   List<Song> _filterCrossLanguageLeaks(List<Song> songs, String primaryLang) {
+    final cleanPrimary = primaryLang.toLowerCase().trim();
     final userLangs = SettingsManager.preferredLanguages.map((l) => l.toLowerCase().trim()).toSet();
-    final allowsHindi = userLangs.contains('hindi');
+    userLangs.add(cleanPrimary);
 
     return songs.where((song) {
       final sLang = song.language?.toLowerCase().trim() ?? '';
-      if (!allowsHindi && sLang == 'hindi') {
+      if (sLang.isNotEmpty && !userLangs.contains(sLang) && sLang != 'english') {
         return false;
       }
-      if (!allowsHindi) {
-        if (RegExp(r'[\u0900-\u097F]').hasMatch(song.title) ||
-            RegExp(r'[\u0900-\u097F]').hasMatch(song.artist)) {
-          return false;
-        }
-      }
-      return true;
+      return !SongRepository.isLanguageMismatch(song, cleanPrimary);
     }).toList();
   }
 
@@ -335,26 +330,18 @@ class HomeFeedProvider extends ChangeNotifier {
     List<Map<String, dynamic>> rawList,
     String language,
   ) async {
-    final isTamil = language.toLowerCase().trim() == 'tamil';
+    final normLang = language.toLowerCase().trim();
+    final isTamil = normLang == 'tamil';
     var filtered = List<Map<String, dynamic>>.from(rawList);
 
-    if (isTamil) {
-      final userLangs = SettingsManager.preferredLanguages.map((l) => l.toLowerCase().trim()).toSet();
-      final allowsHindi = userLangs.contains('hindi');
-      if (!allowsHindi) {
-        const hindiSingers = {
-          'arijit singh', 'neha kakkar', 'badshah', 'jubin nautiyal', 'atif aslam',
-          'vishal mishra', 'darshan raval', 'armaan malik', 'yo yo honey singh',
-          'b praak', 'guru randhawa', 'tony kakkar', 'sonu nigam', 'kumar sanu',
-          'alka yagnik', 'udith narayan',
-        };
-        filtered = filtered.where((a) {
-          final name = SongRepository.normalizeArtist(a['name']?.toString() ?? '');
-          if (RegExp(r'[\u0900-\u097F]').hasMatch(a['name']?.toString() ?? '')) return false;
-          return !hindiSingers.contains(name);
-        }).toList();
-      }
+    // Filter artists with mismatched scripts against target language
+    filtered = filtered.where((a) {
+      final name = a['name']?.toString() ?? '';
+      final dummySong = Song(id: '', title: name, artist: name, album: '', coverUrl: '');
+      return !SongRepository.isLanguageMismatch(dummySong, normLang);
+    }).toList();
 
+    if (isTamil) {
       for (final seed in SongRepository.tamilArtistSeeds.reversed) {
         final norm = SongRepository.normalizeArtist(seed);
         final idx = filtered.indexWhere((a) => SongRepository.normalizeArtist(a['name']?.toString() ?? '') == norm);

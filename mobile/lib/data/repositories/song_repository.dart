@@ -610,29 +610,9 @@ class SongRepository {
         final name = Song.sanitize(artist['name']?.toString() ?? 'Artist');
         final norm = normalizeArtist(name);
 
-        // When Tamil is selected, strictly reject Bollywood / Hindi singers and non-Tamil scripts
-        if (isTamil) {
-          if (RegExp(r'[\u0900-\u097F]').hasMatch(name)) continue;
-          const hindiSingers = {
-            'arijit singh',
-            'neha kakkar',
-            'badshah',
-            'jubin nautiyal',
-            'atif aslam',
-            'vishal mishra',
-            'darshan raval',
-            'armaan malik',
-            'yo yo honey singh',
-            'b praak',
-            'guru randhawa',
-            'tony kakkar',
-            'sonu nigam',
-            'kumar sanu',
-            'alka yagnik',
-            'udith narayan',
-          };
-          if (hindiSingers.contains(norm)) continue;
-        }
+        // Reject artists with mismatched scripts against target language
+        final dummySong = Song(id: '', title: name, artist: name, album: '', coverUrl: '');
+        if (isLanguageMismatch(dummySong, language)) continue;
 
         String img = artist['image']?.toString() ?? '';
 

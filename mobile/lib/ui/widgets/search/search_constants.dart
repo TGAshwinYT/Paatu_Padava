@@ -4,11 +4,13 @@ class SearchConstants {
   static const List<String> trendingArtists = [
     'Anirudh Ravichander',
     'A.R. Rahman',
+    'Arijit Singh',
     'Harris Jayaraj',
-    'Yuvan Shankar Raja',
     'Sid Sriram',
+    'Yuvan Shankar Raja',
+    'Shreya Ghoshal',
+    'Devi Sri Prasad',
     'Ilaiyaraaja',
-    'Hiphop Tamizha',
     'Santhosh Narayanan',
   ];
 
@@ -32,10 +34,22 @@ class SearchConstants {
       'icon': Icons.trending_up_rounded,
     },
     {
+      'title': 'English Global Hits',
+      'query': 'English Top Hits',
+      'colors': [Color(0xFFEC4899), Color(0xFFDB2777)],
+      'icon': Icons.public_rounded,
+    },
+    {
       'title': 'Malayalam Chill',
       'query': 'Malayalam Melodies',
       'colors': [Color(0xFF0D9488), Color(0xFF0F766E)],
       'icon': Icons.nature_people_rounded,
+    },
+    {
+      'title': 'Kannada Hits',
+      'query': 'Kannada Top Hits',
+      'colors': [Color(0xFFF59E0B), Color(0xFFD97706)],
+      'icon': Icons.music_note_rounded,
     },
   ];
 }

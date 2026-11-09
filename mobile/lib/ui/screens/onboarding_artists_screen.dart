@@ -7,6 +7,7 @@ import '../../services/supabase_service.dart';
 import '../../data/repositories/song_repository.dart';
 import '../../services/artist_sanitizer.dart';
 import '../../services/error_handler.dart';
+import '../../services/settings_manager.dart';
 import '../theme/app_theme.dart';
 
 class OnboardingArtistsScreen extends StatefulWidget {
@@ -211,6 +212,41 @@ class _OnboardingArtistsScreenState extends State<OnboardingArtistsScreen> with 
   void initState() {
     super.initState();
     _loadExistingFavorites();
+    _loadLanguageArtists();
+  }
+
+  Future<void> _loadLanguageArtists() async {
+    final userLangs = SettingsManager.preferredLanguages;
+    if (userLangs.isEmpty) return;
+
+    final Set<String> lowerLangs = userLangs.map((l) => l.toLowerCase().trim()).toSet();
+    if (lowerLangs.length != 1 || !lowerLangs.contains('tamil')) {
+      try {
+        final List<Map<String, String>> dynamicArtists = [];
+        for (final lang in userLangs.take(3)) {
+          final top = await SongRepository.getTopArtists(language: lang, limit: 6);
+          for (final a in top) {
+            final name = ArtistSanitizer.canonicalArtistName(a['name']?.toString() ?? '');
+            final img = a['image']?.toString() ?? '';
+            if (name.isNotEmpty && !dynamicArtists.any((d) => d['name'] == name)) {
+              dynamicArtists.add({'name': name, 'image': img});
+            }
+          }
+        }
+        if (dynamicArtists.isNotEmpty && mounted) {
+          setState(() {
+            final existingNames = dynamicArtists.map((d) => d['name']).toSet();
+            for (final old in _displayedArtists) {
+              if (!existingNames.contains(old['name'])) {
+                dynamicArtists.add(old);
+              }
+            }
+            _displayedArtists.clear();
+            _displayedArtists.addAll(dynamicArtists);
+          });
+        }
+      } catch (_) {}
+    }
   }
 
   Future<void> _loadExistingFavorites() async {
@@ -293,8 +329,9 @@ class _OnboardingArtistsScreenState extends State<OnboardingArtistsScreen> with 
         if (discovered.isNotEmpty) {
           candidates = discovered;
         } else {
-          // Last resort: Top language artists
-          final topResults = await SongRepository.getTopArtists(language: 'Tamil', limit: 10);
+          // Last resort: Top language artists from user preferences
+          final topLang = SettingsManager.preferredLanguages.firstOrNull ?? 'all';
+          final topResults = await SongRepository.getTopArtists(language: topLang, limit: 10);
           candidates = topResults
               .where((a) {
                 final n = a['name']?.toString() ?? '';

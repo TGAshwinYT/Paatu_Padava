@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/song.dart';
 import '../../services/player_handler.dart';
+import '../../services/recent_containers_manager.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/batch_download_button.dart';
 import '../widgets/swipeable_song_tile.dart';
@@ -74,6 +75,17 @@ class _AlbumScreenState extends State<AlbumScreen> {
     if (mounted) {
       setState(() => _isLoading = false);
     }
+  }
+
+  void _recordAlbum() {
+    RecentContainersManager.recordContainer(
+      id: 'album_${widget.albumId}',
+      title: widget.albumTitle,
+      subtitle: 'Album',
+      coverUrl: _currentImageUrl.isNotEmpty ? _currentImageUrl : widget.imageUrl,
+      type: 'album',
+      tracks: _songs,
+    );
   }
 
   @override
@@ -152,7 +164,10 @@ class _AlbumScreenState extends State<AlbumScreen> {
                             ),
                             icon: const Icon(Icons.play_arrow_rounded, size: 22),
                             label: const Text('Play Album', style: TextStyle(fontWeight: FontWeight.bold)),
-                            onPressed: () => audioHandler.playSong(_songs.first, queue: _songs),
+                            onPressed: () {
+                              _recordAlbum();
+                              audioHandler.playSong(_songs.first, queue: _songs);
+                            },
                           ),
                           const SizedBox(width: 12),
                           OutlinedButton.icon(
@@ -165,6 +180,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
                             icon: const Icon(Icons.shuffle_rounded, size: 18),
                             label: const Text('Shuffle'),
                             onPressed: () {
+                              _recordAlbum();
                               final shuffled = List<Song>.from(_songs)..shuffle();
                               audioHandler.playSong(shuffled.first, queue: shuffled);
                             },
@@ -201,6 +217,10 @@ class _AlbumScreenState extends State<AlbumScreen> {
                             : song,
                         queue: _songs,
                         index: index,
+                        onTap: () {
+                          _recordAlbum();
+                          audioHandler.playSong(song, queue: _songs);
+                        },
                       );
                     },
                     childCount: _songs.length,

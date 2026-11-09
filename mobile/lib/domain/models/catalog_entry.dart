@@ -52,6 +52,7 @@ class CatalogArtist {
   final String role; // 'Composer', 'Playback Singer', 'Lyricist'
   final String imageUrl;
   final bool isVerified;
+  final String language;
 
   const CatalogArtist({
     required this.id,
@@ -59,6 +60,7 @@ class CatalogArtist {
     this.role = 'Playback Singer',
     this.imageUrl = '',
     this.isVerified = true,
+    this.language = 'tamil',
   });
 
   Map<String, dynamic> toMap() => {
@@ -67,6 +69,7 @@ class CatalogArtist {
     'role': role,
     'image_url': imageUrl,
     'is_verified': isVerified ? 1 : 0,
+    'language': language,
   };
 
   factory CatalogArtist.fromMap(Map<String, dynamic> map) => CatalogArtist(
@@ -75,6 +78,7 @@ class CatalogArtist {
     role: map['role']?.toString() ?? 'Playback Singer',
     imageUrl: map['image_url']?.toString() ?? '',
     isVerified: (map['is_verified'] == 1 || map['is_verified'] == true),
+    language: map['language']?.toString() ?? 'tamil',
   );
 }
 

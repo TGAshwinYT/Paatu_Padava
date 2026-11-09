@@ -12,6 +12,7 @@ import '../../services/artist_sanitizer.dart';
 import '../../services/cover_art_resolver.dart';
 import '../../services/youtube_client.dart';
 import '../../services/catalog_database.dart';
+import '../catalog_artists_seed.dart';
 import '../../logic/search_query_planner.dart';
 import 'package:flutter/material.dart';
 import '../../domain/models/lyrics_state.dart';
@@ -1348,8 +1349,18 @@ class SongRepository {
   }
 
   static Future<List<Map<String, dynamic>>> getTopArtists({String language = 'tamil', int limit = 10}) async {
+    final seed = CatalogArtistsSeed.getArtistsForLanguage(language, limit: limit);
+    if (seed.isNotEmpty) {
+      return seed.map((a) => {
+        'id': a.id,
+        'name': a.name,
+        'role': a.role,
+        'image': a.imageUrl,
+        'language': a.language,
+      }).toList();
+    }
     try {
-      return await SaavnClient.searchArtists('Top $language Artists', limit: limit);
+      return await SaavnClient.searchArtists(language, limit: limit);
     } catch (_) {
       return <Map<String, dynamic>>[];
     }

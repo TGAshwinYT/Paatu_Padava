@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:paatu_padava_mobile/data/catalog_artists_seed.dart';
 import 'package:paatu_padava_mobile/domain/models/home_feed_models.dart';
 import 'package:paatu_padava_mobile/logic/client_home_feed_engine.dart';
 import 'package:paatu_padava_mobile/logic/home_feed_provider.dart';
 import 'package:paatu_padava_mobile/models/song.dart';
+import 'package:paatu_padava_mobile/services/recent_containers_manager.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('Spotify-Grade Home Page & Client Feed Engine Tests', () {
     late ClientHomeFeedEngine engine;
 
@@ -109,6 +113,74 @@ void main() {
 
       provider.setHomeFilter('all');
       expect(provider.homeFilter, equals('all'));
+    });
+  });
+
+  group('CatalogArtistsSeed Multi-Language Tests', () {
+    test('English artist seeds return verified global icons without bogus channels', () {
+      final englishArtists = CatalogArtistsSeed.getArtistsForLanguage('english');
+      expect(englishArtists.isNotEmpty, isTrue);
+      final names = englishArtists.map((a) => a.name).toList();
+      expect(names, contains('Taylor Swift'));
+      expect(names, contains('Ed Sheeran'));
+      expect(names, contains('The Weeknd'));
+      expect(names, contains('Drake'));
+      // Verify no bogus "Cartoon Studio English" or "English Yadav"
+      expect(names.any((n) => n.contains('Cartoon') || n.contains('Yadav')), isFalse);
+    });
+
+    test('getArtistsForLanguages combines multi-preferred languages cleanly', () {
+      final combined = CatalogArtistsSeed.getArtistsForLanguages(['tamil', 'english', 'punjabi']);
+      final names = combined.map((a) => a.name).toList();
+      expect(names, contains('Anirudh Ravichander'));
+      expect(names, contains('Taylor Swift'));
+      expect(names, contains('Diljit Dosanjh'));
+    });
+  });
+
+  group('RecentContainersManager LRU Quick Grid Tests', () {
+    test('recordContainer hoists new items to [0][0] and evicts [3][2] past max 6', () async {
+      RecentContainersManager.containersNotifier.value = [];
+
+      // Add 6 containers
+      for (int i = 1; i <= 6; i++) {
+        await RecentContainersManager.recordContainer(
+          id: 'album_$i',
+          title: 'Album $i',
+          coverUrl: 'https://example.com/cover_$i.jpg',
+          type: 'album',
+        );
+      }
+
+      var current = RecentContainersManager.containersNotifier.value;
+      expect(current.length, equals(6));
+      expect(current.first.id, equals('album_6')); // Most recent at [0][0]
+      expect(current.last.id, equals('album_1'));  // Oldest at [3][2]
+
+      // Add 7th container: album_1 should be evicted, album_7 is at [0][0]
+      await RecentContainersManager.recordContainer(
+        id: 'album_7',
+        title: 'Album 7',
+        coverUrl: 'https://example.com/cover_7.jpg',
+        type: 'album',
+      );
+
+      current = RecentContainersManager.containersNotifier.value;
+      expect(current.length, equals(6));
+      expect(current.first.id, equals('album_7'));
+      expect(current.any((t) => t.id == 'album_1'), isFalse);
+
+      // Re-playing album_2 hoists it to [0][0]
+      await RecentContainersManager.recordContainer(
+        id: 'album_2',
+        title: 'Album 2',
+        coverUrl: 'https://example.com/cover_2.jpg',
+        type: 'album',
+      );
+
+      current = RecentContainersManager.containersNotifier.value;
+      expect(current.length, equals(6));
+      expect(current.first.id, equals('album_2'));
     });
   });
 }

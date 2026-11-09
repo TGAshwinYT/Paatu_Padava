@@ -4,13 +4,23 @@ import '../../../services/settings_manager.dart';
 class LanguageSettingsCard extends StatelessWidget {
   static const List<String> allLanguages = [
     'Tamil',
+    'English',
     'Hindi',
     'Telugu',
     'Malayalam',
     'Kannada',
-    'English',
     'Punjabi',
+    'Marathi',
     'Bengali',
+    'Gujarati',
+    'Bhojpuri',
+    'Urdu',
+    'Haryanvi',
+    'Rajasthani',
+    'Odia',
+    'Assamese',
+    'Spanish',
+    'Korean',
   ];
 
   const LanguageSettingsCard({super.key});
@@ -31,7 +41,7 @@ class LanguageSettingsCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Select your preferred music languages for smart recommendations:',
+                'Select your preferred music languages for smart recommendations and search boosting:',
                 style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
               ),
               const SizedBox(height: 12),

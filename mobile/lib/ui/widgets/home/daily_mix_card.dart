@@ -4,6 +4,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../domain/models/home_feed_models.dart';
 import '../../../services/player_handler.dart';
+import '../../../services/recent_containers_manager.dart';
+import '../../screens/daily_mix_detail_screen.dart';
 import '../../theme/app_theme.dart';
 
 /// Spotify-Style Daily Mix Card featuring colored accent stripes,
@@ -18,8 +20,26 @@ class DailyMixCard extends StatelessWidget {
     this.width = 150,
   });
 
+  void _onCardTapped(BuildContext context) {
+    HapticFeedback.lightImpact();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DailyMixDetailScreen(mix: mix),
+      ),
+    );
+  }
+
   void _onPlayTapped() {
     HapticFeedback.mediumImpact();
+    RecentContainersManager.recordContainer(
+      id: 'daily_mix_${mix.index}',
+      title: mix.title,
+      subtitle: mix.subtitle,
+      coverUrl: mix.coverUrl,
+      type: 'mix',
+      tracks: mix.tracks,
+    );
     if (mix.tracks.isNotEmpty) {
       audioHandler.playSong(mix.tracks.first, queue: mix.tracks);
     }
@@ -28,7 +48,7 @@ class DailyMixCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: _onPlayTapped,
+      onTap: () => _onCardTapped(context),
       child: Container(
         width: width,
         margin: const EdgeInsets.symmetric(horizontal: 6),
@@ -198,3 +218,4 @@ class DailyMixCard extends StatelessWidget {
     );
   }
 }
+

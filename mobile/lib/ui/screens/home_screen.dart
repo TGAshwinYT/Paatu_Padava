@@ -41,22 +41,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   static final HtmlUnescape _unescape = HtmlUnescape();
 
-  List<String> get _displayLanguages {
-    final userLangs = SettingsManager.preferredLanguages;
-    final Set<String> langSet = {};
-    for (final l in userLangs) {
-      final trimmed = l.trim();
-      if (trimmed.isNotEmpty) {
-        langSet.add(trimmed[0].toUpperCase() + trimmed.substring(1).toLowerCase());
-      }
-    }
-    const defaultList = ['Tamil', 'Telugu', 'Hindi', 'Malayalam', 'English', 'Kannada', 'Punjabi'];
-    for (final d in defaultList) {
-      langSet.add(d);
-    }
-    return langSet.toList();
-  }
-
   @override
   void initState() {
     super.initState();
@@ -254,53 +238,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
                   // Flagship Spotify-Style 2x3 Quick Tiles Grid with instant 1-tap playback
                   if (feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you')
-                    SliverToBoxAdapter(
-                      child: QuickGridSection(tiles: feedState.quickTiles),
+                    const SliverToBoxAdapter(
+                      child: QuickGridSection(),
                     ),
 
-                  // YouTube Music Style Feeling & Activity Chips Bar (shown in All and Moods)
-                  if (feedState.homeFilter == 'all' || feedState.homeFilter == 'moods')
+                  // YouTube Music Style Feeling & Activity Chips Bar (shown when filtering by Moods)
+                  if (feedState.homeFilter == 'moods')
                     const SliverToBoxAdapter(
                       child: Padding(
                         padding: EdgeInsets.only(top: 6, bottom: 4),
                         child: FeelingChipsBar(),
                       ),
                     ),
-
-                  // Language Chips Bar
-                  SliverToBoxAdapter(
-                    child: SizedBox(
-                      height: 48,
-                      child: ListView.separated(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                        scrollDirection: Axis.horizontal,
-                        itemCount: _displayLanguages.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 8),
-                        itemBuilder: (context, index) {
-                          final lang = _displayLanguages[index];
-                          final isSelected = lang.toLowerCase() == currentLang.toLowerCase();
-                          return ChoiceChip(
-                            label: Text(lang),
-                            selected: isSelected,
-                            selectedColor: AppColors.neonViolet,
-                            backgroundColor: AppColors.surfaceElevated,
-                            labelStyle: GoogleFonts.outfit(
-                              color: isSelected ? Colors.white : AppColors.textSecondary,
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                              fontSize: 13,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20),
-                              side: BorderSide(
-                                color: isSelected ? AppColors.neonViolet : AppColors.surfaceBorder,
-                              ),
-                            ),
-                            onSelected: (_) => feedProvider.setLanguage(lang),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
 
                   // 3-Tier Loading State Machine: LoadingSkeleton -> PartialSuccess -> FullSuccess
                   if (feedState.isLoading && feedState.isEmpty)

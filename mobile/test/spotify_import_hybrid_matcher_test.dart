@@ -131,6 +131,54 @@ void main() {
       expect(coverScore, lessThan(60)); // Rejected
     });
 
+    test('scoreCandidate strictly rejects Tajmeel Sherif 4:40 cover in favor of Harish Raghavendra 5:26 soundtrack', () {
+      const targetMelliname = SpotifyTrackItem(
+        title: 'Melliname',
+        artist: 'Harish Raghavendra',
+        album: 'Shahjahan',
+        durationSeconds: 326,
+      );
+
+      final originalVijayTrack = Song(
+        id: 'FxK5YZtV',
+        title: 'Mellinamae',
+        artist: 'Harish Raghavendra',
+        album: 'Vijay Super Hit Songs',
+        coverUrl: '',
+        streamUrl: 'https://preview.saavncdn.com/000/AcZvbvBYjSJQSvacP0Sr22rM3OarCfPAmNNqDbUTigMe_96_p.mp4',
+        duration: 326,
+        source: 'saavn',
+        language: 'tamil',
+      );
+
+      final tajmeelSherifCover = Song(
+        id: 'WoM6mmDq',
+        title: 'Melliname',
+        artist: 'Tajmeel Sherif',
+        album: 'Shajahaan',
+        coverUrl: '',
+        streamUrl: 'https://preview.saavncdn.com/797/DTGm5xDl4G61j5KlCUQrA50LIrlajVHnNvcWu_96_p.mp4',
+        duration: 280,
+        source: 'saavn',
+        language: 'tamil',
+      );
+
+      final origScore = SpotifyImportService.scoreCandidate(
+        target: targetMelliname,
+        candidate: originalVijayTrack,
+        movieHint: 'Shahjahan',
+      );
+
+      final coverScore = SpotifyImportService.scoreCandidate(
+        target: targetMelliname,
+        candidate: tajmeelSherifCover,
+        movieHint: 'Shahjahan',
+      );
+
+      expect(origScore, greaterThanOrEqualTo(85));
+      expect(coverScore, lessThanOrEqualTo(0));
+    });
+
     test('scoreCandidate preserves Malayalam original for Puthu Mazha', () {
       const targetPuthuMazha = SpotifyTrackItem(
         title: 'Puthu Mazha',

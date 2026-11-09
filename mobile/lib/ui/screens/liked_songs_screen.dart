@@ -4,6 +4,7 @@ import '../../models/song.dart';
 import '../../services/favorites_manager.dart';
 import '../../services/player_handler.dart';
 import '../../services/download_manager.dart';
+import '../../services/recent_containers_manager.dart';
 import '../widgets/add_to_playlist_dialog.dart';
 import '../widgets/mini_player.dart';
 
@@ -228,7 +229,16 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                               ),
                               icon: const Icon(Icons.play_arrow_rounded, color: Colors.black, size: 26),
                               label: const Text('Play All', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
-                              onPressed: () => audioHandler.playSong(favorites.first, queue: favorites),
+                              onPressed: () {
+                                RecentContainersManager.recordContainer(
+                                  id: 'liked_songs',
+                                  title: 'Liked Songs',
+                                  subtitle: 'Playlist',
+                                  coverUrl: '',
+                                  type: 'liked',
+                                );
+                                audioHandler.playSong(favorites.first, queue: favorites);
+                              },
                             ),
                             Row(
                               children: [
@@ -368,7 +378,16 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                               builder: (context, currentPlaying, _) {
                                 final isPlaying = currentPlaying?.id == song.id;
                                 return ListTile(
-                                  onTap: () => audioHandler.playSong(song, queue: filtered),
+                                  onTap: () {
+                                    RecentContainersManager.recordContainer(
+                                      id: 'liked_songs',
+                                      title: 'Liked Songs',
+                                      subtitle: 'Playlist',
+                                      coverUrl: '',
+                                      type: 'liked',
+                                    );
+                                    audioHandler.playSong(song, queue: filtered);
+                                  },
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                   leading: Stack(
                                     alignment: Alignment.center,

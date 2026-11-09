@@ -31,6 +31,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     {'id': 'punjabi', 'native': 'ਪੰਜਾਬੀ', 'english': 'Punjabi'},
     {'id': 'marathi', 'native': 'मराठी', 'english': 'Marathi'},
     {'id': 'bengali', 'native': 'বাংলা', 'english': 'Bengali'},
+    {'id': 'gujarati', 'native': 'ગુજરાતી', 'english': 'Gujarati'},
+    {'id': 'bhojpuri', 'native': 'भोजपुरी', 'english': 'Bhojpuri'},
+    {'id': 'urdu', 'native': 'اردو', 'english': 'Urdu'},
+    {'id': 'haryanvi', 'native': 'हरियाणवी', 'english': 'Haryanvi'},
+    {'id': 'rajasthani', 'native': 'राजस्थानी', 'english': 'Rajasthani'},
+    {'id': 'odia', 'native': 'ଓଡ଼ିଆ', 'english': 'Odia'},
+    {'id': 'assamese', 'native': 'অসমীয়া', 'english': 'Assamese'},
+    {'id': 'spanish', 'native': 'Español', 'english': 'Spanish'},
+    {'id': 'korean', 'native': '한국어', 'english': 'Korean'},
   ];
   final Set<String> _selectedLanguages = {'tamil', 'english'};
 
@@ -279,7 +288,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Select your preferred languages to personalize your daily mix and discover new hits.',
+                  'Select your preferred music languages to personalize your daily mix, search boosting, and discover new hits.',
                   style: GoogleFonts.outfit(
                     fontSize: 14,
                     color: Colors.white70,

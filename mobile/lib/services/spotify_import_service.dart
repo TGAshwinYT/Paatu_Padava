@@ -226,6 +226,23 @@ class SpotifyImportService {
     return t;
   }
 
+  /// Generates phonetic transliteration query variants for tolerant cross-platform searching.
+  static String? getPhoneticVariant(String s) {
+    var lower = s.trim();
+    if (lower.toLowerCase().endsWith('e') && !lower.toLowerCase().endsWith('ae')) {
+      return '${lower.substring(0, lower.length - 1)}ae';
+    } else if (lower.toLowerCase().endsWith('ae')) {
+      return '${lower.substring(0, lower.length - 2)}e';
+    }
+    if (lower.contains('dh')) {
+      return lower.replaceAll('dh', 'th');
+    }
+    if (lower.contains('th')) {
+      return lower.replaceAll('th', 'dh');
+    }
+    return null;
+  }
+
   /// Title similarity with Tanglish transliteration tolerance (e.g. "Melliname" <-> "Mellinamae").
   static int computeTitleSimilarity(String t1, String t2) {
     final sim1 = tokenSetRatio(t1.toLowerCase(), t2.toLowerCase());
@@ -301,7 +318,17 @@ class SpotifyImportService {
     final targetAlbum = target.album ?? movieHint;
     final albumSim = computeAlbumSimilarity(targetAlbum, candidate.album);
 
+    // If candidate has 0 artist overlap AND 0 album overlap, reject immediately
+    if (artistSim <= 15 && albumSim < 35) {
+      return -100;
+    }
+
     final durScore = computeDurationScore(target.durationSeconds, candidate.duration);
+
+    // Severe duration deviation (> 25s) is heavily penalized
+    if (target.durationSeconds > 0 && candidate.duration > 0 && (target.durationSeconds - candidate.duration).abs() > 25) {
+      return -100;
+    }
 
     final int baseScore = (titleSim * 0.40 +
             artistSim * 0.35 +
@@ -988,6 +1015,13 @@ class SpotifyImportService {
       // Pass 1: Title + Primary Artist
       final res1 = await SaavnClient.search('$cleanTitle $primaryArtist', limit: 6);
       addCandidates(res1);
+
+      // Pass 1b: Phonetic variant (e.g. Melliname <-> Mellinamae)
+      final altTitle = getPhoneticVariant(cleanTitle);
+      if (altTitle != null && altTitle.toLowerCase() != cleanTitle.toLowerCase()) {
+        final resAlt = await SaavnClient.search('$altTitle $primaryArtist', limit: 6);
+        addCandidates(resAlt);
+      }
 
       // Check if Pass 1 yielded a confident candidate (score >= 85)
       bool hasConfidentMatch = candidates.any((c) =>

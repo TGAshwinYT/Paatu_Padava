@@ -4,48 +4,63 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../domain/models/home_feed_models.dart';
 import '../../../services/player_handler.dart';
+import '../../../services/recent_containers_manager.dart';
 import '../../screens/liked_songs_screen.dart';
 import '../../screens/history_screen.dart';
+import '../../screens/album_screen.dart';
+import '../../screens/remote_playlist_screen.dart';
+import '../../screens/daily_mix_detail_screen.dart';
 import '../../theme/app_theme.dart';
 
-/// Flagship Spotify-Style 2x3 Quick Tiles Grid with instant 1-tap playback.
+/// Flagship Spotify-Style Dynamic 2x3 Quick Tiles Grid with instant 1-tap playback.
+/// Dynamically grows from 1 to 6 items as albums/playlists are played,
+/// hoists played containers to [0][0], and evicts the oldest [3][2] container.
 class QuickGridSection extends StatelessWidget {
-  final List<HomeQuickTile> tiles;
+  final List<HomeQuickTile>? tiles;
 
   const QuickGridSection({
     super.key,
-    required this.tiles,
+    this.tiles,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (tiles.isEmpty) return const SizedBox.shrink();
+    return ValueListenableBuilder<List<HomeQuickTile>>(
+      valueListenable: RecentContainersManager.containersNotifier,
+      builder: (context, recentContainers, _) {
+        final displayTiles = (tiles != null && tiles!.isNotEmpty)
+            ? tiles!
+            : recentContainers;
 
-    // Take top 6 tiles for 2x3 grid
-    final displayTiles = tiles.take(6).toList();
+        // If user hasn't clicked/played any container yet, keep the home screen clean
+        if (displayTiles.isEmpty) return const SizedBox.shrink();
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      child: Column(
-        children: [
-          for (int r = 0; r < (displayTiles.length / 2).ceil(); r++) ...[
-            if (r > 0) const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: _QuickTileItem(tile: displayTiles[r * 2]),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: (r * 2 + 1 < displayTiles.length)
-                      ? _QuickTileItem(tile: displayTiles[r * 2 + 1])
-                      : const SizedBox.shrink(),
+        final activeTiles = displayTiles.take(6).toList();
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          child: Column(
+            children: [
+              for (int r = 0; r < (activeTiles.length / 2).ceil(); r++) ...[
+                if (r > 0) const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _QuickTileItem(tile: activeTiles[r * 2]),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: (r * 2 + 1 < activeTiles.length)
+                          ? _QuickTileItem(tile: activeTiles[r * 2 + 1])
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
                 ),
               ],
-            ),
-          ],
-        ],
-      ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -61,10 +76,14 @@ class _QuickTileItem extends StatelessWidget {
         return Icons.favorite_rounded;
       case 'history':
         return Icons.history_rounded;
+      case 'album':
+        return Icons.album_rounded;
+      case 'playlist':
+        return Icons.queue_music_rounded;
       case 'hits':
         return Icons.local_fire_department_rounded;
       case 'decade':
-        return Icons.album_rounded;
+        return Icons.radio_rounded;
       default:
         return Icons.queue_music_rounded;
     }
@@ -82,12 +101,50 @@ class _QuickTileItem extends StatelessWidget {
         context,
         MaterialPageRoute(builder: (_) => const HistoryScreen()),
       );
+    } else if (tile.type == 'album') {
+      final albId = tile.id.startsWith('album_') ? tile.id.substring(6) : tile.id;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => AlbumScreen(
+            albumId: albId,
+            albumTitle: tile.title,
+            imageUrl: tile.coverUrl,
+          ),
+        ),
+      );
+    } else if (tile.type == 'playlist') {
+      final plId = tile.id.startsWith('playlist_') ? tile.id.substring(9) : tile.id;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => RemotePlaylistScreen(
+            playlistId: plId,
+            playlistTitle: tile.title,
+            imageUrl: tile.coverUrl,
+          ),
+        ),
+      );
+    } else if (tile.type == 'mix') {
+      final mixIndex = int.tryParse(tile.id.replaceAll(RegExp(r'[^0-9]'), '')) ?? 1;
+      final mix = DailyMix(
+        index: mixIndex,
+        title: tile.title,
+        subtitle: tile.subtitle ?? 'Your Daily Mix',
+        coverUrl: tile.coverUrl,
+        accentColor: tile.gradient.isNotEmpty ? tile.gradient.last : const Color(0xFF10B981),
+        tracks: tile.tracks,
+      );
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => DailyMixDetailScreen(mix: mix)),
+      );
     } else if (tile.tracks.isNotEmpty) {
       audioHandler.playSong(tile.tracks.first, queue: tile.tracks);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Loading ${tile.title}...'),
+          content: Text('Opening ${tile.title}...'),
           duration: const Duration(seconds: 1),
         ),
       );
@@ -97,6 +154,15 @@ class _QuickTileItem extends StatelessWidget {
   void _onPlayTapped(BuildContext context) {
     HapticFeedback.mediumImpact();
     if (tile.tracks.isNotEmpty) {
+      RecentContainersManager.recordContainer(
+        id: tile.id,
+        title: tile.title,
+        subtitle: tile.subtitle,
+        coverUrl: tile.coverUrl,
+        type: tile.type,
+        gradient: tile.gradient,
+        tracks: tile.tracks,
+      );
       audioHandler.playSong(tile.tracks.first, queue: tile.tracks);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(

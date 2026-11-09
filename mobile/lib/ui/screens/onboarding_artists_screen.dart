@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../services/auth_manager.dart';
 import '../../services/supabase_service.dart';
 import '../../data/repositories/song_repository.dart';
+import '../../data/catalog_artists_seed.dart';
 import '../../services/artist_sanitizer.dart';
 import '../../services/error_handler.dart';
 import '../../services/settings_manager.dart';
@@ -211,42 +212,51 @@ class _OnboardingArtistsScreenState extends State<OnboardingArtistsScreen> with 
   @override
   void initState() {
     super.initState();
+    _initDisplayedArtists();
     _loadExistingFavorites();
     _loadLanguageArtists();
+  }
+
+  void _initDisplayedArtists() {
+    final userLangs = SettingsManager.preferredLanguages;
+    final seed = CatalogArtistsSeed.getArtistsForLanguages(userLangs, limitPerLang: 6);
+    if (seed.isNotEmpty) {
+      _displayedArtists.clear();
+      for (final a in seed) {
+        _displayedArtists.add({'name': a.name, 'image': a.imageUrl});
+      }
+    }
   }
 
   Future<void> _loadLanguageArtists() async {
     final userLangs = SettingsManager.preferredLanguages;
     if (userLangs.isEmpty) return;
 
-    final Set<String> lowerLangs = userLangs.map((l) => l.toLowerCase().trim()).toSet();
-    if (lowerLangs.length != 1 || !lowerLangs.contains('tamil')) {
-      try {
-        final List<Map<String, String>> dynamicArtists = [];
-        for (final lang in userLangs.take(3)) {
-          final top = await SongRepository.getTopArtists(language: lang, limit: 6);
-          for (final a in top) {
-            final name = ArtistSanitizer.canonicalArtistName(a['name']?.toString() ?? '');
-            final img = a['image']?.toString() ?? '';
-            if (name.isNotEmpty && !dynamicArtists.any((d) => d['name'] == name)) {
-              dynamicArtists.add({'name': name, 'image': img});
-            }
+    try {
+      final List<Map<String, String>> dynamicArtists = [];
+      for (final lang in userLangs) {
+        final top = await SongRepository.getTopArtists(language: lang, limit: 6);
+        for (final a in top) {
+          final name = ArtistSanitizer.canonicalArtistName(a['name']?.toString() ?? '');
+          final img = a['image']?.toString() ?? '';
+          if (name.isNotEmpty && !dynamicArtists.any((d) => d['name'] == name)) {
+            dynamicArtists.add({'name': name, 'image': img});
           }
         }
-        if (dynamicArtists.isNotEmpty && mounted) {
-          setState(() {
-            final existingNames = dynamicArtists.map((d) => d['name']).toSet();
-            for (final old in _displayedArtists) {
-              if (!existingNames.contains(old['name'])) {
-                dynamicArtists.add(old);
-              }
+      }
+      if (dynamicArtists.isNotEmpty && mounted) {
+        setState(() {
+          final existingNames = dynamicArtists.map((d) => d['name']).toSet();
+          for (final old in _displayedArtists) {
+            if (!existingNames.contains(old['name'])) {
+              dynamicArtists.add(old);
             }
-            _displayedArtists.clear();
-            _displayedArtists.addAll(dynamicArtists);
-          });
-        }
-      } catch (_) {}
-    }
+          }
+          _displayedArtists.clear();
+          _displayedArtists.addAll(dynamicArtists);
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadExistingFavorites() async {

@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../models/song.dart';
 import '../../services/playlist_manager.dart';
 import '../../services/player_handler.dart';
+import '../../services/recent_containers_manager.dart';
 import '../../logic/stream_resolver.dart';
 import '../../data/repositories/song_repository.dart';
 import '../theme/app_theme.dart';
@@ -104,8 +105,20 @@ class _RemotePlaylistScreenState extends State<RemotePlaylistScreen> {
     }
   }
 
+  void _recordPlaylist() {
+    RecentContainersManager.recordContainer(
+      id: 'playlist_${widget.playlistId}',
+      title: widget.playlistTitle,
+      subtitle: 'Playlist',
+      coverUrl: _currentImageUrl,
+      type: 'playlist',
+      tracks: _songs,
+    );
+  }
+
   void _playAll({bool shuffle = false}) {
     if (_songs.isEmpty) return;
+    _recordPlaylist();
     final queue = List<Song>.from(_songs);
     if (shuffle) {
       queue.shuffle();
@@ -296,6 +309,10 @@ class _RemotePlaylistScreenState extends State<RemotePlaylistScreen> {
                           song: song,
                           queue: _songs,
                           index: index,
+                          onTap: () {
+                            _recordPlaylist();
+                            audioHandler.playSong(song, queue: _songs);
+                          },
                         );
                       },
                       childCount: _songs.length,

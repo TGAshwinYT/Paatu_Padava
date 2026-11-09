@@ -71,6 +71,7 @@ const Map<String, String> exemptScreenFiles = {
   'artist_screen.dart': 'needs artist argument fixture',
   'playlist_screen.dart': 'needs playlist argument fixture',
   'remote_playlist_screen.dart': 'needs remote playlist argument fixture and mock network client',
+  'daily_mix_detail_screen.dart': 'needs daily mix argument fixture and audio handler',
   'equalizer_settings_screen.dart': 'uses native equalizer platform channel',
   'listening_recap_screen.dart': 'needs recap data fixture',
   'listening_session_screen.dart': 'needs session fixture',

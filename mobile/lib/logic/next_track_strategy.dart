@@ -12,6 +12,7 @@ import '../services/favorites_manager.dart';
 import '../services/history_manager.dart';
 import '../services/app_logger.dart';
 import '../services/blacklist_manager.dart';
+import '../services/catalog_database.dart';
 import 'markov_cosine_radio_strategy.dart';
 
 abstract class NextTrackStrategy {
@@ -302,7 +303,8 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
 
       // 3. Weighted Blend Fetching via Upstream Graph Endpoints:
       // Session Anchor (60% weight) + Current Track (40% weight)
-      // Piggyback on YouTube Music Next (RDAMVM) & JioSaavn Reco (reco.getreco) graph APIs directly
+      // Piggyback on YouTube Music Next (RDAMVM) & JioSaavn Reco (reco.getreco) graph APIs directly,
+      // with instant local CatalogDatabase lookups for guaranteed zero-latency candidates
       final List<Future<List<Song>>> anchorFutures = [
         YouTubeClient.getRadioTracks(
           anchorSong,
@@ -311,10 +313,11 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
           excludedKeys: _skippedTrackKeys,
         ),
         SaavnClient.getRelatedSongs(anchorSong.id, language: targetLang),
+        CatalogDatabase.getSongsByArtist(anchorSong.primaryArtist),
         if (anchorSong.primaryArtist.isNotEmpty && anchorSong.primaryArtist.toLowerCase() != 'various artists')
-          SaavnClient.search('${anchorSong.primaryArtist} $targetLang hits', limit: 12, language: targetLang),
+          SaavnClient.search('${anchorSong.primaryArtist} $targetLang', limit: 12, language: targetLang),
         if (anchorSong.album.isNotEmpty && anchorSong.album.toLowerCase() != 'unknown album')
-          SaavnClient.search('${anchorSong.album} $targetLang songs', limit: 8, language: targetLang),
+          SaavnClient.search(anchorSong.album, limit: 8, language: targetLang),
       ];
 
       final List<Future<List<Song>>> currentFutures = (seedSong.id != anchorSong.id)
@@ -326,8 +329,9 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
                 excludedKeys: _skippedTrackKeys,
               ),
               SaavnClient.getRelatedSongs(seedSong.id, language: targetLang),
+              CatalogDatabase.getSongsByArtist(seedSong.primaryArtist),
               if (seedSong.primaryArtist.isNotEmpty && seedSong.primaryArtist.toLowerCase() != 'various artists')
-                SaavnClient.search('${seedSong.primaryArtist} $targetLang hits', limit: 8, language: targetLang),
+                SaavnClient.search('${seedSong.primaryArtist} $targetLang', limit: 8, language: targetLang),
             ]
           : [];
 
@@ -423,12 +427,25 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
         count: targetBatch,
       );
 
-      // If pool is still below target batch, supplement with Regional Trending in target language
+      // If pool is still below target batch, supplement with genuine catalog tracks by the same artist/composer
       if (shapedTracks.length < targetBatch) {
-        final trending = await SaavnClient.getTrending(language: targetLang);
-        final filteredTrending = RadioEngine.applyHardFiltering(
+        final supplement = <Song>[];
+        try {
+          supplement.addAll(await CatalogDatabase.getSongsByArtist(seedSong.primaryArtist));
+          if (anchorSong.primaryArtist != seedSong.primaryArtist) {
+            supplement.addAll(await CatalogDatabase.getSongsByArtist(anchorSong.primaryArtist));
+          }
+        } catch (_) {}
+        if (supplement.length < targetBatch - shapedTracks.length) {
+          try {
+            final sRes = await SaavnClient.search('${seedSong.primaryArtist} $targetLang', limit: 12, language: targetLang);
+            supplement.addAll(sRes);
+          } catch (_) {}
+        }
+
+        final filteredSupplement = RadioEngine.applyHardFiltering(
           seedSong: seedSong,
-          candidates: trending,
+          candidates: supplement,
           queue: queue,
           history: recentHistory,
           targetLanguage: targetLang,
@@ -440,12 +457,12 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
 
         final remainingCount = targetBatch - shapedTracks.length;
         final lastPlacedArtist = shapedTracks.isNotEmpty ? shapedTracks.last.primaryArtist : seedSong.primaryArtist;
-        final shapedTrending = enforceArtistDispersionAndNoBackToBack(
-          filteredTrending,
+        final shapedSupplement = enforceArtistDispersionAndNoBackToBack(
+          filteredSupplement,
           seedArtist: lastPlacedArtist,
           count: remainingCount,
         );
-        shapedTracks.addAll(shapedTrending);
+        shapedTracks.addAll(shapedSupplement);
       }
 
       // 7. Circuit Breaker Fallback: if all upstream endpoints failed or yielded zero tracks
@@ -615,6 +632,12 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
             excludedKeys: _skippedTrackKeys,
           );
           candidatePool.addAll(radioTracks);
+        }
+        if (candidatePool.length < targetBatch) {
+          try {
+            final catSongs = await CatalogDatabase.getSongsByArtist(walkNode.primaryArtist);
+            candidatePool.addAll(catSongs);
+          } catch (_) {}
         }
       } catch (e) {
         AppLogger.log('YtMusicStyleStrategy', 'Radio graph walk notice: $e');

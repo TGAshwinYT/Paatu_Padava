@@ -465,48 +465,6 @@ class _QueueSheetState extends State<QueueSheet> {
             },
           ),
         ),
-
-        // Bottom Add Radio Mix Action
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          decoration: BoxDecoration(
-            color: const Color(0xFF131B2E),
-            border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.06))),
-          ),
-          child: SafeArea(
-            top: false,
-            child: Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF6366F1),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    icon: const Icon(Icons.radio_rounded, size: 20),
-                    label: const Text(
-                      'Auto-Add Similar Tracks (Radio Mix)',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                    ),
-                    onPressed: () async {
-                      final added = await audioHandler.addRadioMix();
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(added > 0 ? 'Added $added similar tracks to queue!' : 'No new recommendations found.'),
-                            duration: const Duration(seconds: 2),
-                          ),
-                        );
-                      }
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
       ],
     );
   }

@@ -76,6 +76,35 @@ class QueueCooldownManager {
     );
   }
 
+  /// Records a batch of suggested tracks placed into upcoming queue, preventing them
+  /// from being re-suggested across consecutive recommendation cycles within the cooldown window.
+  static void recordSuggested(Iterable<Song> songs) {
+    for (final s in songs) {
+      final titleKey = s.cleanTitleKey;
+      if (titleKey.isEmpty) continue;
+      if (_cooldownKeys.contains(titleKey)) {
+        _historyRing.remove(titleKey);
+      }
+      _historyRing.addLast(titleKey);
+      _cooldownKeys.add(titleKey);
+
+      final artist = normalizeArtistKey(s.primaryArtist);
+      if (artist.isNotEmpty && artist != 'various artists') {
+        _artistHistoryRing.addLast(artist);
+      }
+    }
+
+    while (_historyRing.length > maxCooldownCapacity) {
+      final oldest = _historyRing.removeFirst();
+      if (!_historyRing.contains(oldest)) {
+        _cooldownKeys.remove(oldest);
+      }
+    }
+    while (_artistHistoryRing.length > maxCooldownCapacity) {
+      _artistHistoryRing.removeFirst();
+    }
+  }
+
   /// Checks if a song or its core composition title is currently within the 75-track cooldown window.
   static bool isCoolingDown(Song song) {
     final key = song.cleanTitleKey;

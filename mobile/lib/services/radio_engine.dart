@@ -1,6 +1,5 @@
 import 'dart:math';
 import '../core/dsa/bloom_filter.dart';
-import '../data/repositories/song_repository.dart';
 import '../logic/markov_cosine_radio_strategy.dart';
 import '../logic/next_track_strategy.dart';
 import '../logic/track_quality_filter.dart';
@@ -14,6 +13,7 @@ import 'queue_cooldown_manager.dart';
 import 'saavn_client.dart';
 import 'settings_manager.dart';
 import 'youtube_client.dart';
+import 'catalog_database.dart';
 
 class RadioEngine {
   static final Set<String> _knownMusicDirectors = {
@@ -419,12 +419,19 @@ class RadioEngine {
       totalCount: max(40, limit),
     );
 
-    // If pool is shallow, supplement with trending/hits
+    // If pool is shallow, supplement with genuine catalog tracks by the same artist/composer
     if (candidatePool.length < limit) {
       try {
-        final trending = await SongRepository.getTrendingMerged(language: targetLang);
-        candidatePool.addAll(trending);
+        final artistSongs = await CatalogDatabase.getSongsByArtist(seedSong.primaryArtist);
+        candidatePool.addAll(artistSongs);
       } catch (_) {}
+      if (candidatePool.length < limit) {
+        try {
+          final query = '${seedSong.primaryArtist} $targetLang';
+          final sRes = await SaavnClient.search(query, limit: 12, language: targetLang);
+          candidatePool.addAll(sRes);
+        } catch (_) {}
+      }
     }
 
     // 2. Hard Filtering

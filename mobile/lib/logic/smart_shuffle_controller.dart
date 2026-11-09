@@ -9,6 +9,7 @@ import '../services/settings_manager.dart';
 import '../services/youtube_client.dart';
 import '../services/queue_cooldown_manager.dart';
 import '../services/radio_engine.dart';
+import '../services/catalog_database.dart';
 import 'audio_queue_handler.dart';
 import 'next_track_strategy.dart';
 
@@ -235,7 +236,7 @@ class SmartShuffleController {
           YouTubeClient.getRadioTracks(userSeed, limit: 12),
           SaavnClient.getRelatedSongs(userSeed.id, language: primaryLang),
           SaavnClient.search('${userSeed.artist} hits', limit: 8, language: primaryLang),
-          SaavnClient.getTrending(language: primaryLang),
+          CatalogDatabase.getSongsByArtist(userSeed.primaryArtist),
         ];
         final results = await Future.wait(fallbackFutures);
         allCandidates = results.expand((x) => x).toList();

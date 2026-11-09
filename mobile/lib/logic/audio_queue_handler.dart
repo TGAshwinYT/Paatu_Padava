@@ -2132,6 +2132,7 @@ class AudioQueueHandler {
         _contextShuffleIndices.add(_contextQueue.length - 1);
       }
     }
+    QueueCooldownManager.recordSuggested(deduplicated.map((e) => e.toSong()));
     _syncState();
     preloadUpcomingTracks();
     onQueueProgress?.call(currentIndex, queue.length);

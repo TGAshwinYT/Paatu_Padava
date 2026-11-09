@@ -2137,6 +2137,40 @@ class AudioQueueHandler {
     onQueueProgress?.call(currentIndex, queue.length);
   }
 
+  /// Replaces upcoming auto-suggested context tracks while preserving manual user queue
+  /// and original album tracks.
+  Future<void> replaceAutoSuggestions(List<dynamic> newSuggestions) async {
+    if (_contextIndex >= 0 && _contextIndex < _contextQueue.length) {
+      final playedContext = _contextQueue.sublist(0, _contextIndex + 1);
+      final originalUpcoming = _contextQueue
+          .sublist(_contextIndex + 1)
+          .where((t) => !t.isSmartRecommended)
+          .toList();
+      _contextQueue.clear();
+      _contextQueue.addAll(playedContext);
+      _contextQueue.addAll(originalUpcoming);
+
+      if (_isShuffleEnabled) {
+        _contextShuffleIndices.clear();
+        for (int i = 0; i < _contextQueue.length; i++) {
+          _contextShuffleIndices.add(i);
+        }
+      }
+    } else if (_contextIndex == -1 && _contextQueue.isNotEmpty) {
+      // If playback hasn't started or context is pure auto-play
+      final originalNonRec = _contextQueue.where((t) => !t.isSmartRecommended).toList();
+      _contextQueue.clear();
+      _contextQueue.addAll(originalNonRec);
+      if (_isShuffleEnabled) {
+        _contextShuffleIndices.clear();
+        for (int i = 0; i < _contextQueue.length; i++) {
+          _contextShuffleIndices.add(i);
+        }
+      }
+    }
+    await addAutoSuggestions(newSuggestions);
+  }
+
   // ================= Queue Mutation (Remove, Reorder, Clear) ================= //
 
   Future<void> removeAt(int index) async {

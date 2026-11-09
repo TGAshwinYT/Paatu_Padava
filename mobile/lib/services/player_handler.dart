@@ -8,6 +8,8 @@ import 'package:just_audio/just_audio.dart';
 import '../logic/audio_queue_handler.dart';
 import '../logic/stream_resolver.dart';
 import '../logic/smart_shuffle_controller.dart';
+import '../logic/queue/queue_tuner_controller.dart';
+import '../logic/queue/queue_tuner_mode.dart';
 import '../logic/next_track_strategy.dart';
 import '../models/song.dart';
 import 'settings_manager.dart';
@@ -92,6 +94,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
 
   late final AudioQueueHandler _queueHandler;
   late final SmartShuffleController _smartShuffleController;
+  late final QueueTunerController _queueTunerController;
 
   // Reactive State Notifiers for UI binding
   final ValueNotifier<String?> currentLyricsNotifier = ValueNotifier<String?>(null);
@@ -145,6 +148,8 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   AudioPlayer get player => _player;
   AudioQueueHandler get queueHandler => _queueHandler;
   SmartShuffleController get smartShuffleController => _smartShuffleController;
+  QueueTunerController get queueTunerController => _queueTunerController;
+  ValueNotifier<QueueTunerMode> get queueTunerModeNotifier => _queueTunerController.modeNotifier;
 
   ValueNotifier<Song?> get currentSongNotifier => _queueHandler.currentSongNotifier;
   ValueNotifier<List<Song>> get playlistNotifier => _queueHandler.queueNotifier;
@@ -285,6 +290,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     );
 
     _smartShuffleController = SmartShuffleController(queueHandler: _queueHandler);
+    _queueTunerController = QueueTunerController(queueHandler: _queueHandler);
 
     // Keep legacy boolean notifier in sync with Smart mode
     _smartShuffleListener = () {

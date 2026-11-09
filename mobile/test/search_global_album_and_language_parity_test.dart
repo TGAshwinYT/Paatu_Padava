@@ -235,4 +235,79 @@ void main() {
       expect(reRanked.first.language, equals('tamil'));
     });
   });
+
+  group('English & Cross-Language Artist Discovery & Soft Language Boosting', () {
+    test('filterArtistsByLanguage preserves English artists like Taylor Swift and Ed Sheeran when language is null', () {
+      final candidates = [
+        {'id': 'art_taylor', 'name': 'Taylor Swift', 'role': 'Artist', 'image': 'https://example.com/taylor.jpg'},
+        {'id': 'art_ed', 'name': 'Ed Sheeran', 'role': 'Artist', 'image': 'https://example.com/ed.jpg'},
+        {'id': 'art_anirudh', 'name': 'Anirudh Ravichander', 'role': 'Music Director', 'image': 'https://example.com/anirudh.jpg'},
+      ];
+
+      final filtered = SearchService.filterArtistsByLanguage(
+        candidates,
+        language: null,
+        query: 'Taylor Swift',
+      );
+
+      final names = filtered.map((a) => a['name']).toList();
+      expect(names, contains('Taylor Swift'));
+      expect(names, contains('Ed Sheeran'));
+      expect(names, contains('Anirudh Ravichander'));
+    });
+
+    test('calculateCompositeRelevance gives soft boost to preferred language without dropping English songs', () {
+      final intent = SearchService.understandQuery('shape of you');
+      final edSong = Song(
+        id: 's_ed_1',
+        title: 'Shape of You',
+        artist: 'Ed Sheeran',
+        album: 'Divide',
+        coverUrl: 'https://example.com/divide.jpg',
+        duration: 233,
+        source: 'saavn',
+        language: 'english',
+      );
+
+      final scoreWithoutPref = SearchService.calculateCompositeRelevance(
+        edSong,
+        intent,
+        preferredLanguages: [],
+      );
+
+      final scoreWithTamilPref = SearchService.calculateCompositeRelevance(
+        edSong,
+        intent,
+        preferredLanguages: ['tamil'],
+      );
+
+      // Should have a high score (exact title match >= 0.75) and NOT be zeroed out
+      expect(scoreWithoutPref, greaterThanOrEqualTo(0.75));
+      expect(scoreWithTamilPref, greaterThanOrEqualTo(0.75));
+    });
+
+    test('Artist discography does not scramble or penalize tracks when artist does not sing in user preferred language', () {
+      final s1 = Song(id: '1', title: 'Shape of You', artist: 'Ed Sheeran', coverUrl: 'https://example.com/1.jpg', duration: 233, source: 'saavn', language: 'english');
+      final s2 = Song(id: '2', title: 'Perfect', artist: 'Ed Sheeran', coverUrl: 'https://example.com/2.jpg', duration: 263, source: 'saavn', language: 'english');
+      final s3 = Song(id: '3', title: 'Bad Habits', artist: 'Ed Sheeran', coverUrl: 'https://example.com/3.jpg', duration: 231, source: 'saavn', language: 'english');
+
+      final songs = [s1, s2, s3];
+      final effectivePrefLangs = ['tamil'];
+      final hasPreferredSongs = effectivePrefLangs.isNotEmpty &&
+          songs.any((s) => effectivePrefLangs.any((l) => !SongRepository.isLanguageMismatch(s, l)));
+
+      expect(hasPreferredSongs, isFalse);
+      // Because hasPreferredSongs is false, list remains in original hit order
+      if (hasPreferredSongs) {
+        songs.sort((a, b) {
+          final aIsMismatch = !effectivePrefLangs.any((l) => !SongRepository.isLanguageMismatch(a, l));
+          final bIsMismatch = !effectivePrefLangs.any((l) => !SongRepository.isLanguageMismatch(b, l));
+          if (!aIsMismatch && bIsMismatch) return -1;
+          if (aIsMismatch && !bIsMismatch) return 1;
+          return 0;
+        });
+      }
+      expect(songs.map((s) => s.title).toList(), equals(['Shape of You', 'Perfect', 'Bad Habits']));
+    });
+  });
 }

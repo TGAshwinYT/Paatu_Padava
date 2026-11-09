@@ -97,16 +97,22 @@ class _ArtistScreenState extends State<ArtistScreen> {
 
       // Prioritize songs in user's preferred language to avoid cross-language contamination
       final effectivePrefLangs = SettingsManager.preferredLanguages.map((l) => l.toLowerCase()).toList();
+      final hasPreferredSongs = effectivePrefLangs.isNotEmpty &&
+          uniqueSongs.any((s) => effectivePrefLangs.any((l) => !SongRepository.isLanguageMismatch(s, l)));
 
-      // Coordinated multi-language preference priority
-      // Retains support for all preferred languages
-      uniqueSongs.sort((a, b) {
-        final aIsMismatch = effectivePrefLangs.isNotEmpty && !effectivePrefLangs.any((l) => !SongRepository.isLanguageMismatch(a, l));
-        final bIsMismatch = effectivePrefLangs.isNotEmpty && !effectivePrefLangs.any((l) => !SongRepository.isLanguageMismatch(b, l));
-        if (!aIsMismatch && bIsMismatch) return -1;
-        if (aIsMismatch && !bIsMismatch) return 1;
-        return 0;
-      });
+      // If the artist has tracks in the user's preferred languages (e.g. A.R. Rahman with Tamil & Hindi tracks),
+      // boost those preferred language tracks first while keeping the rest playable below.
+      // If the artist does NOT produce tracks in the user's preferred language (e.g. Ed Sheeran, Taylor Swift),
+      // leave the discography in its natural popularity/hit order without arbitrary penalties.
+      if (hasPreferredSongs) {
+        uniqueSongs.sort((a, b) {
+          final aIsMismatch = !effectivePrefLangs.any((l) => !SongRepository.isLanguageMismatch(a, l));
+          final bIsMismatch = !effectivePrefLangs.any((l) => !SongRepository.isLanguageMismatch(b, l));
+          if (!aIsMismatch && bIsMismatch) return -1;
+          if (aIsMismatch && !bIsMismatch) return 1;
+          return 0;
+        });
+      }
 
       if (mounted) {
         setState(() {

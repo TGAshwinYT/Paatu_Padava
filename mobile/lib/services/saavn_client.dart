@@ -289,6 +289,17 @@ class SaavnClient {
             }
           }
 
+          if (data['artists'] is Map && data['artists']['data'] is List) {
+            for (final item in data['artists']['data']) {
+              if (item is Map) {
+                final name = ArtistSanitizer.decodeHtml((item['name'] ?? item['title'] ?? '').toString());
+                if (name.isNotEmpty) {
+                  addCompletion(name);
+                }
+              }
+            }
+          }
+
           return {
             'completions': completions,
             'songs': songs,

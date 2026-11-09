@@ -5,6 +5,9 @@ echo ==========================================
 echo.
 
 :: Add bundled Node/npm runtime to PATH
+if exist "%LOCALAPPDATA%\Programs\Python\Python313\Lib\site-packages\nodejs_wheel" (
+    set "PATH=%LOCALAPPDATA%\Programs\Python\Python313\Lib\site-packages\nodejs_wheel;%PATH%"
+)
 if exist "D:\Library\Ashwin\Offical\Python\Python313\Lib\site-packages\nodejs_wheel" (
     set "PATH=D:\Library\Ashwin\Offical\Python\Python313\Lib\site-packages\nodejs_wheel;%PATH%"
 )

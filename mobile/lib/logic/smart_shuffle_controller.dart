@@ -8,6 +8,7 @@ import '../services/saavn_client.dart';
 import '../services/settings_manager.dart';
 import '../services/youtube_client.dart';
 import '../services/queue_cooldown_manager.dart';
+import '../services/radio_engine.dart';
 import 'audio_queue_handler.dart';
 import 'next_track_strategy.dart';
 
@@ -261,10 +262,14 @@ class SmartShuffleController {
           continue;
         }
 
-        // Strict Language Isolation Gate:
+        // Multi-Language Parity: Match seed language or any user preferred language
+        final prefLangsSet = SettingsManager.preferredLanguages
+            .map((l) => l.toLowerCase().trim())
+            .where((l) => l.isNotEmpty)
+            .toSet();
         if (c.language != null && c.language!.isNotEmpty) {
           final cLang = c.language!.toLowerCase().trim();
-          if (cLang != primaryLang) {
+          if (cLang != primaryLang && prefLangsSet.isNotEmpty && !prefLangsSet.contains(cLang)) {
             continue;
           }
         }
@@ -279,9 +284,16 @@ class SmartShuffleController {
 
         double score = 10.0;
 
-        // Artist affinity bonus (capped)
-        if (c.primaryArtist == userSeed.primaryArtist) {
+        // Music Director / Composer & Artist affinity bonus
+        if (RadioEngine.isSharedMusicDirectorOrComposer(userSeed, c)) {
+          score += 4.5;
+        } else if (c.primaryArtist == userSeed.primaryArtist) {
           score += 4.0;
+        }
+
+        // Language affinity boost (prefer exact seed language, but allow all preferred)
+        if (c.language != null && c.language!.toLowerCase().trim() == primaryLang) {
+          score += 2.0;
         }
 
         // Feedback weighting (penalize early skips, boost full listens/likes)
@@ -324,7 +336,12 @@ class SmartShuffleController {
           }
           if (lookahead < candidates.length) {
             final picked = candidates.removeAt(lookahead);
-            interleaved.add(picked.copyWith(isSmartRecommended: true, language: primaryLang));
+            interleaved.add(picked.copyWith(
+              isSmartRecommended: true,
+              language: (picked.language != null && picked.language!.isNotEmpty)
+                  ? picked.language
+                  : primaryLang,
+            ));
           }
         }
       }
@@ -337,7 +354,12 @@ class SmartShuffleController {
         }
         if (lookahead < candidates.length) {
           final picked = candidates.removeAt(lookahead);
-          interleaved.add(picked.copyWith(isSmartRecommended: true, language: primaryLang));
+          interleaved.add(picked.copyWith(
+            isSmartRecommended: true,
+            language: (picked.language != null && picked.language!.isNotEmpty)
+                ? picked.language
+                : primaryLang,
+          ));
         } else {
           break;
         }

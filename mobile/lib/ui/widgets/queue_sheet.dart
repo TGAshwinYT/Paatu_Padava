@@ -8,6 +8,7 @@ import '../../services/favorites_manager.dart';
 import '../../services/catalog_database.dart';
 import 'common/cascading_cover_image.dart';
 import '../../services/player_handler.dart';
+import 'queue/queue_tuner_bar.dart';
 import 'save_queue_dialog.dart';
 
 class QueueSheet extends StatefulWidget {
@@ -193,6 +194,11 @@ class _QueueSheetState extends State<QueueSheet> {
             ],
           ),
         ),
+
+        const Divider(color: Colors.white10, height: 1),
+
+        // Real-time Queue Tuner Bar (Option A with Option C Quick Access)
+        const QueueTunerBar(),
 
         const Divider(color: Colors.white10, height: 1),
 

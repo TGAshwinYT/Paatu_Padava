@@ -2350,9 +2350,8 @@ class SearchService {
     }
 
     final prefLangs = SettingsManager.preferredLanguages;
-    final defaultLang = prefLangs.firstWhere((l) => l.toLowerCase() != 'english', orElse: () => prefLangs.firstOrNull ?? 'tamil');
     final effectiveLang = intent.explicitLanguage ??
-        (language != null && language.isNotEmpty && language.toLowerCase() != 'all' && language.toLowerCase() != 'any' ? language : defaultLang);
+        (language != null && language.isNotEmpty && language.toLowerCase() != 'all' && language.toLowerCase() != 'any' ? language : null);
 
     // SWR (Stale-While-Revalidate): Yield fast LRU in-memory cache immediately (0ms),
     // then continue executing network pipeline to revalidate fresh catalog versions.
@@ -2424,7 +2423,7 @@ class SearchService {
 
       final Future<List<Song>> transliteratedSaavnFuture = () async {
         if (intent.transliteratedQuery == intent.cleanQuery) {
-          if (effectiveLang != 'english' && !intent.cleanQuery.toLowerCase().contains(effectiveLang.toLowerCase())) {
+          if (effectiveLang != null && effectiveLang != 'english' && !intent.cleanQuery.toLowerCase().contains(effectiveLang.toLowerCase())) {
             try {
               return await SaavnClient.search('${intent.cleanQuery} $effectiveLang', limit: limit, language: effectiveLang).timeout(const Duration(seconds: 2), onTimeout: () => <Song>[]);
             } catch (_) { return <Song>[]; }

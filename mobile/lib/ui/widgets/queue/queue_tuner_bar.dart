@@ -57,10 +57,23 @@ class QueueTunerBar extends StatelessWidget {
                       children: [
                         _buildEngineTile(
                           context,
-                          title: 'Spotify Context (Recommended)',
+                          title: 'Unified Smart Radio AI (Recommended)',
+                          subtitle: 'Multi-factor vector scoring, dual session anchoring & skip reactivity with zero trending chart injection.',
+                          icon: Icons.auto_awesome_rounded,
+                          accentColor: const Color(0xFF1DB954),
+                          isSelected: activeStrategy == NextTrackStrategyMode.unifiedSmartRadio,
+                          onTap: () {
+                            SettingsManager.setNextTrackStrategy(NextTrackStrategyMode.unifiedSmartRadio);
+                            Navigator.pop(ctx);
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                        _buildEngineTile(
+                          context,
+                          title: 'Spotify Context',
                           subtitle: 'Session anchoring (60/40), era proximity, and anti-repetition cooldown.',
                           icon: Icons.graphic_eq_rounded,
-                          accentColor: const Color(0xFF1DB954),
+                          accentColor: const Color(0xFF6366F1),
                           isSelected: activeStrategy == NextTrackStrategyMode.spotifyStyle,
                           onTap: () {
                             SettingsManager.setNextTrackStrategy(NextTrackStrategyMode.spotifyStyle);

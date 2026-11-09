@@ -709,26 +709,330 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
   }
 }
 
+// ================= Unified Smart Radio AI (Path B) ================= //
+
+/// Consolidated Unified Smart Radio AI Strategy.
+/// Merges the best algorithmic pillars:
+/// 1. Mathematical multi-factor vector similarity (SongFeatureVector: artist, era, composer, language, duration)
+/// 2. Laplace-smoothed Markov Transition Matrix learning
+/// 3. Spotify Dual-Anchor session continuity (60% Anchor / 40% Current)
+/// 4. YouTube fast skip reactivity (<30s skips branch away and cool down artist)
+/// 5. Zero back-to-back same-artist repetition and Poisson artist dispersion
+/// 6. Multi-source resilience via JioSaavn reco.getreco, local CatalogDatabase, and non-blocking YouTube automix
+class UnifiedSmartRadioStrategy implements NextTrackStrategy {
+  @override
+  String get id => 'unified_smart_radio';
+
+  @override
+  String get displayName => 'Unified Smart Radio AI';
+
+  @override
+  String get description =>
+      'Multi-factor vector similarity, dual session anchoring, Markov transition learning & instant skip reactivity';
+
+  static final MarkovTransitionMatrix _markovMatrix = MarkovTransitionMatrix();
+  Song? _sessionAnchorTrack;
+  final Queue<String> _skippedArtists = Queue<String>();
+  final Set<String> _skippedTrackKeys = <String>{};
+
+  @visibleForTesting
+  Song? get sessionAnchor => _sessionAnchorTrack;
+
+  @visibleForTesting
+  List<String> get skippedArtists => _skippedArtists.toList();
+
+  @override
+  void resetSession({Song? initialAnchor}) {
+    _sessionAnchorTrack = initialAnchor;
+    _skippedArtists.clear();
+    _skippedTrackKeys.clear();
+    AppLogger.log('UnifiedSmartRadioStrategy', 'Session anchor reset. Anchor: ${_sessionAnchorTrack?.title ?? "none"}');
+  }
+
+  @override
+  void recordSkip(Song skippedSong, {required int listenedSeconds}) {
+    if (listenedSeconds < 30) {
+      final artist = QueueCooldownManager.normalizeArtistKey(skippedSong.primaryArtist);
+      if (artist.isNotEmpty && artist != 'various artists') {
+        _skippedArtists.addLast(artist);
+        while (_skippedArtists.length > 5) {
+          _skippedArtists.removeFirst();
+        }
+      }
+      if (skippedSong.cleanTitleKey.isNotEmpty) {
+        _skippedTrackKeys.add(skippedSong.cleanTitleKey);
+      }
+      QueueCooldownManager.recordPlayed(skippedSong);
+      if (_sessionAnchorTrack != null) {
+        _markovMatrix.recordTransition(_sessionAnchorTrack!, skippedSong, isPositive: false);
+      }
+      AppLogger.log(
+        'UnifiedSmartRadioStrategy',
+        'Skip Reactivity recorded for "${skippedSong.title}" (${listenedSeconds}s). Cooling artist: $artist',
+      );
+    }
+  }
+
+  @override
+  void recordTransition(Song from, Song to, {bool isPositive = true}) {
+    _markovMatrix.recordTransition(from, to, isPositive: isPositive);
+    if (isPositive && to.id != _sessionAnchorTrack?.id) {
+      _sessionAnchorTrack = to;
+      AppLogger.log('UnifiedSmartRadioStrategy', 'Smoothly shifted anchor to "${to.title}"');
+    }
+  }
+
+  @override
+  Future<List<Song>> getUpcomingTracks({
+    required Song seedSong,
+    required List<Song> queue,
+    required List<Song> history,
+    int count = 20,
+  }) async {
+    try {
+      if (_sessionAnchorTrack == null) {
+        _sessionAnchorTrack = seedSong;
+        AppLogger.log('UnifiedSmartRadioStrategy', 'Anchored session to "${seedSong.title}" by ${seedSong.primaryArtist}');
+      }
+
+      final anchorSong = _sessionAnchorTrack!;
+      final prefLangs = SettingsManager.preferredLanguages;
+      final targetLang = (seedSong.language != null && seedSong.language!.isNotEmpty)
+          ? seedSong.language!.toLowerCase()
+          : (prefLangs.firstOrNull ?? 'tamil').toLowerCase();
+
+      final targetBatch = count > 0 ? count : 20;
+
+      // 1. Build exclusion set
+      final Set<String> exclusions = {};
+      for (final s in queue) {
+        exclusions.add(s.id);
+        exclusions.add(s.canonicalBaseKey);
+        if (s.cleanTitleKey.isNotEmpty) exclusions.add(s.cleanTitleKey);
+      }
+      final recentHistory = history.length > 50 ? history.sublist(history.length - 50) : history;
+      for (final s in recentHistory) {
+        exclusions.add(s.id);
+        exclusions.add(s.canonicalBaseKey);
+        if (s.cleanTitleKey.isNotEmpty) exclusions.add(s.cleanTitleKey);
+      }
+      exclusions.add(seedSong.id);
+      exclusions.add(seedSong.canonicalBaseKey);
+      if (seedSong.cleanTitleKey.isNotEmpty) exclusions.add(seedSong.cleanTitleKey);
+      exclusions.add(anchorSong.id);
+      exclusions.add(anchorSong.canonicalBaseKey);
+      if (anchorSong.cleanTitleKey.isNotEmpty) exclusions.add(anchorSong.cleanTitleKey);
+
+      // 2. Multi-tier Candidate Generation:
+      // Sourced from JioSaavn Reco + CatalogDatabase + Clean Artist Search + YouTube Automix (non-blocking)
+      final List<Future<List<Song>>> anchorFutures = [
+        SaavnClient.getRelatedSongs(anchorSong.id, language: targetLang),
+        CatalogDatabase.getSongsByArtist(anchorSong.primaryArtist),
+        if (anchorSong.primaryArtist.isNotEmpty && anchorSong.primaryArtist.toLowerCase() != 'various artists')
+          SaavnClient.search('${anchorSong.primaryArtist} $targetLang', limit: 12, language: targetLang),
+        YouTubeClient.getRadioTracks(
+          anchorSong,
+          limit: 10,
+          excludedArtists: _skippedArtists.toSet(),
+          excludedKeys: _skippedTrackKeys,
+        ).timeout(const Duration(milliseconds: 1500), onTimeout: () => <Song>[]),
+      ];
+
+      final List<Future<List<Song>>> currentFutures = (seedSong.id != anchorSong.id)
+          ? [
+              SaavnClient.getRelatedSongs(seedSong.id, language: targetLang),
+              CatalogDatabase.getSongsByArtist(seedSong.primaryArtist),
+              if (seedSong.primaryArtist.isNotEmpty && seedSong.primaryArtist.toLowerCase() != 'various artists')
+                SaavnClient.search('${seedSong.primaryArtist} $targetLang', limit: 10, language: targetLang),
+              YouTubeClient.getRadioTracks(
+                seedSong,
+                limit: 10,
+                excludedArtists: _skippedArtists.toSet(),
+                excludedKeys: _skippedTrackKeys,
+              ).timeout(const Duration(milliseconds: 1500), onTimeout: () => <Song>[]),
+            ]
+          : [];
+
+      final anchorResults = await Future.wait(anchorFutures);
+      final currentResults = currentFutures.isNotEmpty ? await Future.wait(currentFutures) : <List<Song>>[];
+
+      final List<Song> anchorCandidates = anchorResults.expand((x) => x).toList();
+      final List<Song> currentCandidates = currentResults.expand((x) => x).toList();
+
+      if (anchorCandidates.isEmpty && seedSong.id != _sessionAnchorTrack?.id) {
+        _sessionAnchorTrack = seedSong;
+      }
+
+      // Dual-Anchor Interleaving: 60% session anchor / 40% current track
+      final List<Song> blendedPool = [];
+      int aIdx = 0;
+      int cIdx = 0;
+      while (aIdx < anchorCandidates.length || cIdx < currentCandidates.length) {
+        for (int i = 0; i < 3 && aIdx < anchorCandidates.length; i++) {
+          blendedPool.add(anchorCandidates[aIdx++]);
+        }
+        for (int j = 0; j < 2 && cIdx < currentCandidates.length; j++) {
+          blendedPool.add(currentCandidates[cIdx++]);
+        }
+        if (currentCandidates.isEmpty && aIdx < anchorCandidates.length) {
+          blendedPool.add(anchorCandidates[aIdx++]);
+        }
+      }
+
+      // 3. Pre-filter candidate tracks using RadioEngine.applyHardFiltering
+      final hardFiltered = RadioEngine.applyHardFiltering(
+        seedSong: seedSong,
+        candidates: blendedPool,
+        queue: queue,
+        history: recentHistory,
+        targetLanguage: targetLang,
+      );
+
+      final List<Song> validCandidates = hardFiltered.where((c) {
+        if (c.isSameSongOrDub(anchorSong)) return false;
+        final cArtistKey = QueueCooldownManager.normalizeArtistKey(c.primaryArtist);
+        if (_skippedArtists.contains(cArtistKey)) return false;
+        if (c.cleanTitleKey.isNotEmpty && _skippedTrackKeys.contains(c.cleanTitleKey)) return false;
+        return true;
+      }).toList();
+
+      // 4. Mathematical Vector & Markov Scoring
+      final targetArtistKey = QueueCooldownManager.normalizeArtistKey(seedSong.primaryArtist);
+      final anchorArtistKey = QueueCooldownManager.normalizeArtistKey(anchorSong.primaryArtist);
+      final seedYear = RadioEngine.extractReleaseYear(seedSong);
+
+      final scoredCandidates = <MapEntry<Song, double>>[];
+      for (final c in validCandidates) {
+        final vector = SongFeatureVector.extractRelative(seedSong, c);
+        final vectorScore = vector.compositeVectorScore;
+        final markovProb = _markovMatrix.getProbability(seedSong, c);
+
+        double score = (0.50 * vectorScore) + (0.30 * markovProb);
+
+        final cArtistKey = QueueCooldownManager.normalizeArtistKey(c.primaryArtist);
+        if (cArtistKey == targetArtistKey) {
+          score += 0.35;
+        } else if (cArtistKey == anchorArtistKey) {
+          score += 0.20;
+        }
+
+        // Era proximity boost (±4 years)
+        final cYear = RadioEngine.extractReleaseYear(c);
+        if (seedYear != null && cYear != null && (seedYear - cYear).abs() <= 4) {
+          score += 0.25;
+        }
+
+        // Music Director / Composer boost
+        if (RadioEngine.isSharedMusicDirectorOrComposer(seedSong, c)) {
+          score += 0.30;
+        }
+
+        if (c.language != null && c.language!.toLowerCase().trim() == targetLang) {
+          score += 0.20;
+        }
+        if (_skippedArtists.contains(cArtistKey)) {
+          score -= 0.50;
+        }
+        if (c.cleanTitleKey.isNotEmpty && _skippedTrackKeys.contains(c.cleanTitleKey)) {
+          score -= 0.60;
+        }
+        scoredCandidates.add(MapEntry(c, score));
+      }
+      scoredCandidates.sort((a, b) => b.value.compareTo(a.value));
+      final rankedCandidates = scoredCandidates.map((e) => e.key).toList();
+
+      // 5. Enforce Artist Dispersion (Zero Back-to-Back Duplicates + Poisson spacing)
+      final shapedTracks = enforceArtistDispersionAndNoBackToBack(
+        rankedCandidates,
+        seedArtist: seedSong.primaryArtist,
+        count: targetBatch,
+      );
+
+      // If pool is still below target batch, supplement with genuine catalog tracks (NEVER trending chart hits)
+      if (shapedTracks.length < targetBatch) {
+        final supplement = <Song>[];
+        try {
+          supplement.addAll(await CatalogDatabase.getSongsByArtist(seedSong.primaryArtist));
+          if (anchorSong.primaryArtist != seedSong.primaryArtist) {
+            supplement.addAll(await CatalogDatabase.getSongsByArtist(anchorSong.primaryArtist));
+          }
+        } catch (_) {}
+        if (supplement.length < targetBatch - shapedTracks.length) {
+          try {
+            final sRes = await SaavnClient.search('${seedSong.primaryArtist} $targetLang', limit: 12, language: targetLang);
+            supplement.addAll(sRes);
+          } catch (_) {}
+        }
+
+        final filteredSupplement = RadioEngine.applyHardFiltering(
+          seedSong: seedSong,
+          candidates: supplement,
+          queue: queue,
+          history: recentHistory,
+          targetLanguage: targetLang,
+        ).where((s) {
+          if (s.isSameSongOrDub(anchorSong)) return false;
+          if (shapedTracks.any((f) => s.isSameSongOrDub(f))) return false;
+          return true;
+        }).toList();
+
+        final remainingCount = targetBatch - shapedTracks.length;
+        final lastPlacedArtist = shapedTracks.isNotEmpty ? shapedTracks.last.primaryArtist : seedSong.primaryArtist;
+        final shapedSupplement = enforceArtistDispersionAndNoBackToBack(
+          filteredSupplement,
+          seedArtist: lastPlacedArtist,
+          count: remainingCount,
+        );
+        shapedTracks.addAll(shapedSupplement);
+      }
+
+      // 6. Circuit Breaker Fallback
+      if (shapedTracks.isEmpty) {
+        return getLocalFallbackTracks(
+          seedSong,
+          exclusions: exclusions,
+          count: targetBatch,
+          targetLang: targetLang,
+        );
+      }
+
+      return shapedTracks;
+    } catch (e) {
+      debugPrint('[UnifiedSmartRadioStrategy] Fallback to circuit breaker: $e');
+      return getLocalFallbackTracks(
+        seedSong,
+        exclusions: {seedSong.id, seedSong.canonicalBaseKey},
+        count: count,
+      );
+    }
+  }
+}
+
 // ================= Factory & Coordinator ================= //
 
 class NextTrackStrategyFactory {
+  static final UnifiedSmartRadioStrategy _unifiedStrategy = UnifiedSmartRadioStrategy();
   static final SpotifyStyleStrategy _spotifyStrategy = SpotifyStyleStrategy();
   static final YtMusicStyleStrategy _ytMusicStrategy = YtMusicStyleStrategy();
   static final MarkovCosineRadioStrategy _markovCosineStrategy = MarkovCosineRadioStrategy();
 
-  static NextTrackStrategy getStrategy(NextTrackStrategyMode mode) {
-    switch (mode) {
+  static NextTrackStrategy getStrategy([NextTrackStrategyMode? mode]) {
+    final effectiveMode = mode ?? SettingsManager.nextTrackStrategy;
+    switch (effectiveMode) {
+      case NextTrackStrategyMode.markovCosineRadio:
+        return _markovCosineStrategy;
       case NextTrackStrategyMode.spotifyStyle:
         return _spotifyStrategy;
       case NextTrackStrategyMode.ytMusicStyle:
         return _ytMusicStrategy;
-      case NextTrackStrategyMode.markovCosineRadio:
-        return _markovCosineStrategy;
+      case NextTrackStrategyMode.unifiedSmartRadio:
+        return _unifiedStrategy;
     }
   }
 
   /// Convenience coordinator to record a skip across active strategy instances
   static void recordSkip(Song skippedSong, {required int listenedSeconds}) {
+    _unifiedStrategy.recordSkip(skippedSong, listenedSeconds: listenedSeconds);
     _spotifyStrategy.recordSkip(skippedSong, listenedSeconds: listenedSeconds);
     _ytMusicStrategy.recordSkip(skippedSong, listenedSeconds: listenedSeconds);
     _markovCosineStrategy.recordSkip(skippedSong, listenedSeconds: listenedSeconds);
@@ -736,6 +1040,7 @@ class NextTrackStrategyFactory {
 
   /// Convenience coordinator to record a track transition across active strategy instances
   static void recordTransition(Song from, Song to, {bool isPositive = true}) {
+    _unifiedStrategy.recordTransition(from, to, isPositive: isPositive);
     _spotifyStrategy.recordTransition(from, to, isPositive: isPositive);
     _ytMusicStrategy.recordTransition(from, to, isPositive: isPositive);
     _markovCosineStrategy.recordTransition(from, to, isPositive: isPositive);
@@ -743,6 +1048,7 @@ class NextTrackStrategyFactory {
 
   /// Convenience coordinator to reset session anchor across strategy instances
   static void resetSession({Song? initialAnchor}) {
+    _unifiedStrategy.resetSession(initialAnchor: initialAnchor);
     _spotifyStrategy.resetSession(initialAnchor: initialAnchor);
     _ytMusicStrategy.resetSession(initialAnchor: initialAnchor);
     _markovCosineStrategy.resetSession(initialAnchor: initialAnchor);

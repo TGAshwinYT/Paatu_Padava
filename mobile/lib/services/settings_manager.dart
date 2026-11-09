@@ -4,6 +4,7 @@ import 'auth_manager.dart';
 import 'connectivity_service.dart';
 
 enum NextTrackStrategyMode {
+  unifiedSmartRadio,
   spotifyStyle,
   ytMusicStyle,
   markovCosineRadio,
@@ -27,7 +28,7 @@ class SettingsManager {
       ValueNotifier<Map<String, List<double>>>({});
   static final ValueNotifier<List<String>> languagesNotifier = ValueNotifier<List<String>>(['Tamil', 'English']);
   static final ValueNotifier<NextTrackStrategyMode> nextTrackStrategyNotifier =
-      ValueNotifier<NextTrackStrategyMode>(NextTrackStrategyMode.spotifyStyle);
+      ValueNotifier<NextTrackStrategyMode>(NextTrackStrategyMode.unifiedSmartRadio);
   static final ValueNotifier<int> maxCacheSizeMbNotifier = ValueNotifier<int>(500);
   static final ValueNotifier<int> bluetoothDelayMsNotifier = ValueNotifier<int>(0);
   static final ValueNotifier<int> hardwareAudioLatencyMsNotifier = ValueNotifier<int>(0);
@@ -153,10 +154,10 @@ class SettingsManager {
       languagesNotifier.value = rawLangs.map((e) => e.toString()).toList();
     }
 
-    final savedStrategyStr = _box.get('next_track_strategy', defaultValue: 'spotifyStyle') as String;
+    final savedStrategyStr = _box.get('next_track_strategy', defaultValue: 'unifiedSmartRadio') as String;
     nextTrackStrategyNotifier.value = NextTrackStrategyMode.values.firstWhere(
       (m) => m.name == savedStrategyStr,
-      orElse: () => NextTrackStrategyMode.spotifyStyle,
+      orElse: () => NextTrackStrategyMode.unifiedSmartRadio,
     );
     maxCacheSizeMbNotifier.value = (_box.get('max_cache_size_mb', defaultValue: 500) as num).toInt();
     bluetoothDelayMsNotifier.value = (_box.get('bluetooth_delay_ms', defaultValue: 0) as num).toInt().clamp(-500, 500);

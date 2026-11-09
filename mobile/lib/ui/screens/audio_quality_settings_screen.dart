@@ -322,96 +322,66 @@ class AudioQualitySettingsScreen extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               const Text(
-                'Choose how songs are automatically selected for infinite radio mode.',
+                'Unified multi-factor engine powering infinite autoplay and smart radio.',
                 style: TextStyle(color: Color(0xFF64748B), fontSize: 11),
               ),
               const SizedBox(height: 12),
-              ValueListenableBuilder<NextTrackStrategyMode>(
-                valueListenable: SettingsManager.nextTrackStrategyNotifier,
-                builder: (context, strategy, _) {
-                  return Column(
-                    children: [
-                      _buildStrategyCard(
-                        title: 'Spotify Context',
-                        subtitle: 'Adaptive anchor blend with short-term artist cooldown & candidate scoring',
-                        icon: Icons.graphic_eq_rounded,
-                        isSelected: strategy == NextTrackStrategyMode.spotifyStyle,
-                        onTap: () => SettingsManager.setNextTrackStrategy(NextTrackStrategyMode.spotifyStyle),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E293B),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFF1DB954).withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1DB954).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      const SizedBox(height: 8),
-                      _buildStrategyCard(
-                        title: 'YouTube Auto-Mix',
-                        subtitle: 'Graph traversal with official master tracks & rolling skip fatigue',
-                        icon: Icons.radio_rounded,
-                        isSelected: strategy == NextTrackStrategyMode.ytMusicStyle,
-                        onTap: () => SettingsManager.setNextTrackStrategy(NextTrackStrategyMode.ytMusicStyle),
+                      child: const Icon(Icons.auto_awesome_rounded, color: Color(0xFF1DB954), size: 22),
+                    ),
+                    const SizedBox(width: 14),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                'Unified Smart Radio AI',
+                                style: TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.bold),
+                              ),
+                              SizedBox(width: 8),
+                              DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: Color(0xFF1DB954),
+                                  borderRadius: BorderRadius.all(Radius.circular(6)),
+                                ),
+                                child: Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  child: Text('ACTIVE', style: TextStyle(color: Colors.black, fontSize: 9.5, fontWeight: FontWeight.w800)),
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Vector similarity, dual session anchoring & skip reactivity. Tune real-time queue mood in Queue via Mix, Familiar, Discover, Composer.',
+                            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11, height: 1.3),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 8),
-                      _buildStrategyCard(
-                        title: 'Markov-Cosine AI',
-                        subtitle: 'Multi-dimensional vector similarity with transition learning',
-                        icon: Icons.auto_awesome_rounded,
-                        isSelected: strategy == NextTrackStrategyMode.markovCosineRadio,
-                        onTap: () => SettingsManager.setNextTrackStrategy(NextTrackStrategyMode.markovCosineRadio),
-                      ),
-                    ],
-                  );
-                },
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildStrategyCard({
-    required String title,
-    required String subtitle,
-    required IconData icon,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF6366F1).withValues(alpha: 0.15) : const Color(0xFF1E293B),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected ? const Color(0xFF6366F1) : Colors.white.withValues(alpha: 0.05),
-            width: 1.5,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, color: isSelected ? const Color(0xFF818CF8) : const Color(0xFF94A3B8), size: 16),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: TextStyle(
-                      color: isSelected ? Colors.white : const Color(0xFFCBD5E1),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              subtitle,
-              style: const TextStyle(color: Color(0xFF64748B), fontSize: 10, height: 1.2),
-            ),
-          ],
-        ),
-      ),
     );
   }
 

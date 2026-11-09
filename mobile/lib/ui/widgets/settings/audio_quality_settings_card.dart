@@ -134,6 +134,17 @@ class AudioQualitySettingsCard extends StatelessWidget {
                     ),
                   ),
                   _buildQualityRadioTile(
+                    title: 'Unified Smart Radio AI (Recommended)',
+                    subtitle: 'Multi-factor vector scoring, dual session anchoring & skip reactivity with zero trending fallbacks',
+                    value: NextTrackStrategyMode.unifiedSmartRadio.name,
+                    groupValue: strategyMode.name,
+                    onChanged: (val) {
+                      if (val != null) {
+                        SettingsManager.setNextTrackStrategy(NextTrackStrategyMode.unifiedSmartRadio);
+                      }
+                    },
+                  ),
+                  _buildQualityRadioTile(
                     title: 'Spotify Style (Cohesive Clusters)',
                     subtitle: 'Curates closely related acoustic clusters, similar tempo, and collaborative seeds',
                     value: NextTrackStrategyMode.spotifyStyle.name,

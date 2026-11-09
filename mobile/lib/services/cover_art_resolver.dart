@@ -6,6 +6,7 @@ import '../models/song.dart';
 import 'app_logger.dart';
 import 'catalog_database.dart';
 import 'saavn_client.dart';
+import 'playlist_manager.dart';
 import '../logic/search_query_planner.dart';
 
 /// Service responsible for resolving studio-quality 1000x1000 square album artwork
@@ -99,6 +100,7 @@ class CoverArtResolver {
       if (_cacheBox != null && _cacheBox!.isOpen) {
         await _cacheBox!.put(songId, coverUrl);
       }
+      PlaylistManager.updateTrackCover(songId, coverUrl);
     } catch (e) {
       AppLogger.log('CoverArtResolver', 'Failed to persist cover cache for $songId: $e');
     }
@@ -146,25 +148,29 @@ class CoverArtResolver {
   static Future<String> _resolveInternal(Song song, {required bool skipNetwork}) async {
     final rawCover = song.coverUrl.trim();
 
-    // 1. Keep JioSaavn cover if it exists (upgrade 50x50/150x150 to 500x500 square)
-    if (_isSaavnCover(rawCover)) {
-      final upgraded = _upgradeSaavnCover(rawCover);
-      if (upgraded.isNotEmpty) {
-        return upgraded;
+    // 0. Only accept existing covers if they are NOT playlist mosaics
+    if (!isPlaylistCover(rawCover)) {
+      // 1. Keep JioSaavn cover if it exists (upgrade 50x50/150x150 to 500x500 square)
+      if (_isSaavnCover(rawCover)) {
+        final upgraded = _upgradeSaavnCover(rawCover);
+        if (upgraded.isNotEmpty) {
+          return upgraded;
+        }
       }
-    }
 
-    // 2. YouTube Music square art (=w1000-h1000) from InnerTube / Google User Content
-    if (_isYouTubeMusicSquareCover(rawCover)) {
-      final upgraded = _upgradeYouTubeMusicSquareCover(rawCover);
-      if (upgraded.isNotEmpty) {
-        return upgraded;
+      // 2. YouTube Music square art (=w1000-h1000) from InnerTube / Google User Content
+      if (_isYouTubeMusicSquareCover(rawCover)) {
+        final upgraded = _upgradeYouTubeMusicSquareCover(rawCover);
+        if (upgraded.isNotEmpty) {
+          return upgraded;
+        }
       }
     }
 
     // 3. Fast offline lookup in CatalogDatabase (0ms) - skipped during mock testing
     if (_httpClient == null) {
-      final catalogCover = CatalogDatabase.getSongCoverArt(song.title, artist: song.artist, album: song.album);
+      final catalogCover = CatalogDatabase.getSongCoverArt(song.title, artist: song.artist, album: song.album) ??
+          CatalogDatabase.getMoviePoster(song.album);
       if (catalogCover != null && catalogCover.isNotEmpty) {
         return catalogCover;
       }
@@ -469,11 +475,22 @@ class CoverArtResolver {
     return '';
   }
 
-  /// Detects whether a cover URL is an unwanted placeholder (Unsplash stock photo)
+  /// Detects whether a cover URL is a Spotify playlist mosaic/banner rather than an album cover
+  static bool isPlaylistCover(String url) {
+    if (url.isEmpty) return false;
+    final lower = url.toLowerCase();
+    return lower.contains('ab67706f') ||
+        lower.contains('mosaic.scdn.co') ||
+        lower.contains('image-cdn-ak.spotifycdn.com');
+  }
+
+  /// Detects whether a cover URL is an unwanted placeholder (Unsplash stock photo or playlist mosaic)
   static bool _isPlaceholder(String url) {
-    return url.contains('unsplash.com') ||
+    return url.isEmpty ||
+        url.contains('unsplash.com') ||
         url.contains('photo-1470225620780-dba8ba36b745') ||
-        url.contains('saavncdn.com/500/');
+        url.contains('saavncdn.com/500/') ||
+        isPlaylistCover(url);
   }
 
   /// Helper to test if a given URL is a 16:9 YouTube video thumbnail (letterboxed or frame capture)

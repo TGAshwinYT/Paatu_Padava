@@ -7,6 +7,7 @@ import '../../services/download_manager.dart';
 import '../../services/recent_containers_manager.dart';
 import '../widgets/add_to_playlist_dialog.dart';
 import '../widgets/mini_player.dart';
+import '../widgets/cover_art_image.dart';
 
 class LikedSongsScreen extends StatefulWidget {
   const LikedSongsScreen({Key? key}) : super(key: key);
@@ -392,21 +393,18 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                                   leading: Stack(
                                     alignment: Alignment.center,
                                     children: [
-                                      ClipRRect(
+                                      CoverArtImage(
+                                        song: song,
+                                        width: 48,
+                                        height: 48,
                                         borderRadius: BorderRadius.circular(8),
-                                        child: CachedNetworkImage(
-                                          imageUrl: song.coverUrl,
+                                        memCacheWidth: 150,
+                                        memCacheHeight: 150,
+                                        errorWidget: Container(
                                           width: 48,
                                           height: 48,
-                                          fit: BoxFit.cover,
-                                          memCacheWidth: 150,
-                                          memCacheHeight: 150,
-                                          errorWidget: (_, __, ___) => Container(
-                                            width: 48,
-                                            height: 48,
-                                            color: Colors.white10,
-                                            child: const Icon(Icons.music_note, color: Colors.white38),
-                                          ),
+                                          color: Colors.white10,
+                                          child: const Icon(Icons.music_note, color: Colors.white38),
                                         ),
                                       ),
                                       if (isPlaying)

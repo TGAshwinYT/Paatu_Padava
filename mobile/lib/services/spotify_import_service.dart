@@ -10,6 +10,7 @@ import 'saavn_client.dart';
 import 'youtube_client.dart';
 import 'catalog_database.dart';
 import 'app_logger.dart';
+import 'cover_art_resolver.dart';
 import '../core/app_config.dart';
 import 'spotify_track_key.dart';
 
@@ -727,7 +728,7 @@ class SpotifyImportService {
                 final albumName = track['album']?['name']?.toString();
                 final durationSec = parseDurationSeconds(track['duration_ms']);
                 final trkImages = track['album']?['images'] as List<dynamic>? ?? [];
-                final trkCover = trkImages.isNotEmpty ? trkImages[0]['url']?.toString() : coverUrl;
+                final trkCover = trkImages.isNotEmpty ? trkImages[0]['url']?.toString() : (type == 'album' ? coverUrl : null);
 
                 if (rawTitle.isNotEmpty) {
                   allTracks.add(SpotifyTrackItem(
@@ -901,7 +902,7 @@ class SpotifyImportService {
                   title: Song.sanitize(rawTitle),
                   artist: Song.sanitize(subtitle),
                   durationSeconds: durationSec,
-                  coverUrl: coverUrl,
+                  coverUrl: (type == 'album' ? coverUrl : null),
                 ));
               }
             }
@@ -952,7 +953,7 @@ class SpotifyImportService {
               title: tTitle,
               artist: tArtist,
               durationSeconds: 0,
-              coverUrl: coverUrl,
+              coverUrl: (type == 'album' ? coverUrl : null),
             ));
           }
         }
@@ -1076,8 +1077,22 @@ class SpotifyImportService {
 
         if ((cand.coverUrl.isEmpty || cand.coverUrl.contains('default')) &&
             track.coverUrl != null &&
-            track.coverUrl!.isNotEmpty) {
+            track.coverUrl!.isNotEmpty &&
+            !CoverArtResolver.isPlaylistCover(track.coverUrl!)) {
           cand = cand.copyWith(coverUrl: track.coverUrl);
+        }
+
+        // Proactively resolve high-res studio square cover if missing or playlist mosaic
+        if (cand.coverUrl.isEmpty || CoverArtResolver.isPlaylistCover(cand.coverUrl)) {
+          try {
+            final resolved = await CoverArtResolver.resolveCover(cand).timeout(
+              const Duration(milliseconds: 1200),
+              onTimeout: () => cand.coverUrl,
+            );
+            if (resolved.isNotEmpty && !CoverArtResolver.isPlaylistCover(resolved)) {
+              cand = cand.copyWith(coverUrl: resolved);
+            }
+          } catch (_) {}
         }
         return cand;
       }
@@ -1105,8 +1120,21 @@ class SpotifyImportService {
 
       if (scoredYt.isNotEmpty) {
         var bestYt = scoredYt.first.key;
-        if (track.coverUrl != null && track.coverUrl!.isNotEmpty) {
+        if (track.coverUrl != null &&
+            track.coverUrl!.isNotEmpty &&
+            !CoverArtResolver.isPlaylistCover(track.coverUrl!)) {
           bestYt = bestYt.copyWith(coverUrl: track.coverUrl);
+        } else {
+          // Resolve studio square art for YouTube matches via iTunes/Deezer/CatalogDatabase
+          try {
+            final resolved = await CoverArtResolver.resolveCover(bestYt).timeout(
+              const Duration(milliseconds: 1200),
+              onTimeout: () => bestYt.coverUrl,
+            );
+            if (resolved.isNotEmpty && !CoverArtResolver.isPlaylistCover(resolved)) {
+              bestYt = bestYt.copyWith(coverUrl: resolved);
+            }
+          } catch (_) {}
         }
         return bestYt;
       }

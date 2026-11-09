@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/song.dart';
 import '../../services/cover_art_resolver.dart';
+import '../../services/catalog_database.dart';
 
 /// Reusable high-performance cover art widget for Paatu Padava.
 ///
@@ -71,16 +72,24 @@ class _CoverArtImageState extends State<CoverArtImage> {
 
     final songId = effectiveSong.id;
     final cached = CoverArtResolver.getCachedCover(songId);
-    if (cached != null && cached.isNotEmpty) {
+    if (cached != null && cached.isNotEmpty && !CoverArtResolver.isPlaylistCover(cached)) {
       _resolvedUrl = cached;
       return;
     }
 
-    _resolvedUrl = effectiveSong.coverUrl;
+    if (effectiveSong.coverUrl.isNotEmpty && !CoverArtResolver.isPlaylistCover(effectiveSong.coverUrl)) {
+      _resolvedUrl = effectiveSong.coverUrl;
+    } else {
+      final catalogArt = CatalogDatabase.getSongCoverArt(effectiveSong.title, artist: effectiveSong.artist, album: effectiveSong.album) ??
+          CatalogDatabase.getMoviePoster(effectiveSong.album);
+      if (catalogArt != null && catalogArt.isNotEmpty) {
+        _resolvedUrl = catalogArt;
+      }
+    }
 
     if (widget.autoResolve) {
       CoverArtResolver.resolveCover(effectiveSong).then((url) {
-        if (mounted && url.isNotEmpty && url != _resolvedUrl) {
+        if (mounted && url.isNotEmpty && url != _resolvedUrl && !CoverArtResolver.isPlaylistCover(url)) {
           setState(() {
             _resolvedUrl = url;
           });
@@ -91,7 +100,8 @@ class _CoverArtImageState extends State<CoverArtImage> {
 
   @override
   Widget build(BuildContext context) {
-    final url = (_resolvedUrl ?? widget.coverUrl ?? widget.song?.coverUrl ?? '').trim();
+    final rawUrl = (_resolvedUrl ?? widget.coverUrl ?? widget.song?.coverUrl ?? '').trim();
+    final url = CoverArtResolver.isPlaylistCover(rawUrl) ? '' : rawUrl;
     final radius = widget.borderRadius ?? BorderRadius.circular(10);
 
     // 1. Empty cover or stock placeholder fallback: render neutral gradient

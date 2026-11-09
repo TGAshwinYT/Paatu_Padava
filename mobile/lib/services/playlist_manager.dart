@@ -140,6 +140,33 @@ class PlaylistManager {
     _refreshList();
   }
 
+  /// Updates a track's cover URL across local playlists if it had a playlist mosaic or missing cover
+  static void updateTrackCover(String songId, String newCover) {
+    if (songId.isEmpty || newCover.isEmpty) return;
+    try {
+      if (!Hive.isBoxOpen(boxName)) return;
+      bool anyUpdated = false;
+      for (final pl in playlistsNotifier.value) {
+        bool plChanged = false;
+        final updatedTracks = pl.tracks.map((t) {
+          if (t.id == songId && t.coverUrl != newCover) {
+            plChanged = true;
+            return t.copyWith(coverUrl: newCover);
+          }
+          return t;
+        }).toList();
+        if (plChanged) {
+          final updatedPl = pl.copyWith(tracks: updatedTracks);
+          _box.put(updatedPl.id, updatedPl.toMap());
+          anyUpdated = true;
+        }
+      }
+      if (anyUpdated) {
+        _refreshList();
+      }
+    } catch (_) {}
+  }
+
   /// Directly deletes a playlist from local Hive cache
   static Future<void> deletePlaylistDirectly(String playlistId) async {
     await _box.delete(playlistId);

@@ -276,5 +276,51 @@ void main() {
       expect(CoverArtResolver.isYouTubeThumbnail('https://is1-ssl.mzstatic.com/image/1000x1000bb.jpg'), isFalse);
       expect(CoverArtResolver.isYouTubeThumbnail(''), isFalse);
     });
+
+    test('10. isPlaylistCover correctly detects Spotify playlist mosaic hashes and domains', () {
+      expect(CoverArtResolver.isPlaylistCover('https://image-cdn-ak.spotifycdn.com/image/ab67706f0000000213aa67252fc77f5a898b1085'), isTrue);
+      expect(CoverArtResolver.isPlaylistCover('https://mosaic.scdn.co/640/ab67616d0000b273...'), isTrue);
+      expect(CoverArtResolver.isPlaylistCover('https://i.scdn.co/image/ab67616d0000b273910c2c27940e4f2fe56e30eb'), isFalse);
+      expect(CoverArtResolver.isPlaylistCover('https://c.saavncdn.com/123/album-500x500.jpg'), isFalse);
+      expect(CoverArtResolver.isPlaylistCover(''), isFalse);
+    });
+
+    test('11. Spotify playlist mosaic covers are treated as placeholders and resolved to genuine studio art', () async {
+      final mockClient = MockClient((request) async {
+        if (request.url.host.contains('itunes.apple.com')) {
+          return http.Response(
+            jsonEncode({
+              'resultCount': 1,
+              'results': [
+                {
+                  'trackName': 'Melliname',
+                  'artistName': 'Harish Raghavendra',
+                  'trackTimeMillis': 326000,
+                  'artworkUrl100': 'https://is1-ssl.mzstatic.com/image/thumb/Music112/v4/100x100bb.jpg',
+                }
+              ]
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response('{"results":[]}', 200);
+      });
+
+      CoverArtResolver.setTestingOverrides(box: fakeBox, client: mockClient);
+
+      final song = Song(
+        id: 'spotify_mosaic_song_1',
+        title: 'Melliname',
+        artist: 'Harish Raghavendra',
+        coverUrl: 'https://image-cdn-ak.spotifycdn.com/image/ab67706f0000000213aa67252fc77f5a898b1085',
+        duration: 326,
+        source: 'spotify',
+      );
+
+      final resolved = await CoverArtResolver.resolveCover(song);
+      expect(resolved, 'https://is1-ssl.mzstatic.com/image/thumb/Music112/v4/1000x1000bb.jpg');
+      expect(fakeBox.get('spotify_mosaic_song_1'), 'https://is1-ssl.mzstatic.com/image/thumb/Music112/v4/1000x1000bb.jpg');
+    });
   });
 }

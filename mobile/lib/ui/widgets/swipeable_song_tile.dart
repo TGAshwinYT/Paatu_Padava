@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../models/song.dart';
@@ -8,7 +7,7 @@ import 'add_to_playlist_dialog.dart';
 
 import '../../services/favorites_manager.dart';
 import '../../services/blacklist_manager.dart';
-import '../../services/catalog_database.dart';
+import 'cover_art_image.dart';
 
 class SwipeableSongTile extends StatelessWidget {
   final Song song;
@@ -195,28 +194,14 @@ class SwipeableSongTile extends StatelessWidget {
                 ),
               ),
             if (index != null) const SizedBox(width: 6),
-            Builder(
-              builder: (context) {
-                final effectiveCover = (song.coverUrl.isNotEmpty && !song.coverUrl.contains('default.jpg'))
-                    ? song.coverUrl
-                    : (CatalogDatabase.getSongCoverArt(song.title, artist: song.artist, album: song.album) ??
-                        CatalogDatabase.getMoviePoster(song.album) ??
-                        song.coverUrl);
-                return ClipRRect(
+            CoverArtImage(
+              song: song,
+              width: 44,
+              height: 44,
               borderRadius: BorderRadius.circular(8),
-              child: effectiveCover.isNotEmpty
-                  ? CachedNetworkImage(
-                      imageUrl: effectiveCover,
-                      memCacheWidth: 150,
-                      memCacheHeight: 150,
-                      width: 44,
-                      height: 44,
-                      fit: BoxFit.cover,
-                      errorWidget: (_, __, ___) => _buildPlaceholder(),
-                    )
-                  : _buildPlaceholder(),
-                );
-              },
+              memCacheWidth: 150,
+              memCacheHeight: 150,
+              errorWidget: _buildPlaceholder(),
             ),
           ],
         ),

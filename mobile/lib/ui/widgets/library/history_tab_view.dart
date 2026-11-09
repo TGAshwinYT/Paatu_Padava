@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../../domain/models/history_entry.dart';
 import '../../../models/song.dart';
 import '../../../services/history_manager.dart';
 import '../../../services/player_handler.dart';
 import '../add_to_playlist_dialog.dart';
+import '../cover_art_image.dart';
 
 class HistoryTabView extends StatelessWidget {
   final void Function(Song song) onSongContextMenu;
@@ -114,19 +114,14 @@ class HistoryTabView extends StatelessWidget {
                     return ListTile(
                       onTap: () => audioHandler.playTrack(entry.track),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
-                      leading: ClipRRect(
+                      leading: CoverArtImage(
+                        song: song,
+                        width: 50,
+                        height: 50,
                         borderRadius: BorderRadius.circular(10),
-                        child: SizedBox(
-                          width: 50,
-                          height: 50,
-                          child: CachedNetworkImage(
-                            imageUrl: song.coverUrl,
-                            fit: BoxFit.cover,
-                            memCacheWidth: 150,
-                            memCacheHeight: 150,
-                            errorWidget: (_, __, ___) => Container(color: const Color(0xFF1E293B)),
-                          ),
-                        ),
+                        memCacheWidth: 150,
+                        memCacheHeight: 150,
+                        errorWidget: Container(color: const Color(0xFF1E293B)),
                       ),
                       title: Text(
                         song.title,

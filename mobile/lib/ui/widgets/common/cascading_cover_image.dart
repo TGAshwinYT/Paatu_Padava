@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import '../../../services/cover_art_resolver.dart';
 
 /// 3-Tier Cascading Cover Art Widget.
 ///
@@ -86,7 +87,7 @@ class CascadingCoverImage extends StatelessWidget {
 
     Widget imageContent;
 
-    if (imageUrl.isEmpty) {
+    if (imageUrl.isEmpty || CoverArtResolver.isPlaylistCover(imageUrl)) {
       imageContent = _buildThumbHashPlaceholder();
     } else {
       imageContent = CachedNetworkImage(

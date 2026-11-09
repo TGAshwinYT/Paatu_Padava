@@ -1,11 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../../models/song.dart';
 import '../../../services/download_manager.dart';
 import '../../../services/player_handler.dart';
 import '../add_to_playlist_dialog.dart';
+import '../cover_art_image.dart';
 
 class DownloadsTabView extends StatelessWidget {
   const DownloadsTabView({super.key});
@@ -116,24 +116,24 @@ class DownloadsTabView extends StatelessWidget {
                     child: ListTile(
                       onTap: () => audioHandler.playSong(song, queue: downloadedSongs),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
-                      leading: ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: SizedBox(
-                          width: 50,
-                          height: 50,
-                          child: (song.localFilePath != null && File(song.localFilePath!).existsSync())
-                              ? Image.file(File(song.localFilePath!), fit: BoxFit.cover)
-                              : (song.coverUrl.isNotEmpty
-                                  ? CachedNetworkImage(
-                                      imageUrl: song.coverUrl,
-                                      fit: BoxFit.cover,
-                                      memCacheWidth: 150,
-                                      memCacheHeight: 150,
-                                      errorWidget: (_, __, ___) => Container(color: const Color(0xFF1E293B)),
-                                    )
-                                  : Container(color: const Color(0xFF1E293B))),
-                        ),
-                      ),
+                      leading: (song.localFilePath != null && File(song.localFilePath!).existsSync())
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: SizedBox(
+                                width: 50,
+                                height: 50,
+                                child: Image.file(File(song.localFilePath!), fit: BoxFit.cover),
+                              ),
+                            )
+                          : CoverArtImage(
+                              song: song,
+                              width: 50,
+                              height: 50,
+                              borderRadius: BorderRadius.circular(10),
+                              memCacheWidth: 150,
+                              memCacheHeight: 150,
+                              errorWidget: Container(color: const Color(0xFF1E293B)),
+                            ),
                       title: Text(
                         song.title,
                         maxLines: 1,

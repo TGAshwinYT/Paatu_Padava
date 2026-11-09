@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../domain/models/history_entry.dart';
 import '../../domain/models/listening_session.dart';
 import '../../models/song.dart';
@@ -11,6 +10,7 @@ import '../../services/favorites_manager.dart';
 import '../theme/app_theme.dart';
 import '../widgets/add_to_playlist_dialog.dart';
 import '../widgets/mini_player.dart';
+import '../widgets/cover_art_image.dart';
 import '../widgets/history/session_card.dart';
 
 class HistoryScreen extends StatefulWidget {
@@ -76,19 +76,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                leading: ClipRRect(
+                leading: CoverArtImage(
+                  song: song,
+                  width: 48,
+                  height: 48,
                   borderRadius: BorderRadius.circular(8),
-                  child: song.coverUrl.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: song.coverUrl,
-                          width: 48,
-                          height: 48,
-                          fit: BoxFit.cover,
-                          memCacheWidth: 150,
-                          memCacheHeight: 150,
-                          errorWidget: (_, __, ___) => const Icon(Icons.music_note),
-                        )
-                      : const Icon(Icons.music_note),
+                  memCacheWidth: 150,
+                  memCacheHeight: 150,
+                  errorWidget: const Icon(Icons.music_note),
                 ),
                 title: Text(
                   song.title,
@@ -487,37 +482,30 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
                                 return ListTile(
                                   contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
-                                  leading: ClipRRect(
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: song.isDownloaded && song.localFilePath != null && File(song.localFilePath!).existsSync()
-                                        ? Image.file(
+                                  leading: song.isDownloaded && song.localFilePath != null && File(song.localFilePath!).existsSync()
+                                      ? ClipRRect(
+                                          borderRadius: BorderRadius.circular(10),
+                                          child: Image.file(
                                             File(song.localFilePath!),
                                             width: 48,
                                             height: 48,
                                             fit: BoxFit.cover,
-                                          )
-                                        : (song.coverUrl.isNotEmpty
-                                            ? CachedNetworkImage(
-                                                imageUrl: song.coverUrl,
-                                                width: 48,
-                                                height: 48,
-                                                fit: BoxFit.cover,
-                                                memCacheWidth: 150,
-                                                memCacheHeight: 150,
-                                                errorWidget: (_, __, ___) => Container(
-                                                  width: 48,
-                                                  height: 48,
-                                                  color: AppColors.surfaceElevated,
-                                                  child: const Icon(Icons.music_note, color: Colors.white38),
-                                                ),
-                                              )
-                                            : Container(
-                                                width: 48,
-                                                height: 48,
-                                                color: AppColors.surfaceElevated,
-                                                child: const Icon(Icons.music_note, color: Colors.white38),
-                                              )),
-                                  ),
+                                          ),
+                                        )
+                                      : CoverArtImage(
+                                          song: song,
+                                          width: 48,
+                                          height: 48,
+                                          borderRadius: BorderRadius.circular(10),
+                                          memCacheWidth: 150,
+                                          memCacheHeight: 150,
+                                          errorWidget: Container(
+                                            width: 48,
+                                            height: 48,
+                                            color: AppColors.surfaceElevated,
+                                            child: const Icon(Icons.music_note, color: Colors.white38),
+                                          ),
+                                        ),
                                   title: Text(
                                     song.title,
                                     maxLines: 1,

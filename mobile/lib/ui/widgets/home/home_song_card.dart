@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
 import '../../../services/player_handler.dart';
@@ -8,6 +7,7 @@ import '../../../services/download_manager.dart';
 import '../../../services/favorites_manager.dart';
 import '../../theme/app_theme.dart';
 import '../add_to_playlist_dialog.dart';
+import '../cover_art_image.dart';
 
 void showHomeSongContextMenu(BuildContext context, Song song) {
   final unescape = HtmlUnescape();
@@ -116,19 +116,14 @@ class HomeSongCard extends StatelessWidget {
           children: [
             Stack(
               children: [
-                ClipRRect(
+                CoverArtImage(
+                  song: song,
+                  width: cardWidth,
+                  height: cardWidth,
                   borderRadius: BorderRadius.circular(16),
-                  child: SizedBox(
-                    width: cardWidth,
-                    height: cardWidth,
-                    child: CachedNetworkImage(
-                      imageUrl: song.coverUrl,
-                      fit: BoxFit.cover,
-                      memCacheWidth: 320,
-                      memCacheHeight: 320,
-                      errorWidget: (_, __, ___) => Container(color: AppColors.surfaceElevated),
-                    ),
-                  ),
+                  memCacheWidth: 320,
+                  memCacheHeight: 320,
+                  errorWidget: Container(color: AppColors.surfaceElevated),
                 ),
                 Positioned(
                   bottom: 8,

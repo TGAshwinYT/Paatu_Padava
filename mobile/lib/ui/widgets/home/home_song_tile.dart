@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
 import '../../../services/player_handler.dart';
 import '../../theme/app_theme.dart';
+import '../cover_art_image.dart';
 import 'home_song_card.dart';
 
 class HomeSongTile extends StatelessWidget {
@@ -35,19 +35,14 @@ class HomeSongTile extends StatelessWidget {
           leading: Stack(
             alignment: Alignment.center,
             children: [
-              ClipRRect(
+              CoverArtImage(
+                song: song,
+                width: coverSize,
+                height: coverSize,
                 borderRadius: BorderRadius.circular(10),
-                child: SizedBox(
-                  width: coverSize,
-                  height: coverSize,
-                  child: CachedNetworkImage(
-                    imageUrl: song.coverUrl,
-                    memCacheWidth: 120,
-                    memCacheHeight: 120,
-                    fit: BoxFit.cover,
-                    errorWidget: (_, __, ___) => Container(color: AppColors.surfaceElevated),
-                  ),
-                ),
+                memCacheWidth: 120,
+                memCacheHeight: 120,
+                errorWidget: Container(color: AppColors.surfaceElevated),
               ),
               if (isPlaying)
                 Container(

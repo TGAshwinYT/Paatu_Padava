@@ -212,7 +212,11 @@ class SaavnClient {
                     coverUrl: img,
                     source: 'saavn',
                   );
-                  if (!songs.any((s) => s.id == topSong.id)) {
+                  final isDup = songs.any((existing) =>
+                      existing.id == topSong.id ||
+                      (topSong.canonicalBaseKey.isNotEmpty && existing.canonicalBaseKey == topSong.canonicalBaseKey) ||
+                      (topSong.cleanTitleKey.isNotEmpty && existing.cleanTitleKey == topSong.cleanTitleKey));
+                  if (!isDup) {
                     songs.insert(0, topSong);
                   }
                 } else if (itemType == 'album' && title.isNotEmpty) {
@@ -252,14 +256,21 @@ class SaavnClient {
                   if (img.contains('50x50')) img = img.replaceAll('50x50', '500x500');
                   if (img.contains('150x150')) img = img.replaceAll('150x150', '500x500');
 
-                  songs.add(Song(
+                  final newSong = Song(
                     id: item['id']?.toString() ?? '',
                     title: title,
                     artist: desc.isNotEmpty ? desc : album,
                     album: album,
                     coverUrl: img,
                     source: 'saavn',
-                  ));
+                  );
+                  final isDup = songs.any((existing) =>
+                      existing.id == newSong.id ||
+                      (newSong.canonicalBaseKey.isNotEmpty && existing.canonicalBaseKey == newSong.canonicalBaseKey) ||
+                      (newSong.cleanTitleKey.isNotEmpty && existing.cleanTitleKey == newSong.cleanTitleKey));
+                  if (!isDup) {
+                    songs.add(newSong);
+                  }
                 }
               }
             }

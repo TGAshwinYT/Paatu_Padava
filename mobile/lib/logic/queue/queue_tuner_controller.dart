@@ -12,6 +12,7 @@ import '../../services/settings_manager.dart';
 import '../audio_queue_handler.dart';
 import '../markov_cosine_radio_strategy.dart';
 import '../next_track_strategy.dart';
+import '../track_quality_filter.dart';
 import 'queue_tuner_mode.dart';
 
 /// Controller managing real-time queue mood/vibe lenses (Mix, Familiar, Discover, Composer).
@@ -96,9 +97,11 @@ class QueueTunerController {
 
   // ================= 1. Balanced Mix (Default) ================= //
   static List<Song> _rankForMix(Song seedSong, List<Song> pool) {
+    final seedIsDevotional = TrackQualityFilter.isDevotionalSong(seedSong);
     final scored = <MapEntry<double, Song>>[];
     for (final c in pool) {
       if (c.isSameSongOrDub(seedSong)) continue;
+      if (!seedIsDevotional && TrackQualityFilter.isDevotionalSong(c)) continue;
       final vector = SongFeatureVector.extractRelative(seedSong, c);
       double score = vector.compositeVectorScore;
 
@@ -121,12 +124,14 @@ class QueueTunerController {
   static List<Song> _rankForFamiliar(Song seedSong, List<Song> pool) {
     final history = HistoryManager.getHistory();
     final favorites = FavoritesManager.getFavorites();
+    final seedIsDevotional = TrackQualityFilter.isDevotionalSong(seedSong);
 
     final knownIds = <String>{};
     final knownKeys = <String>{};
     final artistPlayCount = <String, int>{};
 
     for (final s in history) {
+      if (!seedIsDevotional && TrackQualityFilter.isDevotionalSong(s)) continue;
       knownIds.add(s.id);
       knownKeys.add(s.canonicalBaseKey);
       if (s.cleanTitleKey.isNotEmpty) knownKeys.add(s.cleanTitleKey);
@@ -136,6 +141,7 @@ class QueueTunerController {
       }
     }
     for (final s in favorites) {
+      if (!seedIsDevotional && TrackQualityFilter.isDevotionalSong(s)) continue;
       knownIds.add(s.id);
       knownKeys.add(s.canonicalBaseKey);
       if (s.cleanTitleKey.isNotEmpty) knownKeys.add(s.cleanTitleKey);
@@ -148,6 +154,7 @@ class QueueTunerController {
     final scored = <MapEntry<double, Song>>[];
     for (final c in pool) {
       if (c.isSameSongOrDub(seedSong)) continue;
+      if (!seedIsDevotional && TrackQualityFilter.isDevotionalSong(c)) continue;
       double score = 1.0;
       final isExactKnown = knownIds.contains(c.id) ||
           knownKeys.contains(c.canonicalBaseKey) ||
@@ -172,6 +179,7 @@ class QueueTunerController {
       final targetLang = (seedSong.language ?? 'tamil').toLowerCase();
       final familiarGems = [...favorites, ...history].where((s) {
         if (s.isSameSongOrDub(seedSong)) return false;
+        if (!seedIsDevotional && TrackQualityFilter.isDevotionalSong(s)) return false;
         final sLang = s.language?.toLowerCase();
         return sLang == null || sLang == targetLang;
       }).take(5);
@@ -190,12 +198,14 @@ class QueueTunerController {
   static List<Song> _rankForDiscover(Song seedSong, List<Song> pool) {
     final history = HistoryManager.getHistory();
     final favorites = FavoritesManager.getFavorites();
+    final seedIsDevotional = TrackQualityFilter.isDevotionalSong(seedSong);
 
     final knownIds = <String>{};
     final knownKeys = <String>{};
     final heavyArtists = <String>{};
 
     for (final s in history) {
+      if (!seedIsDevotional && TrackQualityFilter.isDevotionalSong(s)) continue;
       knownIds.add(s.id);
       knownKeys.add(s.canonicalBaseKey);
       if (s.cleanTitleKey.isNotEmpty) knownKeys.add(s.cleanTitleKey);
@@ -203,6 +213,7 @@ class QueueTunerController {
       if (a.isNotEmpty) heavyArtists.add(a);
     }
     for (final s in favorites) {
+      if (!seedIsDevotional && TrackQualityFilter.isDevotionalSong(s)) continue;
       knownIds.add(s.id);
       knownKeys.add(s.canonicalBaseKey);
       if (s.cleanTitleKey.isNotEmpty) knownKeys.add(s.cleanTitleKey);
@@ -210,9 +221,10 @@ class QueueTunerController {
       if (a.isNotEmpty) heavyArtists.add(a);
     }
 
-    // Filter out known songs
+    // Filter out known songs and devotional tracks
     final freshPool = pool.where((c) {
       if (c.isSameSongOrDub(seedSong)) return false;
+      if (!seedIsDevotional && TrackQualityFilter.isDevotionalSong(c)) return false;
       if (knownIds.contains(c.id)) return false;
       if (knownKeys.contains(c.canonicalBaseKey)) return false;
       if (c.cleanTitleKey.isNotEmpty && knownKeys.contains(c.cleanTitleKey)) return false;
@@ -240,12 +252,14 @@ class QueueTunerController {
 
   // ================= 4. Composer Flow (Music Director Focus) ================= //
   static Future<List<Song>> _rankForComposer(Song seedSong, List<Song> pool) async {
+    final seedIsDevotional = TrackQualityFilter.isDevotionalSong(seedSong);
     final scored = <MapEntry<double, Song>>[];
     final matchingComposer = <Song>[];
     final nonMatching = <Song>[];
 
     for (final c in pool) {
       if (c.isSameSongOrDub(seedSong)) continue;
+      if (!seedIsDevotional && TrackQualityFilter.isDevotionalSong(c)) continue;
       if (RadioEngine.isSharedMusicDirectorOrComposer(seedSong, c)) {
         matchingComposer.add(c);
       } else {
@@ -261,7 +275,9 @@ class QueueTunerController {
           final lang = seedSong.language ?? 'tamil';
           final searchRes = await SaavnClient.search('$director $lang hits', limit: 10, language: lang);
           for (final s in searchRes) {
-            if (!s.isSameSongOrDub(seedSong) && !matchingComposer.any((m) => m.isSameSongOrDub(s))) {
+            if (!s.isSameSongOrDub(seedSong) &&
+                (seedIsDevotional || !TrackQualityFilter.isDevotionalSong(s)) &&
+                !matchingComposer.any((m) => m.isSameSongOrDub(s))) {
               matchingComposer.add(s);
             }
           }

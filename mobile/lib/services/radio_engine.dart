@@ -321,12 +321,18 @@ class RadioEngine {
         }
       }
 
-      // 5. Anti-cross-language dub check against seed, queue, and accepted candidates
+      // 5. Devotional quarantine: If seed track is not devotional, exclude devotional chant tracks
+      final seedIsDevotional = TrackQualityFilter.isDevotionalSong(seedSong);
+      if (!seedIsDevotional && TrackQualityFilter.isDevotionalSong(c)) {
+        continue;
+      }
+
+      // 6. Anti-cross-language dub check against seed, queue, and accepted candidates
       if (c.isSameSongOrDub(seedSong)) continue;
       if (queue.any((q) => c.isSameSongOrDub(q))) continue;
       if (accepted.any((a) => c.isSameSongOrDub(a))) continue;
 
-      // 6. Local accepted seen keys deduplication
+      // 7. Local accepted seen keys deduplication
       if (seenKeys.contains(id) || seenKeys.contains(baseKey) || (titleKey.isNotEmpty && seenKeys.contains(titleKey))) {
         continue;
       }

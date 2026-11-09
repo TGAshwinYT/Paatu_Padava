@@ -778,13 +778,34 @@ class _HomeScreenState extends State<HomeScreen> {
                                           width: 1.5,
                                         ),
                                       ),
-                                      child: CircleAvatar(
-                                        radius: 34,
-                                        backgroundColor: AppColors.surfaceElevated,
-                                        backgroundImage: img.isNotEmpty ? CachedNetworkImageProvider(img) : null,
-                                        child: img.isEmpty
-                                            ? const Icon(Icons.person_rounded, color: AppColors.textSecondary, size: 28)
-                                            : null,
+                                      child: ClipOval(
+                                        child: SizedBox(
+                                          width: 68,
+                                          height: 68,
+                                          child: img.isNotEmpty
+                                              ? CachedNetworkImage(
+                                                  imageUrl: img,
+                                                  fit: BoxFit.cover,
+                                                  placeholder: (_, __) => Container(
+                                                    color: AppColors.surfaceElevated,
+                                                    child: const Center(
+                                                      child: Icon(Icons.person_rounded, color: AppColors.textSecondary, size: 28),
+                                                    ),
+                                                  ),
+                                                  errorWidget: (_, __, ___) => Container(
+                                                    color: AppColors.surfaceElevated,
+                                                    child: const Center(
+                                                      child: Icon(Icons.person_rounded, color: AppColors.textSecondary, size: 28),
+                                                    ),
+                                                  ),
+                                                )
+                                              : Container(
+                                                  color: AppColors.surfaceElevated,
+                                                  child: const Center(
+                                                    child: Icon(Icons.person_rounded, color: AppColors.textSecondary, size: 28),
+                                                  ),
+                                                ),
+                                        ),
                                       ),
                                     ),
                                     const SizedBox(height: 6),

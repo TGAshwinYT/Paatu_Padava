@@ -52,6 +52,35 @@ class TrackQualityFilter {
     caseSensitive: false,
   );
 
+  /// Devotional, temple chants, mantras, slokas, suprabhatam, and religious prayer tracks.
+  static final RegExp _devotionalRegex = RegExp(
+    r'\b(devotional|bakthi|bhakti|suprabh?atam|slokam|shlokam|bhajans?|a+rathi|a+rti|'
+    r'mantra|gayatri|chalisa|stotram?|sahasranamam|namavali|keerthana(?:lu)?|kavacham|ashtakam|'
+    r'aaradhana|srinivasa(?:ne)?|venkateswara|perumale|thirumalaiyil|govinda|ayyappan?|'
+    r'vinayagar|murugan|mariamman|amman|shiva\s+stotram|om\s+namah|hare\s+rama|hanuman\s+chalisa|'
+    r'veeramanidasan|bombay\s+sisters|mahanadhi\s+shobana|k\.\s*veeramani|pithukuli\s+murugadas)\b',
+    caseSensitive: false,
+  );
+
+  /// Checks whether a track is a devotional/religious chant track.
+  static bool isDevotionalTrack({
+    required String title,
+    String? album,
+    String? artist,
+  }) {
+    final text = '$title ${album ?? ""} ${artist ?? ""}'.toLowerCase();
+    return _devotionalRegex.hasMatch(text);
+  }
+
+  /// Convenience helper for Song entity.
+  static bool isDevotionalSong(Song song) {
+    return isDevotionalTrack(
+      title: song.title,
+      album: song.album,
+      artist: song.artist,
+    );
+  }
+
   /// Evaluates and classifies a track candidate based on title, duration, and origin source.
   static ContentClassification classifyTrack({
     required String title,

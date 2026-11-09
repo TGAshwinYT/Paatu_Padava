@@ -753,26 +753,6 @@ class _QueueSheetState extends State<QueueSheet> {
                     ),
                   ],
                 ),
-              )
-            else if (isSmart)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: const [
-                    Icon(Icons.auto_awesome, size: 11, color: Color(0xFF1DB954)),
-                    SizedBox(width: 4),
-                    Text(
-                      'Auto-Suggested',
-                      style: TextStyle(
-                        color: Color(0xFF1DB954),
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.2,
-                      ),
-                    ),
-                  ],
-                ),
               ),
             Text(
               song.title,

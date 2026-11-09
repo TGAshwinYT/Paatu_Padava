@@ -12,6 +12,7 @@ import '../../services/artist_sanitizer.dart';
 import '../../services/cover_art_resolver.dart';
 import '../../services/youtube_client.dart';
 import '../../services/catalog_database.dart';
+import '../../logic/search_query_planner.dart';
 import 'package:flutter/material.dart';
 import '../../domain/models/lyrics_state.dart';
 import '../../domain/models/home_feed_models.dart';
@@ -321,11 +322,31 @@ class SongRepository {
   }) {
     if (songs.isEmpty) return [];
 
-    final Map<String, List<Song>> groups = {};
+    final List<List<Song>> groups = [];
     for (final s in songs) {
       if (s.title.trim().isEmpty) continue;
-      final key = s.canonicalBaseKey;
-      groups.putIfAbsent(key.isNotEmpty ? key : s.id, () => []).add(s);
+      bool matched = false;
+      for (final group in groups) {
+        final rep = group.first;
+        if (rep.id == s.id ||
+            (rep.canonicalBaseKey.isNotEmpty && rep.canonicalBaseKey == s.canonicalBaseKey) ||
+            SearchQueryPlanner.isSameSong(
+              titleA: rep.title,
+              artistsA: rep.artist,
+              titleB: s.title,
+              artistsB: s.artist,
+            ) ||
+            (rep.cleanTitleKey.isNotEmpty &&
+                rep.cleanTitleKey == s.cleanTitleKey &&
+                (s.duration == 0 || rep.duration == 0 || (rep.duration - s.duration).abs() <= 12))) {
+          group.add(s);
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        groups.add([s]);
+      }
     }
 
     final List<Song> canonicalList = [];
@@ -340,7 +361,7 @@ class SongRepository {
       }
     }
 
-    for (final group in groups.values) {
+    for (final group in groups) {
       if (group.isEmpty) continue;
 
       group.sort((a, b) {
@@ -527,44 +548,44 @@ class SongRepository {
     'santhosh narayanan': 'https://c.saavncdn.com/artists/Santhosh_Narayanan_500x500.jpg',
     'g.v. prakash': 'https://c.saavncdn.com/artists/G_V__Prakash_Kumar_003_20251113063655_500x500.jpg',
     'g.v. prakash kumar': 'https://c.saavncdn.com/artists/G_V__Prakash_Kumar_003_20251113063655_500x500.jpg',
-    'pradeep kumar': 'https://c.saavncdn.com/artists/Pradeep_Kumar_500x500.jpg',
-    'd. imman': 'https://c.saavncdn.com/artists/D__Imman_500x500.jpg',
+    'pradeep kumar': 'https://c.saavncdn.com/artists/Pradeep_Kumar_002_20250807084559_500x500.jpg',
+    'd. imman': 'https://c.saavncdn.com/artists/D_Imman_003_20180821182708_500x500.webp',
     'shreya ghoshal': 'https://c.saavncdn.com/artists/Shreya_Ghoshal_500x500.jpg',
     'jonita gandhi': 'https://c.saavncdn.com/artists/Jonita_Gandhi_500x500.jpg',
     'dhee': 'https://c.saavncdn.com/artists/Dhee_20180510121326_500x500.jpg',
-    'kaushik krish': 'https://c.saavncdn.com/artists/Kaushik_Krish_500x500.jpg',
+    'kaushik krish': 'https://c.saavncdn.com/artists/Kaushik_Krish_20190828063938_500x500.webp',
     'karthik': 'https://c.saavncdn.com/artists/Karthik_500x500.jpg',
     'haricharan': 'https://c.saavncdn.com/artists/Haricharan_500x500.jpg',
     'chinmayi': 'https://c.saavncdn.com/artists/Chinmayi_Sripada_500x500.jpg',
     'swetha mohan': 'https://c.saavncdn.com/artists/Shweta_Mohan_500x500.jpg',
     's.p. balasubrahmanyam': 'https://c.saavncdn.com/artists/S_P_Balasubrahmanyam_500x500.jpg',
     'spb': 'https://c.saavncdn.com/artists/S_P_Balasubrahmanyam_500x500.jpg',
-    'k.s. chithra': 'https://c.saavncdn.com/artists/K_S__Chithra_500x500.jpg',
-    'chithra': 'https://c.saavncdn.com/artists/K_S__Chithra_500x500.jpg',
-    'k.j. yesudas': 'https://c.saavncdn.com/artists/K_J__Yesudas_500x500.jpg',
-    'yesudas': 'https://c.saavncdn.com/artists/K_J__Yesudas_500x500.jpg',
+    'k.s. chithra': 'https://c.saavncdn.com/artists/K_S_Chithra_002_20190906071921_500x500.webp',
+    'chithra': 'https://c.saavncdn.com/artists/K_S_Chithra_002_20190906071921_500x500.webp',
+    'k.j. yesudas': 'https://c.saavncdn.com/artists/KJ_Yesudas_500x500.webp',
+    'yesudas': 'https://c.saavncdn.com/artists/KJ_Yesudas_500x500.webp',
     'vijay antony': 'https://c.saavncdn.com/artists/Vijay_Antony_500x500.jpg',
-    'deva': 'https://c.saavncdn.com/artists/Deva_500x500.jpg',
+    'deva': 'https://c.saavncdn.com/artists/Deva_20190801133857_500x500.webp',
     'vidyasagar': 'https://c.saavncdn.com/artists/Vidyasagar_500x500.jpg',
     'shankar mahadevan': 'https://c.saavncdn.com/artists/Shankar_Mahadevan_500x500.jpg',
-    'sam c.s.': 'https://c.saavncdn.com/artists/Sam_C_S__500x500.jpg',
+    'sam c.s.': 'https://c.saavncdn.com/artists/Sam_C_S__001_20260904065259_500x500.webp',
     'sean roldan': 'https://c.saavncdn.com/artists/Sean_Roldan_500x500.jpg',
-    's. janaki': 'https://c.saavncdn.com/artists/S__Janaki_500x500.jpg',
-    'p. susheela': 'https://c.saavncdn.com/artists/P__Susheela_500x500.jpg',
-    'tippu': 'https://c.saavncdn.com/artists/Tippu_500x500.jpg',
-    'unnikrishnan': 'https://c.saavncdn.com/artists/P__Unnikrishnan_500x500.jpg',
+    's. janaki': 'https://c.saavncdn.com/artists/S_Janaki_005_20191129094347_500x500.webp',
+    'p. susheela': 'https://c.saavncdn.com/artists/P_Susheela_500x500.webp',
+    'tippu': 'https://c.saavncdn.com/artists/Tippu_20190723074416_500x500.webp',
+    'unnikrishnan': 'https://c.saavncdn.com/artists/P_Unnikrishnan_500x500.webp',
     'srinivas': 'https://c.saavncdn.com/artists/Srinivas_500x500.jpg',
-    't.m. soundararajan': 'https://c.saavncdn.com/artists/T_M__Soundararajan_500x500.jpg',
-    'thaman s': 'https://c.saavncdn.com/artists/Thaman_S_500x500.jpg',
-    'thaman': 'https://c.saavncdn.com/artists/Thaman_S_500x500.jpg',
-    's. thaman': 'https://c.saavncdn.com/artists/Thaman_S_500x500.jpg',
-    'sai abhyankkar': 'https://c.saavncdn.com/artists/Sai_Abhyankkar_500x500.jpg',
-    'sai abhyankar': 'https://c.saavncdn.com/artists/Sai_Abhyankkar_500x500.jpg',
-    'vishal mishra': 'https://c.saavncdn.com/artists/Vishal_Mishra_500x500.jpg',
+    't.m. soundararajan': 'https://c.saavncdn.com/artists/TM_Soundararajan_20190904080450_500x500.webp',
+    'thaman s': 'https://c.saavncdn.com/artists/Thaman_S__007_20231106094011_500x500.webp',
+    'thaman': 'https://c.saavncdn.com/artists/Thaman_S__007_20231106094011_500x500.webp',
+    's. thaman': 'https://c.saavncdn.com/artists/Thaman_S__007_20231106094011_500x500.webp',
+    'sai abhyankkar': 'https://c.saavncdn.com/artists/Sai_Abhyankkar_003_20250707122433_500x500.webp',
+    'sai abhyankar': 'https://c.saavncdn.com/artists/Sai_Abhyankkar_003_20250707122433_500x500.webp',
+    'vishal mishra': 'https://c.saavncdn.com/artists/Vishal_Mishra_005_20251120085316_500x500.webp',
     'dhanush': 'https://c.saavncdn.com/artists/Dhanush_500x500.jpg',
     'super subu': 'https://c.saavncdn.com/artists/Super_Subu_000_20230809105700_500x500.jpg',
-    'madduri hemanth': 'https://c.saavncdn.com/artists/Madduri_Hemanth_500x500.jpg',
-    'hemanth madduri': 'https://c.saavncdn.com/artists/Madduri_Hemanth_500x500.jpg',
+    'madduri hemanth': 'https://c.saavncdn.com/artists/Hemanth_Kumar_002_20230914075937_500x500.webp',
+    'hemanth madduri': 'https://c.saavncdn.com/artists/Hemanth_Kumar_002_20230914075937_500x500.webp',
     'hesham abdul wahab': 'https://c.saavncdn.com/artists/Hesham_Abdul_Wahab_001_20220919094035_500x500.jpg',
     'hesham': 'https://c.saavncdn.com/artists/Hesham_Abdul_Wahab_001_20220919094035_500x500.jpg',
     'dhruv vikram': 'https://c.saavncdn.com/498/Adithya-Varma-Tamil-2019-20191127090744-500x500.jpg',
@@ -590,11 +611,42 @@ class SongRepository {
     'Santhosh Narayanan',
   ];
 
+  /// Safely resolves a verified high-resolution avatar for any artist,
+  /// matching across punctuation variants, casing, and canonical alias mappings.
+  static String getVerifiedAvatar(String artistName) {
+    if (artistName.isEmpty) return '';
+    final clean = _unescape.convert(Song.sanitize(artistName)).trim();
+    final lower = clean.toLowerCase();
+    if (_verifiedArtistAvatars.containsKey(lower)) {
+      return _verifiedArtistAvatars[lower]!;
+    }
+    final norm = normalizeArtist(clean);
+    if (_verifiedArtistAvatars.containsKey(norm)) {
+      return _verifiedArtistAvatars[norm]!;
+    }
+    final canon = ArtistSanitizer.canonicalArtistName(clean).toLowerCase();
+    if (_verifiedArtistAvatars.containsKey(canon)) {
+      return _verifiedArtistAvatars[canon]!;
+    }
+    final alpha = clean.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    for (final entry in _verifiedArtistAvatars.entries) {
+      final entryAlpha = entry.key.replaceAll(RegExp(r'[^a-z0-9]'), '');
+      if (entryAlpha.isNotEmpty && entryAlpha == alpha) {
+        return entry.value;
+      }
+    }
+    for (final entry in _verifiedArtistAvatars.entries) {
+      if (ArtistSanitizer.areSameOrVariantArtists(entry.key, clean)) {
+        return entry.value;
+      }
+    }
+    return '';
+  }
+
   /// Returns whether the given artist is an officially verified artist in Paatu Padava
   static bool isArtistVerified(String artistName) {
-    final norm = normalizeArtist(artistName);
-    return _verifiedArtistAvatars.containsKey(norm) ||
-        tamilArtistSeeds.any((s) => normalizeArtist(s) == norm);
+    return getVerifiedAvatar(artistName).isNotEmpty ||
+        tamilArtistSeeds.any((s) => ArtistSanitizer.areSameOrVariantArtists(s, artistName));
   }
 
   /// Fetches Popular Artists with high-res avatars, replacing low-res or generic placeholder icons.
@@ -608,7 +660,6 @@ class SongRepository {
       for (final artist in rawArtists) {
         if (!SaavnClient.isGenuineMusicArtist(artist)) continue;
         final name = Song.sanitize(artist['name']?.toString() ?? 'Artist');
-        final norm = normalizeArtist(name);
 
         // Reject artists with mismatched scripts against target language
         final dummySong = Song(id: '', title: name, artist: name, album: '', coverUrl: '');
@@ -617,8 +668,9 @@ class SongRepository {
         String img = artist['image']?.toString() ?? '';
 
         // Check verified high-res avatar map first
-        if (_verifiedArtistAvatars.containsKey(norm)) {
-          img = _verifiedArtistAvatars[norm]!;
+        final vAvatar = getVerifiedAvatar(name);
+        if (vAvatar.isNotEmpty) {
+          img = vAvatar;
         } else if (img.contains('50x50') || img.contains('150x150')) {
           img = img.replaceAll('50x50', '500x500').replaceAll('150x150', '500x500');
         }
@@ -628,7 +680,7 @@ class SongRepository {
             img.contains('/songs/') ||
             (img.contains('c.saavncdn.com') && !img.contains('/artists/'));
         if (isSongCover) {
-          img = _verifiedArtistAvatars[norm] ?? '';
+          img = vAvatar;
         }
 
         // Filter out generic placeholder images with camera or mic icons
@@ -646,15 +698,17 @@ class SongRepository {
       // When Tamil is selected, ensure all 7 core Tamil artist seeds are present
       if (isTamil) {
         for (final seed in tamilArtistSeeds.reversed) {
-          final normSeed = normalizeArtist(seed);
-          final existingIdx = enriched.indexWhere((a) => normalizeArtist(a['name']?.toString() ?? '') == normSeed);
-          final seedAvatar = _verifiedArtistAvatars[normSeed] ?? '';
+          final existingIdx = enriched.indexWhere((a) =>
+              ArtistSanitizer.areSameOrVariantArtists(a['name']?.toString() ?? '', seed));
+          final seedAvatar = getVerifiedAvatar(seed);
           if (existingIdx >= 0) {
             final existing = enriched.removeAt(existingIdx);
+            existing['name'] = seed;
+            if (seedAvatar.isNotEmpty) existing['image'] = seedAvatar;
             enriched.insert(0, existing);
           } else {
             enriched.insert(0, {
-              'id': 'seed_$normSeed',
+              'id': 'seed_${normalizeArtist(seed)}',
               'name': seed,
               'image': seedAvatar,
             });
@@ -669,14 +723,14 @@ class SongRepository {
           final favArtists = await SupabaseService.fetchFavoriteArtists(supaUser.id);
           for (final fa in favArtists.reversed) {
             final faName = fa['artist_name']?.toString() ?? '';
-            final norm = normalizeArtist(faName);
             final customImg = fa['artist_image']?.toString();
+            final vAvatar = getVerifiedAvatar(faName);
             final avatar = (customImg != null && customImg.isNotEmpty)
                 ? customImg
-                : (_verifiedArtistAvatars[norm] ?? '');
-            if (!enriched.any((a) => normalizeArtist(a['name']?.toString() ?? '') == norm)) {
+                : (vAvatar.isNotEmpty ? vAvatar : '');
+            if (!enriched.any((a) => ArtistSanitizer.areSameOrVariantArtists(a['name']?.toString() ?? '', faName))) {
               enriched.insert(0, {
-                'id': 'fav_$norm',
+                'id': 'fav_${normalizeArtist(faName)}',
                 'name': faName,
                 'image': avatar.isNotEmpty ? avatar : (_verifiedArtistAvatars.values.firstOrNull ?? ''),
               });
@@ -687,8 +741,18 @@ class SongRepository {
         AppLogger.log('SongRepository', 'Enriching favorite artists fallback: $e');
       }
 
-      if (enriched.isNotEmpty) {
-        return enriched;
+      // Deduplicate canonical variants (e.g. "A.R. Rahman" vs "A. R. Rahman")
+      final List<Map<String, dynamic>> deduped = [];
+      for (final a in enriched) {
+        final name = a['name']?.toString() ?? '';
+        if (name.isEmpty) continue;
+        if (!deduped.any((existing) => ArtistSanitizer.areSameOrVariantArtists(existing['name']?.toString() ?? '', name))) {
+          deduped.add(a);
+        }
+      }
+
+      if (deduped.isNotEmpty) {
+        return deduped;
       }
     } catch (e) {
       AppLogger.log('SongRepository', 'getPopularArtists fallback: $e');

@@ -531,9 +531,26 @@ class SearchService {
           final cachedSearch = SearchCache.get(clean);
           if (cachedSearch != null && cachedSearch.albums.isNotEmpty) sAlbums = cachedSearch.albums;
         }
+        final List<Song> partialDeduped = [];
+        for (final s in sSongs) {
+          if (partialDeduped.length >= 3) break;
+          final isDup = partialDeduped.any((existing) =>
+              existing.id == s.id ||
+              (s.canonicalBaseKey.isNotEmpty && existing.canonicalBaseKey == s.canonicalBaseKey) ||
+              SearchQueryPlanner.isSameSong(
+                titleA: existing.title,
+                artistsA: existing.artist,
+                titleB: s.title,
+                artistsB: s.artist,
+              ) ||
+              (s.cleanTitleKey.isNotEmpty && existing.cleanTitleKey == s.cleanTitleKey));
+          if (!isDup) {
+            partialDeduped.add(s);
+          }
+        }
         onPartial(SearchTypeaheadBundle(
           completions: partialComps,
-          songs: sSongs.take(3).toList(),
+          songs: partialDeduped,
           albums: sAlbums.take(2).toList(),
         ));
       }).catchError((_) {});
@@ -586,9 +603,27 @@ class SearchService {
       }
     }
 
+    final List<Song> dedupedSongs = [];
+    for (final s in songs) {
+      if (dedupedSongs.length >= 3) break;
+      final isDup = dedupedSongs.any((existing) =>
+          existing.id == s.id ||
+          (s.canonicalBaseKey.isNotEmpty && existing.canonicalBaseKey == s.canonicalBaseKey) ||
+          SearchQueryPlanner.isSameSong(
+            titleA: existing.title,
+            artistsA: existing.artist,
+            titleB: s.title,
+            artistsB: s.artist,
+          ) ||
+          (s.cleanTitleKey.isNotEmpty && existing.cleanTitleKey == s.cleanTitleKey));
+      if (!isDup) {
+        dedupedSongs.add(s);
+      }
+    }
+
     final bundle = SearchTypeaheadBundle(
       completions: completions,
-      songs: songs.take(3).toList(),
+      songs: dedupedSongs,
       albums: albums.take(2).toList(),
     );
 
@@ -2208,8 +2243,20 @@ class SearchService {
     // 1. Ingest JioSaavn songs first: clean Indian/regional metadata, 320kbps audio, studio square cover art
     for (final song in saavnSongs) {
       final fp = SearchQueryPlanner.generateCanonicalFingerprint(song.title, song.artist);
-      if (fp.isNotEmpty && !canonicalMap.containsKey(fp)) {
-        canonicalMap[fp] = song;
+      final isDup = deduplicatedPool.any((existing) =>
+          existing.id == song.id ||
+          (fp.isNotEmpty && canonicalMap.containsKey(fp)) ||
+          SearchQueryPlanner.isSameSong(
+            titleA: existing.title,
+            artistsA: existing.artist,
+            titleB: song.title,
+            artistsB: song.artist,
+          ) ||
+          (existing.cleanTitleKey.isNotEmpty &&
+              existing.cleanTitleKey == song.cleanTitleKey &&
+              (song.duration == 0 || existing.duration == 0 || (existing.duration - song.duration).abs() <= 12)));
+      if (!isDup) {
+        if (fp.isNotEmpty) canonicalMap[fp] = song;
         deduplicatedPool.add(song);
       }
     }

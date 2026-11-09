@@ -11,6 +11,7 @@ import '../data/repositories/song_repository.dart';
 import '../domain/models/app_error.dart';
 import '../services/error_handler.dart';
 import '../services/youtube_client.dart';
+import '../services/artist_sanitizer.dart';
 import '../services/spotify_import_service.dart';
 import '../services/cache_manager.dart';
 import 'stream_resolver.dart';
@@ -331,7 +332,6 @@ class HomeFeedProvider extends ChangeNotifier {
     String language,
   ) async {
     final normLang = language.toLowerCase().trim();
-    final isTamil = normLang == 'tamil';
     var filtered = List<Map<String, dynamic>>.from(rawList);
 
     // Filter artists with mismatched scripts against target language
@@ -341,28 +341,21 @@ class HomeFeedProvider extends ChangeNotifier {
       return !SongRepository.isLanguageMismatch(dummySong, normLang);
     }).toList();
 
-    if (isTamil) {
-      for (final seed in SongRepository.tamilArtistSeeds.reversed) {
-        final norm = SongRepository.normalizeArtist(seed);
-        final idx = filtered.indexWhere((a) => SongRepository.normalizeArtist(a['name']?.toString() ?? '') == norm);
-        final avatar = SongRepository.verifiedArtistAvatars[norm] ?? '';
-        if (idx >= 0) {
-          final existing = filtered.removeAt(idx);
-          filtered.insert(0, existing);
-        } else {
-          filtered.insert(0, {
-            'id': 'seed_$norm',
-            'name': seed,
-            'image': avatar,
-          });
-        }
+    // Deduplicate canonical artist variants (e.g. "A.R. Rahman" vs "A. R. Rahman")
+    final List<Map<String, dynamic>> dedupedArtists = [];
+    for (final art in filtered) {
+      final name = art['name']?.toString() ?? '';
+      if (name.isEmpty) continue;
+      if (!dedupedArtists.any((existing) =>
+          ArtistSanitizer.areSameOrVariantArtists(existing['name']?.toString() ?? '', name))) {
+        dedupedArtists.add(art);
       }
     }
+    filtered = dedupedArtists;
 
     // Ensure Artist cards use the fetched artist profile image, never the song's cover image.
     final enriched = await Future.wait(filtered.map((art) async {
       final name = Song.sanitize(art['name']?.toString() ?? 'Artist');
-      final norm = SongRepository.normalizeArtist(name);
       var img = art['image']?.toString() ?? art['cover_url']?.toString() ?? '';
 
       // Check if image is a song/album cover (contains /albums/ or /songs/ or saavn numeric path without /artists/)
@@ -370,8 +363,9 @@ class HomeFeedProvider extends ChangeNotifier {
           img.contains('/songs/') ||
           (img.contains('c.saavncdn.com') && !img.contains('/artists/'));
 
-      if (SongRepository.verifiedArtistAvatars.containsKey(norm)) {
-        img = SongRepository.verifiedArtistAvatars[norm]!;
+      final verified = SongRepository.getVerifiedAvatar(name);
+      if (verified.isNotEmpty) {
+        img = verified;
       } else if (isSongCover || img.isEmpty) {
         try {
           final liveImg = await SaavnClient.getArtistImage(name)

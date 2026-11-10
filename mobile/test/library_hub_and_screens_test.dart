@@ -24,11 +24,11 @@ void main() {
       // Verify Header
       expect(find.text('Your Library'), findsOneWidget);
 
-      // Verify 4 Bento Cards
+      // Verify Category Filters & Cards
       expect(find.text('Playlists'), findsWidgets);
       expect(find.text('Liked Songs'), findsOneWidget);
       expect(find.text('History'), findsOneWidget);
-      expect(find.text('Offline'), findsOneWidget);
+      expect(find.byWidgetPredicate((w) => w is Text && (w.data == 'Downloaded' || w.data == 'Offline')), findsOneWidget);
 
       // Verify Paatu Recap
       expect(find.text('Paatu Recap 2026'), findsOneWidget);

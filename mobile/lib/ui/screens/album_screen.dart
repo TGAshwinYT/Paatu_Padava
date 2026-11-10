@@ -4,7 +4,7 @@ import '../../models/song.dart';
 import '../../services/player_handler.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/batch_download_button.dart';
-import '../widgets/swipeable_song_tile.dart';
+import '../widgets/common/song_tile.dart';
 import '../../logic/stream_resolver.dart';
 import '../../data/repositories/song_repository.dart';
 import '../theme/app_theme.dart';
@@ -210,24 +210,20 @@ class _AlbumScreenState extends State<AlbumScreen> {
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
                       final song = _songs[index];
-                      return SwipeableSongTile(
-                        song: (song.coverUrl.isEmpty || song.coverUrl.contains('default.jpg'))
-                            ? song.copyWith(coverUrl: _currentImageUrl)
-                            : song,
+                      final effectiveSong = (song.coverUrl.isEmpty || song.coverUrl.contains('default.jpg'))
+                          ? song.copyWith(coverUrl: _currentImageUrl)
+                          : song;
+                      final playbackCtx = PlaybackContext(
+                        id: widget.albumId.isNotEmpty ? widget.albumId : widget.albumTitle,
+                        title: widget.albumTitle,
+                        type: 'album',
+                        coverUrl: _currentImageUrl,
+                      );
+                      return SongTile(
+                        song: effectiveSong,
                         queue: _songs,
                         index: index,
-                        onTap: () {
-                          final playbackCtx = PlaybackContext(
-                            id: widget.albumId.isNotEmpty ? widget.albumId : widget.albumTitle,
-                            title: widget.albumTitle,
-                            type: 'album',
-                            coverUrl: _currentImageUrl,
-                          );
-                          final effectiveSong = (song.coverUrl.isEmpty || song.coverUrl.contains('default.jpg'))
-                              ? song.copyWith(coverUrl: _currentImageUrl)
-                              : song;
-                          audioHandler.playSong(effectiveSong, queue: _songs, context: playbackCtx);
-                        },
+                        playbackContext: playbackCtx,
                       );
                     },
                     childCount: _songs.length,

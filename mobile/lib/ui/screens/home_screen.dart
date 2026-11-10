@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:html_unescape/html_unescape.dart';
 import '../../models/song.dart';
 import '../../services/player_handler.dart';
 import '../../services/auth_manager.dart';
@@ -11,16 +9,17 @@ import '../theme/app_theme.dart';
 import '../widgets/sync_status_indicator.dart';
 import '../widgets/account_bar_button.dart';
 import '../widgets/home/home_song_card.dart';
-import '../widgets/home/home_song_tile.dart';
 import '../widgets/home/guest_mode_banner.dart';
 import '../widgets/home/home_error_view.dart';
 import '../widgets/home/quick_grid_section.dart';
 import '../widgets/home/home_category_pills.dart';
-import '../widgets/home/daily_mix_card.dart';
-import '../widgets/home/decades_mix_card.dart';
+import '../widgets/home/home_song_shelf.dart';
+import '../widgets/home/daily_mixes_shelf.dart';
+import '../widgets/home/decades_mixes_shelf.dart';
+import '../widgets/home/home_popular_artists.dart';
+import '../widgets/home/home_featured_albums.dart';
+import '../widgets/common/song_tile.dart';
 
-import 'artist_screen.dart';
-import 'album_screen.dart';
 import 'settings_screen.dart';
 import 'history_screen.dart';
 import '../../services/settings_manager.dart';
@@ -38,7 +37,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  static final HtmlUnescape _unescape = HtmlUnescape();
 
   @override
   void initState() {
@@ -260,154 +258,17 @@ class _HomeScreenState extends State<HomeScreen> {
                   else ...[
                     // Spotify-Style Clustered Daily Mixes Carousel
                     if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists' || feedState.homeFilter == 'for_you') &&
-                        feedState.dailyMixes.isNotEmpty) ...[
+                        feedState.dailyMixes.isNotEmpty)
                       SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(6),
-                                    decoration: BoxDecoration(
-                                      gradient: const LinearGradient(
-                                        colors: [Color(0xFF10B981), Color(0xFF059669)],
-                                      ),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 16),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Your Daily Mixes',
-                                        style: GoogleFonts.outfit(
-                                          color: Colors.white,
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.w800,
-                                          letterSpacing: -0.4,
-                                        ),
-                                      ),
-                                      Text(
-                                        'Clustered around your favorite artists',
-                                        style: GoogleFonts.outfit(
-                                          color: AppColors.textSecondary,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                              TextButton(
-                                child: Text(
-                                  'Play All',
-                                  style: GoogleFonts.outfit(
-                                    color: const Color(0xFF10B981),
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                onPressed: () {
-                                  final firstMix = feedState.dailyMixes.first;
-                                  if (firstMix.tracks.isNotEmpty) {
-                                    audioHandler.playSong(firstMix.tracks.first, queue: firstMix.tracks);
-                                  }
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
+                        child: DailyMixesShelf(mixes: feedState.dailyMixes),
                       ),
-                      SliverToBoxAdapter(
-                        child: SizedBox(
-                          height: 220,
-                          child: ListView.separated(
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            scrollDirection: Axis.horizontal,
-                            physics: const BouncingScrollPhysics(),
-                            itemCount: feedState.dailyMixes.length,
-                            separatorBuilder: (_, __) => const SizedBox(width: 4),
-                            itemBuilder: (context, index) {
-                              final mix = feedState.dailyMixes[index];
-                              return DailyMixCard(mix: mix);
-                            },
-                          ),
-                        ),
-                      ),
-                    ],
 
                     // Decades & Golden Era Collections Carousel
                     if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists') &&
-                        feedState.decadeMixes.isNotEmpty) ...[
+                        feedState.decadeMixes.isNotEmpty)
                       SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(6),
-                                    decoration: BoxDecoration(
-                                      gradient: const LinearGradient(
-                                        colors: [Color(0xFFF59E0B), Color(0xFFD97706)],
-                                      ),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: const Icon(Icons.radio_rounded, color: Colors.white, size: 16),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Golden Era & Decades',
-                                        style: GoogleFonts.outfit(
-                                          color: Colors.white,
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.w800,
-                                          letterSpacing: -0.4,
-                                        ),
-                                      ),
-                                      Text(
-                                        '90s vintage classics to modern chartbusters',
-                                        style: GoogleFonts.outfit(
-                                          color: AppColors.textSecondary,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
+                        child: DecadesMixesShelf(mixes: feedState.decadeMixes),
                       ),
-                      SliverToBoxAdapter(
-                        child: SizedBox(
-                          height: 215,
-                          child: ListView.separated(
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            scrollDirection: Axis.horizontal,
-                            physics: const BouncingScrollPhysics(),
-                            itemCount: feedState.decadeMixes.length,
-                            separatorBuilder: (_, __) => const SizedBox(width: 4),
-                            itemBuilder: (context, index) {
-                              final mix = feedState.decadeMixes[index];
-                              return DecadesMixCard(mix: mix);
-                            },
-                          ),
-                        ),
-                      ),
-                    ],
 
                     // Flagship Spotify-Style Editorial Showcase Hero Banner
                     if (feedState.homeFilter == 'all' && feedState.heroShowcase != null && feedState.heroShowcase!.tracks.isNotEmpty)
@@ -575,440 +436,105 @@ class _HomeScreenState extends State<HomeScreen> {
                     // "Jump Back In" (Recent History Carousel if available)
                     if (feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you')
                       ValueListenableBuilder<List<Song>>(
-                      valueListenable: HistoryManager.historyNotifier,
-                      builder: (context, recentSongs, _) {
-                        final displayHistory = recentSongs.isNotEmpty ? recentSongs : feedState.recentHistory;
-                        if (displayHistory.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+                        valueListenable: HistoryManager.historyNotifier,
+                        builder: (context, recentSongs, _) {
+                          final displayHistory = recentSongs.isNotEmpty ? recentSongs : feedState.recentHistory;
+                          if (displayHistory.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
 
-                        return SliverToBoxAdapter(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        const Icon(Icons.history_rounded, color: AppColors.electricCyan, size: 18),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          'Jump Back In',
-                                          style: GoogleFonts.outfit(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
-                                        ),
-                                      ],
-                                    ),
-                                    TextButton(
-                                      child: Text(
-                                        'See All',
-                                        style: GoogleFonts.outfit(color: AppColors.electricCyan, fontWeight: FontWeight.bold),
-                                      ),
-                                      onPressed: () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(builder: (_) => const HistoryScreen()),
-                                        );
-                                      },
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              SizedBox(
-                                height: carouselHeight,
-                                child: ListView.builder(
-                                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                                  scrollDirection: Axis.horizontal,
-                                  itemCount: displayHistory.length,
-                                  itemBuilder: (context, index) {
-                                    final song = displayHistory[index];
-                                    return HomeSongCard(
-                                      song: song,
-                                      width: cardWidth,
-                                      onTap: () => audioHandler.playSong(song),
-                                    );
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
+                          return SliverToBoxAdapter(
+                            child: HomeSongShelf(
+                              title: 'Jump Back In',
+                              icon: Icons.history_rounded,
+                              iconColor: AppColors.electricCyan,
+                              songs: displayHistory,
+                              cardWidth: cardWidth,
+                              carouselHeight: carouselHeight,
+                              onSeeAll: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => const HistoryScreen()),
+                                );
+                              },
+                            ),
+                          );
+                        },
+                      ),
 
                     // "Made For You" (User taste / history-based mix)
                     if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you') &&
-                        feedState.madeForYou.isNotEmpty) ...[
+                        feedState.madeForYou.isNotEmpty)
                       SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
-                                children: [
-                                  const Icon(Icons.auto_awesome_rounded, color: AppColors.neonViolet, size: 18),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    'Made For You',
-                                    style: GoogleFonts.outfit(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
-                                  ),
-                                ],
-                              ),
-                              TextButton(
-                                child: Text('Play All', style: GoogleFonts.outfit(color: AppColors.neonViolet, fontWeight: FontWeight.bold)),
-                                onPressed: () => audioHandler.playSong(feedState.madeForYou.first, queue: feedState.madeForYou),
-                              ),
-                            ],
-                          ),
+                        child: HomeSongShelf(
+                          title: 'Made For You',
+                          icon: Icons.auto_awesome_rounded,
+                          iconColor: AppColors.neonViolet,
+                          songs: feedState.madeForYou,
+                          cardWidth: cardWidth,
+                          carouselHeight: carouselHeight,
+                          onPlayAll: () => audioHandler.playSong(feedState.madeForYou.first, queue: feedState.madeForYou),
                         ),
                       ),
-                      SliverToBoxAdapter(
-                        child: SizedBox(
-                          height: carouselHeight,
-                          child: ListView.builder(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            scrollDirection: Axis.horizontal,
-                            itemCount: feedState.madeForYou.length,
-                            itemBuilder: (context, index) {
-                              final song = feedState.madeForYou[index];
-                              return HomeSongCard(
-                                song: song,
-                                width: cardWidth,
-                                onTap: () => audioHandler.playSong(song, queue: feedState.madeForYou),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                    ],
 
                     // "Trending Across JioSaavn & YouTube" Carousel
-                    if (feedState.homeFilter == 'all' && feedState.trendingMerged.isNotEmpty) ...[
+                    if (feedState.homeFilter == 'all' && feedState.trendingMerged.isNotEmpty)
                       SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
-                                children: [
-                                  const Icon(Icons.local_fire_department_rounded, color: AppColors.electricCyan, size: 20),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    'Trending Across JioSaavn & YouTube',
-                                    style: GoogleFonts.outfit(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
-                                  ),
-                                ],
-                              ),
-                              TextButton(
-                                child: Text('Play All', style: GoogleFonts.outfit(color: AppColors.electricCyan, fontWeight: FontWeight.bold)),
-                                onPressed: () => audioHandler.playSong(feedState.trendingMerged.first, queue: feedState.trendingMerged),
-                              ),
-                            ],
-                          ),
+                        child: HomeSongShelf(
+                          title: 'Trending Across JioSaavn & YouTube',
+                          icon: Icons.local_fire_department_rounded,
+                          iconColor: AppColors.electricCyan,
+                          songs: feedState.trendingMerged,
+                          cardWidth: cardWidth,
+                          carouselHeight: carouselHeight,
+                          onPlayAll: () => audioHandler.playSong(feedState.trendingMerged.first, queue: feedState.trendingMerged),
                         ),
                       ),
-                      SliverToBoxAdapter(
-                        child: SizedBox(
-                          height: carouselHeight,
-                          child: ListView.builder(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            scrollDirection: Axis.horizontal,
-                            itemCount: feedState.trendingMerged.length,
-                            itemBuilder: (context, index) {
-                              final song = feedState.trendingMerged[index];
-                              return HomeSongCard(
-                                song: song,
-                                width: cardWidth,
-                                onTap: () => audioHandler.playSong(song, queue: feedState.trendingMerged),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                    ],
 
                     // "YouTube Music Trending" Carousel
-                    if (feedState.homeFilter == 'all' && feedState.youtubeTrending.isNotEmpty) ...[
+                    if (feedState.homeFilter == 'all' && feedState.youtubeTrending.isNotEmpty)
                       SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
-                                children: [
-                                  const Icon(Icons.play_circle_filled_rounded, color: Color(0xFFFF0033), size: 20),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    'YouTube Music Trending',
-                                    style: GoogleFonts.outfit(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
-                                  ),
-                                ],
-                              ),
-                              TextButton(
-                                child: Text('Play All', style: GoogleFonts.outfit(color: const Color(0xFFFF0033), fontWeight: FontWeight.bold)),
-                                onPressed: () => audioHandler.playSong(feedState.youtubeTrending.first, queue: feedState.youtubeTrending),
-                              ),
-                            ],
-                          ),
+                        child: HomeSongShelf(
+                          title: 'YouTube Music Trending',
+                          icon: Icons.play_circle_filled_rounded,
+                          iconColor: const Color(0xFFFF0033),
+                          songs: feedState.youtubeTrending,
+                          cardWidth: cardWidth,
+                          carouselHeight: carouselHeight,
+                          onPlayAll: () => audioHandler.playSong(feedState.youtubeTrending.first, queue: feedState.youtubeTrending),
                         ),
                       ),
-                      SliverToBoxAdapter(
-                        child: SizedBox(
-                          height: carouselHeight,
-                          child: ListView.builder(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            scrollDirection: Axis.horizontal,
-                            itemCount: feedState.youtubeTrending.length,
-                            itemBuilder: (context, index) {
-                              final song = feedState.youtubeTrending[index];
-                              return HomeSongCard(
-                                song: song,
-                                width: cardWidth,
-                                onTap: () => audioHandler.playSong(song, queue: feedState.youtubeTrending),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                    ],
 
                     // "Popular Artists" (High-Res Verified Avatars)
                     if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists') &&
-                        feedState.popularArtists.isNotEmpty) ...[
+                        feedState.popularArtists.isNotEmpty)
                       SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
-                          child: Text(
-                            'Popular Artists',
-                            style: GoogleFonts.outfit(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
-                          ),
-                        ),
+                        child: HomePopularArtists(artists: feedState.popularArtists),
                       ),
-                      SliverToBoxAdapter(
-                        child: SizedBox(
-                          height: 115,
-                          child: ListView.separated(
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            scrollDirection: Axis.horizontal,
-                            itemCount: feedState.popularArtists.length,
-                            separatorBuilder: (_, __) => const SizedBox(width: 16),
-                            itemBuilder: (context, index) {
-                              final art = feedState.popularArtists[index];
-                              final name = _unescape.convert(Song.sanitize(art['name']?.toString() ?? 'Artist'));
-                              final img = art['image']?.toString() ?? '';
-                              final id = art['id']?.toString() ?? '';
-
-                              return GestureDetector(
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => ArtistScreen(
-                                        artistId: id,
-                                        artistName: name,
-                                        imageUrl: img,
-                                      ),
-                                    ),
-                                  );
-                                },
-                                child: Column(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(2),
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: AppColors.neonViolet.withValues(alpha: 0.4),
-                                          width: 1.5,
-                                        ),
-                                      ),
-                                      child: ClipOval(
-                                        child: SizedBox(
-                                          width: 68,
-                                          height: 68,
-                                          child: img.isNotEmpty
-                                              ? CachedNetworkImage(
-                                                  imageUrl: img,
-                                                  fit: BoxFit.cover,
-                                                  placeholder: (_, __) => Container(
-                                                    color: AppColors.surfaceElevated,
-                                                    child: const Center(
-                                                      child: Icon(Icons.person_rounded, color: AppColors.textSecondary, size: 28),
-                                                    ),
-                                                  ),
-                                                  errorWidget: (_, __, ___) => Container(
-                                                    color: AppColors.surfaceElevated,
-                                                    child: const Center(
-                                                      child: Icon(Icons.person_rounded, color: AppColors.textSecondary, size: 28),
-                                                    ),
-                                                  ),
-                                                )
-                                              : Container(
-                                                  color: AppColors.surfaceElevated,
-                                                  child: const Center(
-                                                    child: Icon(Icons.person_rounded, color: AppColors.textSecondary, size: 28),
-                                                  ),
-                                                ),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    SizedBox(
-                                      width: 76,
-                                      child: Text(
-                                        name,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        textAlign: TextAlign.center,
-                                        style: GoogleFonts.outfit(color: Colors.white70, fontSize: 12),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                    ],
 
                     // "New Releases" Carousel
                     if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists') &&
-                        feedState.newReleases.isNotEmpty) ...[
+                        feedState.newReleases.isNotEmpty)
                       SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Expanded(
-                                child: Row(
-                                  children: [
-                                    const Icon(Icons.new_releases_rounded, color: AppColors.neonViolet, size: 18),
-                                    const SizedBox(width: 6),
-                                    Flexible(
-                                      child: Text(
-                                        'New $currentLang Releases',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: GoogleFonts.outfit(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              TextButton(
-                                child: Text('Play All', style: GoogleFonts.outfit(color: AppColors.neonViolet, fontWeight: FontWeight.bold)),
-                                onPressed: () => audioHandler.playSong(feedState.newReleases.first, queue: feedState.newReleases),
-                              ),
-                            ],
-                          ),
+                        child: HomeSongShelf(
+                          title: 'New $currentLang Releases',
+                          icon: Icons.new_releases_rounded,
+                          iconColor: AppColors.neonViolet,
+                          songs: feedState.newReleases,
+                          cardWidth: cardWidth,
+                          carouselHeight: carouselHeight,
+                          onPlayAll: () => audioHandler.playSong(feedState.newReleases.first, queue: feedState.newReleases),
                         ),
                       ),
-                      SliverToBoxAdapter(
-                        child: SizedBox(
-                          height: carouselHeight,
-                          child: ListView.builder(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            scrollDirection: Axis.horizontal,
-                            itemCount: feedState.newReleases.length,
-                            itemBuilder: (context, index) {
-                              final song = feedState.newReleases[index];
-                              return HomeSongCard(
-                                song: song,
-                                width: cardWidth,
-                                onTap: () => audioHandler.playSong(song, queue: feedState.newReleases),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                    ],
 
                     // "Featured Albums"
                     if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists') &&
-                        feedState.featuredAlbums.isNotEmpty) ...[
+                        feedState.featuredAlbums.isNotEmpty)
                       SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
-                          child: Text(
-                            'Featured Albums',
-                            style: GoogleFonts.outfit(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
-                          ),
+                        child: HomeFeaturedAlbums(
+                          albums: feedState.featuredAlbums,
+                          cardWidth: cardWidth,
+                          carouselHeight: carouselHeight,
                         ),
                       ),
-                      SliverToBoxAdapter(
-                        child: SizedBox(
-                          height: carouselHeight,
-                          child: ListView.builder(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            scrollDirection: Axis.horizontal,
-                            itemCount: feedState.featuredAlbums.length,
-                            itemBuilder: (context, index) {
-                              final album = feedState.featuredAlbums[index];
-                              final id = album['id']?.toString() ?? '';
-                              final title = _unescape.convert(Song.sanitize(album['title']?.toString() ?? 'Album'));
-                              final img = album['image']?.toString() ?? '';
-                              final artist = _unescape.convert(Song.sanitize(album['artist']?.toString() ?? ''));
-
-                              return GestureDetector(
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => AlbumScreen(
-                                        albumId: id,
-                                        albumTitle: title,
-                                        imageUrl: img,
-                                      ),
-                                    ),
-                                  );
-                                },
-                                child: Container(
-                                  width: cardWidth,
-                                  margin: const EdgeInsets.symmetric(horizontal: 6),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      ClipRRect(
-                                        borderRadius: BorderRadius.circular(16),
-                                        child: SizedBox(
-                                          width: cardWidth,
-                                          height: cardWidth,
-                                          child: CachedNetworkImage(
-                                            imageUrl: img,
-                                            fit: BoxFit.cover,
-                                            memCacheWidth: 300,
-                                            memCacheHeight: 300,
-                                            errorWidget: (_, __, ___) => Container(color: AppColors.surfaceElevated),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        title,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: GoogleFonts.outfit(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-                                      ),
-                                      Text(
-                                        artist,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 11),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                    ],
 
                     // Bottom Feed: Trending Tracks List
                     if (feedState.homeFilter == 'all' && feedState.trendingMerged.isNotEmpty) ...[
@@ -1025,9 +551,16 @@ class _HomeScreenState extends State<HomeScreen> {
                         delegate: SliverChildBuilderDelegate(
                           (context, index) {
                             final song = feedState.trendingMerged[index];
-                            return HomeSongTile(
+                            return SongTile(
                               song: song,
-                              onTap: () => audioHandler.playSong(song, queue: feedState.trendingMerged),
+                              queue: feedState.trendingMerged,
+                              index: index,
+                              showRank: true,
+                              playbackContext: PlaybackContext(
+                                id: 'popular_hits',
+                                title: 'Popular Hits in $currentLang',
+                                type: 'trending',
+                              ),
                             );
                           },
                           childCount: feedState.trendingMerged.length > 20 ? 20 : feedState.trendingMerged.length,

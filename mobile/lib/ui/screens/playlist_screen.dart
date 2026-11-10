@@ -9,7 +9,7 @@ import '../../services/player_handler.dart';
 import '../../services/playlist_manager.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/batch_download_button.dart';
-import '../widgets/swipeable_song_tile.dart';
+import '../widgets/common/song_tile.dart';
 import '../theme/app_theme.dart';
 
 class PlaylistScreen extends StatefulWidget {
@@ -691,7 +691,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                       delegate: SliverChildBuilderDelegate(
                         (context, index) {
                           final song = tracks[index];
-                          return SwipeableSongTile(
+                          return SongTile(
                             song: song,
                             queue: tracks,
                             index: index,

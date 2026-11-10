@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../domain/models/listening_session.dart';
 import '../../models/song.dart';
 import '../../services/player_handler.dart';
-import '../../services/favorites_manager.dart';
 import '../../services/history_manager.dart';
 import '../theme/app_theme.dart';
-import '../widgets/add_to_playlist_dialog.dart';
 import '../widgets/mini_player.dart';
+import '../widgets/common/song_tile.dart';
 import '../widgets/history/session_collage_cover.dart';
 
 class ListeningSessionScreen extends StatefulWidget {
@@ -40,12 +38,6 @@ class _ListeningSessionScreenState extends State<ListeningSessionScreen> {
       playlist.shuffle();
     }
     audioHandler.playSong(playlist.first, queue: playlist);
-  }
-
-  void _playTrackAt(int index) {
-    if (index >= 0 && index < _session.songs.length) {
-      audioHandler.playSong(_session.songs[index], queue: _session.songs);
-    }
   }
 
   Future<void> _saveAsPlaylist() async {
@@ -137,105 +129,6 @@ class _ListeningSessionScreenState extends State<ListeningSessionScreen> {
         }
       }
     }
-  }
-
-  void _showSongOptions(BuildContext context, Song song) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppColors.surfaceDark,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: song.coverUrl.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: song.coverUrl,
-                          width: 48,
-                          height: 48,
-                          fit: BoxFit.cover,
-                          memCacheWidth: 150,
-                          memCacheHeight: 150,
-                          errorWidget: (_, __, ___) => const Icon(Icons.music_note),
-                        )
-                      : const Icon(Icons.music_note),
-                ),
-                title: Text(
-                  song.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-                ),
-                subtitle: Text(
-                  song.artist,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: AppColors.textSecondary),
-                ),
-              ),
-              const Divider(color: AppColors.surfaceBorder),
-              ListTile(
-                leading: const Icon(Icons.playlist_play_rounded, color: Color(0xFF6366F1)),
-                title: const Text('Play Next', style: TextStyle(color: Colors.white)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  audioHandler.insertNext(song);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Playing "${song.title}" next')),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.queue_music_rounded, color: Colors.white70),
-                title: const Text('Add to Queue', style: TextStyle(color: Colors.white)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  audioHandler.addToQueue(song);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Added "${song.title}" to queue')),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.playlist_add_rounded, color: AppColors.neonViolet),
-                title: const Text('Add to Playlist', style: TextStyle(color: Colors.white)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  AddToPlaylistDialog.show(context, song);
-                },
-              ),
-              ValueListenableBuilder<List<Song>>(
-                valueListenable: FavoritesManager.favoritesNotifier,
-                builder: (context, _, __) {
-                  final isFav = FavoritesManager.isFavorite(song.id);
-                  return ListTile(
-                    leading: Icon(
-                      isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                      color: isFav ? const Color(0xFFEC4899) : Colors.white70,
-                    ),
-                    title: Text(
-                      isFav ? 'Remove from Liked Songs' : 'Save to Liked Songs',
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                    onTap: () {
-                      FavoritesManager.toggleFavorite(song);
-                      Navigator.pop(ctx);
-                    },
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   @override
@@ -427,121 +320,16 @@ class _ListeningSessionScreenState extends State<ListeningSessionScreen> {
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
                     final song = songs[index];
-                    return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 3),
-                      leading: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          SizedBox(
-                            width: 22,
-                            child: Text(
-                              '${index + 1}',
-                              textAlign: TextAlign.center,
-                              style: GoogleFonts.outfit(
-                                color: AppColors.textSecondary,
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: song.coverUrl.isNotEmpty
-                                ? CachedNetworkImage(
-                                    imageUrl: song.coverUrl,
-                                    width: 46,
-                                    height: 46,
-                                    fit: BoxFit.cover,
-                                    memCacheWidth: 150,
-                                    memCacheHeight: 150,
-                                    errorWidget: (_, __, ___) => Container(
-                                      width: 46,
-                                      height: 46,
-                                      color: AppColors.surfaceElevated,
-                                      child: const Icon(Icons.music_note, color: Colors.white38),
-                                    ),
-                                  )
-                                : Container(
-                                    width: 46,
-                                    height: 46,
-                                    color: AppColors.surfaceElevated,
-                                    child: const Icon(Icons.music_note, color: Colors.white38),
-                                  ),
-                          ),
-                        ],
+                    return SongTile(
+                      song: song,
+                      queue: songs,
+                      index: index,
+                      showRank: true,
+                      playbackContext: PlaybackContext(
+                        id: _session.id,
+                        title: _session.title,
+                        type: 'session',
                       ),
-                      title: Text(
-                        song.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.outfit(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      subtitle: Row(
-                        children: [
-                          if (song.source == 'saavn')
-                            Container(
-                              margin: const EdgeInsets.only(right: 6),
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: AppColors.neonViolet.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Text(
-                                '320K',
-                                style: TextStyle(
-                                  color: AppColors.neonViolet,
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            )
-                          else if (song.source == 'youtube')
-                            Container(
-                              margin: const EdgeInsets.only(right: 6),
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: AppColors.electricCyan.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Text(
-                                'YT',
-                                style: TextStyle(
-                                  color: AppColors.electricCyan,
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          Expanded(
-                            child: Text(
-                              song.artist,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 12),
-                            ),
-                          ),
-                        ],
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (song.duration > 0)
-                            Text(
-                              '${song.duration ~/ 60}:${(song.duration % 60).toString().padLeft(2, '0')}',
-                              style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 12),
-                            ),
-                          IconButton(
-                            icon: const Icon(Icons.more_vert_rounded, color: AppColors.textSecondary, size: 20),
-                            onPressed: () => _showSongOptions(context, song),
-                          ),
-                        ],
-                      ),
-                      onTap: () => _playTrackAt(index),
                     );
                   },
                   childCount: songs.length,
@@ -549,8 +337,8 @@ class _ListeningSessionScreenState extends State<ListeningSessionScreen> {
               ),
 
               // Bottom padding for MiniPlayer
-              const SliverToBoxAdapter(
-                child: SizedBox(height: 110),
+              SliverToBoxAdapter(
+                child: SizedBox(height: AppDimensions.bottomClearance(context, hasBottomNav: false)),
               ),
             ],
           ),

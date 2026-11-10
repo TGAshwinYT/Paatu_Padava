@@ -3,13 +3,12 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../models/song.dart';
 import '../../services/player_handler.dart';
-import '../../services/download_manager.dart';
 import '../../data/repositories/song_repository.dart';
 import '../../services/settings_manager.dart';
 import '../../services/spotify_import_service.dart';
 import '../widgets/mini_player.dart';
 import '../theme/app_theme.dart';
-import '../widgets/search/search_song_options_sheet.dart';
+import '../widgets/common/song_tile.dart';
 import '../../logic/stream_resolver.dart';
 
 class ArtistScreen extends StatefulWidget {
@@ -147,124 +146,6 @@ class _ArtistScreenState extends State<ArtistScreen> {
         }).toList();
       }
     });
-  }
-
-  String _formatDuration(int seconds) {
-    if (seconds <= 0) return '';
-    final m = seconds ~/ 60;
-    final s = seconds % 60;
-    return '$m:${s.toString().padLeft(2, '0')}';
-  }
-
-  Widget _buildSongTile(Song song, {int? rank}) {
-    final formattedDuration = _formatDuration(song.duration);
-
-    return ListTile(
-      onTap: () => audioHandler.playSong(song, queue: _filteredSongs),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
-      leading: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (rank != null) ...[
-            SizedBox(
-              width: 22,
-              child: Text(
-                '$rank',
-                textAlign: TextAlign.center,
-                style: GoogleFonts.outfit(
-                  color: rank <= 3 ? const Color(0xFF818CF8) : const Color(0xFF64748B),
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-          ],
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: SizedBox(
-              width: 48,
-              height: 48,
-              child: CachedNetworkImage(
-                imageUrl: song.coverUrl,
-                fit: BoxFit.cover,
-                memCacheWidth: 150,
-                memCacheHeight: 150,
-                placeholder: (_, __) => Container(color: const Color(0xFF1E293B)),
-                errorWidget: (_, __, ___) => Container(
-                  color: const Color(0xFF1E293B),
-                  child: const Icon(Icons.music_note_rounded, color: Colors.white30, size: 20),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-      title: Text(
-        song.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: GoogleFonts.outfit(
-          color: Colors.white,
-          fontWeight: FontWeight.w600,
-          fontSize: 14,
-        ),
-      ),
-      subtitle: Row(
-        children: [
-          if (song.source == 'youtube') ...[
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-              margin: const EdgeInsets.only(right: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEF4444).withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: const Text(
-                'YT',
-                style: TextStyle(color: Color(0xFFEF4444), fontSize: 9, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-          Expanded(
-            child: Text(
-              song.album.isNotEmpty ? song.album : widget.artistName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.outfit(
-                color: const Color(0xFF94A3B8),
-                fontSize: 12,
-              ),
-            ),
-          ),
-          if (formattedDuration.isNotEmpty) ...[
-            const SizedBox(width: 6),
-            Text(
-              formattedDuration,
-              style: GoogleFonts.outfit(
-                color: const Color(0xFF64748B),
-                fontSize: 11,
-              ),
-            ),
-          ],
-        ],
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.download_for_offline_outlined, color: Color(0xFF64748B), size: 20),
-            tooltip: 'Download Offline',
-            onPressed: () => DownloadManager.downloadSong(song),
-          ),
-          IconButton(
-            icon: const Icon(Icons.more_vert_rounded, color: Color(0xFF64748B), size: 20),
-            tooltip: 'Options',
-            onPressed: () => SearchSongOptionsSheet.show(context, song),
-          ),
-        ],
-      ),
-    );
   }
 
   Widget _buildSectionHeader(String title, IconData icon, {String? subtitle}) {
@@ -546,7 +427,16 @@ class _ArtistScreenState extends State<ArtistScreen> {
                 SliverList(
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
-                      return _buildSongTile(_filteredSongs[index]);
+                      return SongTile(
+                        song: _filteredSongs[index],
+                        queue: _filteredSongs,
+                        index: index,
+                        playbackContext: PlaybackContext(
+                          id: widget.artistId,
+                          title: widget.artistName,
+                          type: 'artist',
+                        ),
+                      );
                     },
                     childCount: _filteredSongs.length,
                   ),
@@ -559,7 +449,17 @@ class _ArtistScreenState extends State<ArtistScreen> {
                 SliverList(
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
-                      return _buildSongTile(_songs[index], rank: index + 1);
+                      return SongTile(
+                        song: _songs[index],
+                        queue: _songs,
+                        index: index,
+                        showRank: true,
+                        playbackContext: PlaybackContext(
+                          id: widget.artistId,
+                          title: widget.artistName,
+                          type: 'artist',
+                        ),
+                      );
                     },
                     childCount: _songs.length >= 5 ? 5 : _songs.length,
                   ),
@@ -577,7 +477,16 @@ class _ArtistScreenState extends State<ArtistScreen> {
                     delegate: SliverChildBuilderDelegate(
                       (context, index) {
                         final songIndex = index + 5;
-                        return _buildSongTile(_songs[songIndex]);
+                        return SongTile(
+                          song: _songs[songIndex],
+                          queue: _songs,
+                          index: songIndex,
+                          playbackContext: PlaybackContext(
+                            id: widget.artistId,
+                            title: widget.artistName,
+                            type: 'artist',
+                          ),
+                        );
                       },
                       childCount: _songs.length - 5,
                     ),

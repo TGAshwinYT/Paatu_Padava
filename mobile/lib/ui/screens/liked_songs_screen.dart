@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/song.dart';
 import '../../services/favorites_manager.dart';
 import '../../services/player_handler.dart';
 import '../../services/download_manager.dart';
-import '../widgets/add_to_playlist_dialog.dart';
+import '../theme/app_dimensions.dart';
 import '../widgets/mini_player.dart';
-import '../widgets/cover_art_image.dart';
+import '../widgets/common/song_tile.dart';
 
 class LikedSongsScreen extends StatefulWidget {
   const LikedSongsScreen({Key? key}) : super(key: key);
@@ -23,92 +22,6 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
   void dispose() {
     _filterController.dispose();
     super.dispose();
-  }
-
-  void _showSongOptions(BuildContext context, Song song) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF131B2E),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: CachedNetworkImage(
-                    imageUrl: song.coverUrl,
-                    width: 48,
-                    height: 48,
-                    fit: BoxFit.cover,
-                    memCacheWidth: 150,
-                    memCacheHeight: 150,
-                    errorWidget: (_, __, ___) => Container(color: Colors.white10, child: const Icon(Icons.music_note)),
-                  ),
-                ),
-                title: Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                subtitle: Text(song.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white60, fontSize: 12)),
-              ),
-              const Divider(color: Colors.white12),
-              ListTile(
-                leading: const Icon(Icons.playlist_add_rounded, color: Colors.white70),
-                title: const Text('Add to Playlist', style: TextStyle(color: Colors.white)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  AddToPlaylistDialog.show(context, song);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.playlist_play_rounded, color: Color(0xFF6366F1)),
-                title: const Text('Play Next', style: TextStyle(color: Colors.white)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  audioHandler.insertNext(song);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Playing "${song.title}" next!'), backgroundColor: const Color(0xFF6366F1)),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.queue_music_rounded, color: Colors.white70),
-                title: const Text('Add to Queue', style: TextStyle(color: Colors.white)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  audioHandler.addToQueue(song);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Added "${song.title}" to queue'), backgroundColor: const Color(0xFF6366F1)),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.file_download_outlined, color: Colors.white70),
-                title: const Text('Download Offline', style: TextStyle(color: Colors.white)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  DownloadManager.downloadSong(song);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Downloading "${song.title}"...'), backgroundColor: const Color(0xFF10B981)),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.favorite_rounded, color: Color(0xFFEC4899)),
-                title: const Text('Remove from Liked Songs', style: TextStyle(color: Color(0xFFEC4899))),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  FavoritesManager.toggleFavorite(song);
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   @override
@@ -371,85 +284,25 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                   else
                     // Songs List
                     SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 110),
+                      padding: EdgeInsets.fromLTRB(
+                        12,
+                        10,
+                        12,
+                        AppDimensions.bottomClearance(context, hasBottomNav: false),
+                      ),
                       sliver: SliverList(
                         delegate: SliverChildBuilderDelegate(
                           (context, index) {
                             final song = filtered[index];
-                            return ValueListenableBuilder<Song?>(
-                              valueListenable: audioHandler.currentSongNotifier,
-                              builder: (context, currentPlaying, _) {
-                                final isPlaying = currentPlaying?.id == song.id;
-                                return ListTile(
-                                  onTap: () {
-                                    const playbackCtx = PlaybackContext(
-                                      id: 'liked_songs',
-                                      title: 'Liked Songs',
-                                      type: 'liked',
-                                    );
-                                    audioHandler.playSong(song, queue: filtered, context: playbackCtx);
-                                  },
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  leading: Stack(
-                                    alignment: Alignment.center,
-                                    children: [
-                                      CoverArtImage(
-                                        song: song,
-                                        width: 48,
-                                        height: 48,
-                                        borderRadius: BorderRadius.circular(8),
-                                        memCacheWidth: 150,
-                                        memCacheHeight: 150,
-                                        errorWidget: Container(
-                                          width: 48,
-                                          height: 48,
-                                          color: Colors.white10,
-                                          child: const Icon(Icons.music_note, color: Colors.white38),
-                                        ),
-                                      ),
-                                      if (isPlaying)
-                                        Container(
-                                          width: 48,
-                                          height: 48,
-                                          decoration: BoxDecoration(
-                                            color: Colors.black.withValues(alpha: 0.55),
-                                            borderRadius: BorderRadius.circular(8),
-                                          ),
-                                          child: const Icon(Icons.equalizer_rounded, color: Color(0xFF1DB954), size: 22),
-                                        ),
-                                    ],
-                                  ),
-                                  title: Text(
-                                    song.title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: isPlaying ? const Color(0xFF1DB954) : Colors.white,
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                  subtitle: Text(
-                                    song.artist,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(color: Colors.white54, fontSize: 12),
-                                  ),
-                                  trailing: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      IconButton(
-                                        icon: const Icon(Icons.favorite_rounded, color: Color(0xFFEC4899), size: 20),
-                                        onPressed: () => FavoritesManager.toggleFavorite(song),
-                                      ),
-                                      IconButton(
-                                        icon: const Icon(Icons.more_vert_rounded, color: Colors.white54, size: 20),
-                                        onPressed: () => _showSongOptions(context, song),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
+                            return SongTile(
+                              song: song,
+                              queue: filtered,
+                              index: index,
+                              playbackContext: const PlaybackContext(
+                                id: 'liked_songs',
+                                title: 'Liked Songs',
+                                type: 'liked',
+                              ),
                             );
                           },
                           childCount: filtered.length,

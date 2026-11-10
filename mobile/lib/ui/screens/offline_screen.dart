@@ -1,12 +1,11 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../models/song.dart';
 import '../../services/download_manager.dart';
 import '../../services/player_handler.dart';
-import '../widgets/add_to_playlist_dialog.dart';
+import '../theme/app_dimensions.dart';
 import '../widgets/mini_player.dart';
-import '../widgets/cover_art_image.dart';
+import '../widgets/common/song_tile.dart';
 
 class OfflineScreen extends StatefulWidget {
   const OfflineScreen({super.key});
@@ -24,98 +23,6 @@ class _OfflineScreenState extends State<OfflineScreen> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
-  }
-
-  void _showSongOptions(BuildContext context, Song song) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF131B2E),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: (song.localFilePath != null && File(song.localFilePath!).existsSync())
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.file(File(song.localFilePath!), width: 48, height: 48, fit: BoxFit.cover),
-                      )
-                    : CoverArtImage(
-                        song: song,
-                        width: 48,
-                        height: 48,
-                        borderRadius: BorderRadius.circular(8),
-                        memCacheWidth: 150,
-                        memCacheHeight: 150,
-                        errorWidget: const Icon(Icons.music_note),
-                      ),
-                title: Text(
-                  song.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-                ),
-                subtitle: Text(
-                  song.artist,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Color(0xFF94A3B8)),
-                ),
-              ),
-              const Divider(color: Colors.white12),
-              ListTile(
-                leading: const Icon(Icons.playlist_play_rounded, color: Color(0xFF6366F1)),
-                title: const Text('Play Next', style: TextStyle(color: Colors.white)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  audioHandler.insertNext(song);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Playing "${song.title}" next')),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.queue_music_rounded, color: Colors.white70),
-                title: const Text('Add to Queue', style: TextStyle(color: Colors.white)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  audioHandler.addToQueue(song);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Added "${song.title}" to queue')),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.playlist_add_rounded, color: Color(0xFF818CF8)),
-                title: const Text('Add to Playlist', style: TextStyle(color: Colors.white)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  AddToPlaylistDialog.show(context, song);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF4444)),
-                title: const Text('Delete from Device', style: TextStyle(color: Color(0xFFEF4444))),
-                onTap: () async {
-                  Navigator.pop(ctx);
-                  await DownloadManager.deleteSong(song.id);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Deleted "${song.title}" from device')),
-                    );
-                  }
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   @override
@@ -342,100 +249,29 @@ class _OfflineScreenState extends State<OfflineScreen> {
 
                       // Tracks List
                       SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 120),
+                        padding: EdgeInsets.fromLTRB(
+                          16,
+                          0,
+                          16,
+                          AppDimensions.bottomClearance(context, hasBottomNav: false),
+                        ),
                         sliver: SliverList(
                           delegate: SliverChildBuilderDelegate(
                             (context, index) {
                               final song = filtered[index];
-                              return Dismissible(
-                                key: Key('offline_screen_${song.id}'),
-                                direction: DismissDirection.endToStart,
-                                background: Container(
-                                  margin: const EdgeInsets.symmetric(vertical: 4),
-                                  alignment: Alignment.centerRight,
-                                  padding: const EdgeInsets.only(right: 20),
-                                  decoration: BoxDecoration(
-                                    color: Colors.redAccent.withValues(alpha: 0.8),
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                  child: const Icon(Icons.delete_outline_rounded, color: Colors.white),
+                              return SongTile(
+                                song: song,
+                                queue: downloadedSongs,
+                                index: index,
+                                playbackContext: const PlaybackContext(
+                                  id: 'offline',
+                                  title: 'Downloaded Music',
+                                  type: 'downloads',
                                 ),
-                                onDismissed: (_) async {
+                                onRemove: () async {
                                   await DownloadManager.deleteSong(song.id);
                                 },
-                                child: Container(
-                                  margin: const EdgeInsets.symmetric(vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF131B2E).withValues(alpha: 0.5),
-                                    borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(color: Colors.white.withValues(alpha: 0.04)),
-                                  ),
-                                  child: ListTile(
-                                    onTap: () => audioHandler.playSong(song, queue: downloadedSongs),
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                                    leading: (song.localFilePath != null && File(song.localFilePath!).existsSync())
-                                        ? ClipRRect(
-                                            borderRadius: BorderRadius.circular(10),
-                                            child: SizedBox(
-                                              width: 50,
-                                              height: 50,
-                                              child: Image.file(File(song.localFilePath!), fit: BoxFit.cover),
-                                            ),
-                                          )
-                                        : CoverArtImage(
-                                            song: song,
-                                            width: 50,
-                                            height: 50,
-                                            borderRadius: BorderRadius.circular(10),
-                                            memCacheWidth: 150,
-                                            memCacheHeight: 150,
-                                            errorWidget: Container(color: const Color(0xFF1E293B)),
-                                          ),
-                                    title: Text(
-                                      song.title,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: GoogleFonts.outfit(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 14.5,
-                                      ),
-                                    ),
-                                    subtitle: Row(
-                                      children: [
-                                        Container(
-                                          margin: const EdgeInsets.only(right: 6),
-                                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFF10B981).withValues(alpha: 0.2),
-                                            borderRadius: BorderRadius.circular(4),
-                                          ),
-                                          child: const Text(
-                                            'OFFLINE',
-                                            style: TextStyle(
-                                              color: Color(0xFF34D399),
-                                              fontSize: 9,
-                                              fontWeight: FontWeight.bold,
-                                              letterSpacing: 0.5,
-                                            ),
-                                          ),
-                                        ),
-                                        Expanded(
-                                          child: Text(
-                                            song.artist,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: GoogleFonts.outfit(color: const Color(0xFF94A3B8), fontSize: 12),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    trailing: IconButton(
-                                      icon: const Icon(Icons.more_vert_rounded, color: Colors.white54, size: 20),
-                                      onPressed: () => _showSongOptions(context, song),
-                                    ),
-                                  ),
-                                ),
+                                removeTooltip: 'Delete',
                               );
                             },
                             childCount: filtered.length,

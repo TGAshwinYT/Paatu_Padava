@@ -7,7 +7,7 @@ import '../../services/player_handler.dart';
 import '../theme/app_theme.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/batch_download_button.dart';
-import '../widgets/swipeable_song_tile.dart';
+import '../widgets/common/song_tile.dart';
 
 /// Spotify-Style Daily Mix Detail Screen displaying the mix cover,
 /// artist clustering subtitle, and the full scrollable track list.
@@ -39,17 +39,6 @@ class _DailyMixDetailScreenState extends State<DailyMixDetailScreen> {
       queue.shuffle();
     }
     audioHandler.playSong(queue.first, queue: queue, context: playbackCtx);
-  }
-
-  void _playTrack(Song song) {
-    final playbackCtx = PlaybackContext(
-      id: 'daily_mix_${widget.mix.index}',
-      title: widget.mix.title,
-      subtitle: widget.mix.subtitle,
-      coverUrl: widget.mix.coverUrl,
-      type: 'mix',
-    );
-    audioHandler.playSong(song, queue: widget.mix.tracks, context: playbackCtx);
   }
 
   @override
@@ -237,11 +226,17 @@ class _DailyMixDetailScreenState extends State<DailyMixDetailScreen> {
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
                       final song = mix.tracks[index];
-                      return SwipeableSongTile(
+                      return SongTile(
                         song: song,
                         queue: mix.tracks,
                         index: index,
-                        onTap: () => _playTrack(song),
+                        playbackContext: PlaybackContext(
+                          id: 'daily_mix_${widget.mix.index}',
+                          title: widget.mix.title,
+                          subtitle: widget.mix.subtitle,
+                          coverUrl: widget.mix.coverUrl,
+                          type: 'mix',
+                        ),
                       );
                     },
                     childCount: mix.tracks.length,

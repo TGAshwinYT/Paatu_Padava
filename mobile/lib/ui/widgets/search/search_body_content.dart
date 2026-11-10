@@ -11,7 +11,7 @@ import 'search_active_typing_suggestions.dart';
 import 'search_all_results_view.dart';
 import 'search_skeleton_view.dart';
 import 'search_error_view.dart';
-import 'search_song_options_sheet.dart';
+import '../common/song_options_sheet.dart';
 import 'search_versions_sheet.dart';
 
 /// 3-State progressive body for the Search Screen:
@@ -94,7 +94,7 @@ class SearchBodyContent extends StatelessWidget {
                             searchController.selection = TextSelection.collapsed(offset: q.length);
                             onQueryChanged(q);
                           },
-                          onShowOptions: (s) => SearchSongOptionsSheet.show(context, s),
+                          onShowOptions: (s) => SongOptionsSheet.show(context, s),
                         );
                       }
 
@@ -149,7 +149,7 @@ class SearchBodyContent extends StatelessWidget {
                         onRecordSearchResultClick(song);
                         audioHandler.playSong(song, preserveUserQueue: true);
                       },
-                      onShowOptions: (s) => SearchSongOptionsSheet.show(context, s),
+                      onShowOptions: (s) => SongOptionsSheet.show(context, s),
                       onShowVersions: (s) => SearchVersionsSheet.show(
                         context,
                         s,

@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
 
@@ -72,55 +73,68 @@ class SearchHeaderBar extends StatelessWidget {
       );
     }
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 12, 20, 8),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 24),
-            tooltip: 'Back to Search',
-            onPressed: onExitActiveSearch,
-          ),
-          Expanded(
-            child: Container(
-              decoration: BoxDecoration(
-                color: AppColors.surfaceElevated,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.surfaceBorderHighlight),
-              ),
-              child: TextField(
-                controller: controller,
-                focusNode: focusNode,
-                onChanged: onChanged,
-                onSubmitted: onSubmitted,
-                style: const TextStyle(color: Colors.white, fontSize: 15),
-                textInputAction: TextInputAction.search,
-                autofocus: true,
-                decoration: InputDecoration(
-                  hintText: 'Search songs, artists, albums...',
-                  hintStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
-                  prefixIcon: const Icon(Icons.search_rounded, color: AppColors.neonViolet, size: 22),
-                  suffixIcon: ValueListenableBuilder<TextEditingValue>(
-                    valueListenable: controller,
-                    builder: (context, value, _) {
-                      if (value.text.isEmpty) return const SizedBox.shrink();
-                      return IconButton(
-                        icon: const Icon(Icons.cancel_rounded, color: Colors.white70, size: 20),
-                        tooltip: 'Clear search',
-                        onPressed: () {
-                          controller.clear();
-                          onChanged('');
-                        },
-                      );
-                    },
-                  ),
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.bgDark.withValues(alpha: 0.85),
+        border: const Border(
+          bottom: BorderSide(color: AppColors.surfaceBorder, width: 0.5),
+        ),
+      ),
+      child: ClipRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 20, 8),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 24),
+                  tooltip: 'Back to Search',
+                  onPressed: onExitActiveSearch,
                 ),
-              ),
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceElevated,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppColors.surfaceBorderHighlight),
+                    ),
+                    child: TextField(
+                      controller: controller,
+                      focusNode: focusNode,
+                      onChanged: onChanged,
+                      onSubmitted: onSubmitted,
+                      style: const TextStyle(color: Colors.white, fontSize: 15),
+                      textInputAction: TextInputAction.search,
+                      autofocus: true,
+                      decoration: InputDecoration(
+                        hintText: 'Search songs, artists, albums...',
+                        hintStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
+                        prefixIcon: const Icon(Icons.search_rounded, color: AppColors.neonViolet, size: 22),
+                        suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                          valueListenable: controller,
+                          builder: (context, value, _) {
+                            if (value.text.isEmpty) return const SizedBox.shrink();
+                            return IconButton(
+                              icon: const Icon(Icons.cancel_rounded, color: Colors.white70, size: 20),
+                              tooltip: 'Clear search',
+                              onPressed: () {
+                                controller.clear();
+                                onChanged('');
+                              },
+                            );
+                          },
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }

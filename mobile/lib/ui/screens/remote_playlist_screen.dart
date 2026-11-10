@@ -9,7 +9,7 @@ import '../../data/repositories/song_repository.dart';
 import '../theme/app_theme.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/batch_download_button.dart';
-import '../widgets/swipeable_song_tile.dart';
+import '../widgets/common/song_tile.dart';
 
 class RemotePlaylistScreen extends StatefulWidget {
   final String playlistId;
@@ -294,25 +294,25 @@ class _RemotePlaylistScreenState extends State<RemotePlaylistScreen> {
                 )
               else
                 SliverPadding(
-                  padding: const EdgeInsets.only(bottom: 120),
+                  padding: EdgeInsets.only(
+                    bottom: AppDimensions.bottomClearance(context, hasBottomNav: false),
+                  ),
                   sliver: SliverList(
                     delegate: SliverChildBuilderDelegate(
                       (context, index) {
                         final song = _songs[index];
-                        return SwipeableSongTile(
+                        final playbackCtx = PlaybackContext(
+                          id: widget.playlistId,
+                          title: widget.playlistTitle,
+                          type: 'playlist',
+                          coverUrl: widget.imageUrl,
+                          subtitle: widget.subtitle,
+                        );
+                        return SongTile(
                           song: song,
                           queue: _songs,
                           index: index,
-                          onTap: () {
-                            final playbackCtx = PlaybackContext(
-                              id: widget.playlistId,
-                              title: widget.playlistTitle,
-                              type: 'playlist',
-                              coverUrl: widget.imageUrl,
-                              subtitle: widget.subtitle,
-                            );
-                            audioHandler.playSong(song, queue: _songs, context: playbackCtx);
-                          },
+                          playbackContext: playbackCtx,
                         );
                       },
                       childCount: _songs.length,

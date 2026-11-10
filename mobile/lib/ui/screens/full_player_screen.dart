@@ -346,11 +346,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                   );
                                 },
                               ),
-                              IconButton(
-                                icon: const Icon(Icons.queue_music_rounded, color: Colors.white, size: 26),
-                                tooltip: 'Playback Queue',
-                                onPressed: () => QueueSheet.show(context),
-                              ),
                             ],
                           ),
                         ],

@@ -152,7 +152,7 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
                   onRecordClick: widget.onRecordClick,
                 )
               : ListView(
-                  padding: const EdgeInsets.only(bottom: 120),
+                  padding: EdgeInsets.only(bottom: AppDimensions.bottomClearance(context, hasBottomNav: true)),
                   children: [
               // Typo / Did You Mean Banner
               if (state.didYouMean != null && _selectedFilter == 'All')

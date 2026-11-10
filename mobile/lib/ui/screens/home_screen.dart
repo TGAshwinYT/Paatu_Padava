@@ -8,7 +8,6 @@ import '../../services/auth_manager.dart';
 import '../../services/history_manager.dart';
 import '../../logic/home_feed_provider.dart';
 import '../theme/app_theme.dart';
-import '../widgets/spotify_import_dialog.dart';
 import '../widgets/sync_status_indicator.dart';
 import '../widgets/account_bar_button.dart';
 import '../widgets/home/home_song_card.dart';
@@ -165,16 +164,8 @@ class _HomeScreenState extends State<HomeScreen> {
                               IconButton(
                                 constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                                 padding: const EdgeInsets.all(6),
-                                icon: const Icon(Icons.playlist_add_check_circle_outlined, color: Color(0xFF1DB954), size: 22),
-                                tooltip: 'Import Spotify Playlist',
-                                onPressed: () => SpotifyImportDialog.show(context),
-                              ),
-                              const SizedBox(width: 2),
-                              IconButton(
-                                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                                padding: const EdgeInsets.all(6),
                                 icon: const Icon(Icons.settings_outlined, color: Colors.white, size: 22),
-                                tooltip: 'Settings & Equalizer',
+                                tooltip: 'Settings',
                                 onPressed: () {
                                   Navigator.push(
                                     context,
@@ -191,23 +182,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
 
-                  // Persistent Guest Mode Banner for Home Screen
-                  SliverToBoxAdapter(
-                    child: ValueListenableBuilder<AuthUser?>(
-                      valueListenable: AuthManager.authNotifier,
-                      builder: (context, user, _) {
-                        if (user == null || user.isGuest) {
-                          return const GuestModeBanner();
-                        }
-                        return const SizedBox.shrink();
-                      },
-                    ),
-                  ),
-
                   // Dynamic Greeting
                   SliverToBoxAdapter(
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
                       child: ValueListenableBuilder<AuthUser?>(
                         valueListenable: AuthManager.authNotifier,
                         builder: (context, user, _) {
@@ -225,6 +203,19 @@ class _HomeScreenState extends State<HomeScreen> {
                           );
                         },
                       ),
+                    ),
+                  ),
+
+                  // Persistent Guest Mode Banner for Home Screen
+                  SliverToBoxAdapter(
+                    child: ValueListenableBuilder<AuthUser?>(
+                      valueListenable: AuthManager.authNotifier,
+                      builder: (context, user, _) {
+                        if (user == null || user.isGuest) {
+                          return const GuestModeBanner();
+                        }
+                        return const SizedBox.shrink();
+                      },
                     ),
                   ),
 
@@ -1045,7 +1036,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ],
 
-                  const SliverToBoxAdapter(child: SizedBox(height: 120)),
+                  SliverToBoxAdapter(
+                    child: SizedBox(height: AppDimensions.bottomClearance(context, hasBottomNav: true)),
+                  ),
                 ],
               ),
             );

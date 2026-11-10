@@ -8,6 +8,7 @@ import '../../data/repositories/song_repository.dart';
 import '../../services/settings_manager.dart';
 import '../../services/spotify_import_service.dart';
 import '../widgets/mini_player.dart';
+import '../theme/app_theme.dart';
 import '../widgets/search/search_song_options_sheet.dart';
 import '../../logic/stream_resolver.dart';
 
@@ -585,7 +586,9 @@ class _ArtistScreenState extends State<ArtistScreen> {
               ],
 
               // Safe bottom padding for MiniPlayer
-              const SliverToBoxAdapter(child: SizedBox(height: 120)),
+              SliverToBoxAdapter(
+                child: SizedBox(height: AppDimensions.bottomClearance(context, hasBottomNav: false)),
+              ),
             ],
           ),
 

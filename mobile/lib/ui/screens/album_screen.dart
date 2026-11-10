@@ -7,6 +7,7 @@ import '../widgets/batch_download_button.dart';
 import '../widgets/swipeable_song_tile.dart';
 import '../../logic/stream_resolver.dart';
 import '../../data/repositories/song_repository.dart';
+import '../theme/app_theme.dart';
 
 class AlbumScreen extends StatefulWidget {
   final String albumId;
@@ -233,7 +234,9 @@ class _AlbumScreenState extends State<AlbumScreen> {
                   ),
                 ),
 
-              const SliverToBoxAdapter(child: SizedBox(height: 120)),
+              SliverToBoxAdapter(
+                child: SizedBox(height: AppDimensions.bottomClearance(context, hasBottomNav: false)),
+              ),
             ],
           ),
 

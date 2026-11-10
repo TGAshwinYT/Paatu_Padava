@@ -76,4 +76,27 @@ class AppDimensions {
     final ratio = (w / baselineWidth).clamp(minScale, maxScale);
     return (size * ratio).roundToDouble();
   }
+
+  /// Unified bottom clearance ensuring scroll views are never obscured by
+  /// the persistent MiniPlayer and BottomNavigationBar.
+  ///
+  /// • In Tab Screens (hasBottomNav: true):
+  ///   miniPlayerHeight (66) + bottomNavHeight (56) + safeArea.bottom + 16dp margin
+  /// • In Pushed Detail Screens (hasBottomNav: false):
+  ///   miniPlayerHeight (66) + safeArea.bottom + 16dp margin
+  static double bottomClearance(
+    BuildContext context, {
+    bool hasBottomNav = true,
+  }) {
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    const miniPlayerHeight = 66.0;
+    const bottomNavHeight = 56.0;
+    const spacing = 16.0;
+
+    if (hasBottomNav) {
+      return miniPlayerHeight + bottomNavHeight + bottomInset + spacing;
+    } else {
+      return miniPlayerHeight + bottomInset + spacing;
+    }
+  }
 }

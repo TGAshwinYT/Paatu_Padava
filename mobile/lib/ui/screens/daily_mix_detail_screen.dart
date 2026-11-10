@@ -229,7 +229,10 @@ class _DailyMixDetailScreenState extends State<DailyMixDetailScreen> {
 
               // Tracks List
               SliverPadding(
-                padding: const EdgeInsets.only(top: 8, bottom: 100),
+                padding: EdgeInsets.only(
+                  top: 8,
+                  bottom: AppDimensions.bottomClearance(context, hasBottomNav: false),
+                ),
                 sliver: SliverList(
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {

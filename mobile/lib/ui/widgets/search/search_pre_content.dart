@@ -327,7 +327,7 @@ class SearchPreContent extends StatelessWidget {
           },
         ),
 
-        const SizedBox(height: 120),
+        SizedBox(height: AppDimensions.bottomClearance(context, hasBottomNav: true)),
       ],
     );
   }

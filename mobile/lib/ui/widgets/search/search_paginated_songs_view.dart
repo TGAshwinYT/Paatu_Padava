@@ -139,7 +139,10 @@ class _SearchPaginatedSongsViewState extends State<SearchPaginatedSongsView> {
 
     return ListView.builder(
       controller: _scrollController,
-      padding: const EdgeInsets.only(bottom: 120, top: 4),
+      padding: EdgeInsets.only(
+        bottom: AppDimensions.bottomClearance(context, hasBottomNav: true),
+        top: 4,
+      ),
       itemExtent: _songTileExtent,
       itemCount: totalCount,
       itemBuilder: (context, index) {

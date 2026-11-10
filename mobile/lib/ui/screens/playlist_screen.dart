@@ -10,6 +10,7 @@ import '../../services/playlist_manager.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/batch_download_button.dart';
 import '../widgets/swipeable_song_tile.dart';
+import '../theme/app_theme.dart';
 
 class PlaylistScreen extends StatefulWidget {
   final String playlistId;
@@ -711,7 +712,9 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                       ),
                     ),
 
-                  const SliverToBoxAdapter(child: SizedBox(height: 120)),
+                  SliverToBoxAdapter(
+                    child: SizedBox(height: AppDimensions.bottomClearance(context, hasBottomNav: false)),
+                  ),
                 ],
               ),
 

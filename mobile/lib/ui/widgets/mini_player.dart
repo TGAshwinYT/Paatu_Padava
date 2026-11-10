@@ -9,7 +9,9 @@ import 'artist_picker_sheet.dart';
 import 'cover_art_image.dart';
 
 class MiniPlayer extends StatelessWidget {
-  const MiniPlayer({Key? key}) : super(key: key);
+  final bool? hasBottomNav;
+
+  const MiniPlayer({Key? key, this.hasBottomNav}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -24,8 +26,16 @@ class MiniPlayer extends StatelessWidget {
           return const SizedBox.shrink();
         }
 
+        final needsBottomSafeArea = hasBottomNav == false ||
+            (hasBottomNav == null && (ModalRoute.of(context)?.canPop ?? false));
+        final bottomPadding = needsBottomSafeArea
+            ? (MediaQuery.paddingOf(context).bottom > 0
+                ? MediaQuery.paddingOf(context).bottom + 4.0
+                : 6.0)
+            : 6.0;
+
         return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+          padding: EdgeInsets.fromLTRB(12.0, 6.0, 12.0, bottomPadding),
           child: GestureDetector(
             onTap: () {
               Navigator.of(context).push(

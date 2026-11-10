@@ -142,7 +142,11 @@ class _LyricsScreenState extends State<LyricsScreen> {
       _lineKeys.add(GlobalKey());
     }
 
-    _updateActiveIndexForPosition(audioHandler.player.position);
+    if (_lines.isNotEmpty) {
+      final offsetMs = audioHandler.lyricsOffsetMsNotifier.value;
+      final effectivePosition = audioHandler.player.position + Duration(milliseconds: 180 + offsetMs);
+      _activeIndex = _findActiveLineIndex(effectivePosition);
+    }
   }
 
   void _subscribePosition() {
@@ -200,10 +204,9 @@ class _LyricsScreenState extends State<LyricsScreen> {
     final idx = _findActiveLineIndex(effectivePosition);
 
     if (idx != _activeIndex || immediate) {
+      _activeIndex = idx;
       if (mounted) {
-        setState(() => _activeIndex = idx);
-      } else {
-        _activeIndex = idx;
+        setState(() {});
       }
       _scrollToActive(idx, immediate: immediate);
     } else if (audioHandler.isKaraokeModeNotifier.value && mounted) {
@@ -323,6 +326,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
             extendBody: true,
             backgroundColor: const Color(0xFF060B14),
             body: Stack(
+              fit: StackFit.expand,
               children: [
                 // 1. Dynamic Blurred Fluid Mesh Artwork Background
                 Positioned.fill(
@@ -360,16 +364,16 @@ class _LyricsScreenState extends State<LyricsScreen> {
                 ),
 
                 // 3.6. Vertical Apple Music Sing Vocal Attenuation Capsule Slider
-                ValueListenableBuilder<bool>(
-                  valueListenable: audioHandler.isKaraokeModeNotifier,
-                  builder: (context, isKaraoke, _) {
-                    if (!isKaraoke) return const SizedBox.shrink();
-                    return Positioned(
-                      bottom: _isFullscreen ? 36 : 124,
-                      right: 14,
-                      child: const KaraokeVocalSlider(),
-                    );
-                  },
+                Positioned(
+                  bottom: _isFullscreen ? 36 : 124,
+                  right: 14,
+                  child: ValueListenableBuilder<bool>(
+                    valueListenable: audioHandler.isKaraokeModeNotifier,
+                    builder: (context, isKaraoke, _) {
+                      if (!isKaraoke) return const SizedBox.shrink();
+                      return const KaraokeVocalSlider();
+                    },
+                  ),
                 ),
 
                 // 4. Floating Live Sync Timing Adjuster Pill

@@ -49,7 +49,10 @@ class LyricsTopBar extends StatelessWidget {
           child: Row(
             children: [
               IconButton(
-                icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white, size: 30),
+                icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white, size: 28),
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                padding: const EdgeInsets.all(4),
+                visualDensity: VisualDensity.compact,
                 tooltip: 'Collapse Lyrics',
                 onPressed: onCollapse,
               ),
@@ -166,8 +169,11 @@ class LyricsTopBar extends StatelessWidget {
                 icon: const Icon(
                   Icons.manage_search_rounded,
                   color: Colors.white70,
-                  size: 24,
+                  size: 22,
                 ),
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                padding: const EdgeInsets.all(6),
+                visualDensity: VisualDensity.compact,
                 tooltip: 'Wrong Lyrics? Search Alternatives',
                 onPressed: onOpenWrongLyricsPicker,
               ),
@@ -184,8 +190,11 @@ class LyricsTopBar extends StatelessWidget {
                       icon: Icon(
                         Icons.tune_rounded,
                         color: isActive ? const Color(0xFF06B6D4) : Colors.white70,
-                        size: 22,
+                        size: 20,
                       ),
+                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                      padding: const EdgeInsets.all(6),
+                      visualDensity: VisualDensity.compact,
                       tooltip: hasOffset
                           ? 'Lyrics Offset: ${(offsetMs / 1000).toStringAsFixed(1)}s (Tap to Adjust)'
                           : 'Adjust Sync Timing',
@@ -204,8 +213,11 @@ class LyricsTopBar extends StatelessWidget {
                     icon: Icon(
                       isKaraoke ? Icons.mic_external_on_rounded : Icons.mic_none_rounded,
                       color: isKaraoke ? const Color(0xFF06B6D4) : Colors.white70,
-                      size: 23,
+                      size: 22,
                     ),
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                    padding: const EdgeInsets.all(6),
+                    visualDensity: VisualDensity.compact,
                     tooltip: isKaraoke ? 'Exit Karaoke Mode' : 'Enter Karaoke Sing-Along Mode',
                     onPressed: () => audioHandler.toggleKaraokeMode(),
                   );
@@ -218,8 +230,11 @@ class LyricsTopBar extends StatelessWidget {
                 icon: Icon(
                   isFullscreen ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
                   color: Colors.white,
-                  size: 26,
+                  size: 24,
                 ),
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                padding: const EdgeInsets.all(6),
+                visualDensity: VisualDensity.compact,
                 tooltip: isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen',
                 onPressed: onToggleFullscreen,
               ),

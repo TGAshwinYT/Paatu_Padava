@@ -459,10 +459,15 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     // Smart shuffle taste profile tracking
     _smartShuffleController.recordRecentlyPlayed(song);
 
-    // Reset scrobble threshold state & lyrics offset
+    // Reset scrobble threshold state & load saved lyrics offset for this track
     _hasRecordedHistory = false;
     _hasRecordedListen = false;
     lyricsOffsetMsNotifier.value = 0;
+    LyricsClient.instance.getLyricsOffset(song.id).then((savedOffset) {
+      if (currentSong?.id == song.id) {
+        lyricsOffsetMsNotifier.value = savedOffset;
+      }
+    });
 
     // Debounce lyrics resolution by 300ms so rapid track transitions / skips do not trigger duplicate LRCLIB calls
     _lyricsDebounceTimer?.cancel();
@@ -506,6 +511,24 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     final selected = dual.getLyricsForLanguage(lyricsLanguageNotifier.value);
     currentLyricsNotifier.value = selected;
     lyricsStateNotifier.value = LyricsState.loaded(selected, dualLyrics: dual);
+  }
+
+  /// Adjusts lyrics sync timing offset by a delta in milliseconds (e.g. +500ms or -500ms)
+  /// and persists it for the current song in local storage.
+  Future<void> adjustLyricsOffset(int deltaMs) async {
+    final curSong = currentSong;
+    if (curSong == null) return;
+    final newOffset = lyricsOffsetMsNotifier.value + deltaMs;
+    lyricsOffsetMsNotifier.value = newOffset;
+    await LyricsClient.instance.saveLyricsOffset(curSong.id, newOffset);
+  }
+
+  /// Resets lyrics sync timing offset to 0ms for the current song.
+  Future<void> resetLyricsOffset() async {
+    final curSong = currentSong;
+    if (curSong == null) return;
+    lyricsOffsetMsNotifier.value = 0;
+    await LyricsClient.instance.saveLyricsOffset(curSong.id, 0);
   }
 
   DualLyrics _buildDualLyrics(String rawLyrics) {

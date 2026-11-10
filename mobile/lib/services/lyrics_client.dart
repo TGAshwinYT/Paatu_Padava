@@ -306,9 +306,9 @@ class LyricsClient {
   }
 
   /// Parses raw LRC string into sorted [LyricLine]s with [IndicRomanizer] support
-  /// and dynamic BGM instrumental gap detection (>6s pauses).
+  /// and dynamic BGM instrumental gap detection for Intro, Interludes, and Outro (>6s pauses).
   /// CRITICAL: Zero timestamp stretching/skew multipliers are applied!
-  static List<LyricLine> parseLrc(String rawLyrics) {
+  static List<LyricLine> parseLrc(String rawLyrics, {int? durationSeconds}) {
     if (rawLyrics.trim().isEmpty) return [];
 
     final timestampRegex = RegExp(r'\[(\d+):(\d+(?:\.\d+)?)\]');
@@ -355,7 +355,7 @@ class LyricsClient {
 
     final List<LyricLine> result = [];
 
-    // Intro instrumental pause > 6s
+    // 1. Intro instrumental pause > 6s
     if (parsed.first.timestamp > const Duration(seconds: 6)) {
       result.add(LyricLine(
         timestamp: Duration.zero,
@@ -365,6 +365,7 @@ class LyricsClient {
       ));
     }
 
+    // 2. Verse lines and middle instrumental interludes
     for (int i = 0; i < parsed.length; i++) {
       result.add(parsed[i]);
 
@@ -379,6 +380,27 @@ class LyricsClient {
           result.add(LyricLine(
             timestamp: bgmStart,
             endTimestamp: next.timestamp,
+            text: '• • • ♪',
+            isBgm: true,
+          ));
+        }
+      }
+    }
+
+    // 3. Outro instrumental pause at the end of the song (>6s remaining after last vocal)
+    if (durationSeconds != null && durationSeconds > 0 && parsed.isNotEmpty) {
+      final totalDuration = Duration(seconds: durationSeconds);
+      final lastLyric = parsed.last;
+      final remaining = totalDuration - lastLyric.timestamp;
+
+      if (remaining > const Duration(seconds: 6)) {
+        // Allow ~3 seconds for the last sung syllable to fade out before lighting up BGM
+        final vocalMs = math.min(3000, remaining.inMilliseconds ~/ 3);
+        final bgmStart = lastLyric.timestamp + Duration(milliseconds: vocalMs);
+        if (bgmStart < totalDuration) {
+          result.add(LyricLine(
+            timestamp: bgmStart,
+            endTimestamp: totalDuration,
             text: '• • • ♪',
             isBgm: true,
           ));
@@ -503,6 +525,20 @@ class LyricsClient {
             }
           }
         }
+
+        // Tier 1.5: If artist-constrained search yielded nothing, try track_name alone
+        if (allCandidates.isEmpty && primaryArtist.isNotEmpty) {
+          try {
+            final uriAlt = Uri.parse('https://lrclib.net/api/search').replace(queryParameters: {
+              'track_name': cand,
+            });
+            final resAlt = await http.get(uriAlt, headers: {'User-Agent': _userAgent}).timeout(const Duration(seconds: 3));
+            if (resAlt.statusCode == 200) {
+              final List dataAlt = json.decode(resAlt.body);
+              allCandidates.addAll(dataAlt.whereType<Map<String, dynamic>>());
+            }
+          } catch (_) {}
+        }
       } catch (e) {
         AppLogger.log('LyricsClient', 'LRCLIB Step 1 search notice for "$cand": $e');
       }
@@ -570,7 +606,10 @@ class LyricsClient {
       try {
         String? saavnId = (trackId.isNotEmpty && trackId.length != 11) ? trackId : null;
         if (saavnId == null) {
-          final searchSongs = await SaavnClient.search('$cand $primaryArtist', limit: 2);
+          var searchSongs = await SaavnClient.search('$cand $primaryArtist', limit: 2);
+          if (searchSongs.isEmpty) {
+            searchSongs = await SaavnClient.search(cand, limit: 2);
+          }
           if (searchSongs.isNotEmpty) {
             saavnId = searchSongs.first.id;
           }
@@ -612,15 +651,25 @@ class LyricsClient {
     }
 
     // Step 4: YouTube Closed Captions / Timed Subtitles Fallback
-    if (trackId.length == 11) {
+    String? targetYtId = trackId.length == 11 ? trackId : null;
+    if (targetYtId == null) {
       try {
-        final ytCaptionsLrc = await YouTubeClient.fetchVideoCaptions(trackId);
+        final ytMatches = await YouTubeClient.search('$title $primaryArtist', limit: 1);
+        if (ytMatches.isNotEmpty && ytMatches.first.id.length == 11) {
+          targetYtId = ytMatches.first.id;
+        }
+      } catch (_) {}
+    }
+
+    if (targetYtId != null) {
+      try {
+        final ytCaptionsLrc = await YouTubeClient.fetchVideoCaptions(targetYtId);
         if (ytCaptionsLrc != null && ytCaptionsLrc.trim().isNotEmpty) {
           final dual = buildDualLyrics(ytCaptionsLrc);
           final state = LyricsState.loaded(ytCaptionsLrc, dualLyrics: dual);
           _putMemoryCache(trackId, state);
           _savePersistentCache(trackId, ytCaptionsLrc, dual);
-          AppLogger.log('LyricsClient', 'Resolved native YouTube closed captions for "$title"');
+          AppLogger.log('LyricsClient', 'Resolved YouTube closed captions for "$title" (video: $targetYtId)');
           return state;
         }
       } catch (e) {
@@ -723,6 +772,31 @@ class LyricsClient {
     try {
       final box = await _getBox();
       await box?.clear();
+    } catch (_) {}
+  }
+
+  /// Retrieves user-adjusted lyrics sync offset (in milliseconds) for a given track.
+  Future<int> getLyricsOffset(String trackId) async {
+    try {
+      final box = await _getBox();
+      if (box != null) {
+        return (box.get('offset_$trackId') as num?)?.toInt() ?? 0;
+      }
+    } catch (_) {}
+    return 0;
+  }
+
+  /// Persists user-adjusted lyrics sync offset (in milliseconds) for a given track.
+  Future<void> saveLyricsOffset(String trackId, int offsetMs) async {
+    try {
+      final box = await _getBox();
+      if (box != null) {
+        if (offsetMs == 0) {
+          await box.delete('offset_$trackId');
+        } else {
+          await box.put('offset_$trackId', offsetMs);
+        }
+      }
     } catch (_) {}
   }
 }

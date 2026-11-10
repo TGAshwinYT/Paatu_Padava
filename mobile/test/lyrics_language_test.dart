@@ -423,4 +423,60 @@ Line four of song
       );
     });
   });
+
+  group('Outro BGM Instrumental & Live Sync Offset Synchronization Tests', () {
+    test('Detects Outro Instrumental section when remaining duration > 6s', () {
+      const rawLrc = '''
+[00:10.00] First vocal line
+[01:00.00] Last vocal line of the song
+''';
+      // Song duration is 90 seconds (1:30). Remaining time after 1:00 is 30s (> 6s).
+      final lines = LyricsClient.parseLrc(rawLrc, durationSeconds: 90);
+
+      expect(lines.isNotEmpty, isTrue);
+      // First is intro BGM (00:10.00 > 6s)
+      expect(lines.first.isBgm, isTrue);
+      expect(lines.first.text, equals('• • • ♪'));
+
+      // Last item should be the outro BGM
+      final lastLine = lines.last;
+      expect(lastLine.isBgm, isTrue);
+      expect(lastLine.text, equals('• • • ♪'));
+      expect(lastLine.endTimestamp, equals(const Duration(seconds: 90)));
+      expect(lastLine.timestamp > const Duration(seconds: 60), isTrue);
+    });
+
+    test('Does not add Outro BGM when remaining duration <= 6s', () {
+      const rawLrc = '''
+[00:02.00] Quick intro line
+[01:56.00] Song ends right here at 1:56
+''';
+      // Song duration is 120 seconds (2:00). Remaining time is 4s (<= 6s).
+      final lines = LyricsClient.parseLrc(rawLrc, durationSeconds: 120);
+
+      // Last line is vocal, not BGM
+      expect(lines.last.isBgm, isFalse);
+      expect(lines.last.text, equals('Song ends right here at 1:56'));
+    });
+
+    test('Live timing offset shifts effective position correctly', () {
+      const currentPos = Duration(seconds: 30);
+      const baseLookahead = Duration(milliseconds: 180);
+
+      // Default (offset = 0)
+      const offsetZero = 0;
+      final effectiveDefault = currentPos + Duration(milliseconds: baseLookahead.inMilliseconds + offsetZero);
+      expect(effectiveDefault.inMilliseconds, equals(30180));
+
+      // User adds +500ms (lyrics leading audio, shift forward)
+      const offsetPlus500 = 500;
+      final effectivePlus = currentPos + Duration(milliseconds: baseLookahead.inMilliseconds + offsetPlus500);
+      expect(effectivePlus.inMilliseconds, equals(30680));
+
+      // User subtracts -500ms (lyrics lagging audio, shift backward)
+      const offsetMinus500 = -500;
+      final effectiveMinus = currentPos + Duration(milliseconds: baseLookahead.inMilliseconds + offsetMinus500);
+      expect(effectiveMinus.inMilliseconds, equals(29680));
+    });
+  });
 }

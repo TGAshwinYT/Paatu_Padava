@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
@@ -53,6 +54,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
   bool _isUserScrolling = false;
   bool _isLrc = false;
   bool _isFullscreen = false;
+  bool _showSyncAdjuster = false;
   StreamSubscription<bool>? _playingSub;
 
   @override
@@ -63,6 +65,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
     // Listen to reactive lyrics updates
     audioHandler.currentLyricsNotifier.addListener(_onLyricsChanged);
     audioHandler.lyricsStateNotifier.addListener(_onLyricsChanged);
+    audioHandler.lyricsOffsetMsNotifier.addListener(_onOffsetChanged);
 
     // Subscribe to position stream with effective offset calculation
     _subscribePosition();
@@ -82,7 +85,14 @@ class _LyricsScreenState extends State<LyricsScreen> {
     _scrollController.dispose();
     audioHandler.currentLyricsNotifier.removeListener(_onLyricsChanged);
     audioHandler.lyricsStateNotifier.removeListener(_onLyricsChanged);
+    audioHandler.lyricsOffsetMsNotifier.removeListener(_onOffsetChanged);
     super.dispose();
+  }
+
+  void _onOffsetChanged() {
+    if (mounted) {
+      _updateActiveIndexForPosition(audioHandler.player.position, immediate: true);
+    }
   }
 
   void _onLyricsChanged() {
@@ -106,14 +116,15 @@ class _LyricsScreenState extends State<LyricsScreen> {
       return;
     }
 
+    final curSong = widget.initialSong ?? audioHandler.currentSong;
+    final durSec = audioHandler.player.duration?.inSeconds ?? (curSong?.duration ?? 180);
+
     String effectiveLyrics = rawLyrics;
     if (!LyricsClient.isLrc(effectiveLyrics)) {
-      final curSong = widget.initialSong ?? audioHandler.currentSong;
-      final durSec = audioHandler.player.duration?.inSeconds ?? (curSong?.duration ?? 180);
       effectiveLyrics = LyricsClient.plainLyricsToAutoTimedLrc(effectiveLyrics, durSec);
     }
 
-    final parsed = LyricsClient.parseLrc(effectiveLyrics);
+    final parsed = LyricsClient.parseLrc(effectiveLyrics, durationSeconds: durSec);
     _lines.addAll(parsed);
     _isLrc = _lines.isNotEmpty;
 
@@ -169,11 +180,12 @@ class _LyricsScreenState extends State<LyricsScreen> {
   }
 
   /// Calculates the active lyric index using binary search:
-  /// exact LRC timestamp + 180ms vocal-lead lookahead to eliminate lag.
+  /// exact LRC timestamp + 180ms vocal-lead lookahead + user timing offset to eliminate lag.
   void _updateActiveIndexForPosition(Duration currentPosition, {bool immediate = false}) {
     if (!_isLrc || _lines.isEmpty) return;
 
-    final effectivePosition = currentPosition + const Duration(milliseconds: 180);
+    final offsetMs = audioHandler.lyricsOffsetMsNotifier.value;
+    final effectivePosition = currentPosition + Duration(milliseconds: 180 + offsetMs);
     final idx = _findActiveLineIndex(effectivePosition);
 
     if (idx != _activeIndex || immediate) {
@@ -319,10 +331,21 @@ class _LyricsScreenState extends State<LyricsScreen> {
                       song: currentSong,
                       isLrc: _isLrc,
                       isFullscreen: _isFullscreen,
+                      isSyncAdjusterOpen: _showSyncAdjuster,
                       onOpenWrongLyricsPicker: () => WrongLyricsSheet.show(context, currentSong),
                       onToggleFullscreen: () => setState(() => _isFullscreen = !_isFullscreen),
+                      onToggleSyncAdjuster: () => setState(() => _showSyncAdjuster = !_showSyncAdjuster),
                       onCollapse: () => Navigator.of(context).pop(),
                     ),
+                  ),
+
+                // 4. Floating Live Sync Timing Adjuster Pill
+                if (_showSyncAdjuster && _isLrc)
+                  Positioned(
+                    bottom: _isFullscreen ? 28 : 116,
+                    left: 16,
+                    right: 16,
+                    child: _buildSyncAdjusterPill(context),
                   ),
 
                 // 5. Glassmorphic Bottom Playback Controls (Hidden in Fullscreen)
@@ -561,6 +584,128 @@ class _LyricsScreenState extends State<LyricsScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildSyncAdjusterPill(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A).withValues(alpha: 0.90),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.4),
+                blurRadius: 16,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: ValueListenableBuilder<int>(
+            valueListenable: audioHandler.lyricsOffsetMsNotifier,
+            builder: (context, offsetMs, _) {
+              final seconds = offsetMs / 1000.0;
+              final offsetLabel = offsetMs == 0
+                  ? '±0.0s'
+                  : '${offsetMs > 0 ? "+" : ""}${seconds.toStringAsFixed(1)}s';
+
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _syncStepButton(
+                    label: '-0.5s',
+                    onTap: () => audioHandler.adjustLyricsOffset(-500),
+                  ),
+                  const SizedBox(width: 4),
+                  _syncStepButton(
+                    label: '-0.1s',
+                    onTap: () => audioHandler.adjustLyricsOffset(-100),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: offsetMs != 0 ? () => audioHandler.resetLyricsOffset() : null,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: offsetMs != 0
+                              ? const Color(0xFF06B6D4).withValues(alpha: 0.20)
+                              : Colors.white.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: offsetMs != 0
+                                ? const Color(0xFF06B6D4).withValues(alpha: 0.45)
+                                : Colors.white.withValues(alpha: 0.10),
+                          ),
+                        ),
+                        child: Text(
+                          offsetMs != 0 ? 'Sync: $offsetLabel (Tap Reset)' : 'Sync: ±0.0s',
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: offsetMs != 0 ? const Color(0xFF06B6D4) : Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  _syncStepButton(
+                    label: '+0.1s',
+                    onTap: () => audioHandler.adjustLyricsOffset(100),
+                  ),
+                  const SizedBox(width: 4),
+                  _syncStepButton(
+                    label: '+0.5s',
+                    onTap: () => audioHandler.adjustLyricsOffset(500),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 18),
+                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                    padding: EdgeInsets.zero,
+                    tooltip: 'Close Adjuster',
+                    onPressed: () => setState(() => _showSyncAdjuster = false),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _syncStepButton({required String label, required VoidCallback onTap}) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
       ),
     );
   }

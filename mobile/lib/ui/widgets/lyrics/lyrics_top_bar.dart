@@ -8,8 +8,10 @@ class LyricsTopBar extends StatelessWidget {
   final Song? song;
   final bool isLrc;
   final bool isFullscreen;
+  final bool isSyncAdjusterOpen;
   final VoidCallback onOpenWrongLyricsPicker;
   final VoidCallback onToggleFullscreen;
+  final VoidCallback? onToggleSyncAdjuster;
   final VoidCallback onCollapse;
 
   const LyricsTopBar({
@@ -17,8 +19,10 @@ class LyricsTopBar extends StatelessWidget {
     required this.song,
     required this.isLrc,
     required this.isFullscreen,
+    this.isSyncAdjusterOpen = false,
     required this.onOpenWrongLyricsPicker,
     required this.onToggleFullscreen,
+    this.onToggleSyncAdjuster,
     required this.onCollapse,
   });
 
@@ -167,7 +171,30 @@ class LyricsTopBar extends StatelessWidget {
                 tooltip: 'Wrong Lyrics? Search Alternatives',
                 onPressed: onOpenWrongLyricsPicker,
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: 2),
+
+              // Sync Timing Offset Adjuster (only when lyrics are synchronized)
+              if (isLrc && onToggleSyncAdjuster != null)
+                ValueListenableBuilder<int>(
+                  valueListenable: audioHandler.lyricsOffsetMsNotifier,
+                  builder: (context, offsetMs, _) {
+                    final hasOffset = offsetMs != 0;
+                    final isActive = isSyncAdjusterOpen || hasOffset;
+                    return IconButton(
+                      icon: Icon(
+                        Icons.tune_rounded,
+                        color: isActive ? const Color(0xFF06B6D4) : Colors.white70,
+                        size: 22,
+                      ),
+                      tooltip: hasOffset
+                          ? 'Lyrics Offset: ${(offsetMs / 1000).toStringAsFixed(1)}s (Tap to Adjust)'
+                          : 'Adjust Sync Timing',
+                      onPressed: onToggleSyncAdjuster,
+                    );
+                  },
+                ),
+              if (isLrc && onToggleSyncAdjuster != null)
+                const SizedBox(width: 2),
 
               // Always-visible Fullscreen Toggle (⛶)
               IconButton(

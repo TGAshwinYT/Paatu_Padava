@@ -38,12 +38,19 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
     super.initState();
     _parseLyrics();
     _subscribePosition();
+    audioHandler.lyricsOffsetMsNotifier.addListener(_onOffsetChanged);
 
     // Trigger immediate synchronized jump to the active playing line when mounted
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _updateActiveIndexForPosition(audioHandler.player.position, immediate: true);
     });
+  }
+
+  void _onOffsetChanged() {
+    if (mounted) {
+      _updateActiveIndexForPosition(audioHandler.player.position, immediate: true);
+    }
   }
 
   int _findActiveLineIndex(Duration effectivePosition) {
@@ -68,7 +75,8 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
   void _updateActiveIndexForPosition(Duration pos, {bool immediate = false}) {
     if (!_isLrc || _lines.isEmpty) return;
 
-    final effectivePosition = pos + const Duration(milliseconds: 180);
+    final offsetMs = audioHandler.lyricsOffsetMsNotifier.value;
+    final effectivePosition = pos + Duration(milliseconds: 180 + offsetMs);
     final idx = _findActiveLineIndex(effectivePosition);
 
     if (idx != _activeIndex || immediate) {
@@ -99,6 +107,7 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
     _posSub?.cancel();
     _userScrollResumeTimer?.cancel();
     _scrollController.dispose();
+    audioHandler.lyricsOffsetMsNotifier.removeListener(_onOffsetChanged);
     super.dispose();
   }
 
@@ -111,7 +120,7 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
       effectiveLyrics = LyricsClient.plainLyricsToAutoTimedLrc(effectiveLyrics, widget.song.duration);
     }
 
-    final parsed = LyricsClient.parseLrc(effectiveLyrics);
+    final parsed = LyricsClient.parseLrc(effectiveLyrics, durationSeconds: widget.song.duration);
     _lines.addAll(parsed);
     _isLrc = _lines.isNotEmpty;
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../models/song.dart';
 import '../../../services/player_handler.dart';
+import '../../../services/smart_cache_service.dart';
 
 /// Standalone playback scrubber widget that isolates seek bar re-renders
 /// from the parent player screen. Prevents UI churn by gating stream updates
@@ -58,11 +59,13 @@ class _PlayerScrubberState extends State<PlayerScrubber> {
             stream: audioHandler.player.bufferedPositionStream,
             initialData: audioHandler.player.bufferedPosition,
             builder: (context, bufSnap) {
-              final bufferedMs = (bufSnap.data ?? Duration.zero).inMilliseconds.toDouble();
+              final isCached = widget.song.isDownloaded ||
+                  SmartCacheService.instance.isCached(widget.song.id);
+              final bufferedMs = isCached
+                  ? maxVal
+                  : (bufSnap.data ?? Duration.zero).inMilliseconds.toDouble();
               // Never draw buffered behind the playhead, never beyond the end.
               final bufferedClamped = bufferedMs.clamp(displayedMs.clamp(0.0, maxVal), maxVal);
-              final percent = maxVal > 0 ? (bufferedMs / maxVal * 100).clamp(0.0, 100.0).round() : 0;
-              final fullyLoaded = percent >= 99;
 
               return Column(
                 mainAxisSize: MainAxisSize.min,
@@ -104,24 +107,11 @@ class _PlayerScrubberState extends State<PlayerScrubber> {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16.0),
                     child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
                           PlayerScrubber.formatDuration(displayedPosition),
                           style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
-                        ),
-                        Expanded(
-                          child: Center(
-                            // Only shown while the song is still loading; hidden at 0% and when complete.
-                            child: (percent > 0 && !fullyLoaded)
-                                ? Text(
-                                    '$percent% loaded',
-                                    key: const Key('scrubber_loaded_percent'),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(color: Color(0xFF475569), fontSize: 11),
-                                  )
-                                : const SizedBox.shrink(),
-                          ),
                         ),
                         Text(
                           PlayerScrubber.formatDuration(totalDuration),

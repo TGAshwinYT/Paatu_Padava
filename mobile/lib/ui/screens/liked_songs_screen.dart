@@ -4,7 +4,6 @@ import '../../models/song.dart';
 import '../../services/favorites_manager.dart';
 import '../../services/player_handler.dart';
 import '../../services/download_manager.dart';
-import '../../services/recent_containers_manager.dart';
 import '../widgets/add_to_playlist_dialog.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/cover_art_image.dart';
@@ -231,14 +230,12 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                               icon: const Icon(Icons.play_arrow_rounded, color: Colors.black, size: 26),
                               label: const Text('Play All', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
                               onPressed: () {
-                                RecentContainersManager.recordContainer(
+                                const playbackCtx = PlaybackContext(
                                   id: 'liked_songs',
                                   title: 'Liked Songs',
-                                  subtitle: 'Playlist',
-                                  coverUrl: '',
                                   type: 'liked',
                                 );
-                                audioHandler.playSong(favorites.first, queue: favorites);
+                                audioHandler.playSong(favorites.first, queue: favorites, context: playbackCtx);
                               },
                             ),
                             Row(
@@ -247,8 +244,13 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                                   icon: const Icon(Icons.shuffle_rounded, color: Colors.white70, size: 24),
                                   tooltip: 'Shuffle Play',
                                   onPressed: () {
+                                    const playbackCtx = PlaybackContext(
+                                      id: 'liked_songs',
+                                      title: 'Liked Songs',
+                                      type: 'liked',
+                                    );
                                     final shuffled = List<Song>.from(favorites)..shuffle();
-                                    audioHandler.playSong(shuffled.first, queue: shuffled);
+                                    audioHandler.playSong(shuffled.first, queue: shuffled, context: playbackCtx);
                                   },
                                 ),
                                 IconButton(
@@ -380,14 +382,12 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                                 final isPlaying = currentPlaying?.id == song.id;
                                 return ListTile(
                                   onTap: () {
-                                    RecentContainersManager.recordContainer(
+                                    const playbackCtx = PlaybackContext(
                                       id: 'liked_songs',
                                       title: 'Liked Songs',
-                                      subtitle: 'Playlist',
-                                      coverUrl: '',
                                       type: 'liked',
                                     );
-                                    audioHandler.playSong(song, queue: filtered);
+                                    audioHandler.playSong(song, queue: filtered, context: playbackCtx);
                                   },
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                   leading: Stack(

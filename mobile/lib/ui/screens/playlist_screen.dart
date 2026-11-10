@@ -345,6 +345,12 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
         final tracks = playlist.tracks;
         final hasCover = playlist.coverUrl.isNotEmpty;
         final isCollab = playlist.isCollaborative;
+        final playbackCtx = PlaybackContext(
+          id: playlist.id,
+          title: playlist.title,
+          type: 'playlist',
+          coverUrl: playlist.coverUrl,
+        );
 
         return Scaffold(
           backgroundColor: const Color(0xFF0A0E1A),
@@ -606,7 +612,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                                     ),
                                     icon: const Icon(Icons.play_arrow_rounded, size: 22),
                                     label: const Text('Play All', style: TextStyle(fontWeight: FontWeight.bold)),
-                                    onPressed: () => audioHandler.playSong(tracks.first, queue: tracks),
+                                    onPressed: () => audioHandler.playSong(tracks.first, queue: tracks, context: playbackCtx),
                                   ),
                                   const SizedBox(width: 12),
                                   OutlinedButton.icon(
@@ -620,7 +626,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                                     label: const Text('Shuffle'),
                                     onPressed: () {
                                       final shuffled = List<Song>.from(tracks)..shuffle();
-                                      audioHandler.playSong(shuffled.first, queue: shuffled);
+                                      audioHandler.playSong(shuffled.first, queue: shuffled, context: playbackCtx);
                                     },
                                   ),
                                   const SizedBox(width: 12),
@@ -688,6 +694,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                             song: song,
                             queue: tracks,
                             index: index,
+                            playbackContext: playbackCtx,
                             onRemove: () {
                               PlaylistManager.removeSongFromPlaylist(widget.playlistId, song.id);
                               ScaffoldMessenger.of(context).showSnackBar(

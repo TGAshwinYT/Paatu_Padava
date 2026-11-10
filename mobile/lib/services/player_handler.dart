@@ -34,7 +34,25 @@ import 'blacklist_manager.dart';
 import 'lyrics_client.dart';
 import 'smart_cache_service.dart';
 import 'search_service.dart';
+import 'recent_containers_manager.dart';
 import '../data/repositories/song_repository.dart';
+
+/// Context describing where audio playback originated from (e.g. Playlist, Album, Mix, Liked Songs).
+class PlaybackContext {
+  final String id;
+  final String title;
+  final String type; // 'playlist', 'album', 'mix', 'liked', 'downloads'
+  final String? coverUrl;
+  final String? subtitle;
+
+  const PlaybackContext({
+    required this.id,
+    required this.title,
+    required this.type,
+    this.coverUrl,
+    this.subtitle,
+  });
+}
 
 PaatuAudioHandler? _audioHandlerInstance;
 
@@ -155,6 +173,8 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   ValueNotifier<List<Song>> get playlistNotifier => _queueHandler.queueNotifier;
   ValueNotifier<int> get currentIndexNotifier => _queueHandler.currentIndexNotifier;
   ValueNotifier<SmartShuffleMode> get shuffleModeNotifier => _smartShuffleController.modeNotifier;
+  final ValueNotifier<PlaybackContext?> currentContextNotifier = ValueNotifier<PlaybackContext?>(null);
+  PlaybackContext? get currentContext => currentContextNotifier.value;
 
   bool get hasRecordedHistory => _hasRecordedHistory;
   List<Song> get playlist => _queueHandler.queue;
@@ -871,7 +891,17 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   }
 
   /// Load and play a song with gapless ConcatenatingAudioSource preloading
-  Future<void> playSong(Song song, {List<Song>? queue, bool preserveUserQueue = false}) async {
+  Future<void> playSong(Song song, {List<Song>? queue, bool preserveUserQueue = false, PlaybackContext? context}) async {
+    if (context != null) {
+      currentContextNotifier.value = context;
+      RecentContainersManager.recordContainer(
+        id: context.id,
+        title: context.title,
+        subtitle: context.subtitle ?? context.type.toUpperCase(),
+        coverUrl: context.coverUrl ?? song.coverUrl,
+        type: context.type,
+      );
+    }
     try {
       final session = await AudioSession.instance;
       await session.setActive(true);

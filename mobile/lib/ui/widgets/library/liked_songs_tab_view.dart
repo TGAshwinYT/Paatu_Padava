@@ -102,7 +102,11 @@ class LikedSongsTabView extends StatelessWidget {
                       ),
                       icon: const Icon(Icons.play_arrow_rounded, size: 22),
                       label: Text('Play All (${favorites.length})', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
-                      onPressed: () => audioHandler.playSong(favorites.first, queue: favorites),
+                      onPressed: () => audioHandler.playSong(
+                        favorites.first,
+                        queue: favorites,
+                        context: const PlaybackContext(id: 'liked_songs', title: 'Liked Songs', type: 'liked'),
+                      ),
                     ),
                     const SizedBox(width: 12),
                     OutlinedButton.icon(
@@ -116,7 +120,11 @@ class LikedSongsTabView extends StatelessWidget {
                       label: Text('Shuffle', style: GoogleFonts.outfit()),
                       onPressed: () {
                         final shuffled = List<Song>.from(favorites)..shuffle();
-                        audioHandler.playSong(shuffled.first, queue: shuffled);
+                        audioHandler.playSong(
+                          shuffled.first,
+                          queue: shuffled,
+                          context: const PlaybackContext(id: 'liked_songs', title: 'Liked Songs', type: 'liked'),
+                        );
                       },
                     ),
                   ],
@@ -130,7 +138,11 @@ class LikedSongsTabView extends StatelessWidget {
                 (context, index) {
                   final song = favorites[index];
                   return ListTile(
-                    onTap: () => audioHandler.playSong(song, queue: favorites),
+                    onTap: () => audioHandler.playSong(
+                      song,
+                      queue: favorites,
+                      context: const PlaybackContext(id: 'liked_songs', title: 'Liked Songs', type: 'liked'),
+                    ),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
                     leading: CoverArtImage(
                       song: song,

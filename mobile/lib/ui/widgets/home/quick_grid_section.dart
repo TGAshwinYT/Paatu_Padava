@@ -140,7 +140,14 @@ class _QuickTileItem extends StatelessWidget {
         MaterialPageRoute(builder: (_) => DailyMixDetailScreen(mix: mix)),
       );
     } else if (tile.tracks.isNotEmpty) {
-      audioHandler.playSong(tile.tracks.first, queue: tile.tracks);
+      final playbackCtx = PlaybackContext(
+        id: tile.id,
+        title: tile.title,
+        subtitle: tile.subtitle,
+        type: tile.type,
+        coverUrl: tile.coverUrl,
+      );
+      audioHandler.playSong(tile.tracks.first, queue: tile.tracks, context: playbackCtx);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -154,16 +161,14 @@ class _QuickTileItem extends StatelessWidget {
   void _onPlayTapped(BuildContext context) {
     HapticFeedback.mediumImpact();
     if (tile.tracks.isNotEmpty) {
-      RecentContainersManager.recordContainer(
+      final playbackCtx = PlaybackContext(
         id: tile.id,
         title: tile.title,
         subtitle: tile.subtitle,
-        coverUrl: tile.coverUrl,
         type: tile.type,
-        gradient: tile.gradient,
-        tracks: tile.tracks,
+        coverUrl: tile.coverUrl,
       );
-      audioHandler.playSong(tile.tracks.first, queue: tile.tracks);
+      audioHandler.playSong(tile.tracks.first, queue: tile.tracks, context: playbackCtx);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

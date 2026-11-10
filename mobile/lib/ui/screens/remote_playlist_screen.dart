@@ -4,7 +4,6 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../models/song.dart';
 import '../../services/playlist_manager.dart';
 import '../../services/player_handler.dart';
-import '../../services/recent_containers_manager.dart';
 import '../../logic/stream_resolver.dart';
 import '../../data/repositories/song_repository.dart';
 import '../theme/app_theme.dart';
@@ -105,25 +104,20 @@ class _RemotePlaylistScreenState extends State<RemotePlaylistScreen> {
     }
   }
 
-  void _recordPlaylist() {
-    RecentContainersManager.recordContainer(
-      id: 'playlist_${widget.playlistId}',
-      title: widget.playlistTitle,
-      subtitle: 'Playlist',
-      coverUrl: _currentImageUrl,
-      type: 'playlist',
-      tracks: _songs,
-    );
-  }
-
   void _playAll({bool shuffle = false}) {
     if (_songs.isEmpty) return;
-    _recordPlaylist();
+    final playbackCtx = PlaybackContext(
+      id: widget.playlistId,
+      title: widget.playlistTitle,
+      type: 'playlist',
+      coverUrl: widget.imageUrl,
+      subtitle: widget.subtitle,
+    );
     final queue = List<Song>.from(_songs);
     if (shuffle) {
       queue.shuffle();
     }
-    audioHandler.playSong(queue.first, queue: queue);
+    audioHandler.playSong(queue.first, queue: queue, context: playbackCtx);
   }
 
   @override
@@ -310,8 +304,14 @@ class _RemotePlaylistScreenState extends State<RemotePlaylistScreen> {
                           queue: _songs,
                           index: index,
                           onTap: () {
-                            _recordPlaylist();
-                            audioHandler.playSong(song, queue: _songs);
+                            final playbackCtx = PlaybackContext(
+                              id: widget.playlistId,
+                              title: widget.playlistTitle,
+                              type: 'playlist',
+                              coverUrl: widget.imageUrl,
+                              subtitle: widget.subtitle,
+                            );
+                            audioHandler.playSong(song, queue: _songs, context: playbackCtx);
                           },
                         );
                       },

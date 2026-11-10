@@ -4,7 +4,6 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../domain/models/home_feed_models.dart';
 import '../../models/song.dart';
 import '../../services/player_handler.dart';
-import '../../services/recent_containers_manager.dart';
 import '../theme/app_theme.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/batch_download_button.dart';
@@ -27,32 +26,30 @@ class DailyMixDetailScreen extends StatefulWidget {
 class _DailyMixDetailScreenState extends State<DailyMixDetailScreen> {
   void _playAll({bool shuffle = false}) {
     if (widget.mix.tracks.isEmpty) return;
-    RecentContainersManager.recordContainer(
+    final playbackCtx = PlaybackContext(
       id: 'daily_mix_${widget.mix.index}',
       title: widget.mix.title,
       subtitle: widget.mix.subtitle,
       coverUrl: widget.mix.coverUrl,
       type: 'mix',
-      tracks: widget.mix.tracks,
     );
 
     final queue = List<Song>.from(widget.mix.tracks);
     if (shuffle) {
       queue.shuffle();
     }
-    audioHandler.playSong(queue.first, queue: queue);
+    audioHandler.playSong(queue.first, queue: queue, context: playbackCtx);
   }
 
   void _playTrack(Song song) {
-    RecentContainersManager.recordContainer(
+    final playbackCtx = PlaybackContext(
       id: 'daily_mix_${widget.mix.index}',
       title: widget.mix.title,
       subtitle: widget.mix.subtitle,
       coverUrl: widget.mix.coverUrl,
       type: 'mix',
-      tracks: widget.mix.tracks,
     );
-    audioHandler.playSong(song, queue: widget.mix.tracks);
+    audioHandler.playSong(song, queue: widget.mix.tracks, context: playbackCtx);
   }
 
   @override

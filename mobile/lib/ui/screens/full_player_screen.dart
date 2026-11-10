@@ -23,6 +23,11 @@ import '../../services/sleep_timer_service.dart';
 import '../widgets/player/sleep_timer_sheet.dart';
 import '../../services/device_connect_coordinator.dart';
 import '../widgets/player/device_connect_sheet.dart';
+import '../../services/playlist_manager.dart';
+import 'playlist_screen.dart';
+import 'album_screen.dart';
+import 'remote_playlist_screen.dart';
+import 'liked_songs_screen.dart';
 
 class FullPlayerScreen extends StatefulWidget {
   const FullPlayerScreen({Key? key}) : super(key: key);
@@ -112,80 +117,62 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     SleepTimerSheet.show(context);
   }
 
-  void _showRadioAndMixOptions(BuildContext context, Song song) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1E293B),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.white24,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                child: Row(
-                  children: const [
-                    Icon(Icons.radio_rounded, color: Color(0xFF818CF8), size: 22),
-                    SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Radio & Recommendations',
-                        style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(color: Colors.white10),
-              ListTile(
-                leading: const Icon(Icons.radio_rounded, color: Color(0xFF818CF8)),
-                title: const Text('Start Song Radio', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-                subtitle: Text('Curates a continuous 50-track station for "${song.title}"',
-                    style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  audioHandler.startSongRadio(song);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Starting radio for "${song.title}"...')),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.playlist_add_rounded, color: Color(0xFF34D399)),
-                title: const Text('Add 10 Similar Songs to Queue', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-                subtitle: const Text('Keeps current queue and appends similar tracks to Up Next',
-                    style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
-                onTap: () async {
-                  Navigator.pop(ctx);
-                  final count = await audioHandler.addRadioMix(count: 10);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(count > 0 ? 'Added $count similar songs to queue!' : 'Queue updated with recommendations.'),
-                        duration: const Duration(seconds: 2),
-                      ),
-                    );
-                  }
-                },
-              ),
-            ],
+  void _navigateToCurrentContext(BuildContext context, PlaybackContext? ctx, Song song) {
+    if (ctx == null) {
+      if (song.album.isNotEmpty && !song.album.toLowerCase().contains('unknown')) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => AlbumScreen(
+              albumId: '',
+              albumTitle: song.album,
+              imageUrl: song.coverUrl,
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    if (ctx.type == 'playlist') {
+      final plList = PlaylistManager.playlistsNotifier.value;
+      final found = plList.where((p) => p.id == ctx.id);
+      if (found.isNotEmpty) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => PlaylistScreen(playlistId: ctx.id)),
+        );
+      } else {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => RemotePlaylistScreen(
+              playlistId: ctx.id,
+              playlistTitle: ctx.title,
+              imageUrl: ctx.coverUrl ?? song.coverUrl,
+            ),
+          ),
+        );
+      }
+    } else if (ctx.type == 'album') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => AlbumScreen(
+            albumId: ctx.id,
+            albumTitle: ctx.title,
+            imageUrl: ctx.coverUrl ?? song.coverUrl,
           ),
         ),
-      ),
-    );
+      );
+    } else if (ctx.type == 'liked') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const LikedSongsScreen()),
+      );
+    } else if (ctx.type == 'mix') {
+      Navigator.pop(context);
+    }
   }
 
   @override
@@ -233,31 +220,60 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                           Expanded(
                             child: Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    'PLAYING FROM',
-                                    style: TextStyle(
-                                      color: Colors.white.withValues(alpha: 0.45),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w600,
-                                      letterSpacing: 1.2,
+                              child: ValueListenableBuilder<PlaybackContext?>(
+                                valueListenable: audioHandler.currentContextNotifier,
+                                builder: (context, playbackContext, _) {
+                                  final typeName = playbackContext?.type.toUpperCase() ??
+                                      (song.album.isNotEmpty && !song.album.toLowerCase().contains('unknown')
+                                          ? 'ALBUM'
+                                          : 'NOW PLAYING');
+                                  final title = playbackContext?.title ??
+                                      (song.album.isNotEmpty && !song.album.toLowerCase().contains('unknown')
+                                          ? song.album
+                                          : 'Paatu Padava');
+
+                                  return GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () => _navigateToCurrentContext(context, playbackContext, song),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              'PLAYING FROM $typeName',
+                                              style: TextStyle(
+                                                color: Colors.white.withValues(alpha: 0.45),
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w600,
+                                                letterSpacing: 1.2,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 3),
+                                            Icon(
+                                              Icons.chevron_right_rounded,
+                                              size: 13,
+                                              color: Colors.white.withValues(alpha: 0.45),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          title,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    song.album.isNotEmpty ? song.album : 'Paatu Padava',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ],
+                                  );
+                                },
                               ),
                             ),
                           ),
@@ -401,24 +417,13 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                         color: Colors.transparent,
                                         borderRadius: BorderRadius.circular(16),
                                       ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: const [
-                                          Text(
-                                            'Lyrics',
-                                            style: TextStyle(
-                                              color: Color(0xFF94A3B8),
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                          SizedBox(width: 4),
-                                          Icon(
-                                            Icons.open_in_full_rounded,
-                                            size: 11,
-                                            color: Color(0xFF94A3B8),
-                                          ),
-                                        ],
+                                      child: const Text(
+                                        'Lyrics',
+                                        style: TextStyle(
+                                          color: Color(0xFF94A3B8),
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -448,58 +453,21 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 
                             // Song Title, Artist, and Favorite Row
                             Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              song.title,
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 22,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                                            decoration: BoxDecoration(
-                                              color: const Color(0xFF131B2E),
-                                              borderRadius: BorderRadius.circular(6),
-                                              border: Border.all(
-                                                color: song.source == 'offline'
-                                                    ? const Color(0xFF10B981).withValues(alpha: 0.3)
-                                                    : const Color(0xFF6366F1).withValues(alpha: 0.3),
-                                              ),
-                                            ),
-                                            child: Text(
-                                              song.source == 'offline'
-                                                  ? 'LOSSLESS'
-                                                  : (song.source == 'youtube'
-                                                      ? 'YOUTUBE'
-                                                      : (song.streamUrl?.contains('_160.') == true
-                                                          ? '160 KBPS'
-                                                          : (song.streamUrl?.contains('_96.') == true
-                                                              ? '96 KBPS'
-                                                              : '320 KBPS'))),
-                                              style: TextStyle(
-                                                color: song.source == 'offline'
-                                                    ? const Color(0xFF34D399)
-                                                    : const Color(0xFF818CF8),
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.w700,
-                                                letterSpacing: 0.8,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
+                                      Text(
+                                        song.title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.bold,
+                                        ),
                                       ),
                                       const SizedBox(height: 4),
                                       Builder(
@@ -572,6 +540,39 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                           );
                                         },
                                       ),
+                                      const SizedBox(height: 6),
+                                      // Discreet Audio Quality Micro-Pill below artist
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(alpha: 0.06),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(
+                                            color: song.source == 'offline'
+                                                ? const Color(0xFF10B981).withValues(alpha: 0.35)
+                                                : const Color(0xFF818CF8).withValues(alpha: 0.25),
+                                          ),
+                                        ),
+                                        child: Text(
+                                          song.source == 'offline'
+                                              ? 'LOSSLESS'
+                                              : (song.source == 'youtube'
+                                                  ? 'YOUTUBE'
+                                                  : (song.streamUrl?.contains('_160.') == true
+                                                      ? '160 KBPS • AAC'
+                                                      : (song.streamUrl?.contains('_96.') == true
+                                                          ? '96 KBPS'
+                                                          : '320 KBPS • HQ'))),
+                                          style: TextStyle(
+                                            color: song.source == 'offline'
+                                                ? const Color(0xFF34D399)
+                                                : const Color(0xFF818CF8),
+                                            fontSize: 9.5,
+                                            fontWeight: FontWeight.w700,
+                                            letterSpacing: 0.8,
+                                          ),
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -591,12 +592,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                     );
                                   },
                                 ),
-                                IconButton(
-                                  icon: const Icon(Icons.playlist_add_rounded, color: Color(0xFF818CF8), size: 28),
-                                  tooltip: 'Add to Playlist',
-                                  onPressed: () => AddToPlaylistDialog.show(context, song),
-                                ),
-                                PlayerDownloadButton(song: song),
                               ],
                             ),
 
@@ -645,6 +640,23 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                             // Main Controls: Smart Shuffle, Prev, Play/Pause, Next, Repeat
                             const RepaintBoundary(
                               child: PlayerControls(),
+                            ),
+
+                            // Secondary Utility Actions: Add to Playlist and Download
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 2.0),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.playlist_add_rounded, color: Color(0xFF818CF8), size: 26),
+                                    tooltip: 'Add to Playlist',
+                                    onPressed: () => AddToPlaylistDialog.show(context, song),
+                                  ),
+                                  const SizedBox(width: 32),
+                                  PlayerDownloadButton(song: song),
+                                ],
+                              ),
                             ),
 
                             // Bottom Queue & Up Next Bar
@@ -745,25 +757,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                               Icons.keyboard_arrow_up_rounded,
                                               size: 16,
                                               color: Color(0xFF94A3B8),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Container(
-                                              height: 12,
-                                              width: 1,
-                                              color: Colors.white.withValues(alpha: 0.15),
-                                            ),
-                                            const SizedBox(width: 4),
-                                            IconButton(
-                                              visualDensity: VisualDensity.compact,
-                                              padding: EdgeInsets.zero,
-                                              constraints: const BoxConstraints(),
-                                              icon: const Icon(
-                                                Icons.radio_rounded,
-                                                size: 16,
-                                                color: Color(0xFF6366F1),
-                                              ),
-                                              tooltip: 'Radio & Recommendations',
-                                              onPressed: () => _showRadioAndMixOptions(context, song),
                                             ),
                                           ],
                                         ),

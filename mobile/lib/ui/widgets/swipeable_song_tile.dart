@@ -16,6 +16,7 @@ class SwipeableSongTile extends StatelessWidget {
   final VoidCallback? onRemove;
   final String? removeTooltip;
   final VoidCallback? onTap;
+  final PlaybackContext? playbackContext;
 
   const SwipeableSongTile({
     Key? key,
@@ -25,6 +26,7 @@ class SwipeableSongTile extends StatelessWidget {
     this.onRemove,
     this.removeTooltip = 'Remove',
     this.onTap,
+    this.playbackContext,
   }) : super(key: key);
 
   @override
@@ -179,7 +181,7 @@ class SwipeableSongTile extends StatelessWidget {
         return false;
       },
       child: ListTile(
-        onTap: onTap ?? () => audioHandler.playSong(song, queue: queue),
+        onTap: onTap ?? () => audioHandler.playSong(song, queue: queue, context: playbackContext),
         contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
         leading: Row(
           mainAxisSize: MainAxisSize.min,

@@ -479,4 +479,67 @@ Line four of song
       expect(effectiveMinus.inMilliseconds, equals(29680));
     });
   });
+
+  group('Karaoke Mode Word-by-Word Sweeping & Vocal Attenuation Tests', () {
+    test('LyricWord.progressAt accurately measures 0.0 to 1.0 word sweep progress', () {
+      const word = LyricWord(
+        text: 'Kanmani',
+        start: Duration(seconds: 10),
+        end: Duration(seconds: 12),
+      );
+
+      // Before word starts
+      expect(word.progressAt(const Duration(seconds: 9)), equals(0.0));
+      expect(word.progressAt(const Duration(seconds: 10)), equals(0.0));
+
+      // Halfway through word (11s out of 10-12s)
+      expect(word.progressAt(const Duration(milliseconds: 11000)), equals(0.5));
+
+      // 75% through word (11.5s)
+      expect(word.progressAt(const Duration(milliseconds: 11500)), equals(0.75));
+
+      // At and after word ends
+      expect(word.progressAt(const Duration(seconds: 12)), equals(1.0));
+      expect(word.progressAt(const Duration(seconds: 15)), equals(1.0));
+    });
+
+    test('LyricsClient.allocateWordsForLine distributes progressive word timings', () {
+      const text = 'Kanmani Anbodu Kaadhalan';
+      const romText = 'Kanmani Anbodu Kaadhalan';
+      const start = Duration(seconds: 15);
+      const end = Duration(seconds: 18); // 3 seconds line duration
+
+      final words = LyricsClient.allocateWordsForLine(text, romText, start, end);
+
+      expect(words.length, equals(3));
+      expect(words[0].text, equals('Kanmani'));
+      expect(words[1].text, equals('Anbodu'));
+      expect(words[2].text, equals('Kaadhalan'));
+
+      // Monotonically non-decreasing
+      expect(words[0].start, equals(start));
+      expect(words[0].end, equals(words[1].start));
+      expect(words[1].end, equals(words[2].start));
+      expect(words[2].end <= end, isTrue);
+
+      // Each word has positive non-zero duration
+      for (final w in words) {
+        expect(w.end > w.start, isTrue);
+      }
+    });
+
+    test('parseLrc populates words on every verse line automatically', () {
+      const lrc = '''
+[00:10.00] First line of song
+[00:15.00] Second line of song
+''';
+      final lines = LyricsClient.parseLrc(lrc, durationSeconds: 60);
+      final verseLines = lines.where((l) => !l.isBgm).toList();
+
+      expect(verseLines.length, equals(2));
+      expect(verseLines[0].words.isNotEmpty, isTrue);
+      expect(verseLines[0].words.length, equals(4)); // First, line, of, song
+      expect(verseLines[1].words.isNotEmpty, isTrue);
+    });
+  });
 }

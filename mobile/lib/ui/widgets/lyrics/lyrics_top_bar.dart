@@ -196,6 +196,23 @@ class LyricsTopBar extends StatelessWidget {
               if (isLrc && onToggleSyncAdjuster != null)
                 const SizedBox(width: 2),
 
+              // Karaoke Sing-Along Mode Toggle Button (🎤)
+              ValueListenableBuilder<bool>(
+                valueListenable: audioHandler.isKaraokeModeNotifier,
+                builder: (context, isKaraoke, _) {
+                  return IconButton(
+                    icon: Icon(
+                      isKaraoke ? Icons.mic_external_on_rounded : Icons.mic_none_rounded,
+                      color: isKaraoke ? const Color(0xFF06B6D4) : Colors.white70,
+                      size: 23,
+                    ),
+                    tooltip: isKaraoke ? 'Exit Karaoke Mode' : 'Enter Karaoke Sing-Along Mode',
+                    onPressed: () => audioHandler.toggleKaraokeMode(),
+                  );
+                },
+              ),
+              const SizedBox(width: 2),
+
               // Always-visible Fullscreen Toggle (⛶)
               IconButton(
                 icon: Icon(

@@ -122,6 +122,10 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   );
   final ValueNotifier<DualLyrics?> dualLyricsNotifier = ValueNotifier<DualLyrics?>(null);
   final ValueNotifier<int> lyricsOffsetMsNotifier = ValueNotifier<int>(0);
+  final ValueNotifier<bool> isKaraokeModeNotifier = ValueNotifier<bool>(false);
+  final ValueNotifier<double> vocalAttenuationNotifier = ValueNotifier<double>(0.0);
+  final ValueNotifier<Song?> studioKaraokeTrackNotifier = ValueNotifier<Song?>(null);
+  final ValueNotifier<bool> isUsingStudioKaraokeNotifier = ValueNotifier<bool>(false);
   final ValueNotifier<Duration?> sleepTimerRemainingNotifier = ValueNotifier<Duration?>(null);
   final ValueNotifier<bool> isSmartShuffleNotifier = ValueNotifier<bool>(false);
   final ValueNotifier<AppError?> playbackErrorNotifier = ValueNotifier<AppError?>(null);
@@ -469,6 +473,15 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       }
     });
 
+    // Probe for authentic studio karaoke / instrumental track
+    isUsingStudioKaraokeNotifier.value = false;
+    studioKaraokeTrackNotifier.value = null;
+    LyricsClient.instance.resolveStudioKaraoke(song).then((karaoke) {
+      if (currentSong?.id == song.id) {
+        studioKaraokeTrackNotifier.value = karaoke;
+      }
+    });
+
     // Debounce lyrics resolution by 300ms so rapid track transitions / skips do not trigger duplicate LRCLIB calls
     _lyricsDebounceTimer?.cancel();
     _lyricsDebounceTimer = Timer(const Duration(milliseconds: 300), () {
@@ -529,6 +542,26 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     if (curSong == null) return;
     lyricsOffsetMsNotifier.value = 0;
     await LyricsClient.instance.saveLyricsOffset(curSong.id, 0);
+  }
+
+  /// Toggles Karaoke Sing-Along mode with word-by-word animation and vocal control.
+  void toggleKaraokeMode() {
+    isKaraokeModeNotifier.value = !isKaraokeModeNotifier.value;
+  }
+
+  /// Sets the real-time vocal attenuation factor (0.0 = 100% normal vocals, 1.0 = 0% vocals).
+  void setVocalAttenuation(double factor) {
+    vocalAttenuationNotifier.value = factor.clamp(0.0, 1.0);
+  }
+
+  /// Switches playback to the resolved official studio karaoke track, maintaining playback position.
+  Future<void> switchToStudioKaraoke() async {
+    final karaokeSong = studioKaraokeTrackNotifier.value;
+    if (karaokeSong == null) return;
+    final currentPos = _player.position;
+    isUsingStudioKaraokeNotifier.value = true;
+    await playSong(karaokeSong);
+    await _player.seek(currentPos);
   }
 
   DualLyrics _buildDualLyrics(String rawLyrics) {

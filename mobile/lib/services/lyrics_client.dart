@@ -12,13 +12,39 @@ import 'app_logger.dart';
 import 'saavn_client.dart';
 import 'youtube_client.dart';
 
-/// Single parsed lyric line with timestamps and optional romanized text.
+/// Represents a single word in a synchronized lyric line with start and end timestamps.
+class LyricWord {
+  final String text;
+  final String? romanizedText;
+  final Duration start;
+  final Duration end;
+
+  const LyricWord({
+    required this.text,
+    this.romanizedText,
+    required this.start,
+    required this.end,
+  });
+
+  /// Calculates the 0.0 - 1.0 progress of this word for a given audio position.
+  double progressAt(Duration position) {
+    if (position <= start) return 0.0;
+    if (position >= end) return 1.0;
+    final total = end.inMilliseconds - start.inMilliseconds;
+    if (total <= 0) return 1.0;
+    final elapsed = position.inMilliseconds - start.inMilliseconds;
+    return (elapsed / total).clamp(0.0, 1.0);
+  }
+}
+
+/// Single parsed lyric line with timestamps, words, and optional romanized text.
 class LyricLine {
   final Duration timestamp;
   final Duration? endTimestamp;
   final String text;
   final String? romanizedText;
   final bool isBgm;
+  final List<LyricWord> words;
 
   const LyricLine({
     required this.timestamp,
@@ -26,6 +52,7 @@ class LyricLine {
     required this.text,
     this.romanizedText,
     this.isBgm = false,
+    this.words = const [],
   });
 }
 
@@ -305,6 +332,68 @@ class LyricsClient {
     return buffer.toString().trim();
   }
 
+  /// Allocates words across the line duration using Phonetic Length & Vowel weighting.
+  static List<LyricWord> allocateWordsForLine(
+    String text,
+    String? romanizedText,
+    Duration start,
+    Duration end,
+  ) {
+    if (text.trim().isEmpty) return const [];
+
+    final rawWords = text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    if (rawWords.isEmpty) return const [];
+
+    final rawRomWords = (romanizedText != null && romanizedText.trim().isNotEmpty)
+        ? romanizedText.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList()
+        : null;
+
+    final totalDurationMs = (end - start).inMilliseconds;
+    // Cap singing duration so long gaps don't cause unrealistically slow word sweeps
+    final maxReasonableDuration = math.max(1500, rawWords.length * 750);
+    final effectiveDurationMs = totalDurationMs > 0
+        ? math.min(totalDurationMs, maxReasonableDuration)
+        : rawWords.length * 400;
+
+    // Calculate phonetic weights (character count + vowel multiplier)
+    final weights = <double>[];
+    for (int i = 0; i < rawWords.length; i++) {
+      final w = rawWords[i];
+      // Count vowels (Latin aeiou + Indic vowel diacritics)
+      final vowelMatches = RegExp(r'[aeiouAEIOU\u0BBE-\u0BCD\u0C3E-\u0C4D\u093E-\u094D\u0D3E-\u0D4D]').allMatches(w).length;
+      double weight = math.max(1.0, w.length.toDouble() + (vowelMatches * 1.5));
+      // Phrase-final elongated note bonus for lines with 2+ words
+      if (i == rawWords.length - 1 && rawWords.length >= 2) {
+        weight *= 1.25;
+      }
+      weights.add(weight);
+    }
+
+    final totalWeight = weights.fold<double>(0.0, (sum, w) => sum + w);
+    final result = <LyricWord>[];
+
+    int currentMs = start.inMilliseconds;
+    for (int i = 0; i < rawWords.length; i++) {
+      final fraction = totalWeight > 0 ? (weights[i] / totalWeight) : (1.0 / rawWords.length);
+      final wordDurationMs = math.max(120, (effectiveDurationMs * fraction).round());
+      final wordStart = Duration(milliseconds: currentMs);
+      final wordEnd = Duration(milliseconds: currentMs + wordDurationMs);
+
+      final romWord = (rawRomWords != null && i < rawRomWords.length) ? rawRomWords[i] : null;
+
+      result.add(LyricWord(
+        text: rawWords[i],
+        romanizedText: romWord,
+        start: wordStart,
+        end: wordEnd,
+      ));
+
+      currentMs += wordDurationMs;
+    }
+
+    return result;
+  }
+
   /// Parses raw LRC string into sorted [LyricLine]s with [IndicRomanizer] support
   /// and dynamic BGM instrumental gap detection for Intro, Interludes, and Outro (>6s pauses).
   /// CRITICAL: Zero timestamp stretching/skew multipliers are applied!
@@ -367,10 +456,35 @@ class LyricsClient {
 
     // 2. Verse lines and middle instrumental interludes
     for (int i = 0; i < parsed.length; i++) {
-      result.add(parsed[i]);
+      final current = parsed[i];
+      Duration effectiveEnd;
+      if (i < parsed.length - 1) {
+        effectiveEnd = parsed[i + 1].timestamp;
+      } else if (durationSeconds != null && durationSeconds > 0) {
+        effectiveEnd = Duration(seconds: durationSeconds);
+      } else {
+        effectiveEnd = current.timestamp + const Duration(seconds: 4);
+      }
+
+      final words = allocateWordsForLine(
+        current.text,
+        current.romanizedText,
+        current.timestamp,
+        effectiveEnd,
+      );
+
+      final lineWithWords = LyricLine(
+        timestamp: current.timestamp,
+        endTimestamp: effectiveEnd,
+        text: current.text,
+        romanizedText: current.romanizedText,
+        isBgm: false,
+        words: words,
+      );
+
+      result.add(lineWithWords);
 
       if (i < parsed.length - 1) {
-        final current = parsed[i];
         final next = parsed[i + 1];
         final gap = next.timestamp - current.timestamp;
 
@@ -798,5 +912,58 @@ class LyricsClient {
         }
       }
     } catch (_) {}
+  }
+
+  /// Searches and resolves an authentic official studio karaoke or instrumental version
+  /// of the target song from YouTube/Saavn, matching duration within tolerance.
+  Future<Song?> resolveStudioKaraoke(Song song) async {
+    final cleanTitle = sanitizeTitle(song.title);
+    if (cleanTitle.isEmpty) return null;
+
+    final primaryArtist = sanitizeArtist(song.artist);
+    final queries = [
+      '$cleanTitle Karaoke',
+      '$cleanTitle Instrumental',
+      if (primaryArtist.isNotEmpty) '$cleanTitle $primaryArtist Karaoke',
+    ];
+
+    for (final q in queries) {
+      try {
+        final results = await YouTubeClient.search(q, limit: 5);
+        for (final candidate in results) {
+          final titleLower = candidate.title.toLowerCase();
+
+          // Invariant 1: Must contain karaoke or instrumental in the title
+          final isKaraokeMarker = titleLower.contains('karaoke') ||
+              titleLower.contains('instrumental') ||
+              titleLower.contains('bgm');
+          if (!isKaraokeMarker) continue;
+
+          // Invariant 2: Must NOT be an amateur cover or tutorial
+          final isBlacklisted = titleLower.contains('vocal cover') ||
+              titleLower.contains('cover by') ||
+              titleLower.contains('female cover') ||
+              titleLower.contains('male cover') ||
+              titleLower.contains('piano tutorial') ||
+              titleLower.contains('guitar tutorial') ||
+              titleLower.contains('remix') ||
+              titleLower.contains('speed up') ||
+              titleLower.contains('slowed');
+          if (isBlacklisted) continue;
+
+          // Invariant 3: Duration check within +/- 6 seconds if duration is known
+          if (song.duration > 0 && candidate.duration > 0) {
+            final diff = (candidate.duration - song.duration).abs();
+            if (diff > 6) continue;
+          }
+
+          AppLogger.log('LyricsClient', 'Found studio karaoke candidate for "${song.title}": "${candidate.title}" (id: ${candidate.id})');
+          return candidate;
+        }
+      } catch (e) {
+        AppLogger.log('LyricsClient', 'Studio karaoke lookup notice for "$q": $e');
+      }
+    }
+    return null;
   }
 }

@@ -10,6 +10,9 @@ import '../../services/settings_manager.dart';
 import '../../domain/models/lyrics_state.dart';
 import '../../services/lyrics_client.dart';
 import '../widgets/lyrics/bgm_pulse_indicator.dart';
+import '../widgets/lyrics/karaoke_line_text.dart';
+import '../widgets/lyrics/karaoke_vocal_slider.dart';
+import '../widgets/lyrics/studio_karaoke_pill.dart';
 import '../widgets/lyrics/lyrics_playback_bar.dart';
 import '../widgets/lyrics/wrong_lyrics_sheet.dart';
 import '../widgets/lyrics/lyrics_top_bar.dart';
@@ -55,6 +58,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
   bool _isLrc = false;
   bool _isFullscreen = false;
   bool _showSyncAdjuster = false;
+  Duration _currentAudioPosition = Duration.zero;
   StreamSubscription<bool>? _playingSub;
 
   @override
@@ -66,6 +70,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
     audioHandler.currentLyricsNotifier.addListener(_onLyricsChanged);
     audioHandler.lyricsStateNotifier.addListener(_onLyricsChanged);
     audioHandler.lyricsOffsetMsNotifier.addListener(_onOffsetChanged);
+    audioHandler.isKaraokeModeNotifier.addListener(_onKaraokeChanged);
 
     // Subscribe to position stream with effective offset calculation
     _subscribePosition();
@@ -86,7 +91,12 @@ class _LyricsScreenState extends State<LyricsScreen> {
     audioHandler.currentLyricsNotifier.removeListener(_onLyricsChanged);
     audioHandler.lyricsStateNotifier.removeListener(_onLyricsChanged);
     audioHandler.lyricsOffsetMsNotifier.removeListener(_onOffsetChanged);
+    audioHandler.isKaraokeModeNotifier.removeListener(_onKaraokeChanged);
     super.dispose();
+  }
+
+  void _onKaraokeChanged() {
+    if (mounted) setState(() {});
   }
 
   void _onOffsetChanged() {
@@ -184,6 +194,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
   void _updateActiveIndexForPosition(Duration currentPosition, {bool immediate = false}) {
     if (!_isLrc || _lines.isEmpty) return;
 
+    _currentAudioPosition = currentPosition;
     final offsetMs = audioHandler.lyricsOffsetMsNotifier.value;
     final effectivePosition = currentPosition + Duration(milliseconds: 180 + offsetMs);
     final idx = _findActiveLineIndex(effectivePosition);
@@ -195,6 +206,8 @@ class _LyricsScreenState extends State<LyricsScreen> {
         _activeIndex = idx;
       }
       _scrollToActive(idx, immediate: immediate);
+    } else if (audioHandler.isKaraokeModeNotifier.value && mounted) {
+      setState(() {});
     }
   }
 
@@ -338,6 +351,26 @@ class _LyricsScreenState extends State<LyricsScreen> {
                       onCollapse: () => Navigator.of(context).pop(),
                     ),
                   ),
+
+                // 3.5. Studio Karaoke Available Notification Pill
+                Positioned(
+                  top: MediaQuery.of(context).padding.top + 60,
+                  left: 20,
+                  child: const StudioKaraokePill(),
+                ),
+
+                // 3.6. Vertical Apple Music Sing Vocal Attenuation Capsule Slider
+                ValueListenableBuilder<bool>(
+                  valueListenable: audioHandler.isKaraokeModeNotifier,
+                  builder: (context, isKaraoke, _) {
+                    if (!isKaraoke) return const SizedBox.shrink();
+                    return Positioned(
+                      bottom: _isFullscreen ? 36 : 124,
+                      right: 14,
+                      child: const KaraokeVocalSlider(),
+                    );
+                  },
+                ),
 
                 // 4. Floating Live Sync Timing Adjuster Pill
                 if (_showSyncAdjuster && _isLrc)
@@ -546,39 +579,26 @@ class _LyricsScreenState extends State<LyricsScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 14.0),
                 child: line.isBgm
                     ? BgmPulseIndicator(isActive: isActive)
-                    : AnimatedScale(
-                        scale: isActive ? 1.04 : 1.0,
-                        duration: const Duration(milliseconds: 280),
-                        curve: Curves.easeOutCubic,
-                        alignment: Alignment.centerLeft,
-                        child: AnimatedDefaultTextStyle(
-                          duration: const Duration(milliseconds: 280),
-                          curve: Curves.easeOutCubic,
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: opacity),
-                            fontSize: fontSize,
-                            fontWeight: fontWeight,
-                            height: 1.35,
-                            letterSpacing: -0.2,
-                            shadows: isActive
-                                ? [
-                                    BoxShadow(
-                                      color: Colors.white.withValues(alpha: 0.25),
-                                      blurRadius: 18,
-                                      offset: const Offset(0, 1),
-                                    ),
-                                  ]
-                                : null,
-                          ),
-                          textAlign: TextAlign.left,
-                          child: Text(
-                            (audioHandler.lyricsLanguageNotifier.value == LyricsLanguage.english &&
-                                    line.romanizedText != null &&
-                                    line.romanizedText!.isNotEmpty)
-                                ? line.romanizedText!
-                                : line.text,
-                          ),
-                        ),
+                    : ValueListenableBuilder<bool>(
+                        valueListenable: audioHandler.isKaraokeModeNotifier,
+                        builder: (context, isKaraoke, _) {
+                          return ValueListenableBuilder<LyricsLanguage>(
+                            valueListenable: audioHandler.lyricsLanguageNotifier,
+                            builder: (context, lang, _) {
+                              return KaraokeLineText(
+                                line: line,
+                                position: _currentAudioPosition,
+                                isActive: isActive,
+                                isKaraokeMode: isKaraoke,
+                                language: lang,
+                                fontSize: fontSize,
+                                fontWeight: fontWeight,
+                                baseColor: Colors.white.withValues(alpha: opacity),
+                                activeColor: Colors.white,
+                              );
+                            },
+                          );
+                        },
                       ),
               ),
             ),

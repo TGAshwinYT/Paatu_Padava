@@ -551,7 +551,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
           top: screenHeight * 0.38,
           bottom: screenHeight * 0.48,
           left: 28,
-          right: 28,
+          right: audioHandler.isKaraokeModeNotifier.value ? 72 : 28,
         ),
         itemCount: _lines.length,
         itemBuilder: (context, idx) {

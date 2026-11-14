@@ -229,7 +229,11 @@ class MainActivity: AudioServiceActivity() {
                     val band = call.argument<Int>("band") ?: 0
                     val millibels = call.argument<Int>("level") ?: 0
                     try {
-                        equalizer?.setBandLevel(band.toShort(), millibels.toShort())
+                        if (equalizer != null) {
+                            val range = equalizer!!.bandLevelRange
+                            val clamped = millibels.coerceIn(range[0].toInt(), range[1].toInt()).toShort()
+                            equalizer?.setBandLevel(band.toShort(), clamped)
+                        }
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("EQ_ERROR", e.message, null)
@@ -242,9 +246,13 @@ class MainActivity: AudioServiceActivity() {
                         currentLevels = shortLevels
                         if (equalizer != null) {
                             try {
+                                val range = equalizer!!.bandLevelRange
+                                val minRange = range[0].toInt()
+                                val maxRange = range[1].toInt()
                                 for (i in shortLevels.indices) {
                                     if (i < equalizer!!.numberOfBands) {
-                                        equalizer!!.setBandLevel(i.toShort(), shortLevels[i])
+                                        val clamped = shortLevels[i].toInt().coerceIn(minRange, maxRange).toShort()
+                                        equalizer!!.setBandLevel(i.toShort(), clamped)
                                     }
                                 }
                                 result.success(true)

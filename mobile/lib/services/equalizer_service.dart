@@ -13,6 +13,10 @@ class EqualizerService {
   static int? get activeSessionId => _activeSessionId;
   static bool get isBound => _isBound;
 
+  static double _vocalAttenuation = 0.0;
+  static double get vocalAttenuation => _vocalAttenuation;
+  static Timer? _throttleTimer;
+
   static VoidCallback? _eqBandsListener;
   static VoidCallback? _bassBoostListener;
   static VoidCallback? _virtualizerListener;
@@ -77,8 +81,69 @@ class EqualizerService {
     }
   }
 
+  /// Calculates effective acoustic frequency bands (-10.0 to +10.0 dB)
+  /// Incorporates:
+  /// 1. User baseline equalizer band settings
+  /// 2. Bass Boost dynamic punch (+0 to +5 dB on 60Hz, +0 to +3 dB on 230Hz)
+  /// 3. 3D Spatial virtualizer (+0 to +2.5 dB on 3.6kHz, +0 to +3.5 dB on 14kHz)
+  /// 4. Real-time Apple Music Sing-inspired vocal formant notch filtering:
+  ///    - Band 2 (910 Hz): Core vocal formant notch (up to -12 dB)
+  ///    - Band 3 (3.6 kHz): Consonant & presence notch (up to -8 dB)
+  ///    - Band 1 (230 Hz): Lower chest voice resonance attenuation (up to -4 dB)
+  ///    - Band 0 (60 Hz): Sub-bass / kick punch compensation (+2 dB) to maintain rhythm drive
+  ///    - Band 4 (14 kHz): Air / shimmer preservation (+1.5 dB)
+  static List<double> calculateEffectiveBands({
+    required List<double> baseBands,
+    double bassBoost = 0.0,
+    double virtualizer = 0.0,
+    double vocalAttenuation = 0.0,
+  }) {
+    final effectiveBands = List<double>.from(baseBands);
+    if (effectiveBands.length >= 5) {
+      // 1. Bass boost acoustic curve
+      effectiveBands[0] = (effectiveBands[0] + (bassBoost * 5.0)).clamp(-10.0, 10.0);
+      effectiveBands[1] = (effectiveBands[1] + (bassBoost * 3.0)).clamp(-10.0, 10.0);
+
+      // 2. Spatial virtualizer presence
+      effectiveBands[3] = (effectiveBands[3] + (virtualizer * 2.5)).clamp(-10.0, 10.0);
+      effectiveBands[4] = (effectiveBands[4] + (virtualizer * 3.5)).clamp(-10.0, 10.0);
+
+      // 3. Real-time vocal formant notch attenuation
+      if (vocalAttenuation > 0.0) {
+        final clampedVocal = vocalAttenuation.clamp(0.0, 1.0);
+        // Band 2 (~910 Hz): Core vocal formant notch
+        effectiveBands[2] = (effectiveBands[2] - (clampedVocal * 12.0)).clamp(-10.0, 10.0);
+        // Band 3 (~3.6 kHz): Vocal presence and consonant friction notch
+        effectiveBands[3] = (effectiveBands[3] - (clampedVocal * 8.0)).clamp(-10.0, 10.0);
+        // Band 1 (~230 Hz): Lower chest resonance attenuation
+        effectiveBands[1] = (effectiveBands[1] - (clampedVocal * 4.0)).clamp(-10.0, 10.0);
+        // Band 0 (~60 Hz): Sub-bass / kick compensation to maintain rhythm power
+        effectiveBands[0] = (effectiveBands[0] + (clampedVocal * 2.0)).clamp(-10.0, 10.0);
+        // Band 4 (~14 kHz): Air & shimmer preservation
+        effectiveBands[4] = (effectiveBands[4] + (clampedVocal * 1.5)).clamp(-10.0, 10.0);
+      }
+    }
+    return effectiveBands;
+  }
+
+  /// Sets the vocal attenuation factor (0.0 = full vocals, 1.0 = full karaoke / vocal suppression)
+  /// Throttles native IPC to ~60fps to prevent audio stutter during rapid finger drag.
+  static Future<void> setVocalAttenuation(double factor) async {
+    final clamped = factor.clamp(0.0, 1.0);
+    _vocalAttenuation = clamped;
+    if (clamped == 0.0 || clamped == 1.0) {
+      _throttleTimer?.cancel();
+      await applyCurrentBands();
+      return;
+    }
+    if (_throttleTimer?.isActive == true) return;
+    _throttleTimer = Timer(const Duration(milliseconds: 16), () {
+      applyCurrentBands();
+    });
+  }
+
   /// Converts dB gains (-10.0 to +10.0 dB) to millibels (-1000 to +1000 mB) and sends to native
-  /// Incorporates acoustic frequency enhancement so Bass Boost & 3D Spatial are audible on all outputs
+  /// Incorporates acoustic frequency enhancement so Bass Boost, 3D Spatial, and Vocal Attenuation are audible
   static Future<void> applyCurrentBands() async {
     if (defaultTargetPlatform != TargetPlatform.android) return;
     if (_activeSessionId == null || _activeSessionId == 0) return;
@@ -86,19 +151,12 @@ class EqualizerService {
       final baseBands = SettingsManager.eqBands;
       final bassBoostRatio = SettingsManager.bassBoost; // 0.0 to 1.0
       final virtualizerRatio = SettingsManager.virtualizer; // 0.0 to 1.0
-
-      // Combined acoustic curve:
-      // Band 0 (60 Hz Sub-bass): +0 to +5 dB proportional to Bass Boost
-      // Band 1 (230 Hz Punch): +0 to +3 dB proportional to Bass Boost
-      // Band 3 (3.6 kHz Presence): +0 to +2.5 dB proportional to 3D Spatial
-      // Band 4 (14 kHz Air/Treble): +0 to +3.5 dB proportional to 3D Spatial
-      final effectiveBands = List<double>.from(baseBands);
-      if (effectiveBands.length >= 5) {
-        effectiveBands[0] = (effectiveBands[0] + (bassBoostRatio * 5.0)).clamp(-10.0, 10.0);
-        effectiveBands[1] = (effectiveBands[1] + (bassBoostRatio * 3.0)).clamp(-10.0, 10.0);
-        effectiveBands[3] = (effectiveBands[3] + (virtualizerRatio * 2.5)).clamp(-10.0, 10.0);
-        effectiveBands[4] = (effectiveBands[4] + (virtualizerRatio * 3.5)).clamp(-10.0, 10.0);
-      }
+      final effectiveBands = calculateEffectiveBands(
+        baseBands: baseBands,
+        bassBoost: bassBoostRatio,
+        virtualizer: virtualizerRatio,
+        vocalAttenuation: _vocalAttenuation,
+      );
 
       // Convert dB to millibels (1 dB = 100 mB)
       final millibels = effectiveBands.map((dB) => (dB * 100).round()).toList();
@@ -181,6 +239,9 @@ class EqualizerService {
 
   /// Disposes listeners
   static void dispose() {
+    _throttleTimer?.cancel();
+    _throttleTimer = null;
+    _vocalAttenuation = 0.0;
     _sessionSub?.cancel();
     _sessionSub = null;
     if (_eqBandsListener != null) {

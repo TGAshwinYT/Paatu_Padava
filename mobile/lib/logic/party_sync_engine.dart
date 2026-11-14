@@ -54,12 +54,18 @@ class NtpCalculator {
   /// Computes a robust clock offset from multiple NTP exchange samples.
   ///
   /// Enhancements:
-  /// 1. Prioritizes LAN samples if present and recent.
-  /// 2. Filters out samples whose RTT exceeds 1.5x of the minimum observed RTT.
-  /// 3. Sorts remaining samples by RTT ascending and averages the best lowest-RTT samples.
-  static int calculateOffset(List<NtpSample> samples) {
-    if (samples.isEmpty) return 0;
-    if (samples.length == 1) return samples.first.offset;
+  /// 1. Prioritizes clean LAN samples when available.
+  /// 2. Applies Cristian's algorithm: filters samples whose RTT exceeds 1.4x of minimum RTT.
+  /// 3. If [previousOffset] is provided, applies Exponential Moving Average (EMA) to prevent clock jumps.
+  static int calculateOffset(List<NtpSample> samples, {int? previousOffset}) {
+    if (samples.isEmpty) return previousOffset ?? 0;
+    if (samples.length == 1) {
+      if (previousOffset != null && previousOffset != 0) {
+        final alpha = samples.first.isLan ? 0.50 : 0.25;
+        return ((1.0 - alpha) * previousOffset + alpha * samples.first.offset).round();
+      }
+      return samples.first.offset;
+    }
 
     // Prefer clean LAN samples when available (LAN RTT is typically 1-5ms vs Cloud 40-150ms)
     final lanSamples = samples.where((s) => s.isLan).toList();
@@ -68,22 +74,30 @@ class NtpCalculator {
     // Sort by RTT ascending (cleanest network paths first)
     final sorted = List<NtpSample>.from(activeSamples)..sort((a, b) => a.rtt.compareTo(b.rtt));
 
-    // Reject samples whose RTT exceeds 1.5x of minimum RTT (when >= 3 samples)
+    // Reject samples whose RTT exceeds 1.4x of minimum RTT (when >= 3 samples)
     final minRtt = sorted.first.rtt;
-    final rttThreshold = max(minRtt + 15, (minRtt * 1.5).round());
+    final rttThreshold = max(minRtt + 12, (minRtt * 1.4).round());
     final cleanSamples = sorted.length >= 3
         ? sorted.where((s) => s.rtt <= rttThreshold).toList()
         : sorted;
 
     final candidates = cleanSamples.isNotEmpty ? cleanSamples : sorted;
 
-    // When 8 consecutive ping packets are sent, average lowest 4 RTT samples.
-    // Otherwise keep lowest 50%.
+    // Keep lowest 4 RTT samples or 50%
     final countToKeep = candidates.length >= 8 ? 4 : max(1, (candidates.length * 0.5).ceil());
     final bestSamples = candidates.take(countToKeep).toList();
 
     final sumOffset = bestSamples.fold<int>(0, (sum, s) => sum + s.offset);
-    return (sumOffset / bestSamples.length).round();
+    final rawCalculated = (sumOffset / bestSamples.length).round();
+
+    // If previous offset exists, apply Exponential Moving Average (EMA) to prevent timeline jumps
+    if (previousOffset != null && previousOffset != 0) {
+      final isLan = activeSamples.any((s) => s.isLan);
+      final alpha = isLan ? 0.35 : 0.20;
+      return ((1.0 - alpha) * previousOffset + alpha * rawCalculated).round();
+    }
+
+    return rawCalculated;
   }
 
   /// Converts a local timestamp to estimated host time
@@ -128,6 +142,21 @@ class DriftAction {
 
 /// Drift reconciler to preserve audio lockstep without audible clicks/pops or pitch warble.
 class DriftReconciler {
+  /// Computes a jitter-aware deadband threshold.
+  /// On local Wi-Fi (LAN), keeps a crisp 25ms window for multi-speaker acoustic alignment.
+  /// On cloud/cellular, scales with RTT to absorb network jitter and prevent speed hunting/pitch warble.
+  static int calculateAdaptiveDeadband({required int rttMs, bool isLan = false}) {
+    if (isLan) return 25;
+    // Cloud / Internet: 35ms floor up to 110ms ceiling based on 40% of RTT
+    return max(35, min(110, (rttMs * 0.4).round()));
+  }
+
+  /// Computes the micro-adjustment ceiling threshold before falling back to hard seek.
+  static int calculateAdaptiveMicroAdjustMax({required int rttMs, bool isLan = false}) {
+    if (isLan) return 140;
+    return max(160, min(300, (rttMs * 0.9).round()));
+  }
+
   /// Reconciles local playback position against expected host position.
   ///
   /// - Deadband with hysteresis:
@@ -191,6 +220,22 @@ class DriftReconciler {
 
 /// Scheduled epoch playback and Bluetooth compensation calculator.
 class ScheduledPlaybackCalculator {
+  /// Computes the presentation lead time for scheduled play / track transition barriers.
+  /// Adapts dynamically based on the highest peer RTT in the session.
+  /// Local LAN only: ~1000ms.
+  /// Cloud / High latency / Long distance: scales up to 1800-2400ms to guarantee all phones buffer in time.
+  static int calculateAdaptiveLeadTimeMs({
+    required List<int> peerRtts,
+    bool isLan = false,
+  }) {
+    if (isLan && (peerRtts.isEmpty || peerRtts.every((rtt) => rtt < 20))) {
+      return 1000;
+    }
+    final maxRtt = peerRtts.isNotEmpty ? peerRtts.reduce(max) : 100;
+    // Base 1100ms + max RTT + 500ms headroom for ExoPlayer buffer fill
+    return max(1100, min(2400, maxRtt + 500));
+  }
+
   /// Calculates the millisecond delay to wait before triggering `player.play()`
   /// so that all participating devices start audio on the exact same millisecond.
   static int calculateScheduledDelayMs({

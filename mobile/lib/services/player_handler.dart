@@ -126,6 +126,8 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   final ValueNotifier<double> vocalAttenuationNotifier = ValueNotifier<double>(0.0);
   final ValueNotifier<Song?> studioKaraokeTrackNotifier = ValueNotifier<Song?>(null);
   final ValueNotifier<bool> isUsingStudioKaraokeNotifier = ValueNotifier<bool>(false);
+  Song? _originalTrackBeforeStudioKaraoke;
+  bool _isSwitchingKaraokeStem = false;
   final ValueNotifier<Duration?> sleepTimerRemainingNotifier = ValueNotifier<Duration?>(null);
   final ValueNotifier<bool> isSmartShuffleNotifier = ValueNotifier<bool>(false);
   final ValueNotifier<AppError?> playbackErrorNotifier = ValueNotifier<AppError?>(null);
@@ -473,22 +475,28 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       }
     });
 
-    // Probe for authentic studio karaoke / instrumental track
-    isUsingStudioKaraokeNotifier.value = false;
-    studioKaraokeTrackNotifier.value = null;
-    LyricsClient.instance.resolveStudioKaraoke(song).then((karaoke) {
-      if (currentSong?.id == song.id) {
-        studioKaraokeTrackNotifier.value = karaoke;
-      }
-    });
+    // Probe for authentic studio karaoke / instrumental track & lyrics
+    if (!_isSwitchingKaraokeStem) {
+      _originalTrackBeforeStudioKaraoke = null;
+      vocalAttenuationNotifier.value = 0.0;
+      EqualizerService.setVocalAttenuation(0.0);
 
-    // Debounce lyrics resolution by 300ms so rapid track transitions / skips do not trigger duplicate LRCLIB calls
-    _lyricsDebounceTimer?.cancel();
-    _lyricsDebounceTimer = Timer(const Duration(milliseconds: 300), () {
-      if (currentSong?.id == song.id) {
-        reloadLyrics(targetSong: song);
-      }
-    });
+      isUsingStudioKaraokeNotifier.value = false;
+      studioKaraokeTrackNotifier.value = null;
+      LyricsClient.instance.resolveStudioKaraoke(song).then((karaoke) {
+        if (currentSong?.id == song.id) {
+          studioKaraokeTrackNotifier.value = karaoke;
+        }
+      });
+
+      // Debounce lyrics resolution by 300ms so rapid track transitions / skips do not trigger duplicate LRCLIB calls
+      _lyricsDebounceTimer?.cancel();
+      _lyricsDebounceTimer = Timer(const Duration(milliseconds: 300), () {
+        if (currentSong?.id == song.id) {
+          reloadLyrics(targetSong: song);
+        }
+      });
+    }
 
     // Predictive Smart Caching for upcoming queue and radio tracks
     SmartCacheService.instance.onQueueUpdated(song, _queueHandler.queue);
@@ -551,17 +559,51 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
 
   /// Sets the real-time vocal attenuation factor (0.0 = 100% normal vocals, 1.0 = 0% vocals).
   void setVocalAttenuation(double factor) {
-    vocalAttenuationNotifier.value = factor.clamp(0.0, 1.0);
+    final clamped = factor.clamp(0.0, 1.0);
+    vocalAttenuationNotifier.value = clamped;
+    EqualizerService.setVocalAttenuation(clamped);
+    _handleKaraokeStemAutoSwitch(clamped);
   }
 
   /// Switches playback to the resolved official studio karaoke track, maintaining playback position.
   Future<void> switchToStudioKaraoke() async {
     final karaokeSong = studioKaraokeTrackNotifier.value;
-    if (karaokeSong == null) return;
+    if (karaokeSong == null || currentSong?.id == karaokeSong.id) return;
     final currentPos = _player.position;
+    _originalTrackBeforeStudioKaraoke ??= currentSong;
+    _isSwitchingKaraokeStem = true;
     isUsingStudioKaraokeNotifier.value = true;
-    await playSong(karaokeSong);
-    await _player.seek(currentPos);
+    try {
+      await playSong(karaokeSong, preserveUserQueue: true);
+      await _player.seek(currentPos);
+    } finally {
+      _isSwitchingKaraokeStem = false;
+    }
+  }
+
+  /// Switches playback from the studio karaoke track back to the original full vocal version.
+  Future<void> switchBackFromStudioKaraoke() async {
+    final origSong = _originalTrackBeforeStudioKaraoke;
+    if (origSong == null || currentSong?.id == origSong.id) return;
+    final currentPos = _player.position;
+    _isSwitchingKaraokeStem = true;
+    isUsingStudioKaraokeNotifier.value = false;
+    try {
+      await playSong(origSong, preserveUserQueue: true);
+      await _player.seek(currentPos);
+    } finally {
+      _isSwitchingKaraokeStem = false;
+      _originalTrackBeforeStudioKaraoke = null;
+    }
+  }
+
+  void _handleKaraokeStemAutoSwitch(double attenuation) {
+    if (studioKaraokeTrackNotifier.value == null) return;
+    if (attenuation >= 0.85 && !isUsingStudioKaraokeNotifier.value) {
+      switchToStudioKaraoke();
+    } else if (attenuation <= 0.15 && isUsingStudioKaraokeNotifier.value && _originalTrackBeforeStudioKaraoke != null) {
+      switchBackFromStudioKaraoke();
+    }
   }
 
   DualLyrics _buildDualLyrics(String rawLyrics) {

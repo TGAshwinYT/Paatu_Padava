@@ -10,26 +10,10 @@ class LanJoinerPeer {
   final InternetAddress address;
   final int port;
   DateTime lastSeen;
-
-  LanJoinerPeer({
-    required this.id,
-    required this.address,
-    required this.port,
-    required this.lastSeen,
-  });
+  LanJoinerPeer({required this.id, required this.address, required this.port, required this.lastSeen});
 }
 
-/// PartyLanAccelerator: Direct Local Wi-Fi (LAN) Socket Transport.
-///
-/// Delivers synchronization packets (< 2ms latency) via direct UDP datagrams
-/// between devices connected to the same Wi-Fi router.
-///
-/// Features:
-/// 1. Dynamic Joiner Registration: Host tracks joiners' ephemeral IP/ports and
-///    unicasts playback events directly to each joiner, avoiding unreliable broadcast drops.
-/// 2. Compact Datagrams: Only essential synchronization metadata is sent over UDP (<500 bytes).
-/// 3. Verified Activity Watchdog: `isLanActiveNotifier` is true ONLY after real datagrams
-///    have been received within the last 5 seconds.
+/// Direct Local Wi-Fi (LAN) Socket Transport (< 2ms latency) with subnet broadcast & direct unicast.
 class PartyLanAccelerator {
   static const int defaultPort = 45454;
   static RawDatagramSocket? _socket;
@@ -42,6 +26,7 @@ class PartyLanAccelerator {
   static String? _selfClientId;
   static bool _isHost = false;
   static int _lastLanActivityEpochMs = 0;
+  static final Set<InternetAddress> _broadcastAddresses = {InternetAddress('255.255.255.255')};
 
   /// Known registered joiners on the host (senderId -> LanJoinerPeer)
   static final Map<String, LanJoinerPeer> _registeredJoiners = {};
@@ -54,6 +39,61 @@ class PartyLanAccelerator {
   static void Function(Map<String, dynamic> payload)? onNtpPongReceived;
   static void Function(String event, Map<String, dynamic> payload)? onSyncEventReceived;
 
+  /// Refreshes local subnet broadcast addresses (e.g. 192.168.43.255 for Hotspot, 192.168.1.255)
+  static Future<void> _refreshBroadcastAddresses() async {
+    _broadcastAddresses.clear();
+    _broadcastAddresses.add(InternetAddress('255.255.255.255'));
+    try {
+      final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
+      for (final iface in interfaces) {
+        for (final addr in iface.addresses) {
+          if (!addr.isLoopback) {
+            final parts = addr.address.split('.');
+            if (parts.length == 4) {
+              _broadcastAddresses.add(InternetAddress('${parts[0]}.${parts[1]}.${parts[2]}.255'));
+            }
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  /// Returns active non-loopback local IPv4 addresses
+  static Future<List<String>> getLocalIpAddresses() async {
+    try {
+      final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
+      return interfaces
+          .expand((i) => i.addresses)
+          .where((a) => !a.isLoopback)
+          .map((a) => a.address)
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Registers a known peer LAN address directly from cloud handshake
+  static void registerPeerAddress(String peerId, String ipAddress, int port) {
+    try {
+      _registeredJoiners[peerId] = LanJoinerPeer(
+        id: peerId,
+        address: InternetAddress(ipAddress),
+        port: port,
+        lastSeen: DateTime.now(),
+      );
+      _recordLanActivity();
+    } catch (_) {}
+  }
+
+  /// Registers the discovered host LAN address directly from cloud handshake
+  static void registerHostAddress(String ipAddress, int port) {
+    try {
+      _discoveredHostAddress = InternetAddress(ipAddress);
+      _discoveredHostPort = port;
+      _recordLanActivity();
+    } catch (_) {}
+  }
+
   /// Starts Host LAN socket on local Wi-Fi network
   static Future<void> startHost(String partyCode, {String? clientId}) async {
     if (kIsWeb) return;
@@ -63,6 +103,7 @@ class PartyLanAccelerator {
     _selfClientId = clientId;
     _isHost = true;
     _registeredJoiners.clear();
+    await _refreshBroadcastAddresses();
 
     try {
       _socket = await RawDatagramSocket.bind(
@@ -116,6 +157,7 @@ class PartyLanAccelerator {
     _currentPartyCode = partyCode;
     _selfClientId = clientId;
     _isHost = false;
+    await _refreshBroadcastAddresses();
 
     try {
       _socket = await RawDatagramSocket.bind(
@@ -180,7 +222,7 @@ class PartyLanAccelerator {
     }
   }
 
-  /// Sends a broadcast UDP packet to all devices on the local subnet (255.255.255.255)
+  /// Sends a broadcast UDP packet to all devices on the local subnet (255.255.255.255 & directed subnets)
   static void sendBroadcast(String event, Map<String, dynamic> payload) {
     if (_socket == null || _currentPartyCode == null) return;
     try {
@@ -190,7 +232,11 @@ class PartyLanAccelerator {
         'payload': payload,
       });
       final bytes = utf8.encode(message);
-      _socket?.send(bytes, InternetAddress('255.255.255.255'), defaultPort);
+      for (final bcast in _broadcastAddresses) {
+        try {
+          _socket?.send(bytes, bcast, defaultPort);
+        } catch (_) {}
+      }
     } catch (_) {}
   }
 
@@ -215,8 +261,12 @@ class PartyLanAccelerator {
         }
       }
 
-      // 2. Subnet broadcast fallback
-      _socket?.send(bytes, InternetAddress('255.255.255.255'), defaultPort);
+      // 2. Directed subnet broadcast fallback
+      for (final bcast in _broadcastAddresses) {
+        try {
+          _socket?.send(bytes, bcast, defaultPort);
+        } catch (_) {}
+      }
     } catch (_) {}
   }
 
@@ -338,6 +388,7 @@ class PartyLanAccelerator {
       // 4. Low-Latency NTP Pong (Joiner receives Host response)
       if (event == 'ntp_pong' && !_isHost) {
         _recordLanActivity();
+        payload['isLan'] = true;
         onNtpPongReceived?.call(payload);
         return;
       }

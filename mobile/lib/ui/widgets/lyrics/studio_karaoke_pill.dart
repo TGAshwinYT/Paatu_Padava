@@ -79,6 +79,26 @@ class StudioKaraokePill extends StatelessWidget {
                                 ),
                               ),
                             ),
+                          ] else ...[
+                            const SizedBox(width: 8),
+                            GestureDetector(
+                              onTap: () => audioHandler.switchBackFromStudioKaraoke(),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.16),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Text(
+                                  'Original',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
                           ],
                         ],
                       ),

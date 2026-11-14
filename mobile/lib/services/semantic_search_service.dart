@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import '../models/song.dart';
 
 /// Dense 8-dimensional semantic vector representing musical mood, tempo, and intent.
@@ -247,4 +248,33 @@ class SemanticSearchService {
 
     return [...highScoring.map((e) => e.key), ...remaining];
   }
+
+  /// Asynchronously re-ranks songs by semantic intent.
+  /// If the collection has >= 20 songs, heavy vector projection and regex tokenization
+  /// are offloaded to compute() to preserve 120Hz frame budgets.
+  Future<List<Song>> rankBySemanticIntentAsync(
+    List<Song> songs,
+    String query, {
+    double threshold = 0.20,
+  }) async {
+    if (songs.length < 20) {
+      return rankBySemanticIntent(songs, query, threshold: threshold);
+    }
+    return compute(_rankWorker, _RankWorkerParams(songs, query, threshold));
+  }
+}
+
+class _RankWorkerParams {
+  final List<Song> songs;
+  final String query;
+  final double threshold;
+  const _RankWorkerParams(this.songs, this.query, this.threshold);
+}
+
+List<Song> _rankWorker(_RankWorkerParams params) {
+  return SemanticSearchService.instance.rankBySemanticIntent(
+    params.songs,
+    params.query,
+    threshold: params.threshold,
+  );
 }

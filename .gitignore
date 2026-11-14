@@ -25,11 +25,13 @@ local.properties
 **/__pycache__/
 *.pyc
 
-# Node
+# Node & Vite bundler cache
 node_modules/
 **/node_modules/
 dist/
 **/dist/
+.vite/
+**/.vite/
 
 # Auto-generated Flutter registrant
 **/GeneratedPluginRegistrant.java

@@ -1214,7 +1214,8 @@ class YouTubeClient {
             response.body.contains('Sign in to confirm you\'re not a bot')) {
           final clientName = config['name']?.toString() ?? '';
           if (clientName.isNotEmpty) {
-            DynamicScraperConfigService.markClientTemporarilyFailing(clientName);
+            final reason = response.statusCode == 403 ? 'HTTP 403 Forbidden' : 'Bot challenge / login required';
+            DynamicScraperConfigService.reportClientFailure(clientName, reason);
           }
           return null;
         }

@@ -1,3 +1,4 @@
+import 'track_entity.dart';
 import '../../models/song.dart';
 
 /// Clean model representing a verified film in the Master Movie Catalog
@@ -158,19 +159,5 @@ class CatalogSong {
   );
 
   /// Converts catalog song entry to unified runtime [Song] entity
-  Song toSong() {
-    // Primary credit shows genuine singers, or composer if singers uncredited
-    final credit = singers.isNotEmpty ? singers : composer;
-    return Song(
-      id: id,
-      title: title,
-      artist: credit,
-      album: movieTitle.isNotEmpty ? movieTitle : 'Single',
-      coverUrl: coverUrl,
-      streamUrl: audioUrl,
-      duration: duration,
-      source: source,
-      language: language,
-    );
-  }
+  Song toSong() => TrackEntity.fromCatalogSong(this);
 }

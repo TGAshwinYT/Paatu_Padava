@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -180,6 +181,29 @@ class DynamicScraperConfigService {
   static void markClientTemporarilyFailing(String clientName, {Duration duration = const Duration(minutes: 30)}) {
     _failingClientsUntil[clientName] = DateTime.now().add(duration);
     AppLogger.log('DynamicScraperConfigService', 'Demoted client "$clientName" until ${_failingClientsUntil[clientName]}');
+  }
+
+  /// Temporarily demotes a client and asynchronously dispatches failure telemetry to backend
+  static void reportClientFailure(String clientName, String reason) {
+    markClientTemporarilyFailing(clientName);
+    unawaited(_sendFailureTelemetry(clientName, reason));
+  }
+
+  static Future<void> _sendFailureTelemetry(String clientName, String reason) async {
+    try {
+      final base = AppConfig.backendUrl.replaceAll(RegExp(r'/+$'), '');
+      if (base.isEmpty) return;
+      final uri = Uri.parse('$base/api/config/scraper/report-failure');
+      await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'client_name': clientName,
+          'reason': reason,
+          'timestamp': DateTime.now().toIso8601String(),
+        }),
+      ).timeout(const Duration(seconds: 3));
+    } catch (_) {}
   }
 
   /// Instant local cold boot: hydrates configuration from Hive disk cache in < 2ms

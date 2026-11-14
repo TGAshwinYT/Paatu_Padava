@@ -21,6 +21,7 @@ enum SyncStatus { idle, syncing, synced, offline, error }
 class SyncManager {
   static const Uuid _uuid = Uuid();
   static bool _isSyncing = false;
+  static Completer<void>? _syncCompleter;
 
   static final ValueNotifier<SyncStatus> syncStatusNotifier =
       ValueNotifier<SyncStatus>(SyncStatus.idle);
@@ -32,8 +33,18 @@ class SyncManager {
 
   /// High-efficiency library synchronization:
   /// Performs a single joined query to fetch playlists and all associated tracks at once.
-  static Future<void> syncAll() async {
-    if (_isSyncing) return;
+  /// Uses a mutex completer to serialize concurrent sync calls without race conditions.
+  static Future<void> syncAll() {
+    if (_syncCompleter != null) {
+      return _syncCompleter!.future;
+    }
+    final completer = Completer<void>();
+    _syncCompleter = completer;
+    _performSyncAll(completer);
+    return completer.future;
+  }
+
+  static Future<void> _performSyncAll(Completer<void> completer) async {
     _isSyncing = true;
     syncStatusNotifier.value = SyncStatus.syncing;
     syncErrorNotifier.value = null;
@@ -43,14 +54,12 @@ class SyncManager {
       if (supaUser == null) {
         debugPrint('[SyncManager] No authenticated Supabase session. State is offline.');
         syncStatusNotifier.value = SyncStatus.offline;
-        _isSyncing = false;
         return;
       }
 
       final client = SupabaseService.client;
       if (client == null) {
         syncStatusNotifier.value = SyncStatus.offline;
-        _isSyncing = false;
         return;
       }
 
@@ -136,12 +145,42 @@ class SyncManager {
         );
       }
 
-      // 3. Check local offline-created playlists and push up to Supabase
+      // 3. Reconcile local and remote playlists (merge missing offline tracks without overwriting)
       final localPlaylists = PlaylistManager.getPlaylists();
       for (final local in localPlaylists) {
         if (!reconciledMap.containsKey(local.id)) {
           await pushPlaylistToCloud(local, supaUser.id);
           reconciledMap[local.id] = local;
+        } else {
+          final remotePl = reconciledMap[local.id]!;
+          final remoteTrackIds = remotePl.tracks.map((t) => t.id).toSet();
+
+          // Push any offline added tracks to Supabase
+          final missingOnCloud = local.tracks.where((t) => !remoteTrackIds.contains(t.id)).toList();
+          for (final track in missingOnCloud) {
+            unawaited(addSongToPlaylist(local.id, track));
+          }
+
+          // Build merged tracks list: remote tracks + local additions without duplicates
+          final mergedTracks = List<Song>.from(remotePl.tracks);
+          for (final t in local.tracks) {
+            if (!remoteTrackIds.contains(t.id)) {
+              mergedTracks.add(t);
+            }
+          }
+
+          reconciledMap[local.id] = UserPlaylist(
+            id: local.id,
+            title: local.title.isNotEmpty ? local.title : remotePl.title,
+            createdAt: local.createdAt,
+            tracks: mergedTracks,
+            isCollaborative: remotePl.isCollaborative || local.isCollaborative,
+            inviteCode: remotePl.inviteCode ?? local.inviteCode,
+            ownerId: remotePl.ownerId ?? local.ownerId,
+            isBlend: local.isBlend || remotePl.isBlend,
+            blendPartnerName: local.blendPartnerName ?? remotePl.blendPartnerName,
+            tasteMatchScore: local.tasteMatchScore ?? remotePl.tasteMatchScore,
+          );
         }
       }
 
@@ -174,6 +213,10 @@ class SyncManager {
       syncStatusNotifier.value = SyncStatus.error;
     } finally {
       _isSyncing = false;
+      _syncCompleter = null;
+      if (!completer.isCompleted) {
+        completer.complete();
+      }
     }
   }
 

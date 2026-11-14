@@ -145,6 +145,17 @@ async def get_scraper_config(response: Response):
     response.headers["Cache-Control"] = "public, max-age=3600"
     return DEFAULT_SCRAPER_CONFIG
 
+@router.post("/config/scraper/report-failure")
+async def report_scraper_failure(report: Dict[str, Any]):
+    """
+    Receives failure telemetry from mobile clients when an InnerTube client or decryption key fails.
+    Enables fast proactive monitoring of upstream provider blocks.
+    """
+    client_name = report.get("client_name", "UNKNOWN")
+    reason = report.get("reason", "unspecified")
+    print(f"[ScraperTelemetry] Client '{client_name}' failure reported: {reason}")
+    return {"status": "recorded", "client": client_name}
+
 @router.get("/test-location")
 async def get_test_location(request: Request):
     """

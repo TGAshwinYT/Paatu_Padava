@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:fuzzywuzzy/fuzzywuzzy.dart';
 import 'package:fuzzywuzzy/model/extracted_result.dart';
 import '../models/song.dart';
@@ -7,6 +8,7 @@ import '../core/dsa/lru_cache.dart';
 import '../core/dsa/symspell.dart';
 import '../core/dsa/trigram_index.dart';
 import 'saavn_client.dart';
+import 'fuzzy_dictionary.dart';
 import '../logic/lyrics/indic_romanizer.dart';
 import 'app_logger.dart';
 
@@ -23,30 +25,7 @@ class FuzzyCorrectionResult {
 }
 
 class FuzzySearchService {
-  static const Set<String> _coreDictionary = {
-    // Top Regional & Tamil Artists
-    'Anirudh Ravichander', 'A.R. Rahman', 'Harris Jayaraj', 'Yuvan Shankar Raja',
-    'Ilaiyaraaja', 'Santhosh Narayanan', 'Sid Sriram', 'D. Imman',
-    'G.V. Prakash Kumar', 'Sean Roldan', 'Hiphop Tamizha', 'Shreya Ghoshal',
-    'S.P. Balasubrahmanyam', 'K.J. Yesudas', 'Pradeep Kumar', 'Dhanush',
-    'Karthik', 'Hariharan', 'Vijay Antony', 'Shweta Mohan',
-    'Jonita Gandhi', 'Andrea Jeremiah',
-
-    // Popular Tamil Tracks & Movie Hits
-    'Naa Ready', 'Badass', 'Hukum', 'Arabic Kuthu', 'Vaseegara',
-    'Why This Kolaveri Di', 'Rowdy Baby', 'Kaavaalaa', 'Chinna Chinna Aasai',
-    'Munbe Vaa', 'Nenjukkul Peidhidum', 'Enjoy Enjaami', 'Ordinary Person',
-    'Bloody Sweet', 'Chellamma', 'Vaathi Coming', 'Kutty Story',
-    'Master the Blaster', 'Dippam Dappam', 'Megham Karukatha', 'Two Two Two',
-    'Kanave Kanave', 'Porkanda Singam', 'Pathala Pathala', 'Vikram Title Track',
-    'Once Upon a Time', 'Marakkuma Nenjam', 'Mallipoo', 'Chola Chola',
-    'Aga Naga', 'Ponni Nadhi', 'Kadhaippoma', 'Bae', 'Jimikki Ponnu',
-    'Ranjithame', 'Thee Thalapathy', 'Soul of Varisu', 'Mersal',
-    'Aalaporaan Thamizhan', 'Neethanae', 'Mersal Arasan', 'Maacho',
-    'Sarkar', 'Bigil', 'Kaththi', 'Theri', 'Thuppakki', 'Leo',
-    'Jailer', 'Vikram', 'Master', 'Varisu', 'Ponniyin Selvan',
-    'Thunivu', 'Beast', 'Doctor', 'Don', 'Petta', 'Kabali', 'Enthiran',
-  };
+  static const Set<String> _coreDictionary = kCoreFuzzyDictionary;
 
   static final Set<String> _candidateDictionary = Set<String>.from(_coreDictionary);
   static const int maxDynamicCandidates = 100;
@@ -95,6 +74,16 @@ class FuzzySearchService {
       _rebuildAll();
       _bkTreeInitialized = true;
     }
+  }
+
+  /// Asynchronously builds dictionaries in background isolate without UI hitch
+  static Future<void> ensureInitializedAsync() async {
+    if (_bkTreeInitialized) return;
+    await compute((_) {
+      FuzzySearchService._ensureInitialized();
+      return true;
+    }, null);
+    _ensureInitialized();
   }
 
   /// High-performance O(1) membership check against the candidate dictionary
@@ -304,11 +293,7 @@ class FuzzySearchService {
           final weightScore = weightedRatio(cleanQuery, resolved);
           final combinedScore = (((1.0 - (best.distance / cleanQuery.length)) * 100).toInt() + tokenScore + weightScore) ~/ 3;
           if (combinedScore >= 65) {
-            result = FuzzyCorrectionResult(
-              original: cleanQuery,
-              corrected: resolved,
-              score: combinedScore,
-            );
+            result = FuzzyCorrectionResult(original: cleanQuery, corrected: resolved, score: combinedScore);
           }
         }
       }
@@ -320,11 +305,7 @@ class FuzzySearchService {
           final best = triMatches.first;
           final resolved = best.payload ?? _normalizedToOriginal[_normKey(best.term)] ?? best.term;
           if (resolved.toLowerCase() != lowerQuery && best.similarity >= 0.55) {
-            result = FuzzyCorrectionResult(
-              original: cleanQuery,
-              corrected: resolved,
-              score: (best.similarity * 100).toInt(),
-            );
+            result = FuzzyCorrectionResult(original: cleanQuery, corrected: resolved, score: (best.similarity * 100).toInt());
           }
         }
       }
@@ -341,11 +322,7 @@ class FuzzySearchService {
           final combinedScore = (similarityPct + tokenScore + weightScore) ~/ 3;
 
           if (combinedScore >= 65 && resolved.toLowerCase() != lowerQuery) {
-            result = FuzzyCorrectionResult(
-              original: cleanQuery,
-              corrected: resolved,
-              score: combinedScore,
-            );
+            result = FuzzyCorrectionResult(original: cleanQuery, corrected: resolved, score: combinedScore);
           }
         }
       }
@@ -386,11 +363,30 @@ class FuzzySearchService {
     return result;
   }
 
+  /// Asynchronous, non-blocking typo correction. Offloads deep metric space search
+  /// and token-set calculations to compute() to preserve 120Hz UI smoothness.
+  static Future<FuzzyCorrectionResult?> findCorrectionAsync(String query) async {
+    final clean = Song.sanitize(query).trim();
+    if (clean.length <= 3) return null;
+    final lower = clean.toLowerCase();
+    if (_correctionCache.containsKey(lower)) return _correctionCache.get(lower);
+    _ensureInitialized();
+    if (_lowercaseCandidateSet.contains(lower)) {
+      _correctionCache.put(lower, null);
+      return null;
+    }
+    final res = await compute(_findCorrectionWorker, query);
+    _correctionCache.put(lower, res);
+    return res;
+  }
+
   /// Execute fallback search using fuzzy corrected query if primary search produced 0 results
   static Future<List<Song>> executeFallbackSearch(String originalQuery, {String? language}) async {
-    final correction = findCorrection(originalQuery);
+    final correction = await findCorrectionAsync(originalQuery);
     if (correction == null) return [];
     final effectiveLang = (language != null && language.isNotEmpty && language.toLowerCase() != 'all') ? language : null;
     return await SaavnClient.search(correction.corrected, limit: 20, language: effectiveLang);
   }
 }
+
+FuzzyCorrectionResult? _findCorrectionWorker(String query) => FuzzySearchService.findCorrection(query);

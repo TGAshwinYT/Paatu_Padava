@@ -412,6 +412,26 @@ class TrackEntity {
     );
   }
 
+  /// Creates a unified TrackEntity directly from a curated SQLite master CatalogSong entry
+  factory TrackEntity.fromCatalogSong(dynamic catalogSong) {
+    final credit = (catalogSong.singers != null && catalogSong.singers.isNotEmpty)
+        ? catalogSong.singers
+        : (catalogSong.composer ?? '');
+    return TrackEntity(
+      id: catalogSong.id?.toString() ?? '',
+      title: catalogSong.title?.toString() ?? '',
+      artist: credit.toString(),
+      album: (catalogSong.movieTitle != null && catalogSong.movieTitle.isNotEmpty)
+          ? catalogSong.movieTitle.toString()
+          : 'Single',
+      coverUrl: catalogSong.coverUrl?.toString() ?? '',
+      streamUrl: catalogSong.audioUrl?.toString(),
+      duration: catalogSong.duration is int ? catalogSong.duration as int : 0,
+      source: catalogSong.source?.toString() ?? 'saavn',
+      language: catalogSong.language?.toString(),
+    );
+  }
+
   String toJson() => json.encode(toMap());
 
   factory TrackEntity.fromJson(String source) => TrackEntity.fromMap(json.decode(source));

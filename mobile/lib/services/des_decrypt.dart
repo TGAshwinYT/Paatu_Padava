@@ -4,20 +4,47 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:dart_des/dart_des.dart';
 import 'package:just_audio/just_audio.dart';
+import 'dynamic_scraper_config_service.dart';
 
 /// Class-level helper for DES decryption conforming to Bloomee architecture
 class DesDecrypt {
-  static String decrypt(String encryptedUrl) => decryptSaavnMediaUrl(encryptedUrl);
+  static String decrypt(String encryptedUrl, [String? explicitKey]) =>
+      decryptSaavnMediaUrl(encryptedUrl, explicitKey);
 }
 
 /// Top-level synchronous DES decryption function suitable for direct isolate offloading.
-String decryptSaavnMediaUrl(String encryptedUrl) {
-  if (encryptedUrl.isEmpty) return '';
+/// Supports dynamic multi-key trial: tries the primary dynamic key first,
+/// then cascades to fallback keys if padding fails or decrypted string is malformed.
+String decryptSaavnMediaUrl(String encryptedUrl, [String? explicitKey]) {
+  final cleanEncrypted = encryptedUrl.trim();
+  if (cleanEncrypted.isEmpty) return '';
 
+  final keysToTry = <String>[];
+  if (explicitKey != null && explicitKey.isNotEmpty) {
+    keysToTry.add(explicitKey);
+  } else {
+    final primary = DynamicScraperConfigService.saavnDesKey;
+    keysToTry.add(primary);
+    for (final fb in DynamicScraperConfigService.saavnFallbackDesKeys) {
+      if (!keysToTry.contains(fb)) {
+        keysToTry.add(fb);
+      }
+    }
+  }
+
+  for (final key in keysToTry) {
+    final result = _attemptDesDecryption(cleanEncrypted, key);
+    if (result.isNotEmpty && (result.startsWith('http://') || result.startsWith('https://'))) {
+      return result;
+    }
+  }
+
+  return '';
+}
+
+String _attemptDesDecryption(String cleanEncrypted, String key) {
   try {
-    // Official JioSaavn DES key
-    const key = '38346591';
-    final cipherText = base64.decode(encryptedUrl.trim());
+    final cipherText = base64.decode(cleanEncrypted);
     final desECB = DES(key: key.codeUnits, mode: DESMode.ECB);
     final decrypted = desECB.decrypt(cipherText);
 
@@ -37,7 +64,7 @@ String decryptSaavnMediaUrl(String encryptedUrl) {
     }
 
     return url;
-  } catch (e) {
+  } catch (_) {
     return '';
   }
 }

@@ -19,6 +19,7 @@ import 'services/battery_optimization_service.dart';
 import 'services/blacklist_manager.dart';
 import 'services/catalog_database.dart';
 import 'services/cover_art_resolver.dart';
+import 'services/dynamic_scraper_config_service.dart';
 import 'services/innertube_config_service.dart';
 import 'services/sync_manager.dart';
 import 'ui/theme/app_theme.dart';
@@ -83,6 +84,7 @@ Future<void> main() async {
         AuthManager.initLocalCache(),
         BlacklistManager.init(),
         CatalogDatabase.init(),
+        DynamicScraperConfigService.initLocal(),
       ]);
     } catch (e, stack) {
       AppLogger.recordError(e, stack, context: 'Local Hive boxes init');

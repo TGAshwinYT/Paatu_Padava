@@ -11,6 +11,7 @@ import '../services/saavn_client.dart';
 import '../services/artist_sanitizer.dart';
 import '../services/cover_art_resolver.dart';
 import '../services/download_manager.dart';
+import '../services/dynamic_scraper_config_service.dart';
 import '../core/app_config.dart';
 import '../core/dsa/lru_cache.dart';
 
@@ -645,17 +646,19 @@ class DefaultStreamResolver implements StreamResolver {
     }
 
     // ── STAGE D (Backend Stream Proxy fallback) ──
-    try {
-      AppLogger.log('StreamResolver', 'Stage D backend stream proxy for: ${song.id}');
-      final proxyUrl = await _queryBackendStreamProxy(song.id, cleanTitleOnly, song.artist)
-          .timeout(_stageTimeout, onTimeout: () => null);
-      if (proxyUrl != null && proxyUrl.isNotEmpty) {
-        song.streamUrl = proxyUrl;
-        cacheStream(song.id, proxyUrl, source: 'backend');
-        return proxyUrl;
+    if (DynamicScraperConfigService.isBackendResolverEnabled) {
+      try {
+        AppLogger.log('StreamResolver', 'Stage D backend stream proxy for: ${song.id}');
+        final proxyUrl = await _queryBackendStreamProxy(song.id, cleanTitleOnly, song.artist)
+            .timeout(_stageTimeout, onTimeout: () => null);
+        if (proxyUrl != null && proxyUrl.isNotEmpty) {
+          song.streamUrl = proxyUrl;
+          cacheStream(song.id, proxyUrl, source: 'backend');
+          return proxyUrl;
+        }
+      } catch (e) {
+        AppLogger.log('StreamResolver', 'Stage D proxy notice: $e');
       }
-    } catch (e) {
-      AppLogger.log('StreamResolver', 'Stage D proxy notice: $e');
     }
 
     return null;

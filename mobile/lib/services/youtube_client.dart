@@ -7,6 +7,7 @@ import 'saavn_client.dart';
 import 'settings_manager.dart';
 import 'app_logger.dart';
 import 'artist_sanitizer.dart';
+import 'dynamic_scraper_config_service.dart';
 import 'innertube_config_service.dart';
 import 'youtube/youtube_header_utils.dart';
 import 'youtube/youtube_title_cleaner.dart';
@@ -1189,9 +1190,9 @@ class YouTubeClient {
 
   /// Tier 1 Fast Path: Queries YouTube InnerTube clients (Method A - HLS) and direct streams (Method B).
   /// InnerTube client configs are dynamically supplied by [InnerTubeConfigService] with remote JSON updates and built-in defaults.
-  /// Queries configs concurrently with a 2.5-second total timeout to avoid delaying Tier 2 YouTubeExplode.
+  /// Queries healthy configs concurrently with a 2.5-second total timeout to avoid delaying Tier 2 YouTubeExplode.
   static Future<String?> _resolveDirectInnertubeStream(String cleanId) async {
-    final configs = InnerTubeConfigService.clientConfigs;
+    final configs = InnerTubeConfigService.healthyClientConfigs;
     if (configs.isEmpty) return null;
 
     final futures = configs.map((config) async {
@@ -1207,6 +1208,16 @@ class YouTubeClient {
           headers: Map<String, String>.from(config['headers']),
           body: payload,
         ).timeout(const Duration(seconds: 3));
+
+        if (response.statusCode == 403 ||
+            response.body.contains('LOGIN_REQUIRED') ||
+            response.body.contains('Sign in to confirm you\'re not a bot')) {
+          final clientName = config['name']?.toString() ?? '';
+          if (clientName.isNotEmpty) {
+            DynamicScraperConfigService.markClientTemporarilyFailing(clientName);
+          }
+          return null;
+        }
 
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body) as Map<String, dynamic>?;

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/song.dart';
 import 'des_decrypt.dart';
+import 'dynamic_scraper_config_service.dart';
 import 'app_logger.dart';
 import 'artist_sanitizer.dart';
 import '../data/repositories/song_repository.dart';
@@ -13,7 +14,7 @@ import '../logic/track_quality_filter.dart';
 
 class SaavnClient {
   static final http.Client _client = http.Client();
-  static const String baseUrl = 'https://www.jiosaavn.com/api.php';
+  static String get baseUrl => DynamicScraperConfigService.saavnBaseUrl;
 
   static const String allIndianLanguagesCookie =
       'hindi%2Cenglish%2Ctamil%2Ctelugu%2Cpunjabi%2Cmarathi%2Cgujarati%2Cbengali%2Ckannada%2Cbhojpuri%2Cmalayalam%2Curdu%2Charyanvi%2Crajasthani%2Codia%2Cassamese';

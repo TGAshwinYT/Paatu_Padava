@@ -23,22 +23,61 @@ void main() {
     });
 
     test('calculateAdaptiveMicroAdjustMax scales dynamically without causing jarring seeks', () {
-      // LAN bounds: 140ms
+      // LAN bounds: 1000ms
       final lanMicro = DriftReconciler.calculateAdaptiveMicroAdjustMax(rttMs: 10, isLan: true);
-      expect(lanMicro, equals(140));
+      expect(lanMicro, equals(1000));
 
       final lanHighMicro = DriftReconciler.calculateAdaptiveMicroAdjustMax(rttMs: 150, isLan: true);
-      expect(lanHighMicro, equals(140));
+      expect(lanHighMicro, equals(1000));
 
-      // WAN bounds: 160ms - 300ms (90% of RTT)
+      // WAN bounds: 1200ms - 1800ms
       final wanLow = DriftReconciler.calculateAdaptiveMicroAdjustMax(rttMs: 50, isLan: false);
-      expect(wanLow, equals(160)); // 50 * 0.9 = 45 -> floored to 160ms
+      expect(wanLow, equals(1200)); // 50 * 2.0 = 100 -> floored to 1200ms
 
-      final wanMedium = DriftReconciler.calculateAdaptiveMicroAdjustMax(rttMs: 250, isLan: false);
-      expect(wanMedium, equals(225)); // 250 * 0.9 = 225ms
+      final wanMedium = DriftReconciler.calculateAdaptiveMicroAdjustMax(rttMs: 700, isLan: false);
+      expect(wanMedium, equals(1400)); // 700 * 2.0 = 1400ms
 
-      final wanExtreme = DriftReconciler.calculateAdaptiveMicroAdjustMax(rttMs: 500, isLan: false);
-      expect(wanExtreme, equals(300)); // clamped to 300ms ceiling
+      final wanExtreme = DriftReconciler.calculateAdaptiveMicroAdjustMax(rttMs: 1200, isLan: false);
+      expect(wanExtreme, equals(1800)); // clamped to 1800ms ceiling
+    });
+
+    test('Tiered drift reconciliation applies smooth speed adjustments before hard seek', () {
+      // Tier 1 (< 120ms): ±0.8%
+      final tier1 = DriftReconciler.reconcileDrift(
+        currentPositionMs: 5080,
+        expectedPositionMs: 5000,
+        deadbandMs: 30,
+        microAdjustMaxMs: 1500,
+      );
+      expect(tier1.playbackSpeed, equals(0.992));
+
+      // Tier 2 (120ms - 450ms): ±2.0%
+      final tier2 = DriftReconciler.reconcileDrift(
+        currentPositionMs: 4700,
+        expectedPositionMs: 5000,
+        deadbandMs: 30,
+        microAdjustMaxMs: 1500,
+      );
+      expect(tier2.playbackSpeed, equals(1.020));
+
+      // Tier 3 (450ms - 1500ms): ±4.0%
+      final tier3 = DriftReconciler.reconcileDrift(
+        currentPositionMs: 6000,
+        expectedPositionMs: 5000,
+        deadbandMs: 30,
+        microAdjustMaxMs: 1500,
+      );
+      expect(tier3.playbackSpeed, equals(0.960));
+
+      // Macro drift (>= 1500ms): Hard seek
+      final macro = DriftReconciler.reconcileDrift(
+        currentPositionMs: 8000,
+        expectedPositionMs: 5000,
+        deadbandMs: 30,
+        microAdjustMaxMs: 1500,
+      );
+      expect(macro.isHardSeek, isTrue);
+      expect(macro.seekTargetMs, equals(5000));
     });
 
     test('Adaptive Deadband absorbs network jitter and prevents playback stutter', () {
@@ -97,42 +136,42 @@ void main() {
 
   group('Adaptive Lead Time & Playback Barrier Calculations', () {
     test('Calculates adaptive lead time on LAN for low latency starts', () {
-      // Empty peers on LAN -> 1000ms baseline
+      // Empty peers on LAN -> 1200ms baseline
       final lanEmpty = ScheduledPlaybackCalculator.calculateAdaptiveLeadTimeMs(
         peerRtts: [],
         isLan: true,
       );
-      expect(lanEmpty, equals(1000));
+      expect(lanEmpty, equals(1200));
 
-      // Peers with low RTTs on LAN (< 20ms) -> 1000ms
+      // Peers with low RTTs on LAN (< 20ms) -> 1200ms
       final lanPeers = ScheduledPlaybackCalculator.calculateAdaptiveLeadTimeMs(
         peerRtts: [5, 12, 15],
         isLan: true,
       );
-      expect(lanPeers, equals(1000));
+      expect(lanPeers, equals(1200));
     });
 
     test('Calculates adaptive lead time on WAN scaling with slowest peer', () {
-      // Empty peers on WAN -> 1100ms baseline
+      // Empty peers on WAN -> 1500ms baseline
       final wanEmpty = ScheduledPlaybackCalculator.calculateAdaptiveLeadTimeMs(
         peerRtts: [],
         isLan: false,
       );
-      expect(wanEmpty, equals(1100));
+      expect(wanEmpty, equals(1500));
 
-      // Slow peer with 1000ms RTT on WAN -> 1000 + 500 = 1500ms lead time
+      // Slow peer with 1000ms RTT on WAN -> 1000 + 750 = 1750ms lead time
       final wanSlowPeer = ScheduledPlaybackCalculator.calculateAdaptiveLeadTimeMs(
         peerRtts: [60, 110, 1000],
         isLan: false,
       );
-      expect(wanSlowPeer, equals(1500));
+      expect(wanSlowPeer, equals(1750));
 
-      // Extreme RTT peer (2500ms) -> Clamped to 2400ms
+      // Extreme RTT peer (2500ms) -> Clamped to 2800ms
       final wanExtremePeer = ScheduledPlaybackCalculator.calculateAdaptiveLeadTimeMs(
         peerRtts: [2500],
         isLan: false,
       );
-      expect(wanExtremePeer, equals(2400));
+      expect(wanExtremePeer, equals(2800));
     });
   });
 }

@@ -152,25 +152,28 @@ class DriftReconciler {
   }
 
   /// Computes the micro-adjustment ceiling threshold before falling back to hard seek.
+  /// Expanded to 1500ms so minor network jitter and buffer variance are smoothed by
+  /// pitch-preserved time-stretching instead of destructive ExoPlayer buffer-flush seeks.
   static int calculateAdaptiveMicroAdjustMax({required int rttMs, bool isLan = false}) {
-    if (isLan) return 140;
-    return max(160, min(300, (rttMs * 0.9).round()));
+    if (isLan) return 1000;
+    return max(1200, min(1800, (rttMs * 2.0).round()));
   }
 
   /// Reconciles local playback position against expected host position.
   ///
   /// - Deadband with hysteresis:
-  ///   - Speaker Mode (LAN): deadband ~30ms (hysteresis margin +10ms).
-  ///   - Listen Together Mode (Cloud): deadband ~40-50ms.
+  ///   - Speaker Mode (LAN): deadband ~25-30ms.
+  ///   - Listen Together Mode (Cloud): deadband ~35-45ms.
   /// - Gentle rate changes:
-  ///   - Small drift (deadband to 80ms): gentle ±0.5% (0.995x / 1.005x), inaudible to human ear.
-  ///   - Moderate drift (80ms to microAdjustMaxMs): ±1.5% (0.985x / 1.015x).
-  ///   - Macro drift (>= microAdjustMaxMs, default 150-200ms): quick muted hard seek.
+  ///   - Small drift (deadband to 120ms): gentle ±0.8% (0.992x / 1.008x), inaudible to human ear.
+  ///   - Moderate drift (120ms to 450ms): ±2.0% (0.98x / 1.02x).
+  ///   - High drift (450ms to microAdjustMaxMs, up to 1500ms): ±4.0% (0.96x / 1.04x) for rapid catch-up.
+  ///   - Macro drift (>= microAdjustMaxMs, default 1500ms): quick muted hard seek.
   static DriftAction reconcileDrift({
     required int currentPositionMs,
     required int expectedPositionMs,
     int deadbandMs = 30,
-    int microAdjustMaxMs = 150,
+    int microAdjustMaxMs = 1500,
     int seekLatencyMs = 0,
     bool wasInSync = false,
   }) {
@@ -190,19 +193,28 @@ class DriftReconciler {
     }
 
     if (absDrift < microAdjustMaxMs) {
-      // Tier 1: Small drift (under 80ms) -> Gentle ±0.5% speed adjustment (inaudible pitch change)
-      if (absDrift < 80) {
+      // Tier 1: Small drift (under 120ms) -> Gentle ±0.8% speed adjustment
+      if (absDrift < 120) {
         return DriftAction(
           type: drift > 0 ? DriftActionType.slowDown : DriftActionType.speedUp,
-          playbackSpeed: drift > 0 ? 0.995 : 1.005,
+          playbackSpeed: drift > 0 ? 0.992 : 1.008,
           driftMs: drift,
         );
       }
 
-      // Tier 2: Moderate drift (80ms to microAdjustMaxMs) -> ±1.5% speed adjustment
+      // Tier 2: Moderate drift (120ms to 450ms) -> ±2.0% speed adjustment
+      if (absDrift < 450) {
+        return DriftAction(
+          type: drift > 0 ? DriftActionType.slowDown : DriftActionType.speedUp,
+          playbackSpeed: drift > 0 ? 0.980 : 1.020,
+          driftMs: drift,
+        );
+      }
+
+      // Tier 3: High drift (450ms to 1500ms) -> ±4.0% speed adjustment for rapid smooth alignment
       return DriftAction(
         type: drift > 0 ? DriftActionType.slowDown : DriftActionType.speedUp,
-        playbackSpeed: drift > 0 ? 0.985 : 1.015,
+        playbackSpeed: drift > 0 ? 0.960 : 1.040,
         driftMs: drift,
       );
     }
@@ -222,18 +234,18 @@ class DriftReconciler {
 class ScheduledPlaybackCalculator {
   /// Computes the presentation lead time for scheduled play / track transition barriers.
   /// Adapts dynamically based on the highest peer RTT in the session.
-  /// Local LAN only: ~1000ms.
-  /// Cloud / High latency / Long distance: scales up to 1800-2400ms to guarantee all phones buffer in time.
+  /// Local LAN only: ~1200ms.
+  /// Cloud / High latency / Long distance: scales up to 1500-2800ms to guarantee all phones buffer in time.
   static int calculateAdaptiveLeadTimeMs({
     required List<int> peerRtts,
     bool isLan = false,
   }) {
     if (isLan && (peerRtts.isEmpty || peerRtts.every((rtt) => rtt < 20))) {
-      return 1000;
+      return 1200;
     }
     final maxRtt = peerRtts.isNotEmpty ? peerRtts.reduce(max) : 100;
-    // Base 1100ms + max RTT + 500ms headroom for ExoPlayer buffer fill
-    return max(1100, min(2400, maxRtt + 500));
+    // Base 1500ms + max RTT + 750ms headroom for ExoPlayer buffer fill
+    return max(1500, min(2800, maxRtt + 750));
   }
 
   /// Calculates the millisecond delay to wait before triggering `player.play()`

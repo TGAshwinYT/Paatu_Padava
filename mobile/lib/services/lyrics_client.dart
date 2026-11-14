@@ -11,6 +11,7 @@ import '../models/song.dart';
 import 'app_logger.dart';
 import 'saavn_client.dart';
 import 'youtube_client.dart';
+import '../logic/stream_resolver.dart';
 
 /// Represents a single word in a synchronized lyric line with start and end timestamps.
 class LyricWord {
@@ -914,9 +915,14 @@ class LyricsClient {
     } catch (_) {}
   }
 
+  static final Map<String, Song> _studioKaraokeCache = {};
+
   /// Searches and resolves an authentic official studio karaoke or instrumental version
   /// of the target song from YouTube/Saavn, matching duration within tolerance.
   Future<Song?> resolveStudioKaraoke(Song song) async {
+    if (_studioKaraokeCache.containsKey(song.id)) {
+      return _studioKaraokeCache[song.id];
+    }
     final cleanTitle = sanitizeTitle(song.title);
     if (cleanTitle.isEmpty) return null;
 
@@ -951,11 +957,18 @@ class LyricsClient {
               titleLower.contains('slowed');
           if (isBlacklisted) continue;
 
-          // Invariant 3: Duration check within +/- 6 seconds if duration is known
+          // Invariant 3: Duration check within +/- 18 seconds if duration is known
           if (song.duration > 0 && candidate.duration > 0) {
             final diff = (candidate.duration - song.duration).abs();
-            if (diff > 6) continue;
+            if (diff > 18) continue;
           }
+
+          _studioKaraokeCache[song.id] = candidate;
+          DefaultStreamResolver().resolveStreamUrl(candidate).then((url) {
+            if (url != null && url.isNotEmpty) {
+              candidate.streamUrl = url;
+            }
+          });
 
           AppLogger.log('LyricsClient', 'Found studio karaoke candidate for "${song.title}": "${candidate.title}" (id: ${candidate.id})');
           return candidate;

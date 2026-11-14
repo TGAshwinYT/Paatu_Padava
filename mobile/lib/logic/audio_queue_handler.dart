@@ -25,6 +25,7 @@ import '../services/connectivity_service.dart';
 import '../services/smart_cache_service.dart';
 import '../services/smart_gapless_precacher.dart';
 import '../services/sleep_timer_service.dart';
+import '../services/party_sync_coordinator.dart';
 import 'stream_resolver.dart';
 import 'next_track_strategy.dart';
 import 'crossfade_engine.dart';
@@ -606,6 +607,13 @@ class AudioQueueHandler {
         if (SleepTimerService.instance.stopAtEndOfTrack) {
           _isAdvancing = false;
           SleepTimerService.instance.triggerSleepNow();
+          return;
+        }
+
+        if (PartySyncCoordinator.isJoiner) {
+          _isAdvancing = false;
+          AppLogger.log('AudioQueueHandler', 'Joiner reached track end - holding for host transition barrier');
+          player.pause();
           return;
         }
 

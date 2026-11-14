@@ -105,44 +105,44 @@ void main() {
       expect(actionBehind.isInSync, isTrue);
     });
 
-    test('Small drift (30-80ms) applies gentle ±0.5% rate adjustment to prevent audible warble', () {
-      // Local is ahead by 50ms: gentle slow down (0.995x)
+    test('Small drift (30-120ms) applies gentle ±0.8% rate adjustment to prevent audible warble', () {
+      // Local is ahead by 50ms: gentle slow down (0.992x)
       final actionAhead = DriftReconciler.reconcileDrift(
         currentPositionMs: 15050,
         expectedPositionMs: 15000, // drift = +50ms
       );
       expect(actionAhead.type, equals(DriftActionType.slowDown));
-      expect(actionAhead.playbackSpeed, equals(0.995));
+      expect(actionAhead.playbackSpeed, equals(0.992));
       expect(actionAhead.isMicroAdjusting, isTrue);
       expect(actionAhead.seekTargetMs, isNull);
 
-      // Local is behind by 50ms: gentle catch up (1.005x)
+      // Local is behind by 50ms: gentle catch up (1.008x)
       final actionBehind = DriftReconciler.reconcileDrift(
         currentPositionMs: 14950,
         expectedPositionMs: 15000, // drift = -50ms
       );
       expect(actionBehind.type, equals(DriftActionType.speedUp));
-      expect(actionBehind.playbackSpeed, equals(1.005));
+      expect(actionBehind.playbackSpeed, equals(1.008));
       expect(actionBehind.isMicroAdjusting, isTrue);
       expect(actionBehind.seekTargetMs, isNull);
     });
 
-    test('Moderate drift (80-150ms) applies ±1.5% adjustment', () {
+    test('Moderate drift (120-450ms) applies ±2.0% adjustment', () {
       final actionAhead = DriftReconciler.reconcileDrift(
-        currentPositionMs: 15120,
-        expectedPositionMs: 15000, // drift = +120ms
+        currentPositionMs: 15150,
+        expectedPositionMs: 15000, // drift = +150ms
       );
       expect(actionAhead.type, equals(DriftActionType.slowDown));
-      expect(actionAhead.playbackSpeed, equals(0.985));
+      expect(actionAhead.playbackSpeed, equals(0.980));
       expect(actionAhead.isMicroAdjusting, isTrue);
       expect(actionAhead.seekTargetMs, isNull);
 
       final actionBehind = DriftReconciler.reconcileDrift(
-        currentPositionMs: 14880,
-        expectedPositionMs: 15000, // drift = -120ms
+        currentPositionMs: 14850,
+        expectedPositionMs: 15000, // drift = -150ms
       );
       expect(actionBehind.type, equals(DriftActionType.speedUp));
-      expect(actionBehind.playbackSpeed, equals(1.015));
+      expect(actionBehind.playbackSpeed, equals(1.020));
       expect(actionBehind.isMicroAdjusting, isTrue);
       expect(actionBehind.seekTargetMs, isNull);
     });
@@ -166,13 +166,13 @@ void main() {
         wasInSync: true,
       );
       expect(actionExceeded.type, equals(DriftActionType.slowDown));
-      expect(actionExceeded.playbackSpeed, equals(0.995));
+      expect(actionExceeded.playbackSpeed, equals(0.992));
     });
 
-    test('Macro-drift (>= 150ms) triggers seamless hard seek', () {
+    test('Macro-drift (>= 1500ms) triggers seamless hard seek', () {
       final action = DriftReconciler.reconcileDrift(
-        currentPositionMs: 15450,
-        expectedPositionMs: 15000, // drift = +450ms
+        currentPositionMs: 17000,
+        expectedPositionMs: 15000, // drift = +2000ms
       );
       expect(action.type, equals(DriftActionType.hardSeek));
       expect(action.isHardSeek, isTrue);

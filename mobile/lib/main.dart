@@ -22,6 +22,7 @@ import 'services/cover_art_resolver.dart';
 import 'services/dynamic_scraper_config_service.dart';
 import 'services/innertube_config_service.dart';
 import 'services/sync_manager.dart';
+import 'services/party_sync_coordinator.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/screens/main_navigation.dart';
 
@@ -161,6 +162,42 @@ Future<void> _initDeferredServices() async {
   FavoritesManager.favoritesNotifier.addListener(() {
     unawaited(DownloadManager.triggerSmartDownloads());
   });
+
+  // Guard joiner speaker mode against conflicting manual song playback
+  PartySyncCoordinator.onJoinerManualPlayAttempted = (targetSong) async {
+    final navContext = PaatuPadavaApp.navigatorKey.currentContext;
+    if (navContext == null) {
+      await PartySyncCoordinator.leaveParty();
+      await audioHandler.playSong(targetSong);
+      return;
+    }
+    final shouldLeave = await showDialog<bool>(
+      context: navContext,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text('Party Speaker Active', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+        content: Text(
+          'Your phone is synced as a speaker in Party Mode (${PartySyncCoordinator.partyCode ?? ""}). Do you want to leave the party to play "${targetSong.title}"?',
+          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Stay in Party', style: TextStyle(color: Color(0xFF94A3B8))),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF6366F1)),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Leave & Play', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+    if (shouldLeave == true) {
+      await PartySyncCoordinator.leaveParty();
+      await audioHandler.playSong(targetSong);
+    }
+  };
 }
 
 class AudioFatalErrorApp extends StatelessWidget {

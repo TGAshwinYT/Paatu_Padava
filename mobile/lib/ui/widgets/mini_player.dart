@@ -4,6 +4,7 @@ import 'package:just_audio/just_audio.dart';
 import '../../models/song.dart';
 import '../../services/player_handler.dart';
 import '../../services/favorites_manager.dart';
+import '../../services/party_sync_coordinator.dart';
 import '../screens/full_player_screen.dart';
 import 'artist_picker_sheet.dart';
 import 'cover_art_image.dart';
@@ -150,6 +151,38 @@ class MiniPlayer extends StatelessWidget {
                                         fontSize: 12,
                                       ),
                                     ),
+                                  ),
+                                  ValueListenableBuilder<PartyRole>(
+                                    valueListenable: PartySyncCoordinator.roleNotifier,
+                                    builder: (context, role, _) {
+                                      if (role != PartyRole.joiner) {
+                                        return const SizedBox.shrink();
+                                      }
+                                      return Padding(
+                                        padding: const EdgeInsets.only(top: 2),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFF06B6D4).withValues(alpha: 0.2),
+                                                borderRadius: BorderRadius.circular(4),
+                                                border: Border.all(color: const Color(0xFF06B6D4).withValues(alpha: 0.5), width: 0.8),
+                                              ),
+                                              child: const Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(Icons.speaker_group_rounded, size: 10, color: Color(0xFF06B6D4)),
+                                                  SizedBox(width: 3),
+                                                  Text('Party Speaker', style: TextStyle(color: Color(0xFF06B6D4), fontSize: 9.5, fontWeight: FontWeight.bold)),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    },
                                   ),
                                 ],
                               ),

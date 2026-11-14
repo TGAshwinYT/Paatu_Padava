@@ -108,19 +108,19 @@ class EqualizerService {
       effectiveBands[3] = (effectiveBands[3] + (virtualizer * 2.5)).clamp(-10.0, 10.0);
       effectiveBands[4] = (effectiveBands[4] + (virtualizer * 3.5)).clamp(-10.0, 10.0);
 
-      // 3. Real-time vocal formant notch attenuation
+      // 3. Real-time vocal formant notch attenuation with dynamic loudness compensation
       if (vocalAttenuation > 0.0) {
         final clampedVocal = vocalAttenuation.clamp(0.0, 1.0);
         // Band 2 (~910 Hz): Core vocal formant notch
-        effectiveBands[2] = (effectiveBands[2] - (clampedVocal * 12.0)).clamp(-10.0, 10.0);
+        effectiveBands[2] = (effectiveBands[2] - (clampedVocal * 8.0)).clamp(-10.0, 10.0);
         // Band 3 (~3.6 kHz): Vocal presence and consonant friction notch
-        effectiveBands[3] = (effectiveBands[3] - (clampedVocal * 8.0)).clamp(-10.0, 10.0);
-        // Band 1 (~230 Hz): Lower chest resonance attenuation
-        effectiveBands[1] = (effectiveBands[1] - (clampedVocal * 4.0)).clamp(-10.0, 10.0);
+        effectiveBands[3] = (effectiveBands[3] - (clampedVocal * 5.0)).clamp(-10.0, 10.0);
+        // Band 1 (~230 Hz): Lower chest resonance attenuation (subtle to preserve rhythm chords)
+        effectiveBands[1] = (effectiveBands[1] - (clampedVocal * 2.0)).clamp(-10.0, 10.0);
         // Band 0 (~60 Hz): Sub-bass / kick compensation to maintain rhythm power
-        effectiveBands[0] = (effectiveBands[0] + (clampedVocal * 2.0)).clamp(-10.0, 10.0);
+        effectiveBands[0] = (effectiveBands[0] + (clampedVocal * 3.5)).clamp(-10.0, 10.0);
         // Band 4 (~14 kHz): Air & shimmer preservation
-        effectiveBands[4] = (effectiveBands[4] + (clampedVocal * 1.5)).clamp(-10.0, 10.0);
+        effectiveBands[4] = (effectiveBands[4] + (clampedVocal * 2.5)).clamp(-10.0, 10.0);
       }
     }
     return effectiveBands;
@@ -149,8 +149,8 @@ class EqualizerService {
     if (_activeSessionId == null || _activeSessionId == 0) return;
     try {
       final baseBands = SettingsManager.eqBands;
-      final bassBoostRatio = SettingsManager.bassBoost; // 0.0 to 1.0
-      final virtualizerRatio = SettingsManager.virtualizer; // 0.0 to 1.0
+      final bassBoostRatio = (SettingsManager.bassBoost + (_vocalAttenuation * 0.25)).clamp(0.0, 1.0);
+      final virtualizerRatio = (SettingsManager.virtualizer + (_vocalAttenuation * 0.40)).clamp(0.0, 1.0);
       final effectiveBands = calculateEffectiveBands(
         baseBands: baseBands,
         bassBoost: bassBoostRatio,

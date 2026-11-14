@@ -486,6 +486,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       LyricsClient.instance.resolveStudioKaraoke(song).then((karaoke) {
         if (currentSong?.id == song.id) {
           studioKaraokeTrackNotifier.value = karaoke;
+          if (vocalAttenuationNotifier.value >= 0.85 && karaoke != null && !isUsingStudioKaraokeNotifier.value) {
+            switchToStudioKaraoke();
+          }
         }
       });
 
@@ -574,6 +577,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     _isSwitchingKaraokeStem = true;
     isUsingStudioKaraokeNotifier.value = true;
     try {
+      EqualizerService.setVocalAttenuation(0.0);
       await playSong(karaokeSong, preserveUserQueue: true);
       await _player.seek(currentPos);
     } finally {
@@ -591,6 +595,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     try {
       await playSong(origSong, preserveUserQueue: true);
       await _player.seek(currentPos);
+      EqualizerService.setVocalAttenuation(vocalAttenuationNotifier.value);
     } finally {
       _isSwitchingKaraokeStem = false;
       _originalTrackBeforeStudioKaraoke = null;
@@ -912,7 +917,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       final song = track.toSong();
 
       String? url = song.streamUrl;
-      if (url == null || url.isEmpty || track.source == 'youtube' || _streamResolver.isExpired(track.id)) {
+      if (url == null || url.isEmpty || _streamResolver.isExpired(track.id)) {
         url = await _streamResolver.resolveStreamUrl(song);
       }
 
@@ -978,7 +983,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     final currentRequestId = ++_loadRequestId;
     final song = track.toSong();
     String? url = song.streamUrl;
-    if (url == null || url.isEmpty || track.source == 'youtube' || _streamResolver.isExpired(track.id)) {
+    if (url == null || url.isEmpty || _streamResolver.isExpired(track.id)) {
       url = await _streamResolver.resolveStreamUrl(song);
     }
     if (currentRequestId != _loadRequestId) return;
@@ -989,7 +994,20 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   }
 
   /// Load and play a song with gapless ConcatenatingAudioSource preloading
-  Future<void> playSong(Song song, {List<Song>? queue, bool preserveUserQueue = false, PlaybackContext? context}) async {
+  Future<void> playSong(
+    Song song, {
+    List<Song>? queue,
+    bool preserveUserQueue = false,
+    PlaybackContext? context,
+    bool isPartySyncInternal = false,
+  }) async {
+    if (PartySyncCoordinator.role == PartyRole.joiner && !isPartySyncInternal) {
+      if (PartySyncCoordinator.onJoinerManualPlayAttempted != null) {
+        PartySyncCoordinator.onJoinerManualPlayAttempted!(song);
+        return;
+      }
+      await PartySyncCoordinator.leaveParty();
+    }
     if (context != null) {
       currentContextNotifier.value = context;
       RecentContainersManager.recordContainer(
@@ -1010,7 +1028,8 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     _queueHandler.cancelIdleTimer();
 
     // Ensure playable stream URL is resolved before loading queue
-    if (song.streamUrl == null || song.streamUrl!.isEmpty || song.source == 'youtube' || _streamResolver.isExpired(song.id)) {
+    final hasValidStream = song.streamUrl != null && song.streamUrl!.isNotEmpty;
+    if (!hasValidStream || _streamResolver.isExpired(song.id)) {
       final resolved = await _streamResolver.resolveStreamUrl(song);
       if (resolved != null && resolved.isNotEmpty) {
         song.streamUrl = resolved;
@@ -1347,6 +1366,10 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
 
   @override
   Future<void> skipToNext() async {
+    if (PartySyncCoordinator.role == PartyRole.joiner) {
+      AppLogger.log('PlayerHandler', 'skipToNext ignored on joiner device in party mode');
+      return;
+    }
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastSkipTimeMs < _skipDebounceMs) {
       AppLogger.log('PlayerHandler', 'skipToNext ignored due to 300ms debounce lock');
@@ -1422,6 +1445,10 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
 
   @override
   Future<void> skipToPrevious() async {
+    if (PartySyncCoordinator.role == PartyRole.joiner) {
+      AppLogger.log('PlayerHandler', 'skipToPrevious ignored on joiner device in party mode');
+      return;
+    }
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastSkipTimeMs < _skipDebounceMs) {
       AppLogger.log('PlayerHandler', 'skipToPrevious ignored due to 300ms debounce lock');

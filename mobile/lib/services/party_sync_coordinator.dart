@@ -116,6 +116,8 @@ class PartySyncCoordinator {
   static List<String> _localIps = [];
   static String? _lastAnnouncedSongId;
   static int _lastAnnouncedTimeMs = 0;
+  static int _lastHardSeekEpochMs = 0;
+  static Function(Song song)? onJoinerManualPlayAttempted;
 
   /// User-friendly name for this local phone device
   static String get localDeviceName {
@@ -603,6 +605,7 @@ class PartySyncCoordinator {
       'isPlaying': isPlaying,
       'songId': currentSong?.id,
       'song': currentSong?.toMap(),
+      'streamUrl': currentSong?.streamUrl ?? DefaultStreamResolver.getCachedStream(currentSong?.id ?? ''),
       'referenceHostEpochMs': now,
       'referencePositionMs': pos,
       'peers': _knownPeers.values.map((p) => p.toMap()).toList(),
@@ -649,11 +652,16 @@ class PartySyncCoordinator {
     final startAtEpochMs = now + leadTimeMs;
     final seq = ++_currentHostSeq;
 
+    final directUrl = song.streamUrl ??
+        DefaultStreamResolver.getCachedStream(song.id) ??
+        audioHandler.currentSong?.streamUrl;
+
     final payload = {
       'seq': seq,
       'token': _sessionSecret,
       'song': song.toMap(),
       'songId': song.id,
+      'streamUrl': directUrl,
       'positionMs': positionMs,
       'referenceHostEpochMs': startAtEpochMs,
       'referencePositionMs': positionMs,
@@ -907,11 +915,16 @@ class PartySyncCoordinator {
     final startAtEpochMs = now + leadTimeMs;
     final seq = ++_currentHostSeq;
 
+    final directUrl = song.streamUrl ??
+        DefaultStreamResolver.getCachedStream(song.id) ??
+        audioHandler.currentSong?.streamUrl;
+
     final payload = {
       'seq': seq,
       'token': _sessionSecret,
       'song': song.toMap(),
       'songId': song.id,
+      'streamUrl': directUrl,
       'positionMs': positionMs,
       'referenceHostEpochMs': startAtEpochMs,
       'referencePositionMs': positionMs,
@@ -966,9 +979,15 @@ class PartySyncCoordinator {
     try {
       final songData = payload['song'] as Map<dynamic, dynamic>?;
       final songId = payload['songId']?.toString();
+      final directStreamUrl = payload['streamUrl']?.toString() ??
+          (songData != null ? songData['streamUrl']?.toString() : null);
       Song? song;
       if (songData != null) {
         song = Song.fromMap(Map<String, dynamic>.from(songData));
+      }
+      if (song != null && directStreamUrl != null && directStreamUrl.isNotEmpty) {
+        song.streamUrl = directStreamUrl;
+        DefaultStreamResolver.cacheStream(song.id, directStreamUrl);
       }
 
       final positionMs = (payload['positionMs'] as num?)?.toInt() ?? 0;
@@ -992,6 +1011,7 @@ class PartySyncCoordinator {
           song,
           queue: queue ?? [song],
           preserveUserQueue: false,
+          isPartySyncInternal: true,
         );
         _prewarmUpcomingTracks(rawQueue, currentIndex: (payload['currentIndex'] as num?)?.toInt() ?? 0);
       }
@@ -1195,6 +1215,12 @@ class PartySyncCoordinator {
           syncStatusDescription.value = 'Syncing track: $title';
           try {
             final song = Song.fromMap(Map<String, dynamic>.from(hostSongData));
+            final directStreamUrl = payload['streamUrl']?.toString() ??
+                hostSongData['streamUrl']?.toString();
+            if (directStreamUrl != null && directStreamUrl.isNotEmpty) {
+              song.streamUrl = directStreamUrl;
+              DefaultStreamResolver.cacheStream(song.id, directStreamUrl);
+            }
             final rawQueue = payload['queue'] as List<dynamic>?;
             List<Song>? queue;
             if (rawQueue != null && rawQueue.isNotEmpty) {
@@ -1204,6 +1230,7 @@ class PartySyncCoordinator {
               song,
               queue: queue ?? [song],
               preserveUserQueue: false,
+              isPartySyncInternal: true,
             );
             final refHostEpoch = (payload['referenceHostEpochMs'] as num?)?.toInt();
             final refHostPos = (payload['referencePositionMs'] as num?)?.toInt();
@@ -1283,6 +1310,16 @@ class PartySyncCoordinator {
     );
 
     if (action.isHardSeek && action.seekTargetMs != null) {
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      if (nowMs - _lastHardSeekEpochMs < 8000) {
+        // Anti-thrashing cooldown: do not hard seek repeatedly within 8 seconds!
+        final speed = action.driftMs > 0 ? 0.96 : 1.04;
+        audioHandler.setSpeed(speed);
+        syncStatusDescription.value = 'Stabilizing buffer (${speed}x)';
+        return;
+      }
+      _lastHardSeekEpochMs = nowMs;
+
       debugPrint('[PartySyncCoordinator] Macro-drift hard seek of ${drift}ms to ${action.seekTargetMs}ms');
       final priorVolume = audioHandler.player.volume;
       // Macro-drift: Mute audio output, execute hard seek, un-mute, and resume

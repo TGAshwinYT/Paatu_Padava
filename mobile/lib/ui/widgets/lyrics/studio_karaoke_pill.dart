@@ -51,8 +51,8 @@ class StudioKaraokePill extends StatelessWidget {
                           const SizedBox(width: 6),
                           Text(
                             isUsingStudio
-                                ? 'Studio BGM Active'
-                                : 'Studio Karaoke Found',
+                                ? 'Studio Stem Active'
+                                : 'Studio Stem Available',
                             style: TextStyle(
                               color: isUsingStudio ? const Color(0xFF06B6D4) : Colors.white,
                               fontSize: 12,

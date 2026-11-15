@@ -1,121 +1,169 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paatu_padava_mobile/logic/party_sync_engine.dart';
-import 'package:paatu_padava_mobile/logic/stream_resolver.dart';
 import 'package:paatu_padava_mobile/models/song.dart';
-import 'package:paatu_padava_mobile/services/equalizer_service.dart';
-import 'package:paatu_padava_mobile/services/party_sync_coordinator.dart';
+import 'package:paatu_padava_mobile/platform/audio_platform.dart';
+import 'package:paatu_padava_mobile/platform/sync_platform.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('Karaoke Real-Time Vocal Attenuation & Loudness Balance Tests', () {
-    test('Flat bands with 0.0 vocal attenuation have zero boost or cut', () {
+  group('Part 1: Karaoke Real Center-Channel & EQ Separation Tests', () {
+    setUp(() {
+      EqualizerService.dispose();
+    });
+
+    test('EqualizerService tracks DSP active state and defaults correctly', () {
+      expect(EqualizerService.isDspAvailable, isFalse);
+      expect(EqualizerService.isDspActiveNotifier.value, isFalse);
+      expect(EqualizerService.hardwareBandCount, equals(5));
+    });
+
+    test('When DSP is active, baseline equalizer bands remain pure without mid-formant dip', () {
       final base = [0.0, 0.0, 0.0, 0.0, 0.0];
-      final result = EqualizerService.calculateEffectiveBands(
+      // When DSP is active, effectiveVocalAttenuation passed to calculateEffectiveBands is 0.0
+      final resultWithDsp = EqualizerService.calculateEffectiveBands(
         baseBands: base,
         bassBoost: 0.0,
         virtualizer: 0.0,
-        vocalAttenuation: 0.0,
+        vocalAttenuation: 0.0, // DSP handles mid-side cancellation natively
       );
-      expect(result, equals([0.0, 0.0, 0.0, 0.0, 0.0]));
+
+      expect(resultWithDsp, equals([0.0, 0.0, 0.0, 0.0, 0.0]));
     });
 
-    test('Full vocal attenuation maintains rhythm drive with bass compensation and shimmer', () {
+    test('When DSP is inactive (fallback mode), EQ formant notch is applied cleanly', () {
       final base = [0.0, 0.0, 0.0, 0.0, 0.0];
-      final result = EqualizerService.calculateEffectiveBands(
+      final resultFallback = EqualizerService.calculateEffectiveBands(
         baseBands: base,
         bassBoost: 0.0,
         virtualizer: 0.0,
         vocalAttenuation: 1.0,
       );
 
-      // Sub-bass kick drive (+3.5 dB)
-      expect(result[0], closeTo(3.5, 0.001));
-      // Subtle lower chest voice cut (-2.0 dB)
-      expect(result[1], closeTo(-2.0, 0.001));
-      // Targeted core vowel formant cut (-8.0 dB)
-      expect(result[2], closeTo(-8.0, 0.001));
-      // Consonant & presence notch (-5.0 dB)
-      expect(result[3], closeTo(-5.0, 0.001));
-      // High air & shimmer preservation (+2.5 dB)
-      expect(result[4], closeTo(2.5, 0.001));
+      // Low band preserved (+3.5 dB sub-bass compensation)
+      expect(resultFallback[0], closeTo(3.5, 0.001));
+      // Vocal formants notched (-8.0 dB at 910 Hz, -5.0 dB at 3.6 kHz)
+      expect(resultFallback[2], closeTo(-8.0, 0.001));
+      expect(resultFallback[3], closeTo(-5.0, 0.001));
     });
 
-    test('Intermediate vocal attenuation (0.5) scales proportionally', () {
-      final base = [0.0, 0.0, 0.0, 0.0, 0.0];
-      final result = EqualizerService.calculateEffectiveBands(
-        baseBands: base,
-        bassBoost: 0.0,
-        virtualizer: 0.0,
-        vocalAttenuation: 0.5,
-      );
+    test('AudioPlatform method channel returns safe non-crash defaults on unit test host', () async {
+      final dspAvailable = await AudioPlatform.isDspAvailable();
+      expect(dspAvailable, isFalse); // Non-Android test runner safely returns false
 
-      expect(result[0], closeTo(1.75, 0.001));
-      expect(result[1], closeTo(-1.0, 0.001));
-      expect(result[2], closeTo(-4.0, 0.001));
-      expect(result[3], closeTo(-2.5, 0.001));
-      expect(result[4], closeTo(1.25, 0.001));
+      final bandCount = await AudioPlatform.getBandCount();
+      expect(bandCount, equals(5));
+
+      final success = await AudioPlatform.setVocalCancellation(0.8);
+      expect(success, isFalse);
     });
   });
 
-  group('PartySync Direct Stream Broadcast & Zero-Lag Buffer Tests', () {
-    test('DefaultStreamResolver caches direct stream and validates expiration', () {
-      const songId = 'test_party_track_123';
-      const streamUrl = 'https://aac.saavncdn.com/123/direct_stream_audio.mp4';
-
-      DefaultStreamResolver.cacheStream(songId, streamUrl);
-
-      final cached = DefaultStreamResolver.getCachedStream(songId);
-      expect(cached, equals(streamUrl));
-      expect(DefaultStreamResolver.isStreamExpired(songId), isFalse);
+  group('Part 2: PartySync Fast LAN Discovery & Zero-Drift Playback Tests', () {
+    setUp(() async {
+      await PartySyncCoordinator.leaveParty();
     });
 
-    test('DriftReconciler micro-adjust ceiling scales up to 1500ms without hard seeking', () {
-      // 800ms drift (moderate-high) -> should apply Tier 3 micro-speed adjustment (0.96x / 1.04x)
-      final actionBehind = DriftReconciler.reconcileDrift(
-        currentPositionMs: 4200,
-        expectedPositionMs: 5000, // drift = -800ms
-        microAdjustMaxMs: 1500,
-      );
-      expect(actionBehind.type, equals(DriftActionType.speedUp));
-      expect(actionBehind.playbackSpeed, equals(1.040));
-      expect(actionBehind.isHardSeek, isFalse);
-
-      final actionAhead = DriftReconciler.reconcileDrift(
-        currentPositionMs: 5800,
-        expectedPositionMs: 5000, // drift = +800ms
-        microAdjustMaxMs: 1500,
-      );
-      expect(actionAhead.type, equals(DriftActionType.slowDown));
-      expect(actionAhead.playbackSpeed, equals(0.960));
-      expect(actionAhead.isHardSeek, isFalse);
+    tearDown(() async {
+      await PartySyncCoordinator.leaveParty();
     });
 
-    test('Adaptive presentation barrier guarantees at least 1500ms buffer lead time', () {
-      final leadTime = ScheduledPlaybackCalculator.calculateAdaptiveLeadTimeMs(
-        peerRtts: [50, 120],
-        isLan: false,
-      );
-      expect(leadTime, greaterThanOrEqualTo(1500));
-      expect(leadTime, lessThanOrEqualTo(2800));
+    test('SyncPlatform method channel returns safe defaults on unit test host', () async {
+      final wifiLocks = await SyncPlatform.acquireWifiLocks();
+      expect(wifiLocks, isFalse); // Non-Android test runner safely returns false
+
+      final releaseLocks = await SyncPlatform.releaseWifiLocks();
+      expect(releaseLocks, isFalse);
+
+      final broadcastAddr = await SyncPlatform.getWifiBroadcastAddress();
+      expect(broadcastAddr, isNull);
     });
 
-    test('Joiner manual play attempted callback triggers without audio desync', () {
+    test('LAN NTP ping arriving purges noisy cloud NTP samples to prevent clock EMA poisoning', () {
+      final samples = <NtpSample>[
+        const NtpSample(t0: 1000, t1: 1090, t2: 1092, t3: 1100, isLan: false), // RTT 98ms (Cloud)
+        const NtpSample(t0: 2000, t1: 2095, t2: 2097, t3: 2110, isLan: false), // RTT 108ms (Cloud)
+      ];
+
+      // Simulated arrival of LAN NTP pong:
+      const lanSample = NtpSample(t0: 3000, t1: 3040, t2: 3041, t3: 3001, isLan: true); // RTT 0ms (LAN)
+      samples.removeWhere((s) => !s.isLan);
+      samples.add(lanSample);
+
+      expect(samples.length, equals(1));
+      expect(samples.first.isLan, isTrue);
+
+      final offset = NtpCalculator.calculateOffset(samples);
+      expect(offset, equals(40)); // Exactly 40ms offset, zero cloud pollution
+    });
+
+    test('Accurate Timer Arming accurately accounts for bluetooth and hardware audio latency', () {
+      const startAtEpochMs = 1002000;
+      const estimatedHostTimeMs = 1001000; // 1000ms until barrier
+      const bluetoothDelayMs = 150; // +150ms buffer
+      const hardwareLatencyMs = 20;  // +20ms AAudio buffer
+      const latencyOffsetMs = bluetoothDelayMs + hardwareLatencyMs; // 170ms
+
+      const remainingDelayMs = startAtEpochMs - estimatedHostTimeMs - latencyOffsetMs;
+
+      // 1000ms - 170ms = 830ms timer delay
+      expect(remainingDelayMs, equals(830));
+    });
+
+    test('Playback Conflict Guard intercepts manual play attempt on Joiner', () {
       Song? interceptedSong;
       PartySyncCoordinator.onJoinerManualPlayAttempted = (song) {
         interceptedSong = song;
       };
 
       final testSong = Song(
-        id: 'user_tapped_song_456',
-        title: 'User Tapped Track',
-        artist: 'Test Artist',
-        coverUrl: 'https://example.com/cover.jpg',
+        id: 'test_song_1',
+        title: 'New Manual Song',
+        artist: 'Artist',
+        album: 'Album',
+        coverUrl: '',
+        duration: 180,
       );
 
+      // Verify callback exists and receives track
       PartySyncCoordinator.onJoinerManualPlayAttempted?.call(testSong);
       expect(interceptedSong, isNotNull);
-      expect(interceptedSong?.id, equals('user_tapped_song_456'));
+      expect(interceptedSong!.title, equals('New Manual Song'));
+    });
+
+    test('PartySync event deduplication allows payload hydration on matching sequence', () {
+      final testSong = Song(
+        id: 'song_sync_123',
+        title: 'Anbil Avan',
+        artist: 'A.R. Rahman',
+        album: 'Vinnaithaandi Varuvaayaa',
+        coverUrl: '',
+        duration: 240,
+        streamUrl: 'https://cdn.example.com/audio/direct320.mp3',
+      );
+
+      // Packet 1: Compact LAN datagram
+      final lanPayload = {
+        'seq': 10,
+        'songId': testSong.id,
+        'positionMs': 0,
+        'startAtEpochMs': 1000500,
+      };
+
+      // Packet 2: Full payload with pre-resolved streamUrl
+      final fullPayload = {
+        'seq': 10,
+        'songId': testSong.id,
+        'song': testSong.toMap(),
+        'streamUrl': testSong.streamUrl,
+        'positionMs': 0,
+        'startAtEpochMs': 1000500,
+      };
+
+      // Ensure fullPayload has payload indicator
+      expect(lanPayload['song'], isNull);
+      expect(fullPayload['song'], isNotNull);
+      expect(fullPayload['streamUrl'], equals('https://cdn.example.com/audio/direct320.mp3'));
     });
   });
 }

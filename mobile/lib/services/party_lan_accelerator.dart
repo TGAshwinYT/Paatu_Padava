@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import '../platform/sync_platform.dart';
 import 'app_logger.dart';
 
 /// Represents a registered Joiner device on the local Wi-Fi network
@@ -39,10 +40,17 @@ class PartyLanAccelerator {
   static void Function(Map<String, dynamic> payload)? onNtpPongReceived;
   static void Function(String event, Map<String, dynamic> payload)? onSyncEventReceived;
 
-  /// Refreshes local subnet broadcast addresses (e.g. 192.168.43.255 for Hotspot, 192.168.1.255)
+  /// Refreshes local subnet broadcast addresses using native Wi-Fi subnet mask and network interfaces
   static Future<void> _refreshBroadcastAddresses() async {
     _broadcastAddresses.clear();
     _broadcastAddresses.add(InternetAddress('255.255.255.255'));
+    try {
+      final wifiBroadcast = await SyncPlatform.getWifiBroadcastAddress();
+      if (wifiBroadcast != null && wifiBroadcast.isNotEmpty) {
+        _broadcastAddresses.add(InternetAddress(wifiBroadcast));
+      }
+    } catch (_) {}
+
     try {
       final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
       for (final iface in interfaces) {
@@ -72,7 +80,8 @@ class PartyLanAccelerator {
     }
   }
 
-  /// Registers a known peer LAN address directly from cloud handshake
+  /// Registers a known peer LAN address from cloud handshake
+  /// (Does not activate LAN flag until a verified UDP packet arrives)
   static void registerPeerAddress(String peerId, String ipAddress, int port) {
     try {
       _registeredJoiners[peerId] = LanJoinerPeer(
@@ -81,16 +90,15 @@ class PartyLanAccelerator {
         port: port,
         lastSeen: DateTime.now(),
       );
-      _recordLanActivity();
     } catch (_) {}
   }
 
-  /// Registers the discovered host LAN address directly from cloud handshake
+  /// Registers the discovered host LAN address from cloud handshake
+  /// (Does not activate LAN flag until a verified UDP packet arrives)
   static void registerHostAddress(String ipAddress, int port) {
     try {
       _discoveredHostAddress = InternetAddress(ipAddress);
       _discoveredHostPort = port;
-      _recordLanActivity();
     } catch (_) {}
   }
 
@@ -182,10 +190,20 @@ class PartyLanAccelerator {
         },
       );
 
-      // Probe local subnet for active host immediately and periodically
+      // Aggressive initial probe (every 350ms for first ~3s) for sub-second LAN discovery
+      int probeCount = 0;
       _sendJoinerProbe();
-      _joinerProbeTimer = Timer.periodic(const Duration(milliseconds: 3000), (_) {
+      _joinerProbeTimer?.cancel();
+      _joinerProbeTimer = Timer.periodic(const Duration(milliseconds: 350), (timer) {
+        probeCount++;
         _sendJoinerProbe();
+        if (probeCount >= 8 || _discoveredHostAddress != null) {
+          timer.cancel();
+          // Settle into steady-state background probe
+          _joinerProbeTimer = Timer.periodic(const Duration(milliseconds: 3000), (_) {
+            _sendJoinerProbe();
+          });
+        }
       });
 
       _startActivityWatchdog();
@@ -329,9 +347,20 @@ class PartyLanAccelerator {
 
       // 1. Host Discovery Beacon (Joiner detects host on local Wi-Fi)
       if (event == 'host_beacon' && !_isHost) {
+        final wasUnset = _discoveredHostAddress == null;
         _discoveredHostAddress = datagram.address;
         _discoveredHostPort = (payload['port'] as num?)?.toInt() ?? defaultPort;
         _recordLanActivity();
+        if (wasUnset && _selfClientId != null) {
+          // Immediately send burst of 4 LAN NTP pings to lock clock (< 50ms)
+          for (int i = 0; i < 4; i++) {
+            Future.delayed(Duration(milliseconds: i * 40), () {
+              if (_discoveredHostAddress != null && _selfClientId != null) {
+                sendLanNtpPing(DateTime.now().millisecondsSinceEpoch, _selfClientId!);
+              }
+            });
+          }
+        }
         return;
       }
 
@@ -393,8 +422,8 @@ class PartyLanAccelerator {
         return;
       }
 
-      // 5. Synchronized Playback Events (sync_play, sync_pause, sync_seek, sync_heartbeat)
-      if (!_isHost) {
+      // 5. Synchronized Playback Events (sync_play, sync_pause, sync_seek, sync_heartbeat, peer_ready)
+      if (!_isHost || event == 'peer_ready') {
         _recordLanActivity();
         onSyncEventReceived?.call(event, payload);
       }

@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../services/player_handler.dart';
+import '../../../services/equalizer_service.dart';
 
 /// Apple Music Sing-inspired vertical capsule slider for real-time vocal attenuation.
 /// Provides real-time acoustic formant notch filtering, haptic detents, and seamless
@@ -42,9 +43,11 @@ class _KaraokeVocalSliderState extends State<KaraokeVocalSlider> {
     }
   }
 
-  String _getModeLabel(double vocalLevel, bool isStudioActive) {
-    if (isStudioActive) return 'Studio BGM';
-    if (vocalLevel <= 0.08) return 'Karaoke BGM';
+  String _getModeLabel(double vocalLevel, bool isStudioActive, bool isDspActive) {
+    if (isStudioActive) return 'Studio Stem';
+    if (vocalLevel <= 0.08) {
+      return isDspActive ? 'DSP Vocal Cancel' : 'Vocal Reduce (EQ Fallback)';
+    }
     if (vocalLevel <= 0.40) return 'Guide Vocal';
     if (vocalLevel <= 0.75) return 'Sing-Along';
     return 'Full Vocals';
@@ -61,7 +64,10 @@ class _KaraokeVocalSliderState extends State<KaraokeVocalSlider> {
         return ValueListenableBuilder<bool>(
           valueListenable: audioHandler.isUsingStudioKaraokeNotifier,
           builder: (context, isStudioActive, _) {
-            final modeLabel = _getModeLabel(vocalLevel, isStudioActive);
+            return ValueListenableBuilder<bool>(
+              valueListenable: EqualizerService.isDspActiveNotifier,
+              builder: (context, isDspActive, _) {
+                final modeLabel = _getModeLabel(vocalLevel, isStudioActive, isDspActive);
 
             return Row(
               mainAxisSize: MainAxisSize.min,
@@ -202,7 +208,7 @@ class _KaraokeVocalSliderState extends State<KaraokeVocalSlider> {
                               child: Text(
                                 isStudioActive
                                     ? 'STEM'
-                                    : (isMuted ? 'BGM' : '${(vocalLevel * 100).round()}%'),
+                                    : (isMuted ? (isDspActive ? 'DSP' : 'EQ') : '${(vocalLevel * 100).round()}%'),
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontSize: (isMuted || isStudioActive) ? 10 : 9,
@@ -227,6 +233,8 @@ class _KaraokeVocalSliderState extends State<KaraokeVocalSlider> {
                   ),
                 ),
               ],
+            );
+              },
             );
           },
         );

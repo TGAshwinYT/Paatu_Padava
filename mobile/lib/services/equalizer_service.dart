@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import '../platform/audio_platform.dart';
 import 'settings_manager.dart';
 
 class EqualizerService {
@@ -9,9 +10,14 @@ class EqualizerService {
   static int? _activeSessionId;
   static StreamSubscription<int?>? _sessionSub;
   static bool _isBound = false;
+  static bool _isDspAvailable = false;
+  static int _hardwareBandCount = 5;
 
   static int? get activeSessionId => _activeSessionId;
   static bool get isBound => _isBound;
+  static bool get isDspAvailable => _isDspAvailable;
+  static int get hardwareBandCount => _hardwareBandCount;
+  static final ValueNotifier<bool> isDspActiveNotifier = ValueNotifier<bool>(false);
 
   static double _vocalAttenuation = 0.0;
   static double get vocalAttenuation => _vocalAttenuation;
@@ -71,7 +77,9 @@ class EqualizerService {
       _activeSessionId = sessionId;
       await _channel.invokeMethod('setAudioSessionId', {'sessionId': sessionId});
       _isBound = true;
-      debugPrint('[EqualizerService] Successfully bound to Android AudioSession: $sessionId');
+      _isDspAvailable = await AudioPlatform.isDspAvailable();
+      _hardwareBandCount = await AudioPlatform.getBandCount();
+      debugPrint('[EqualizerService] Bound to Android AudioSession: $sessionId (DSP: $_isDspAvailable, bands: $_hardwareBandCount)');
       // Apply existing saved bands and effects immediately
       await applyBassBoost();
       await applyVirtualizer();
@@ -126,11 +134,21 @@ class EqualizerService {
     return effectiveBands;
   }
 
-  /// Sets the vocal attenuation factor (0.0 = full vocals, 1.0 = full karaoke / vocal suppression)
-  /// Throttles native IPC to ~60fps to prevent audio stutter during rapid finger drag.
+  /// Sets the vocal attenuation factor (0.0 = full vocals, 1.0 = full karaoke / vocal suppression).
+  /// If native DSP center-channel cancellation is available, routes directly to AudioPlatform.
+  /// Otherwise, falls back to graphic EQ formant notch attenuation.
   static Future<void> setVocalAttenuation(double factor) async {
     final clamped = factor.clamp(0.0, 1.0);
     _vocalAttenuation = clamped;
+
+    if (_isDspAvailable) {
+      isDspActiveNotifier.value = clamped > 0.0;
+      await AudioPlatform.setVocalCancellation(clamped);
+      await applyCurrentBands();
+      return;
+    }
+
+    isDspActiveNotifier.value = false;
     if (clamped == 0.0 || clamped == 1.0) {
       _throttleTimer?.cancel();
       await applyCurrentBands();
@@ -142,20 +160,27 @@ class EqualizerService {
     });
   }
 
-  /// Converts dB gains (-10.0 to +10.0 dB) to millibels (-1000 to +1000 mB) and sends to native
-  /// Incorporates acoustic frequency enhancement so Bass Boost, 3D Spatial, and Vocal Attenuation are audible
+  /// Converts dB gains (-10.0 to +10.0 dB) to millibels (-1000 to +1000 mB) and sends to native.
+  /// When native DSP is active, preserves clean baseline EQ without artificial mid scoops.
   static Future<void> applyCurrentBands() async {
     if (defaultTargetPlatform != TargetPlatform.android) return;
     if (_activeSessionId == null || _activeSessionId == 0) return;
     try {
       final baseBands = SettingsManager.eqBands;
-      final bassBoostRatio = (SettingsManager.bassBoost + (_vocalAttenuation * 0.25)).clamp(0.0, 1.0);
-      final virtualizerRatio = (SettingsManager.virtualizer + (_vocalAttenuation * 0.40)).clamp(0.0, 1.0);
+      final isDsp = isDspActiveNotifier.value;
+      final bassBoostRatio = isDsp
+          ? SettingsManager.bassBoost
+          : (SettingsManager.bassBoost + (_vocalAttenuation * 0.25)).clamp(0.0, 1.0);
+      final virtualizerRatio = isDsp
+          ? SettingsManager.virtualizer
+          : (SettingsManager.virtualizer + (_vocalAttenuation * 0.40)).clamp(0.0, 1.0);
+      final effectiveVocalAttenuation = isDsp ? 0.0 : _vocalAttenuation;
+
       final effectiveBands = calculateEffectiveBands(
         baseBands: baseBands,
         bassBoost: bassBoostRatio,
         virtualizer: virtualizerRatio,
-        vocalAttenuation: _vocalAttenuation,
+        vocalAttenuation: effectiveVocalAttenuation,
       );
 
       // Convert dB to millibels (1 dB = 100 mB)
@@ -242,6 +267,8 @@ class EqualizerService {
     _throttleTimer?.cancel();
     _throttleTimer = null;
     _vocalAttenuation = 0.0;
+    _isDspAvailable = false;
+    isDspActiveNotifier.value = false;
     _sessionSub?.cancel();
     _sessionSub = null;
     if (_eqBandsListener != null) {
@@ -256,8 +283,10 @@ class EqualizerService {
       SettingsManager.virtualizerNotifier.removeListener(_virtualizerListener!);
       _virtualizerListener = null;
     }
-    try {
-      _channel.invokeMethod('release');
-    } catch (_) {}
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        _channel.invokeMethod('release').catchError((_) => null);
+      } catch (_) {}
+    }
   }
 }

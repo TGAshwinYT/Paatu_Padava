@@ -7,6 +7,7 @@ import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.media.audiofx.Virtualizer
 import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
@@ -19,6 +20,7 @@ class MainActivity: AudioServiceActivity() {
     private val CHANNEL = "com.tamilgaming.paatupadava/equalizer"
     private val BATTERY_CHANNEL = "com.tamilgaming.paatupadava/battery"
     private val WIDGET_CHANNEL = "com.tamilgaming.paatupadava/widget"
+    private val SYNC_CHANNEL = "com.tamilgaming.paatupadava/sync"
     private var equalizer: Equalizer? = null
     private var bassBoost: BassBoost? = null
     private var virtualizer: Virtualizer? = null
@@ -26,6 +28,9 @@ class MainActivity: AudioServiceActivity() {
     private var currentBassStrength: Short = 0
     private var currentVirtualizerStrength: Short = 0
     private var currentLevels: ShortArray? = null
+    private val centerCancellationAudioProcessor = CenterCancellationAudioProcessor()
+    private var multicastLock: WifiManager.MulticastLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -342,12 +347,99 @@ class MainActivity: AudioServiceActivity() {
                     currentSessionId = 0
                     result.success(true)
                 }
+                "setVocalCancellation" -> {
+                    val attenuation = (call.argument<Double>("attenuation") ?: 0.0).toFloat()
+                    centerCancellationAudioProcessor.setAttenuation(attenuation)
+                    result.success(true)
+                }
+                "isDspAvailable" -> {
+                    result.success(true)
+                }
+                "getBandCount" -> {
+                    val count = equalizer?.numberOfBands?.toInt() ?: 5
+                    result.success(count)
+                }
+                else -> result.notImplemented()
+            }
+        }
+
+        // PartySync Wi-Fi & Multicast Lock platform channel
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SYNC_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "acquireWifiLocks" -> {
+                    try {
+                        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                        if (wifiManager != null) {
+                            if (multicastLock == null) {
+                                multicastLock = wifiManager.createMulticastLock("paatupadava_multicast").apply {
+                                    setReferenceCounted(true)
+                                    acquire()
+                                }
+                            }
+                            if (wifiLock == null) {
+                                wifiLock = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                    wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "paatupadava_wifi")
+                                } else {
+                                    @Suppress("DEPRECATION")
+                                    wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "paatupadava_wifi")
+                                }.apply {
+                                    setReferenceCounted(true)
+                                    acquire()
+                                }
+                            }
+                        }
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("WIFI_LOCK_ERROR", e.message, null)
+                    }
+                }
+                "releaseWifiLocks" -> {
+                    try {
+                        if (multicastLock?.isHeld == true) {
+                            multicastLock?.release()
+                        }
+                        multicastLock = null
+                        if (wifiLock?.isHeld == true) {
+                            wifiLock?.release()
+                        }
+                        wifiLock = null
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("WIFI_LOCK_ERROR", e.message, null)
+                    }
+                }
+                "getWifiBroadcastAddress" -> {
+                    try {
+                        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                        val dhcp = wifiManager?.dhcpInfo
+                        if (dhcp != null && dhcp.ipAddress != 0) {
+                            val broadcast = (dhcp.ipAddress and dhcp.netmask) or dhcp.netmask.inv()
+                            val bytes = ByteArray(4) { i -> (broadcast shr (i * 8) and 0xFF).toByte() }
+                            val address = java.net.InetAddress.getByAddress(bytes).hostAddress
+                            result.success(address)
+                        } else {
+                            result.success(null)
+                        }
+                    } catch (e: Exception) {
+                        result.success(null)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
     }
 
     override fun onDestroy() {
+        try {
+            if (multicastLock?.isHeld == true) {
+                multicastLock?.release()
+            }
+            multicastLock = null
+            if (wifiLock?.isHeld == true) {
+                wifiLock?.release()
+            }
+            wifiLock = null
+        } catch (e: Exception) {}
         try {
             if (currentSessionId != 0) {
                 val closeIntent = Intent(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION).apply {

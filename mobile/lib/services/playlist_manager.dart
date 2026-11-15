@@ -106,8 +106,6 @@ class PlaylistManager {
   static Future<void> init() async {
     await Hive.openBox(boxName);
     _refreshList();
-    // Unified Supabase cloud playlist sync on app launch
-    SyncManager.syncAll();
   }
 
   static void _refreshList() {

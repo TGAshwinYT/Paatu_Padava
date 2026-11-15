@@ -34,6 +34,32 @@ import '../logic/lyrics/indic_romanizer.dart';
 
 
 
+class _RankSortKey {
+  final double score;
+  final int langMatch;
+  final int albumMatch;
+  final int exactMatch;
+  final int titleMatch;
+  final int isStudio;
+  final int hasArt;
+  final int arrivalIdx;
+  final String albLower;
+  final Song song;
+
+  const _RankSortKey({
+    required this.score,
+    required this.langMatch,
+    required this.albumMatch,
+    required this.exactMatch,
+    required this.titleMatch,
+    required this.isStudio,
+    required this.hasArt,
+    required this.arrivalIdx,
+    required this.albLower,
+    required this.song,
+  });
+}
+
 class QueryIntent {
   final String rawQuery;
   final String cleanQuery;
@@ -855,6 +881,18 @@ class SearchService {
     return result;
   }
 
+  static final RegExp _fromMovieBaseRegex = RegExp(
+    r'[\(\[\-]\s*(?:from|ost|movie|soundtrack)\s*[\":\s]*',
+    caseSensitive: false,
+  );
+
+  static bool _isWordChar(int code) {
+    return (code >= 48 && code <= 57) ||
+        (code >= 65 && code <= 90) ||
+        (code >= 97 && code <= 122) ||
+        code == 95;
+  }
+
   /// Strictly filters out single-song releases, fake albums, and unrelated compilations
   /// Returns true if an album title or song.album matches a film entity query
   /// (e.g. "Hi Nanna" matches "Samayama (From \"Hi Nanna\")", "Odiyamma (From \"Hi Nanna\") - Tamil",
@@ -870,16 +908,23 @@ class SearchService {
     if (t.startsWith(q) || baseT.startsWith(q)) return true;
 
     // Check "(From <movie>)", "(From \"<movie>\")", "[From <movie>]", "From <movie>"
-    final fromMovieRegex = RegExp(
-      r'[\(\[\-]\s*(?:from|ost|movie|soundtrack)\s*[\":\s]*' + RegExp.escape(q),
-      caseSensitive: false,
-    );
-    if (fromMovieRegex.hasMatch(t)) return true;
+    for (final m in _fromMovieBaseRegex.allMatches(t)) {
+      if (t.startsWith(q, m.end)) return true;
+    }
 
     // Direct containment with word boundaries for queries >= 2 chars
-    if (q.length >= 2) {
-      final qWordRegex = RegExp(r'\b' + RegExp.escape(q) + r'\b', caseSensitive: false);
-      if (qWordRegex.hasMatch(t)) return true;
+    if (q.length >= 2 && t.contains(q)) {
+      var start = 0;
+      final qLen = q.length;
+      final tLen = t.length;
+      while (true) {
+        final idx = t.indexOf(q, start);
+        if (idx == -1) break;
+        final startBoundary = idx == 0 || !_isWordChar(t.codeUnitAt(idx - 1));
+        final endBoundary = (idx + qLen == tLen) || !_isWordChar(t.codeUnitAt(idx + qLen));
+        if (startBoundary && endBoundary) return true;
+        start = idx + 1;
+      }
     }
 
     return false;
@@ -2238,36 +2283,73 @@ class SearchService {
     UserAffinityContext? affinityContext,
   }) {
     final Map<String, Song> canonicalMap = {};
+    final Map<String, List<Song>> bucketByCleanKey = {};
+    final Set<String> seenIds = {};
     final List<Song> deduplicatedPool = [];
 
     // 1. Ingest JioSaavn songs first: clean Indian/regional metadata, 320kbps audio, studio square cover art
     for (final song in saavnSongs) {
+      if (!seenIds.add(song.id)) continue;
       final fp = SearchQueryPlanner.generateCanonicalFingerprint(song.title, song.artist);
-      final isDup = deduplicatedPool.any((existing) =>
-          existing.id == song.id ||
-          (fp.isNotEmpty && canonicalMap.containsKey(fp)) ||
-          SearchQueryPlanner.isSameSong(
-            titleA: existing.title,
-            artistsA: existing.artist,
-            titleB: song.title,
-            artistsB: song.artist,
-          ) ||
-          (existing.cleanTitleKey.isNotEmpty &&
-              existing.cleanTitleKey == song.cleanTitleKey &&
-              (song.duration == 0 || existing.duration == 0 || (existing.duration - song.duration).abs() <= 12)));
+      if (fp.isNotEmpty && canonicalMap.containsKey(fp)) continue;
+
+      bool isDup = false;
+      if (song.cleanTitleKey.isNotEmpty) {
+        final bucket = bucketByCleanKey[song.cleanTitleKey];
+        if (bucket != null) {
+          for (final existing in bucket) {
+            if (song.duration == 0 || existing.duration == 0 || (existing.duration - song.duration).abs() <= 12) {
+              isDup = true;
+              break;
+            }
+            if (SearchQueryPlanner.isSameSong(
+              titleA: existing.title,
+              artistsA: existing.artist,
+              titleB: song.title,
+              artistsB: song.artist,
+            )) {
+              isDup = true;
+              break;
+            }
+          }
+        }
+      }
+
       if (!isDup) {
         if (fp.isNotEmpty) canonicalMap[fp] = song;
+        if (song.cleanTitleKey.isNotEmpty) {
+          (bucketByCleanKey[song.cleanTitleKey] ??= []).add(song);
+        }
         deduplicatedPool.add(song);
       }
     }
 
     // 2. Ingest YouTube Music songs: attach to existing canonical as version if duplicate, else add as new candidate
     for (final ytSong in ytSongs) {
+      if (!seenIds.add(ytSong.id)) continue;
       final fp = SearchQueryPlanner.generateCanonicalFingerprint(ytSong.title, ytSong.artist);
       Song? matchedPrimary = canonicalMap[fp];
 
-      // Secondary check via isSameSong if fingerprint differed slightly
-      if (matchedPrimary == null) {
+      // Secondary check via bucketByCleanKey
+      if (matchedPrimary == null && ytSong.cleanTitleKey.isNotEmpty) {
+        final bucket = bucketByCleanKey[ytSong.cleanTitleKey];
+        if (bucket != null) {
+          for (final existing in bucket) {
+            if (SearchQueryPlanner.isSameSong(
+              titleA: existing.title,
+              artistsA: existing.artist,
+              titleB: ytSong.title,
+              artistsB: ytSong.artist,
+            )) {
+              matchedPrimary = existing;
+              break;
+            }
+          }
+        }
+      }
+
+      // Fallback check against pool if not matched and pool is small
+      if (matchedPrimary == null && deduplicatedPool.length < 50) {
         for (final existing in deduplicatedPool) {
           if (SearchQueryPlanner.isSameSong(
             titleA: existing.title,
@@ -2291,7 +2373,14 @@ class SearchService {
           if (idx != -1) {
             deduplicatedPool[idx] = updated;
           }
-          canonicalMap[fp] = updated;
+          if (fp.isNotEmpty) canonicalMap[fp] = updated;
+          if (matchedPrimary.cleanTitleKey.isNotEmpty) {
+            final b = bucketByCleanKey[matchedPrimary.cleanTitleKey];
+            if (b != null) {
+              final bIdx = b.indexOf(matchedPrimary);
+              if (bIdx != -1) b[bIdx] = updated;
+            }
+          }
         }
       } else {
         var processedYt = ytSong;
@@ -2306,21 +2395,26 @@ class SearchService {
           }
         }
         if (fp.isNotEmpty) canonicalMap[fp] = processedYt;
+        if (processedYt.cleanTitleKey.isNotEmpty) {
+          (bucketByCleanKey[processedYt.cleanTitleKey] ??= []).add(processedYt);
+        }
         deduplicatedPool.add(processedYt);
       }
     }
-
-    final Map<String, int> arrivalOrder = {
-      for (int i = 0; i < deduplicatedPool.length; i++) deduplicatedPool[i].id: i
-    };
 
     final effAffinityContext = affinityContext ?? UserAffinityContext.fromSongs(
       favorites: favorites,
       history: history,
     );
 
-    // 4. Score every song in the unified deduplicated pool (O(1) affinity per song)
-    final scored = deduplicatedPool.map((song) {
+    final cleanQuery = intent.cleanQuery.toLowerCase();
+    final targetLangs = (preferredLanguages != null && preferredLanguages.isNotEmpty)
+        ? preferredLanguages.map((l) => l.toLowerCase().trim()).toSet()
+        : null;
+
+    final sortKeys = <_RankSortKey>[];
+    for (int i = 0; i < deduplicatedPool.length; i++) {
+      final song = deduplicatedPool[i];
       final score = calculateCompositeRelevance(
         song,
         intent,
@@ -2329,18 +2423,64 @@ class SearchService {
         preferredLanguages: preferredLanguages,
         affinityContext: effAffinityContext,
       );
-      return MapEntry(score, song);
-    }).where((e) => e.key > 0.0).toList();
+      if (score <= 0.0) continue;
 
-    // 5. Sort descending by Multi-Factor Relevance Score with tracklist order preservation
-    scored.sort((a, b) => compareRankedEntries(
-      a,
-      b,
-      intent.cleanQuery.toLowerCase(),
-      arrivalOrder: arrivalOrder,
-    ));
+      int langMatch = 0;
+      if (targetLangs != null) {
+        final aLang = song.language?.toLowerCase().trim() ?? '';
+        if (targetLangs.contains(aLang) || targetLangs.any((l) => song.title.toLowerCase().contains(l))) {
+          langMatch = 1;
+        }
+      }
 
-    return scored.map((e) => e.value).toList();
+      final albLower = song.album.toLowerCase().trim();
+      final albumMatch = isAlbumOrMovieEntityMatch(albLower, cleanQuery) ? 1 : 0;
+      final exactMatch = (song.title.toLowerCase().trim() == cleanQuery) ? 1 : 0;
+
+      final t = song.title.toLowerCase().trim();
+      int titleMatch = 0;
+      if (t == cleanQuery || t.contains(cleanQuery) || cleanQuery.contains(t)) {
+        titleMatch = 1;
+      } else if (t.length >= 3 && cleanQuery.length >= 3 && (t.length - cleanQuery.length).abs() <= 2) {
+        if (BkTree.levenshteinDistance(t, cleanQuery, maxDistance: 2) <= 2) {
+          titleMatch = 1;
+        }
+      }
+
+      sortKeys.add(_RankSortKey(
+        score: score,
+        langMatch: langMatch,
+        albumMatch: albumMatch,
+        exactMatch: exactMatch,
+        titleMatch: titleMatch,
+        isStudio: (song.source.toLowerCase() == 'saavn') ? 1 : 0,
+        hasArt: song.hasOfficialAlbumArt ? 1 : 0,
+        arrivalIdx: i,
+        albLower: albLower,
+        song: song,
+      ));
+    }
+
+    sortKeys.sort((a, b) {
+      final scoreCmp = b.score.compareTo(a.score);
+      if (scoreCmp != 0) return scoreCmp;
+
+      if (a.langMatch != b.langMatch) return b.langMatch.compareTo(a.langMatch);
+      if (a.albumMatch != b.albumMatch) return b.albumMatch.compareTo(a.albumMatch);
+
+      if (a.albumMatch == 1 && b.albumMatch == 1 && a.albLower == b.albLower) {
+        if (a.exactMatch != b.exactMatch) return b.exactMatch.compareTo(a.exactMatch);
+        if (a.arrivalIdx != b.arrivalIdx) return a.arrivalIdx.compareTo(b.arrivalIdx);
+      }
+
+      if (a.exactMatch != b.exactMatch) return b.exactMatch.compareTo(a.exactMatch);
+      if (a.titleMatch != b.titleMatch) return b.titleMatch.compareTo(a.titleMatch);
+      if (a.isStudio != b.isStudio) return b.isStudio.compareTo(a.isStudio);
+      if (a.hasArt != b.hasArt) return b.hasArt.compareTo(a.hasArt);
+      return a.arrivalIdx.compareTo(b.arrivalIdx);
+    });
+
+    return sortKeys.map((k) => k.song).toList();
   }
 
   /// Interleaves primary (JioSaavn) and secondary (YouTube) search candidates (fallback ranker).

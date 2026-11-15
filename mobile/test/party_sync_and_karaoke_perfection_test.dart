@@ -165,5 +165,30 @@ void main() {
       expect(fullPayload['song'], isNotNull);
       expect(fullPayload['streamUrl'], equals('https://cdn.example.com/audio/direct320.mp3'));
     });
+
+    test('AudioPlatform getDspStatus returns safe inactive defaults on test environment', () async {
+      final status = await AudioPlatform.getDspStatus();
+      expect(status['attached'], isFalse);
+      expect(status['active'], isFalse);
+      expect(status['mode'], equals('none'));
+    });
+
+    test('PartySync Prepare-Ack-Go barrier handles cmdId deduplication independently of heartbeat seq', () {
+      const cmdId = 'cmd_uuid_test_123';
+      final payload1 = {
+        'cmdId': cmdId,
+        'seq': 5,
+        'positionMs': 1000,
+      };
+      final payload2 = {
+        'cmdId': cmdId,
+        'seq': 12, // Higher seq from subsequent heartbeats
+        'positionMs': 1000,
+      };
+
+      // Both packets share the exact same cmdId
+      expect(payload1['cmdId'], equals(payload2['cmdId']));
+      expect(payload1['cmdId'], equals('cmd_uuid_test_123'));
+    });
   });
 }

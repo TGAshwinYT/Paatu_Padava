@@ -83,6 +83,9 @@ class PartyLanAccelerator {
   /// Registers a known peer LAN address from cloud handshake
   /// (Does not activate LAN flag until a verified UDP packet arrives)
   static void registerPeerAddress(String peerId, String ipAddress, int port) {
+    if (_registeredJoiners.containsKey(peerId) && isLanActiveNotifier.value) {
+      return;
+    }
     try {
       _registeredJoiners[peerId] = LanJoinerPeer(
         id: peerId,
@@ -96,6 +99,9 @@ class PartyLanAccelerator {
   /// Registers the discovered host LAN address from cloud handshake
   /// (Does not activate LAN flag until a verified UDP packet arrives)
   static void registerHostAddress(String ipAddress, int port) {
+    if (_discoveredHostAddress != null && isLanActiveNotifier.value) {
+      return;
+    }
     try {
       _discoveredHostAddress = InternetAddress(ipAddress);
       _discoveredHostPort = port;
@@ -118,7 +124,7 @@ class PartyLanAccelerator {
         InternetAddress.anyIPv4,
         defaultPort,
         reuseAddress: true,
-        reusePort: !Platform.isWindows,
+        reusePort: false,
       );
       _socket?.broadcastEnabled = true;
       AppLogger.log('PartyLanAccelerator', 'Host UDP socket bound on port $defaultPort for party $partyCode');
@@ -168,11 +174,19 @@ class PartyLanAccelerator {
     await _refreshBroadcastAddresses();
 
     try {
-      _socket = await RawDatagramSocket.bind(
-        InternetAddress.anyIPv4,
-        0, // Ephemeral client port
-        reuseAddress: true,
-      );
+      try {
+        _socket = await RawDatagramSocket.bind(
+          InternetAddress.anyIPv4,
+          defaultPort,
+          reuseAddress: true,
+        );
+      } catch (_) {
+        _socket = await RawDatagramSocket.bind(
+          InternetAddress.anyIPv4,
+          0, // Ephemeral fallback port
+          reuseAddress: true,
+        );
+      }
       _socket?.broadcastEnabled = true;
       AppLogger.log('PartyLanAccelerator', 'Joiner UDP socket bound for party $partyCode');
 
@@ -422,8 +436,8 @@ class PartyLanAccelerator {
         return;
       }
 
-      // 5. Synchronized Playback Events (sync_play, sync_pause, sync_seek, sync_heartbeat, peer_ready)
-      if (!_isHost || event == 'peer_ready') {
+      // 5. Synchronized Playback Events (sync_play, sync_prepare, sync_pause, sync_seek, sync_heartbeat, peer_ready, request_state)
+      if (!_isHost || event == 'peer_ready' || event == 'request_state') {
         _recordLanActivity();
         onSyncEventReceived?.call(event, payload);
       }

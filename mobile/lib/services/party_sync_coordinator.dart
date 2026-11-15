@@ -113,11 +113,27 @@ class PartySyncCoordinator {
   static int _lastProcessedSeq = 0;
   static final List<NtpSample> _ntpSamples = [];
   static final Set<String> _processedEventKeys = {};
+  static final Set<String> _processedCmdIds = {};
+  static Completer<void>? _peerReadyCompleter;
+  static String? _pendingPrepareCmdId;
   static List<String> _localIps = [];
   static String? _lastAnnouncedSongId;
   static int _lastAnnouncedTimeMs = 0;
   static int _lastHardSeekEpochMs = 0;
   static Function(Song song)? onJoinerManualPlayAttempted;
+
+  static void _handlePeerReady(Map<String, dynamic> payload) {
+    final peerId = payload['peerId']?.toString();
+    final cmdId = payload['cmdId']?.toString();
+    if (peerId != null && _knownPeers.containsKey(peerId)) {
+      _knownPeers[peerId] = _knownPeers[peerId]!.copyWith(lastSeen: DateTime.now());
+    }
+    if (_pendingPrepareCmdId != null && cmdId == _pendingPrepareCmdId) {
+      if (_peerReadyCompleter != null && !_peerReadyCompleter!.isCompleted) {
+        _peerReadyCompleter!.complete();
+      }
+    }
+  }
 
   /// User-friendly name for this local phone device
   static String get localDeviceName {
@@ -140,11 +156,6 @@ class PartySyncCoordinator {
   /// Host: Starts a new Party playback session
   static Future<String?> startParty() async {
     final client = SupabaseService.client;
-    if (client == null) {
-      syncStatusDescription.value = 'Cloud offline';
-      return null;
-    }
-
     await leaveParty();
     await SyncPlatform.acquireWifiLocks();
 
@@ -171,138 +182,135 @@ class PartySyncCoordinator {
     _knownPeers[_clientId] = selfPeer;
     connectedPeersNotifier.value = [selfPeer];
     peerCountNotifier.value = 1;
-    syncStatusDescription.value = 'Hosting Party ($code)';
 
-    final channel = client.channel('party:$code');
+    if (client != null) {
+      syncStatusDescription.value = 'Hosting Party ($code)';
+      final channel = client.channel('party:$code');
 
-    // Host listens for NTP pings and peer presence
-    channel.onBroadcast(
-      event: 'ntp_ping',
-      callback: (payload) {
-        final t1 = DateTime.now().millisecondsSinceEpoch;
-        final t0 = (payload['t0'] as num?)?.toInt();
-        final senderId = payload['senderId']?.toString();
-        final isRolling = payload['isRolling'] == true;
-        if (t0 != null && senderId != null) {
-          final t2 = DateTime.now().millisecondsSinceEpoch;
-          channel.sendBroadcastMessage(
-            event: 'ntp_pong',
-            payload: {
-              't0': t0,
-              't1': t1,
-              't2': t2,
-              'recipientId': senderId,
-              'isRolling': isRolling,
-              'token': _sessionSecret,
-            },
-          );
-        }
-      },
-    );
+      // Host listens for NTP pings and peer presence
+      channel.onBroadcast(
+        event: 'ntp_ping',
+        callback: (payload) {
+          final t1 = DateTime.now().millisecondsSinceEpoch;
+          final t0 = (payload['t0'] as num?)?.toInt();
+          final senderId = payload['senderId']?.toString();
+          final isRolling = payload['isRolling'] == true;
+          if (t0 != null && senderId != null) {
+            final t2 = DateTime.now().millisecondsSinceEpoch;
+            channel.sendBroadcastMessage(
+              event: 'ntp_pong',
+              payload: {
+                't0': t0,
+                't1': t1,
+                't2': t2,
+                'recipientId': senderId,
+                'isRolling': isRolling,
+                'token': _sessionSecret,
+              },
+            );
+          }
+        },
+      );
 
-    channel.onBroadcast(
-      event: 'peer_join',
-      callback: (payload) {
-        final peerId = payload['peerId']?.toString();
-        final devName = payload['deviceName']?.toString() ?? 'Guest Phone';
-        final peerLanIps = (payload['lanIps'] as List<dynamic>?)?.map((e) => e.toString()).toList();
-        final peerPort = (payload['lanPort'] as num?)?.toInt() ?? PartyLanAccelerator.defaultPort;
-        if (peerId != null) {
-          _knownPeers[peerId] = PeerDeviceInfo(
-            id: peerId,
-            deviceName: devName,
-            role: 'Speaker',
-            rttMs: 0,
-            lastSeen: DateTime.now(),
-          );
-          connectedPeersNotifier.value = _knownPeers.values.toList();
-          peerCountNotifier.value = _knownPeers.length;
+      channel.onBroadcast(
+        event: 'peer_join',
+        callback: (payload) {
+          final peerId = payload['peerId']?.toString();
+          final devName = payload['deviceName']?.toString() ?? 'Guest Phone';
+          final peerLanIps = (payload['lanIps'] as List<dynamic>?)?.map((e) => e.toString()).toList();
+          final peerPort = (payload['lanPort'] as num?)?.toInt() ?? PartyLanAccelerator.defaultPort;
+          if (peerId != null) {
+            _knownPeers[peerId] = PeerDeviceInfo(
+              id: peerId,
+              deviceName: devName,
+              role: 'Speaker',
+              rttMs: 0,
+              lastSeen: DateTime.now(),
+            );
+            connectedPeersNotifier.value = _knownPeers.values.toList();
+            peerCountNotifier.value = _knownPeers.length;
 
-          // Direct LAN Unicast registration for zero-lag local sync
-          if (peerLanIps != null && peerLanIps.isNotEmpty) {
-            for (final ip in peerLanIps) {
-              PartyLanAccelerator.registerPeerAddress(peerId, ip, peerPort);
+            if (peerLanIps != null && peerLanIps.isNotEmpty) {
+              for (final ip in peerLanIps) {
+                PartyLanAccelerator.registerPeerAddress(peerId, ip, peerPort);
+              }
+            }
+          }
+          _broadcastCurrentState();
+        },
+      );
+
+      channel.onBroadcast(
+        event: 'peer_presence',
+        callback: (payload) {
+          final peerId = payload['id']?.toString();
+          final devName = payload['deviceName']?.toString() ?? 'Guest Phone';
+          final rtt = (payload['rttMs'] as num?)?.toInt() ?? 0;
+          if (peerId != null && peerId != _clientId) {
+            _knownPeers[peerId] = PeerDeviceInfo(
+              id: peerId,
+              deviceName: devName,
+              role: 'Speaker',
+              rttMs: rtt,
+              lastSeen: DateTime.now(),
+            );
+            connectedPeersNotifier.value = _knownPeers.values.toList();
+            peerCountNotifier.value = _knownPeers.length;
+          }
+        },
+      );
+
+      channel.onBroadcast(
+        event: 'peer_leave',
+        callback: (payload) {
+          final peerId = payload['id']?.toString();
+          if (peerId != null) {
+            _knownPeers.remove(peerId);
+            connectedPeersNotifier.value = _knownPeers.values.toList();
+            peerCountNotifier.value = _knownPeers.length;
+            _broadcastCurrentState();
+          }
+        },
+      );
+
+      channel.onBroadcast(
+        event: 'request_state',
+        callback: (_) {
+          _broadcastCurrentState();
+        },
+      );
+
+      channel.onBroadcast(
+        event: 'peer_ready',
+        callback: (payload) {
+          _handlePeerReady(payload);
+        },
+      );
+
+      channel.subscribe((status, [error]) {
+        debugPrint('[PartySyncCoordinator] Host channel status: $status');
+        if (status == RealtimeSubscribeStatus.closed || status == RealtimeSubscribeStatus.timedOut) {
+          if (isAudioHandlerInitialized) {
+            try {
+              audioHandler.setSpeed(1.0);
+            } catch (e) {
+              AppLogger.debug('PartySyncCoordinator', 'Could not reset playback speed: $e');
             }
           }
         }
-        _broadcastCurrentState();
-      },
-    );
+      });
 
-    channel.onBroadcast(
-      event: 'peer_presence',
-      callback: (payload) {
-        final peerId = payload['id']?.toString();
-        final devName = payload['deviceName']?.toString() ?? 'Guest Phone';
-        final rtt = (payload['rttMs'] as num?)?.toInt() ?? 0;
-        if (peerId != null && peerId != _clientId) {
-          _knownPeers[peerId] = PeerDeviceInfo(
-            id: peerId,
-            deviceName: devName,
-            role: 'Speaker',
-            rttMs: rtt,
-            lastSeen: DateTime.now(),
-          );
-          connectedPeersNotifier.value = _knownPeers.values.toList();
-          peerCountNotifier.value = _knownPeers.length;
-        }
-      },
-    );
-
-    channel.onBroadcast(
-      event: 'peer_leave',
-      callback: (payload) {
-        final peerId = payload['id']?.toString();
-        if (peerId != null) {
-          _knownPeers.remove(peerId);
-          connectedPeersNotifier.value = _knownPeers.values.toList();
-          peerCountNotifier.value = _knownPeers.length;
-          _broadcastCurrentState();
-        }
-      },
-    );
-
-    // Joiner requests state immediately upon connecting
-    channel.onBroadcast(
-      event: 'request_state',
-      callback: (_) {
-        _broadcastCurrentState();
-      },
-    );
-
-    // Joiner ACKs that track is loaded into audio buffer
-    channel.onBroadcast(
-      event: 'peer_ready',
-      callback: (payload) {
-        final peerId = payload['peerId']?.toString();
-        if (peerId != null && _knownPeers.containsKey(peerId)) {
-          _knownPeers[peerId] = _knownPeers[peerId]!.copyWith(lastSeen: DateTime.now());
-        }
-      },
-    );
-
-    channel.subscribe((status, [error]) {
-      debugPrint('[PartySyncCoordinator] Host channel status: $status');
-      if (status == RealtimeSubscribeStatus.closed || status == RealtimeSubscribeStatus.timedOut) {
-        if (isAudioHandlerInitialized) {
-          try {
-            audioHandler.setSpeed(1.0);
-          } catch (e) {
-            AppLogger.debug('PartySyncCoordinator', 'Could not reset playback speed: $e');
-          }
-        }
-      }
-    });
-
-    _partyChannel = channel;
+      _partyChannel = channel;
+    } else {
+      syncStatusDescription.value = 'Hosting Party (Wi-Fi Only - $code)';
+    }
 
     // Start direct Local Wi-Fi (LAN) UDP acceleration on host
     PartyLanAccelerator.onSyncEventReceived = (event, payload) async {
       if (event == 'peer_ready') {
-        final peerId = payload['peerId']?.toString();
-        if (peerId != null && _knownPeers.containsKey(peerId)) {
-          _knownPeers[peerId] = _knownPeers[peerId]!.copyWith(lastSeen: DateTime.now());
-        }
+        _handlePeerReady(payload);
+      } else if (event == 'request_state') {
+        _broadcastCurrentState();
       }
     };
     PartyLanAccelerator.startHost(code, clientId: _clientId);
@@ -325,6 +333,16 @@ class PartySyncCoordinator {
   }
 
   static bool _shouldProcessEvent(String event, Map<String, dynamic> payload) {
+    final cmdId = payload['cmdId']?.toString();
+    if (cmdId != null && cmdId.isNotEmpty) {
+      if (_processedCmdIds.contains(cmdId)) return false;
+      _processedCmdIds.add(cmdId);
+      if (_processedCmdIds.length > 100) {
+        _processedCmdIds.remove(_processedCmdIds.first);
+      }
+      return true;
+    }
+
     final seq = (payload['seq'] as num?)?.toInt();
     final hasPayload = payload['song'] != null || payload['streamUrl'] != null;
 
@@ -385,7 +403,9 @@ class PartySyncCoordinator {
           previousOffset: clockOffsetMsNotifier.value,
         );
         clockOffsetMsNotifier.value = offset;
-        measuredRttMsNotifier.value = sample.rtt;
+        if (isLan || !PartyLanAccelerator.isLanActiveNotifier.value) {
+          measuredRttMsNotifier.value = sample.rtt;
+        }
 
         if (!isRolling) {
           syncStatusDescription.value = 'In Sync (RTT: ${sample.rtt}ms, Offset: ${offset}ms)';
@@ -410,11 +430,6 @@ class PartySyncCoordinator {
   /// Joiner: Joins an active party using code and performs clock handshake
   static Future<bool> joinParty(String rawCode) async {
     final client = SupabaseService.client;
-    if (client == null) {
-      syncStatusDescription.value = 'Cloud offline';
-      return false;
-    }
-
     final cleanCode = rawCode.trim().toUpperCase();
     if (cleanCode.isEmpty) return false;
 
@@ -428,7 +443,9 @@ class PartySyncCoordinator {
     measuredRttMsNotifier.value = 0;
     currentDriftMsNotifier.value = 0;
     _lastProcessedSeq = 0;
-    syncStatusDescription.value = 'Connecting to $cleanCode...';
+    syncStatusDescription.value = client != null
+        ? 'Connecting to $cleanCode...'
+        : 'Searching for $cleanCode on Wi-Fi...';
 
     final selfPeer = PeerDeviceInfo(
       id: _clientId,
@@ -443,7 +460,7 @@ class PartySyncCoordinator {
     connectedPeersNotifier.value = [selfPeer];
     peerCountNotifier.value = 1;
 
-    final channel = client.channel('party:$cleanCode');
+    final channel = client?.channel('party:$cleanCode');
 
     // Hook direct local Wi-Fi UDP acceleration
     PartyLanAccelerator.onNtpPongReceived = (payload) {
@@ -453,6 +470,9 @@ class PartySyncCoordinator {
     PartyLanAccelerator.onSyncEventReceived = (event, payload) async {
       if (!_shouldProcessEvent(event, payload)) return;
       switch (event) {
+        case 'sync_prepare':
+          await _handleRemotePrepare(payload);
+          break;
         case 'sync_play':
           await _handleRemotePlay(payload);
           break;
@@ -473,93 +493,105 @@ class PartySyncCoordinator {
 
     PartyLanAccelerator.startJoiner(cleanCode, clientId: _clientId);
 
-    channel.onBroadcast(
-      event: 'ntp_pong',
-      callback: (payload) {
-        _handleNtpPong(payload, channel, selfPeer);
-      },
-    );
+    if (channel != null) {
+      channel.onBroadcast(
+        event: 'ntp_pong',
+        callback: (payload) {
+          _handleNtpPong(payload, channel, selfPeer);
+        },
+      );
 
-    channel.onBroadcast(
-      event: 'sync_queue',
-      callback: (payload) async {
-        if (!_shouldProcessEvent('sync_queue', payload)) return;
-        await _handleRemoteQueue(payload);
-      },
-    );
+      channel.onBroadcast(
+        event: 'sync_prepare',
+        callback: (payload) async {
+          if (!_shouldProcessEvent('sync_prepare', payload)) return;
+          await _handleRemotePrepare(payload);
+        },
+      );
 
-    channel.onBroadcast(
-      event: 'sync_play',
-      callback: (payload) async {
-        if (!_shouldProcessEvent('sync_play', payload)) return;
-        await _handleRemotePlay(payload);
-      },
-    );
+      channel.onBroadcast(
+        event: 'sync_queue',
+        callback: (payload) async {
+          if (!_shouldProcessEvent('sync_queue', payload)) return;
+          await _handleRemoteQueue(payload);
+        },
+      );
 
-    channel.onBroadcast(
-      event: 'sync_pause',
-      callback: (payload) {
-        if (!_shouldProcessEvent('sync_pause', payload)) return;
-        _handleRemotePause(payload);
-      },
-    );
+      channel.onBroadcast(
+        event: 'sync_play',
+        callback: (payload) async {
+          if (!_shouldProcessEvent('sync_play', payload)) return;
+          await _handleRemotePlay(payload);
+        },
+      );
 
-    channel.onBroadcast(
-      event: 'sync_seek',
-      callback: (payload) async {
-        if (!_shouldProcessEvent('sync_seek', payload)) return;
-        await _handleRemoteSeek(payload);
-      },
-    );
+      channel.onBroadcast(
+        event: 'sync_pause',
+        callback: (payload) {
+          if (!_shouldProcessEvent('sync_pause', payload)) return;
+          _handleRemotePause(payload);
+        },
+      );
 
-    channel.onBroadcast(
-      event: 'sync_heartbeat',
-      callback: (payload) {
-        if (!_shouldProcessEvent('sync_heartbeat', payload)) return;
-        _handleHeartbeatReconciliation(payload);
-      },
-    );
+      channel.onBroadcast(
+        event: 'sync_seek',
+        callback: (payload) async {
+          if (!_shouldProcessEvent('sync_seek', payload)) return;
+          await _handleRemoteSeek(payload);
+        },
+      );
 
-    channel.onBroadcast(
-      event: 'party_ended',
-      callback: (_) {
-        leaveParty();
-        syncStatusDescription.value = 'Host ended party session';
-      },
-    );
+      channel.onBroadcast(
+        event: 'sync_heartbeat',
+        callback: (payload) {
+          if (!_shouldProcessEvent('sync_heartbeat', payload)) return;
+          _handleHeartbeatReconciliation(payload);
+        },
+      );
 
-    channel.subscribe((status, [error]) {
-      debugPrint('[PartySyncCoordinator] Joiner channel status: $status');
-      if (status == RealtimeSubscribeStatus.subscribed) {
-        channel.sendBroadcastMessage(
-          event: 'peer_join',
-          payload: {
-            'peerId': _clientId,
-            'deviceName': localDeviceName,
-            'lanIps': _localIps,
-            'lanPort': PartyLanAccelerator.defaultPort,
-          },
-        );
-        // Request immediate state so joiner doesn't wait for next periodic heartbeat
-        channel.sendBroadcastMessage(
-          event: 'request_state',
-          payload: {'senderId': _clientId},
-        );
-        PartyLanAccelerator.sendDirect('request_state', {'senderId': _clientId});
+      channel.onBroadcast(
+        event: 'party_ended',
+        callback: (_) {
+          leaveParty();
+          syncStatusDescription.value = 'Host ended party session';
+        },
+      );
 
-        _startNtpHandshake(channel);
-      } else if (status == RealtimeSubscribeStatus.closed || status == RealtimeSubscribeStatus.timedOut) {
-        if (isAudioHandlerInitialized) {
-          try {
-            audioHandler.setSpeed(1.0);
-          } catch (e) {
-            AppLogger.debug('PartySyncCoordinator', 'Could not reset playback speed: $e');
+      channel.subscribe((status, [error]) {
+        debugPrint('[PartySyncCoordinator] Joiner channel status: $status');
+        if (status == RealtimeSubscribeStatus.subscribed) {
+          channel.sendBroadcastMessage(
+            event: 'peer_join',
+            payload: {
+              'peerId': _clientId,
+              'deviceName': localDeviceName,
+              'lanIps': _localIps,
+              'lanPort': PartyLanAccelerator.defaultPort,
+            },
+          );
+          channel.sendBroadcastMessage(
+            event: 'request_state',
+            payload: {'senderId': _clientId},
+          );
+          PartyLanAccelerator.sendDirect('request_state', {'senderId': _clientId});
+
+          _startNtpHandshake(channel);
+        } else if (status == RealtimeSubscribeStatus.closed || status == RealtimeSubscribeStatus.timedOut) {
+          if (isAudioHandlerInitialized) {
+            try {
+              audioHandler.setSpeed(1.0);
+            } catch (e) {
+              AppLogger.debug('PartySyncCoordinator', 'Could not reset playback speed: $e');
+            }
           }
         }
-      }
-    });
+      });
 
-    _partyChannel = channel;
+      _partyChannel = channel;
+    } else {
+      PartyLanAccelerator.sendDirect('request_state', {'senderId': _clientId});
+    }
+
     return true;
   }
 
@@ -624,8 +656,8 @@ class PartySyncCoordinator {
 
   /// Host: Broadcasts current playing track, reference epoch, position, and peer devices
   static void _broadcastCurrentState() {
-    if (!isHost || _partyChannel == null) return;
-    final pos = audioHandler.playbackState.value.position.inMilliseconds;
+    if (!isHost) return;
+    final pos = audioHandler.player.position.inMilliseconds;
     final now = DateTime.now().millisecondsSinceEpoch;
     final isPlaying = audioHandler.playbackState.value.playing;
     final currentSong = audioHandler.currentSong;
@@ -666,54 +698,74 @@ class PartySyncCoordinator {
     });
   }
 
-  /// Host: Notifies connected speakers when a new track starts playing
+  /// Host: Notifies connected speakers when a new track starts playing via Prepare -> Ack -> Go barrier
   static Future<void> notifyHostPlay(
     Song song, {
     int positionMs = 0,
     List<Song>? queue,
     int? currentIndex,
   }) async {
-    if (!isHost || _partyChannel == null) return;
+    if (!isHost) return;
     final now = DateTime.now().millisecondsSinceEpoch;
     _lastAnnouncedSongId = song.id;
     _lastAnnouncedTimeMs = now;
+    _cancelPendingScheduledOperations();
 
-    final peerRtts = _knownPeers.values.where((p) => !p.isSelf).map((p) => p.rttMs).toList();
-    final isLan = PartyLanAccelerator.isLanActiveNotifier.value;
-    final leadTimeMs = ScheduledPlaybackCalculator.calculateAdaptiveLeadTimeMs(
-      peerRtts: peerRtts,
-      isLan: isLan,
-    );
-    final startAtEpochMs = now + leadTimeMs;
+    final cmdId = _uuid.v4();
+    _pendingPrepareCmdId = cmdId;
     final seq = ++_currentHostSeq;
 
     final directUrl = song.streamUrl ??
         DefaultStreamResolver.getCachedStream(song.id) ??
         audioHandler.currentSong?.streamUrl;
 
-    final payload = {
+    // 1. Prepare Phase: Broadcast sync_prepare so all devices buffer the stream
+    final preparePayload = {
+      'cmdId': cmdId,
       'seq': seq,
       'token': _sessionSecret,
       'song': song.toMap(),
       'songId': song.id,
       'streamUrl': directUrl,
       'positionMs': positionMs,
-      'referenceHostEpochMs': startAtEpochMs,
-      'referencePositionMs': positionMs,
-      'startAtEpochMs': startAtEpochMs,
       'currentIndex': currentIndex ?? 0,
-      'isPlaying': true,
       'queue': queue?.take(30).map((s) => s.toMap()).toList(),
     };
 
     _partyChannel?.sendBroadcastMessage(
-      event: 'sync_play',
-      payload: payload,
+      event: 'sync_prepare',
+      payload: preparePayload,
     );
+    PartyLanAccelerator.sendSyncEvent('sync_prepare', preparePayload);
 
-    // Fast LAN sync datagram with pre-resolved stream URL for instant joiner playback
-    PartyLanAccelerator.sendSyncEvent('sync_play', {
-      'seq': seq,
+    // 2. Prepare Barrier: Wait for peer_ready with adaptive timeout if remote peers exist
+    final hasRemotePeers = _knownPeers.values.any((p) => !p.isSelf);
+    if (hasRemotePeers) {
+      _peerReadyCompleter = Completer<void>();
+      final isLan = PartyLanAccelerator.isLanActiveNotifier.value;
+      final barrierTimeoutMs = isLan ? 3500 : 6000;
+      try {
+        await _peerReadyCompleter!.future.timeout(Duration(milliseconds: barrierTimeoutMs));
+      } catch (_) {
+        // Timeout expired: proceed with start
+      }
+      _peerReadyCompleter = null;
+    }
+
+    // 3. Go Phase: Audio is now loaded; compute tight startAtEpochMs
+    final peerRtts = _knownPeers.values.where((p) => !p.isSelf).map((p) => p.rttMs).toList();
+    final isLan = PartyLanAccelerator.isLanActiveNotifier.value;
+    final leadTimeMs = ScheduledPlaybackCalculator.calculateAdaptiveLeadTimeMs(
+      peerRtts: peerRtts,
+      isLan: isLan,
+    );
+    final hostNow = DateTime.now().millisecondsSinceEpoch;
+    final startAtEpochMs = hostNow + leadTimeMs;
+
+    final playPayload = {
+      'cmdId': _uuid.v4(),
+      'prepareCmdId': cmdId,
+      'seq': ++_currentHostSeq,
       'token': _sessionSecret,
       'song': song.toMap(),
       'songId': song.id,
@@ -724,9 +776,21 @@ class PartySyncCoordinator {
       'startAtEpochMs': startAtEpochMs,
       'currentIndex': currentIndex ?? 0,
       'isPlaying': true,
+    };
+
+    _partyChannel?.sendBroadcastMessage(
+      event: 'sync_play',
+      payload: playPayload,
+    );
+    // Send 2x over LAN with 30ms spacing to prevent UDP loss
+    PartyLanAccelerator.sendSyncEvent('sync_play', playPayload);
+    Future.delayed(const Duration(milliseconds: 30), () {
+      if (isHost) {
+        PartyLanAccelerator.sendSyncEvent('sync_play', playPayload);
+      }
     });
 
-    // Accurate Timer Arming: pause and pre-position FIRST
+    // 4. Accurate Timer Arming: pause and pre-position FIRST
     await audioHandler.player.pause();
     if (positionMs > 0) {
       await audioHandler.player.seek(Duration(milliseconds: positionMs));
@@ -737,13 +801,17 @@ class PartySyncCoordinator {
     final remainingDelay = startAtEpochMs - DateTime.now().millisecondsSinceEpoch;
     if (remainingDelay > 10) {
       _pendingScheduledPlayTimer?.cancel();
-      _pendingScheduledPlayTimer = Timer(Duration(milliseconds: remainingDelay), () async {
+      _pendingScheduledPlayTimer = Timer(Duration(milliseconds: remainingDelay), () {
         if (isHost) {
-          await audioHandler.player.play();
+          audioHandler.player.play().catchError((e) {
+            AppLogger.debug('PartySyncCoordinator', 'Host scheduled play error: $e');
+          });
         }
       });
-    } else if (remainingDelay >= 0) {
-      await audioHandler.player.play();
+    } else {
+      audioHandler.player.play().catchError((e) {
+        AppLogger.debug('PartySyncCoordinator', 'Host immediate play error: $e');
+      });
     }
   }
 
@@ -753,76 +821,12 @@ class PartySyncCoordinator {
     List<Song>? queue,
     int? currentIndex,
   }) async {
-    if (!isHost || _partyChannel == null) return;
+    if (!isHost) return;
     final now = DateTime.now().millisecondsSinceEpoch;
     if (_lastAnnouncedSongId == song.id && (now - _lastAnnouncedTimeMs) < 1500) {
       return; // Deduplicate: already announced by notifyHostPlay or rapid transition
     }
-    _lastAnnouncedSongId = song.id;
-    _lastAnnouncedTimeMs = now;
-
-    final peerRtts = _knownPeers.values.where((p) => !p.isSelf).map((p) => p.rttMs).toList();
-    final isLan = PartyLanAccelerator.isLanActiveNotifier.value;
-    final leadTimeMs = ScheduledPlaybackCalculator.calculateAdaptiveLeadTimeMs(
-      peerRtts: peerRtts,
-      isLan: isLan,
-    );
-    final startAtEpochMs = now + leadTimeMs;
-    final seq = ++_currentHostSeq;
-
-    final directUrl = song.streamUrl ??
-        DefaultStreamResolver.getCachedStream(song.id) ??
-        audioHandler.currentSong?.streamUrl;
-
-    final payload = {
-      'seq': seq,
-      'token': _sessionSecret,
-      'song': song.toMap(),
-      'songId': song.id,
-      'streamUrl': directUrl,
-      'positionMs': 0,
-      'referenceHostEpochMs': startAtEpochMs,
-      'referencePositionMs': 0,
-      'startAtEpochMs': startAtEpochMs,
-      'currentIndex': currentIndex ?? 0,
-      'isPlaying': true,
-      'queue': queue?.take(30).map((s) => s.toMap()).toList(),
-    };
-
-    _partyChannel?.sendBroadcastMessage(
-      event: 'sync_play',
-      payload: payload,
-    );
-
-    PartyLanAccelerator.sendSyncEvent('sync_play', {
-      'seq': seq,
-      'token': _sessionSecret,
-      'song': song.toMap(),
-      'songId': song.id,
-      'streamUrl': directUrl,
-      'positionMs': 0,
-      'referenceHostEpochMs': startAtEpochMs,
-      'referencePositionMs': 0,
-      'startAtEpochMs': startAtEpochMs,
-      'currentIndex': currentIndex ?? 0,
-      'isPlaying': true,
-    });
-
-    // Accurate Timer Arming: pause and seek FIRST
-    await audioHandler.player.pause();
-    await audioHandler.player.seek(Duration.zero);
-
-    final remainingDelay = startAtEpochMs - DateTime.now().millisecondsSinceEpoch;
-    if (remainingDelay > 10) {
-      _pendingScheduledPlayTimer?.cancel();
-      _pendingScheduledPlayTimer = Timer(Duration(milliseconds: remainingDelay), () async {
-        if (isHost) {
-          await audioHandler.player.play();
-        }
-      });
-    } else if (remainingDelay >= 0) {
-      await audioHandler.player.play();
-    }
+    await notifyHostPlay(song, positionMs: 0, queue: queue, currentIndex: currentIndex);
   }
 
   /// Host: Coordinated skip/next transition across all party speakers with adaptive presentation barrier.
@@ -835,7 +839,14 @@ class PartySyncCoordinator {
       await audioHandler.playSong(nextSong, queue: queue, preserveUserQueue: false);
       return;
     }
-    await audioHandler.playSong(nextSong, queue: queue, preserveUserQueue: false);
+    await audioHandler.playSong(
+      nextSong,
+      queue: queue,
+      preserveUserQueue: false,
+      autoPlay: false,
+      isPartySyncInternal: true,
+    );
+    await notifyHostPlay(nextSong, positionMs: 0, queue: queue, currentIndex: currentIndex);
   }
 
   /// Host: Notifies connected speakers when playback queue is updated or modified
@@ -862,10 +873,11 @@ class PartySyncCoordinator {
 
   /// Host: Notifies connected speakers when playback pauses
   static Future<void> notifyHostPause() async {
-    if (!isHost || _partyChannel == null) return;
-    final pos = audioHandler.playbackState.value.position.inMilliseconds;
+    if (!isHost) return;
+    final pos = audioHandler.player.position.inMilliseconds;
     final seq = ++_currentHostSeq;
     final payload = {
+      'cmdId': _uuid.v4(),
       'seq': seq,
       'token': _sessionSecret,
       'positionMs': pos,
@@ -880,9 +892,10 @@ class PartySyncCoordinator {
 
   /// Host: Notifies connected speakers when user seeks
   static Future<void> notifyHostSeek(Duration position) async {
-    if (!isHost || _partyChannel == null) return;
+    if (!isHost) return;
     final seq = ++_currentHostSeq;
     final payload = {
+      'cmdId': _uuid.v4(),
       'seq': seq,
       'token': _sessionSecret,
       'positionMs': position.inMilliseconds,
@@ -897,8 +910,8 @@ class PartySyncCoordinator {
 
   /// Host: Notifies connected speakers when playback resumes
   static Future<void> notifyHostResume() async {
-    if (!isHost || _partyChannel == null) return;
-    final pos = audioHandler.playbackState.value.position.inMilliseconds;
+    if (!isHost) return;
+    final pos = audioHandler.player.position.inMilliseconds;
     final now = DateTime.now().millisecondsSinceEpoch;
     final curSong = audioHandler.currentSong;
     final seq = ++_currentHostSeq;
@@ -912,6 +925,7 @@ class PartySyncCoordinator {
     final startAtEpochMs = now + leadTimeMs;
 
     final payload = {
+      'cmdId': _uuid.v4(),
       'seq': seq,
       'token': _sessionSecret,
       'song': curSong?.toMap(),
@@ -928,6 +942,7 @@ class PartySyncCoordinator {
       payload: payload,
     );
     PartyLanAccelerator.sendSyncEvent('sync_play', {
+      'cmdId': payload['cmdId'],
       'seq': seq,
       'token': _sessionSecret,
       'songId': curSong?.id,
@@ -939,13 +954,19 @@ class PartySyncCoordinator {
     });
 
     final remainingDelay = startAtEpochMs - DateTime.now().millisecondsSinceEpoch;
-    if (remainingDelay > 25) {
+    if (remainingDelay > 10) {
       await audioHandler.player.pause();
       _pendingScheduledPlayTimer?.cancel();
-      _pendingScheduledPlayTimer = Timer(Duration(milliseconds: remainingDelay), () async {
+      _pendingScheduledPlayTimer = Timer(Duration(milliseconds: remainingDelay), () {
         if (isHost) {
-          await audioHandler.player.play();
+          audioHandler.player.play().catchError((e) {
+            AppLogger.debug('PartySyncCoordinator', 'Host resume error: $e');
+          });
         }
+      });
+    } else {
+      audioHandler.player.play().catchError((e) {
+        AppLogger.debug('PartySyncCoordinator', 'Host resume error: $e');
       });
     }
   }
@@ -956,74 +977,93 @@ class PartySyncCoordinator {
       await audioHandler.playSong(song);
       return;
     }
-
-    final peerRtts = _knownPeers.values.where((p) => !p.isSelf).map((p) => p.rttMs).toList();
-    final isLan = PartyLanAccelerator.isLanActiveNotifier.value;
-    final leadTimeMs = ScheduledPlaybackCalculator.calculateAdaptiveLeadTimeMs(
-      peerRtts: peerRtts,
-      isLan: isLan,
+    await audioHandler.playSong(
+      song,
+      preserveUserQueue: false,
+      autoPlay: false,
+      isPartySyncInternal: true,
     );
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final startAtEpochMs = now + leadTimeMs;
-    final seq = ++_currentHostSeq;
-
-    final directUrl = song.streamUrl ??
-        DefaultStreamResolver.getCachedStream(song.id) ??
-        audioHandler.currentSong?.streamUrl;
-
-    final payload = {
-      'seq': seq,
-      'token': _sessionSecret,
-      'song': song.toMap(),
-      'songId': song.id,
-      'streamUrl': directUrl,
-      'positionMs': positionMs,
-      'referenceHostEpochMs': startAtEpochMs,
-      'referencePositionMs': positionMs,
-      'startAtEpochMs': startAtEpochMs,
-      'isPlaying': true,
-    };
-
-    _partyChannel?.sendBroadcastMessage(
-      event: 'sync_play',
-      payload: payload,
-    );
-    PartyLanAccelerator.sendSyncEvent('sync_play', {
-      'seq': seq,
-      'token': _sessionSecret,
-      'song': song.toMap(),
-      'songId': song.id,
-      'streamUrl': directUrl,
-      'positionMs': positionMs,
-      'referenceHostEpochMs': startAtEpochMs,
-      'referencePositionMs': positionMs,
-      'startAtEpochMs': startAtEpochMs,
-      'isPlaying': true,
-    });
-
-    // The host itself holds playback until startAtEpochMs to guarantee lockstep
-    await audioHandler.playSong(song, preserveUserQueue: false);
-    await audioHandler.pause();
-    if (positionMs > 0) {
-      await audioHandler.seek(Duration(milliseconds: positionMs));
-    }
-    final remainingDelay = startAtEpochMs - DateTime.now().millisecondsSinceEpoch;
-    if (remainingDelay > 0) {
-      await Future.delayed(Duration(milliseconds: remainingDelay));
-    }
-    await audioHandler.play();
+    await notifyHostPlay(song, positionMs: positionMs);
   }
 
   /// Host: Seek trigger
   static Future<void> hostSeek(Duration position) async {
     await notifyHostSeek(position);
-    await audioHandler.seek(position);
+    await audioHandler.seek(position, isPartyDriven: true);
   }
 
   /// Host: Pause trigger
   static Future<void> hostPause() async {
     await notifyHostPause();
-    await audioHandler.pause();
+    await audioHandler.pause(isPartyDriven: true);
+  }
+
+  /// Joiner: Handles remote track preparation from host (pre-buffers audio stream before Go)
+  static Future<void> _handleRemotePrepare(Map<String, dynamic> payload) async {
+    _cancelPendingScheduledOperations();
+    try {
+      final songData = payload['song'] as Map<dynamic, dynamic>?;
+      final songId = payload['songId']?.toString();
+      final directStreamUrl = payload['streamUrl']?.toString() ??
+          (songData != null ? songData['streamUrl']?.toString() : null);
+      Song? song;
+      if (songData != null) {
+        song = Song.fromMap(Map<String, dynamic>.from(songData));
+      }
+      if (song != null && directStreamUrl != null && directStreamUrl.isNotEmpty) {
+        song.streamUrl = directStreamUrl;
+        DefaultStreamResolver.cacheStream(song.id, directStreamUrl);
+      }
+
+      final positionMs = (payload['positionMs'] as num?)?.toInt() ?? 0;
+      final currentSong = audioHandler.currentSong;
+      final bool isSameSong = (song != null && currentSong?.id == song.id) ||
+                              (songId != null && currentSong?.id == songId);
+
+      if (!isSameSong && song != null) {
+        _isSyncLoading = true;
+        syncStatusDescription.value = 'Preparing "${song.title}"...';
+        try {
+          final rawQueue = payload['queue'] as List<dynamic>?;
+          List<Song>? queue;
+          if (rawQueue != null && rawQueue.isNotEmpty) {
+            queue = rawQueue.map((item) => Song.fromMap(Map<String, dynamic>.from(item as Map))).toList();
+          }
+          await audioHandler.playSong(
+            song,
+            queue: queue ?? [song],
+            preserveUserQueue: false,
+            isPartySyncInternal: true,
+            autoPlay: false,
+          );
+          _prewarmUpcomingTracks(rawQueue, currentIndex: (payload['currentIndex'] as num?)?.toInt() ?? 0);
+        } finally {
+          _isSyncLoading = false;
+        }
+      }
+
+      await audioHandler.pause(isPartyDriven: true);
+      if (positionMs > 0) {
+        await audioHandler.seek(Duration(milliseconds: positionMs), isPartyDriven: true);
+      } else {
+        await audioHandler.seek(Duration.zero, isPartyDriven: true);
+      }
+
+      // Send peer_ready ACK to host over LAN and cloud
+      final ackPayload = {
+        'peerId': _clientId,
+        'cmdId': payload['cmdId'],
+        'songId': songId ?? song?.id,
+      };
+      PartyLanAccelerator.sendDirect('peer_ready', ackPayload);
+      _partyChannel?.sendBroadcastMessage(
+        event: 'peer_ready',
+        payload: ackPayload,
+      );
+      syncStatusDescription.value = 'Ready (waiting for host)';
+    } catch (e) {
+      debugPrint('[PartySyncCoordinator] handleRemotePrepare error: $e');
+    }
   }
 
   /// Joiner: Handles remote scheduled play from host
@@ -1055,42 +1095,33 @@ class PartySyncCoordinator {
                               (songId != null && currentSong?.id == songId);
 
       if (!isSameSong && song != null) {
-        final rawQueue = payload['queue'] as List<dynamic>?;
-        List<Song>? queue;
-        if (rawQueue != null && rawQueue.isNotEmpty) {
-          queue = rawQueue.map((item) => Song.fromMap(Map<String, dynamic>.from(item as Map))).toList();
-        }
+        _isSyncLoading = true;
         syncStatusDescription.value = 'Syncing "${song.title}"...';
-        await audioHandler.playSong(
-          song,
-          queue: queue ?? [song],
-          preserveUserQueue: false,
-          isPartySyncInternal: true,
-        );
-        _prewarmUpcomingTracks(rawQueue, currentIndex: (payload['currentIndex'] as num?)?.toInt() ?? 0);
-
-        // Acknowledge to host that track is buffered and player is ready
-        PartyLanAccelerator.sendDirect('peer_ready', {
-          'peerId': _clientId,
-          'songId': song.id,
-          'seq': payload['seq'],
-        });
-        _partyChannel?.sendBroadcastMessage(
-          event: 'peer_ready',
-          payload: {
-            'peerId': _clientId,
-            'songId': song.id,
-            'seq': payload['seq'],
-          },
-        );
+        try {
+          final rawQueue = payload['queue'] as List<dynamic>?;
+          List<Song>? queue;
+          if (rawQueue != null && rawQueue.isNotEmpty) {
+            queue = rawQueue.map((item) => Song.fromMap(Map<String, dynamic>.from(item as Map))).toList();
+          }
+          await audioHandler.playSong(
+            song,
+            queue: queue ?? [song],
+            preserveUserQueue: false,
+            isPartySyncInternal: true,
+            autoPlay: false,
+          );
+          _prewarmUpcomingTracks(rawQueue, currentIndex: (payload['currentIndex'] as num?)?.toInt() ?? 0);
+        } finally {
+          _isSyncLoading = false;
+        }
       }
 
       // Accurate Timer Arming: pause and pre-position FIRST
-      await audioHandler.pause();
+      await audioHandler.pause(isPartyDriven: true);
       if (positionMs > 0) {
-        await audioHandler.seek(Duration(milliseconds: positionMs));
+        await audioHandler.seek(Duration(milliseconds: positionMs), isPartyDriven: true);
       } else {
-        await audioHandler.seek(Duration.zero);
+        await audioHandler.seek(Duration.zero, isPartyDriven: true);
       }
 
       final hardwareLatencyMs = SettingsManager.hardwareAudioLatencyMs;
@@ -1104,9 +1135,11 @@ class PartySyncCoordinator {
       if (remainingDelayMs > 15) {
         // Scheduled barrier is genuinely in the future: hold until remainingDelayMs
         _pendingScheduledPlayTimer?.cancel();
-        _pendingScheduledPlayTimer = Timer(Duration(milliseconds: remainingDelayMs), () async {
+        _pendingScheduledPlayTimer = Timer(Duration(milliseconds: remainingDelayMs), () {
           if (role != PartyRole.joiner) return;
-          await audioHandler.play();
+          audioHandler.play().catchError((e) {
+            AppLogger.debug('PartySyncCoordinator', 'Joiner play error: $e');
+          });
           syncStatusDescription.value = 'In Sync';
         });
       } else {
@@ -1122,12 +1155,14 @@ class PartySyncCoordinator {
         );
 
         if (targetPosMs > 0) {
-          await audioHandler.seek(Duration(milliseconds: targetPosMs));
+          await audioHandler.seek(Duration(milliseconds: targetPosMs), isPartyDriven: true);
         }
         if (isHostPlaying) {
-          await audioHandler.play();
+          audioHandler.play().catchError((e) {
+            AppLogger.debug('PartySyncCoordinator', 'Joiner immediate play error: $e');
+          });
         } else {
-          await audioHandler.pause();
+          await audioHandler.pause(isPartyDriven: true);
         }
         syncStatusDescription.value = 'In Sync';
       }
@@ -1140,9 +1175,9 @@ class PartySyncCoordinator {
   static void _handleRemotePause(Map<String, dynamic> payload) {
     _cancelPendingScheduledOperations();
     final posMs = (payload['positionMs'] as num?)?.toInt();
-    audioHandler.pause();
+    audioHandler.pause(isPartyDriven: true);
     if (posMs != null && posMs > 0) {
-      audioHandler.seek(Duration(milliseconds: posMs));
+      audioHandler.seek(Duration(milliseconds: posMs), isPartyDriven: true);
     }
     syncStatusDescription.value = 'Host Paused';
   }
@@ -1154,8 +1189,8 @@ class PartySyncCoordinator {
     final startAtEpochMs = (payload['startAtEpochMs'] as num?)?.toInt();
     if (startAtEpochMs != null) {
       // Accurate Timer Arming: pause and seek FIRST
-      await audioHandler.pause();
-      await audioHandler.seek(Duration(milliseconds: posMs));
+      await audioHandler.pause(isPartyDriven: true);
+      await audioHandler.seek(Duration(milliseconds: posMs), isPartyDriven: true);
 
       final hardwareLatencyMs = SettingsManager.hardwareAudioLatencyMs;
       final bluetoothDelayMs = SettingsManager.bluetoothDelayMs;
@@ -1166,16 +1201,16 @@ class PartySyncCoordinator {
       final remainingDelayMs = startAtEpochMs - estHostTime - latencyOffsetMs;
 
       if (remainingDelayMs > 15) {
-        _pendingSeekTimer = Timer(Duration(milliseconds: remainingDelayMs), () async {
+        _pendingSeekTimer = Timer(Duration(milliseconds: remainingDelayMs), () {
           if (role != PartyRole.joiner) return;
-          await audioHandler.play();
+          audioHandler.play().catchError((_) => null);
         });
         return;
       }
-      await audioHandler.play();
+      audioHandler.play().catchError((_) => null);
       return;
     }
-    await audioHandler.seek(Duration(milliseconds: posMs));
+    await audioHandler.seek(Duration(milliseconds: posMs), isPartyDriven: true);
   }
 
   /// Joiner: Mirrors host queue in local AudioQueueHandler for gapless consecutive song transitions
@@ -1212,12 +1247,16 @@ class PartySyncCoordinator {
             targetSong,
             queue: songs,
             preserveUserQueue: false,
+            autoPlay: false,
+            isPartySyncInternal: true,
           );
         } else if (isPlaying) {
           await audioHandler.playSong(
             targetSong,
             queue: songs,
             preserveUserQueue: false,
+            autoPlay: false,
+            isPartySyncInternal: true,
           );
         }
         _prewarmUpcomingTracks(rawQueue, currentIndex: targetIndex);
@@ -1311,6 +1350,7 @@ class PartySyncCoordinator {
               queue: queue ?? [song],
               preserveUserQueue: false,
               isPartySyncInternal: true,
+              autoPlay: false,
             );
             final refHostEpoch = (payload['referenceHostEpochMs'] as num?)?.toInt();
             final refHostPos = (payload['referencePositionMs'] as num?)?.toInt();
@@ -1325,13 +1365,13 @@ class PartySyncCoordinator {
                 isPlaying: isHostPlaying,
               );
               if (expectedPos > 0) {
-                await audioHandler.seek(Duration(milliseconds: expectedPos));
+                await audioHandler.seek(Duration(milliseconds: expectedPos), isPartyDriven: true);
               }
             }
             if (!isHostPlaying) {
-              await audioHandler.pause();
+              await audioHandler.pause(isPartyDriven: true);
             } else {
-              await audioHandler.play();
+              audioHandler.play().catchError((_) => null);
             }
           } catch (e) {
             AppLogger.log('PartySyncCoordinator', 'Heartbeat auto-load track notice: $e');
@@ -1343,18 +1383,18 @@ class PartySyncCoordinator {
       }
     }
 
-    if (_isSyncLoading) return;
+    if (_isSyncLoading || _pendingScheduledPlayTimer != null) return;
 
     final isPlaying = audioHandler.playbackState.value.playing;
 
     if (!isHostPlaying) {
       if (isPlaying) {
-        audioHandler.pause();
+        audioHandler.pause(isPartyDriven: true);
       }
       syncStatusDescription.value = 'Host Paused';
       return;
     } else if (!isPlaying && currentSong != null && currentSong.id == hostSongId) {
-      audioHandler.play();
+      audioHandler.play().catchError((_) => null);
     }
 
     final refHostEpoch = (payload['referenceHostEpochMs'] as num?)?.toInt();
@@ -1405,7 +1445,7 @@ class PartySyncCoordinator {
       // Macro-drift: Mute audio output, execute hard seek, un-mute, and resume
       audioHandler.player.setVolume(0.0).then((_) async {
         try {
-          await audioHandler.seek(Duration(milliseconds: action.seekTargetMs!));
+          await audioHandler.seek(Duration(milliseconds: action.seekTargetMs!), isPartyDriven: true);
           audioHandler.setSpeed(1.0);
           syncStatusDescription.value = 'In Sync';
         } finally {
@@ -1487,6 +1527,9 @@ class PartySyncCoordinator {
     syncStatusDescription.value = 'Idle';
     _ntpSamples.clear();
     _processedEventKeys.clear();
+    _processedCmdIds.clear();
+    _peerReadyCompleter = null;
+    _pendingPrepareCmdId = null;
     _lastProcessedSeq = 0;
     _currentHostSeq = 0;
   }

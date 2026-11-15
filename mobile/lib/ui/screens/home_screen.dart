@@ -56,21 +56,12 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: AppColors.bgDark,
       body: SafeArea(
-        child: AnimatedBuilder(
-          animation: HomeFeedProvider.instance,
-          builder: (context, _) {
-            final feedProvider = HomeFeedProvider.instance;
-            final feedState = feedProvider.state;
-            final currentLang = feedProvider.currentLanguage;
-            final cardWidth = AppDimensions.homeCardWidth(context);
-            final carouselHeight = AppDimensions.homeCarouselHeight(context, cardWidth);
-
-            return RefreshIndicator(
-              color: AppColors.neonViolet,
-              backgroundColor: AppColors.surfaceElevated,
-              onRefresh: () => feedProvider.loadFeed(forceRefresh: true),
-              child: CustomScrollView(
-                slivers: [
+        child: RefreshIndicator(
+          color: AppColors.neonViolet,
+          backgroundColor: AppColors.surfaceElevated,
+          onRefresh: () => HomeFeedProvider.instance.loadFeed(forceRefresh: true),
+          child: CustomScrollView(
+            slivers: [
                   // Top Bar: Glowing Logo, Title, Settings & Profile
                   SliverToBoxAdapter(
                     child: Padding(
@@ -225,359 +216,333 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
 
-                  // Flagship Spotify-Style 2x3 Quick Tiles Grid with instant 1-tap playback
-                  if (feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you')
-                    const SliverToBoxAdapter(
-                      child: QuickGridSection(),
-                    ),
+                  // Scoped Dynamic Feed Body (Only rebuilds when feed state changes!)
+                  SliverToBoxAdapter(
+                    child: AnimatedBuilder(
+                      animation: HomeFeedProvider.instance,
+                      builder: (context, _) {
+                        final feedProvider = HomeFeedProvider.instance;
+                        final feedState = feedProvider.state;
+                        final currentLang = feedProvider.currentLanguage;
+                        final cardWidth = AppDimensions.homeCardWidth(context);
+                        final carouselHeight = AppDimensions.homeCarouselHeight(context, cardWidth);
 
-                  // YouTube Music Style Feeling & Activity Chips Bar (shown when filtering by Moods)
-                  if (feedState.homeFilter == 'moods')
-                    const SliverToBoxAdapter(
-                      child: Padding(
-                        padding: EdgeInsets.only(top: 6, bottom: 4),
-                        child: FeelingChipsBar(),
-                      ),
-                    ),
-
-                  // 3-Tier Loading State Machine: LoadingSkeleton -> PartialSuccess -> FullSuccess
-                  if (feedState.isLoading && feedState.isEmpty)
-                    const SliverFillRemaining(
-                      child: Center(
-                        child: CircularProgressIndicator(color: AppColors.neonViolet),
-                      ),
-                    )
-                  else if (feedState.appError != null && feedState.isEmpty)
-                    SliverFillRemaining(
-                      hasScrollBody: false,
-                      child: HomeErrorView(
-                        error: feedState.appError!,
-                        onRetry: () => HomeFeedProvider.instance.loadFeed(forceRefresh: true),
-                      ),
-                    )
-                  else ...[
-                    // Spotify-Style Clustered Daily Mixes Carousel
-                    if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists' || feedState.homeFilter == 'for_you') &&
-                        feedState.dailyMixes.isNotEmpty)
-                      SliverToBoxAdapter(
-                        child: DailyMixesShelf(mixes: feedState.dailyMixes),
-                      ),
-
-                    // Decades & Golden Era Collections Carousel
-                    if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists') &&
-                        feedState.decadeMixes.isNotEmpty)
-                      SliverToBoxAdapter(
-                        child: DecadesMixesShelf(mixes: feedState.decadeMixes),
-                      ),
-
-                    // Flagship Spotify-Style Editorial Showcase Hero Banner
-                    if (feedState.homeFilter == 'all' && feedState.heroShowcase != null && feedState.heroShowcase!.tracks.isNotEmpty)
-                      SliverToBoxAdapter(
-                        child: TopHitsHeroCard(showcase: feedState.heroShowcase!),
-                      ),
-
-                    // Active Mood / Feeling Focused Section (if user chose a mood other than 'all')
-                    if (feedState.activeFeeling != 'all') ...[
-                      () {
-                        final activeMix = feedState.feelingMixes
-                            .where((m) => m.feelingId == feedState.activeFeeling)
-                            .firstOrNull;
-                        if (activeMix == null || activeMix.songs.isEmpty) {
-                          return const SliverToBoxAdapter(child: SizedBox.shrink());
+                        if (feedState.isLoading && feedState.isEmpty) {
+                          return const SizedBox(
+                            height: 320,
+                            child: Center(
+                              child: CircularProgressIndicator(color: AppColors.neonViolet),
+                            ),
+                          );
                         }
-                        return SliverToBoxAdapter(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+
+                        if (feedState.appError != null && feedState.isEmpty) {
+                          return HomeErrorView(
+                            error: feedState.appError!,
+                            onRetry: () => HomeFeedProvider.instance.loadFeed(forceRefresh: true),
+                          );
+                        }
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Flagship Spotify-Style 2x3 Quick Tiles Grid with instant 1-tap playback
+                            if (feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you')
+                              const QuickGridSection(),
+
+                            // YouTube Music Style Feeling & Activity Chips Bar (shown when filtering by Moods)
+                            if (feedState.homeFilter == 'moods')
+                              const Padding(
+                                padding: EdgeInsets.only(top: 6, bottom: 4),
+                                child: FeelingChipsBar(),
+                              ),
+
+                            // Spotify-Style Clustered Daily Mixes Carousel
+                            if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists' || feedState.homeFilter == 'for_you') &&
+                                feedState.dailyMixes.isNotEmpty)
+                              DailyMixesShelf(mixes: feedState.dailyMixes),
+
+                            // Decades & Golden Era Collections Carousel
+                            if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists') &&
+                                feedState.decadeMixes.isNotEmpty)
+                              DecadesMixesShelf(mixes: feedState.decadeMixes),
+
+                            // Flagship Spotify-Style Editorial Showcase Hero Banner
+                            if (feedState.homeFilter == 'all' && feedState.heroShowcase != null && feedState.heroShowcase!.tracks.isNotEmpty)
+                              TopHitsHeroCard(showcase: feedState.heroShowcase!),
+
+                            // Active Mood / Feeling Focused Section (if user chose a mood other than 'all')
+                            if (feedState.activeFeeling != 'all') ...[
+                              () {
+                                final activeMix = feedState.feelingMixes
+                                    .where((m) => m.feelingId == feedState.activeFeeling)
+                                    .firstOrNull;
+                                if (activeMix == null || activeMix.songs.isEmpty) {
+                                  return const SizedBox.shrink();
+                                }
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Row(
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Text(activeMix.icon, style: const TextStyle(fontSize: 20)),
+                                              const SizedBox(width: 8),
+                                              Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    activeMix.title,
+                                                    style: GoogleFonts.outfit(
+                                                      color: Colors.white,
+                                                      fontSize: 18,
+                                                      fontWeight: FontWeight.w800,
+                                                      letterSpacing: -0.4,
+                                                    ),
+                                                  ),
+                                                  Text(
+                                                    activeMix.subtitle,
+                                                    style: GoogleFonts.outfit(
+                                                      color: AppColors.textSecondary,
+                                                      fontSize: 11,
+                                                      fontWeight: FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                          TextButton(
+                                            child: Text(
+                                              'Play Mix',
+                                              style: GoogleFonts.outfit(
+                                                color: AppColors.electricCyan,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            onPressed: () => audioHandler.playSong(activeMix.songs.first, queue: activeMix.songs),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    SizedBox(
+                                      height: carouselHeight,
+                                      child: ListView.builder(
+                                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                                        scrollDirection: Axis.horizontal,
+                                        itemCount: activeMix.songs.length,
+                                        itemBuilder: (context, index) {
+                                          final song = activeMix.songs[index];
+                                          return HomeSongCard(
+                                            song: song,
+                                            width: cardWidth,
+                                            onTap: () => audioHandler.playSong(song, queue: activeMix.songs),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              }(),
+                            ],
+
+                            // Spotify & Billboard Style Top 10 Official Ranked Charts
+                            if (feedState.homeFilter == 'all' && feedState.top10Charts.isNotEmpty)
+                              NumberedChartView(charts: feedState.top10Charts),
+
+                            // YouTube Music Style Quick Picks 4-Row Column Grid
+                            if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you') &&
+                                SettingsManager.isHomeShowQuickPicksEnabled &&
+                                feedState.quickPicks.isNotEmpty)
+                              QuickPicksGridCarousel(songs: feedState.quickPicks),
+
+                            // Apple Music Style Mood & Activity Stations Carousel
+                            if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'moods') &&
+                                feedState.feelingMixes.isNotEmpty) ...[
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(6),
+                                      decoration: BoxDecoration(
+                                        gradient: const LinearGradient(
+                                          colors: [Color(0xFF8B5CF6), Color(0xFF06B6D4)],
+                                        ),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: const Icon(Icons.radio_rounded, color: Colors.white, size: 16),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Text(activeMix.icon, style: const TextStyle(fontSize: 20)),
-                                        const SizedBox(width: 8),
-                                        Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              activeMix.title,
-                                              style: GoogleFonts.outfit(
-                                                color: Colors.white,
-                                                fontSize: 18,
-                                                fontWeight: FontWeight.w800,
-                                                letterSpacing: -0.4,
-                                              ),
-                                            ),
-                                            Text(
-                                              activeMix.subtitle,
-                                              style: GoogleFonts.outfit(
-                                                color: AppColors.textSecondary,
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          ],
+                                        Text(
+                                          'Mood & Activity Stations',
+                                          style: GoogleFonts.outfit(
+                                            color: Colors.white,
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w800,
+                                            letterSpacing: -0.4,
+                                          ),
+                                        ),
+                                        Text(
+                                          'Curated soundscapes for any moment',
+                                          style: GoogleFonts.outfit(
+                                            color: AppColors.textSecondary,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w500,
+                                          ),
                                         ),
                                       ],
-                                    ),
-                                    TextButton(
-                                      child: Text(
-                                        'Play Mix',
-                                        style: GoogleFonts.outfit(
-                                          color: AppColors.electricCyan,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                      onPressed: () => audioHandler.playSong(activeMix.songs.first, queue: activeMix.songs),
                                     ),
                                   ],
                                 ),
                               ),
                               SizedBox(
-                                height: carouselHeight,
-                                child: ListView.builder(
-                                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                                height: 140,
+                                child: ListView.separated(
+                                  padding: const EdgeInsets.symmetric(horizontal: 20),
                                   scrollDirection: Axis.horizontal,
-                                  itemCount: activeMix.songs.length,
+                                  physics: const BouncingScrollPhysics(),
+                                  itemCount: feedState.feelingMixes.length,
+                                  separatorBuilder: (_, __) => const SizedBox(width: 14),
                                   itemBuilder: (context, index) {
-                                    final song = activeMix.songs[index];
-                                    return HomeSongCard(
-                                      song: song,
-                                      width: cardWidth,
-                                      onTap: () => audioHandler.playSong(song, queue: activeMix.songs),
-                                    );
+                                    final mix = feedState.feelingMixes[index];
+                                    return MoodStationCard(mix: mix);
                                   },
                                 ),
                               ),
                             ],
-                          ),
-                        );
-                      }(),
-                    ],
 
-                    // Spotify & Billboard Style Top 10 Official Ranked Charts
-                    if (feedState.homeFilter == 'all' && feedState.top10Charts.isNotEmpty)
-                      SliverToBoxAdapter(
-                        child: NumberedChartView(charts: feedState.top10Charts),
-                      ),
+                            // "Jump Back In" (Recent History Carousel if available)
+                            if (feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you')
+                              ValueListenableBuilder<List<Song>>(
+                                valueListenable: HistoryManager.historyNotifier,
+                                builder: (context, recentSongs, _) {
+                                  final displayHistory = recentSongs.isNotEmpty ? recentSongs : feedState.recentHistory;
+                                  if (displayHistory.isEmpty) return const SizedBox.shrink();
 
-                    // YouTube Music Style Quick Picks 4-Row Column Grid
-                    if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you') &&
-                        SettingsManager.isHomeShowQuickPicksEnabled &&
-                        feedState.quickPicks.isNotEmpty)
-                      SliverToBoxAdapter(
-                        child: QuickPicksGridCarousel(songs: feedState.quickPicks),
-                      ),
+                                  return HomeSongShelf(
+                                    title: 'Jump Back In',
+                                    icon: Icons.history_rounded,
+                                    iconColor: AppColors.electricCyan,
+                                    songs: displayHistory,
+                                    cardWidth: cardWidth,
+                                    carouselHeight: carouselHeight,
+                                    onSeeAll: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(builder: (_) => const HistoryScreen()),
+                                      );
+                                    },
+                                  );
+                                },
+                              ),
 
-                    // Apple Music Style Mood & Activity Stations Carousel
-                    if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'moods') &&
-                        feedState.feelingMixes.isNotEmpty) ...[
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
-                          child: Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(6),
-                                decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                                    colors: [Color(0xFF8B5CF6), Color(0xFF06B6D4)],
-                                  ),
-                                  borderRadius: BorderRadius.circular(8),
+                            // "Made For You" (User taste / history-based mix)
+                            if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you') &&
+                                feedState.madeForYou.isNotEmpty)
+                              HomeSongShelf(
+                                title: 'Made For You',
+                                icon: Icons.auto_awesome_rounded,
+                                iconColor: AppColors.neonViolet,
+                                songs: feedState.madeForYou,
+                                cardWidth: cardWidth,
+                                carouselHeight: carouselHeight,
+                                onPlayAll: () => audioHandler.playSong(feedState.madeForYou.first, queue: feedState.madeForYou),
+                              ),
+
+                            // "Trending Across JioSaavn & YouTube" Carousel
+                            if (feedState.homeFilter == 'all' && feedState.trendingMerged.isNotEmpty)
+                              HomeSongShelf(
+                                title: 'Trending Across JioSaavn & YouTube',
+                                icon: Icons.local_fire_department_rounded,
+                                iconColor: AppColors.electricCyan,
+                                songs: feedState.trendingMerged,
+                                cardWidth: cardWidth,
+                                carouselHeight: carouselHeight,
+                                onPlayAll: () => audioHandler.playSong(feedState.trendingMerged.first, queue: feedState.trendingMerged),
+                              ),
+
+                            // "YouTube Music Trending" Carousel
+                            if (feedState.homeFilter == 'all' && feedState.youtubeTrending.isNotEmpty)
+                              HomeSongShelf(
+                                title: 'YouTube Music Trending',
+                                icon: Icons.play_circle_filled_rounded,
+                                iconColor: const Color(0xFFFF0033),
+                                songs: feedState.youtubeTrending,
+                                cardWidth: cardWidth,
+                                carouselHeight: carouselHeight,
+                                onPlayAll: () => audioHandler.playSong(feedState.youtubeTrending.first, queue: feedState.youtubeTrending),
+                              ),
+
+                            // "Popular Artists" (High-Res Verified Avatars)
+                            if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists') &&
+                                feedState.popularArtists.isNotEmpty)
+                              HomePopularArtists(artists: feedState.popularArtists),
+
+                            // "New Releases" Carousel
+                            if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists') &&
+                                feedState.newReleases.isNotEmpty)
+                              HomeSongShelf(
+                                title: 'New $currentLang Releases',
+                                icon: Icons.new_releases_rounded,
+                                iconColor: AppColors.neonViolet,
+                                songs: feedState.newReleases,
+                                cardWidth: cardWidth,
+                                carouselHeight: carouselHeight,
+                                onPlayAll: () => audioHandler.playSong(feedState.newReleases.first, queue: feedState.newReleases),
+                              ),
+
+                            // "Featured Albums"
+                            if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists') &&
+                                feedState.featuredAlbums.isNotEmpty)
+                              HomeFeaturedAlbums(
+                                albums: feedState.featuredAlbums,
+                                cardWidth: cardWidth,
+                                carouselHeight: carouselHeight,
+                              ),
+
+                            // Bottom Feed: Trending Tracks List
+                            if (feedState.homeFilter == 'all' && feedState.trendingMerged.isNotEmpty) ...[
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+                                child: Text(
+                                  'Popular Hits in $currentLang',
+                                  style: GoogleFonts.outfit(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                                 ),
-                                child: const Icon(Icons.radio_rounded, color: Colors.white, size: 16),
                               ),
-                              const SizedBox(width: 8),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Mood & Activity Stations',
-                                    style: GoogleFonts.outfit(
-                                      color: Colors.white,
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: -0.4,
-                                    ),
+                              for (int i = 0; i < (feedState.trendingMerged.length > 20 ? 20 : feedState.trendingMerged.length); i++)
+                                SongTile(
+                                  song: feedState.trendingMerged[i],
+                                  queue: feedState.trendingMerged,
+                                  index: i,
+                                  showRank: true,
+                                  playbackContext: PlaybackContext(
+                                    id: 'popular_hits',
+                                    title: 'Popular Hits in $currentLang',
+                                    type: 'trending',
                                   ),
-                                  Text(
-                                    'Curated soundscapes for any moment',
-                                    style: GoogleFonts.outfit(
-                                      color: AppColors.textSecondary,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                                ),
                             ],
-                          ),
-                        ),
-                      ),
-                      SliverToBoxAdapter(
-                        child: SizedBox(
-                          height: 140,
-                          child: ListView.separated(
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            scrollDirection: Axis.horizontal,
-                            physics: const BouncingScrollPhysics(),
-                            itemCount: feedState.feelingMixes.length,
-                            separatorBuilder: (_, __) => const SizedBox(width: 14),
-                            itemBuilder: (context, index) {
-                              final mix = feedState.feelingMixes[index];
-                              return MoodStationCard(mix: mix);
-                            },
-                          ),
-                        ),
-                      ),
-                    ],
-                    // "Jump Back In" (Recent History Carousel if available)
-                    if (feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you')
-                      ValueListenableBuilder<List<Song>>(
-                        valueListenable: HistoryManager.historyNotifier,
-                        builder: (context, recentSongs, _) {
-                          final displayHistory = recentSongs.isNotEmpty ? recentSongs : feedState.recentHistory;
-                          if (displayHistory.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
-
-                          return SliverToBoxAdapter(
-                            child: HomeSongShelf(
-                              title: 'Jump Back In',
-                              icon: Icons.history_rounded,
-                              iconColor: AppColors.electricCyan,
-                              songs: displayHistory,
-                              cardWidth: cardWidth,
-                              carouselHeight: carouselHeight,
-                              onSeeAll: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (_) => const HistoryScreen()),
-                                );
-                              },
-                            ),
-                          );
-                        },
-                      ),
-
-                    // "Made For You" (User taste / history-based mix)
-                    if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you') &&
-                        feedState.madeForYou.isNotEmpty)
-                      SliverToBoxAdapter(
-                        child: HomeSongShelf(
-                          title: 'Made For You',
-                          icon: Icons.auto_awesome_rounded,
-                          iconColor: AppColors.neonViolet,
-                          songs: feedState.madeForYou,
-                          cardWidth: cardWidth,
-                          carouselHeight: carouselHeight,
-                          onPlayAll: () => audioHandler.playSong(feedState.madeForYou.first, queue: feedState.madeForYou),
-                        ),
-                      ),
-
-                    // "Trending Across JioSaavn & YouTube" Carousel
-                    if (feedState.homeFilter == 'all' && feedState.trendingMerged.isNotEmpty)
-                      SliverToBoxAdapter(
-                        child: HomeSongShelf(
-                          title: 'Trending Across JioSaavn & YouTube',
-                          icon: Icons.local_fire_department_rounded,
-                          iconColor: AppColors.electricCyan,
-                          songs: feedState.trendingMerged,
-                          cardWidth: cardWidth,
-                          carouselHeight: carouselHeight,
-                          onPlayAll: () => audioHandler.playSong(feedState.trendingMerged.first, queue: feedState.trendingMerged),
-                        ),
-                      ),
-
-                    // "YouTube Music Trending" Carousel
-                    if (feedState.homeFilter == 'all' && feedState.youtubeTrending.isNotEmpty)
-                      SliverToBoxAdapter(
-                        child: HomeSongShelf(
-                          title: 'YouTube Music Trending',
-                          icon: Icons.play_circle_filled_rounded,
-                          iconColor: const Color(0xFFFF0033),
-                          songs: feedState.youtubeTrending,
-                          cardWidth: cardWidth,
-                          carouselHeight: carouselHeight,
-                          onPlayAll: () => audioHandler.playSong(feedState.youtubeTrending.first, queue: feedState.youtubeTrending),
-                        ),
-                      ),
-
-                    // "Popular Artists" (High-Res Verified Avatars)
-                    if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists') &&
-                        feedState.popularArtists.isNotEmpty)
-                      SliverToBoxAdapter(
-                        child: HomePopularArtists(artists: feedState.popularArtists),
-                      ),
-
-                    // "New Releases" Carousel
-                    if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists') &&
-                        feedState.newReleases.isNotEmpty)
-                      SliverToBoxAdapter(
-                        child: HomeSongShelf(
-                          title: 'New $currentLang Releases',
-                          icon: Icons.new_releases_rounded,
-                          iconColor: AppColors.neonViolet,
-                          songs: feedState.newReleases,
-                          cardWidth: cardWidth,
-                          carouselHeight: carouselHeight,
-                          onPlayAll: () => audioHandler.playSong(feedState.newReleases.first, queue: feedState.newReleases),
-                        ),
-                      ),
-
-                    // "Featured Albums"
-                    if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists') &&
-                        feedState.featuredAlbums.isNotEmpty)
-                      SliverToBoxAdapter(
-                        child: HomeFeaturedAlbums(
-                          albums: feedState.featuredAlbums,
-                          cardWidth: cardWidth,
-                          carouselHeight: carouselHeight,
-                        ),
-                      ),
-
-                    // Bottom Feed: Trending Tracks List
-                    if (feedState.homeFilter == 'all' && feedState.trendingMerged.isNotEmpty) ...[
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-                          child: Text(
-                            'Popular Hits in $currentLang',
-                            style: GoogleFonts.outfit(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ),
-                      SliverList(
-                        delegate: SliverChildBuilderDelegate(
-                          (context, index) {
-                            final song = feedState.trendingMerged[index];
-                            return SongTile(
-                              song: song,
-                              queue: feedState.trendingMerged,
-                              index: index,
-                              showRank: true,
-                              playbackContext: PlaybackContext(
-                                id: 'popular_hits',
-                                title: 'Popular Hits in $currentLang',
-                                type: 'trending',
-                              ),
-                            );
-                          },
-                          childCount: feedState.trendingMerged.length > 20 ? 20 : feedState.trendingMerged.length,
-                        ),
-                      ),
-                    ],
-                  ],
+                          ],
+                        );
+                      },
+                    ),
+                  ),
 
                   SliverToBoxAdapter(
                     child: SizedBox(height: AppDimensions.bottomClearance(context, hasBottomNav: true)),
                   ),
                 ],
               ),
-            );
-          },
-        ),
-      ),
-    );
+            ),
+          ),
+        );
   }
 }

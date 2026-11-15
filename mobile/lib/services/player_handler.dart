@@ -159,10 +159,13 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   StreamSubscription<PlayerState>? _playerStateSub;
   StreamSubscription? _playbackEventSub;
   StreamSubscription<Duration?>? _durationSub;
-  StreamSubscription? _throttledPositionSub;
+  StreamSubscription<Duration>? _positionHubSub;
+  StreamController<Duration>? _throttledPositionController;
+  StreamController<Duration>? _lyricsPositionController;
+  int _lastThrottledEmitMs = 0;
+  int _lastLyricsEmitMs = 0;
   VoidCallback? _favListener;
   VoidCallback? _smartShuffleListener;
-  Stream<Duration>? _throttledPositionStream;
   Timer? _lyricsDebounceTimer;
 
   // Cached favorite state to eliminate per-event lookups
@@ -206,51 +209,72 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     }
   }
 
-  /// Throttled position stream: updates every 500ms when in foreground,
+  /// Centralized position hub: updates every 500ms when in foreground,
   /// or every 1.5 seconds when app is in background / screen off to allow CPU deep sleep (Doze mode).
   Stream<Duration> get throttledPositionStream {
-    _throttledPositionStream ??= Stream<Duration>.multi((controller) {
-      int lastEmitMs = 0;
-      final sub = _player.positionStream.listen(
-        (pos) {
-          final now = DateTime.now().millisecondsSinceEpoch;
-          final intervalMs = _isAppInBackground ? 1500 : 500;
-          // Emit at most once per intervalMs during active playback, or immediately on seek / pause
-          if (now - lastEmitMs >= intervalMs || !_player.playing) {
-            lastEmitMs = now;
-            controller.add(pos);
-          }
-        },
-        onError: controller.addError,
-        onDone: controller.close,
-      );
-      controller.onCancel = () => sub.cancel();
-    }).asBroadcastStream();
-    return _throttledPositionStream!;
+    _throttledPositionController ??= StreamController<Duration>.broadcast(
+      onListen: () {
+        if (_player.position > Duration.zero) {
+          _throttledPositionController?.add(_player.position);
+        }
+      },
+    );
+    return _throttledPositionController!.stream;
   }
-
-  Stream<Duration>? _lyricsPositionStream;
 
   /// High-precision position stream for real-time synchronized karaoke lyrics.
   /// Emits updates every ~50ms during active playback to eliminate sync lag and jitter.
   Stream<Duration> get lyricsPositionStream {
-    _lyricsPositionStream ??= Stream<Duration>.multi((controller) {
-      int lastEmitMs = 0;
-      final sub = _player.positionStream.listen(
-        (pos) {
-          final now = DateTime.now().millisecondsSinceEpoch;
-          // 50ms interval (~20 Hz) guarantees sub-frame responsiveness for lyrics highlighting
-          if (now - lastEmitMs >= 50 || !_player.playing) {
-            lastEmitMs = now;
-            controller.add(pos);
-          }
-        },
-        onError: controller.addError,
-        onDone: controller.close,
-      );
-      controller.onCancel = () => sub.cancel();
-    }).asBroadcastStream();
-    return _lyricsPositionStream!;
+    _lyricsPositionController ??= StreamController<Duration>.broadcast(
+      onListen: () {
+        if (_player.position > Duration.zero) {
+          _lyricsPositionController?.add(_player.position);
+        }
+      },
+    );
+    return _lyricsPositionController!.stream;
+  }
+
+  /// Single centralized position dispatcher fanning out to metrics and stream listeners
+  void _onPositionTick(Duration pos) {
+    // 1. Telemetry / Scrobble milestone (15s minimum listen, threshold reached)
+    final posSec = pos.inSeconds;
+    if (!_hasRecordedListen && posSec >= 15 && currentSong != null) {
+      _hasRecordedListen = true;
+    }
+
+    if (!_hasRecordedHistory && currentSong != null) {
+      final song = currentSong!;
+      final totalSec = _player.duration?.inSeconds ?? song.duration;
+      final thresholdSec = (totalSec > 0 && totalSec < 60) ? (totalSec * 0.5) : 30.0;
+      if (posSec >= thresholdSec) {
+        _hasRecordedHistory = true;
+        final track = TrackEntity.fromSong(song);
+        HistoryManager.addToHistory(track);
+        QueueCooldownManager.recordPlayed(song);
+        AppLogger.log('PlayerHandler', 'Scrobble milestone reached: Recorded play to HistoryManager and QueueCooldownManager for "${song.title}".');
+      }
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final isPlaying = _player.playing;
+
+    // 2. High-precision lyrics fan-out (~50ms interval / 20 Hz)
+    if (_lyricsPositionController != null && _lyricsPositionController!.hasListener) {
+      if (now - _lastLyricsEmitMs >= 50 || !isPlaying) {
+        _lastLyricsEmitMs = now;
+        _lyricsPositionController!.add(pos);
+      }
+    }
+
+    // 3. Throttled UI position fan-out (500ms foreground / 1500ms background)
+    if (_throttledPositionController != null && _throttledPositionController!.hasListener) {
+      final intervalMs = _isAppInBackground ? 1500 : 500;
+      if (now - _lastThrottledEmitMs >= intervalMs || !isPlaying) {
+        _lastThrottledEmitMs = now;
+        _throttledPositionController!.add(pos);
+      }
+    }
   }
 
   static final MediaControl _favoriteControlFilled = MediaControl.custom(
@@ -504,8 +528,8 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     // Predictive Smart Caching for upcoming queue and radio tracks
     SmartCacheService.instance.onQueueUpdated(song, _queueHandler.queue);
 
-    // Synchronize automatic or skip track transitions to all party speakers
-    if (PartySyncCoordinator.isHost) {
+    // Synchronize automatic or skip track transitions to all party speakers (natural advances only)
+    if (PartySyncCoordinator.isHost && !_queueHandler.isPartyDrivenLoad) {
       PartySyncCoordinator.notifyHostTrackTransition(
         song,
         queue: _queueHandler.queue,
@@ -818,33 +842,26 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     _playerStateSub = _player.playerStateStream.listen((state) {
       if (state.playing) {
         _isForegroundDowngraded = false;
+        if (SleepTimerService.instance.hasExpired) {
+          SleepTimerService.instance.triggerSleepNow();
+          return;
+        }
+      }
+      if (state.processingState == ProcessingState.ready) {
+        EqualizerService.refreshDspStatus();
       }
       _broadcastState();
     });
 
-    // Telemetry: Scrobble threshold milestone (30s, or >= 50% for tracks under 60 seconds)
-    _throttledPositionSub = _player.positionStream.listen((pos) {
-      if (SleepTimerService.instance.hasExpired) {
-        SleepTimerService.instance.triggerSleepNow();
-        return;
-      }
-      if (!_hasRecordedListen && pos.inSeconds >= 15 && currentSong != null) {
-        _hasRecordedListen = true;
-      }
-
-      if (!_hasRecordedHistory && currentSong != null) {
-        final song = currentSong!;
-        final totalSec = _player.duration?.inSeconds ?? song.duration;
-        final thresholdSec = (totalSec > 0 && totalSec < 60) ? (totalSec * 0.5) : 30.0;
-        if (pos.inSeconds >= thresholdSec) {
-          _hasRecordedHistory = true;
-          final track = TrackEntity.fromSong(song);
-          HistoryManager.addToHistory(track);
-          QueueCooldownManager.recordPlayed(song);
-          AppLogger.log('PlayerHandler', 'Scrobble milestone reached: Recorded play to HistoryManager and QueueCooldownManager for "${song.title}".');
-        }
-      }
-    });
+    // Unified Position Hub: single subscription to player.positionStream fanning out to metrics & UI controllers
+    _positionHubSub = _player.positionStream.listen(
+      _onPositionTick,
+      onError: (e, st) {
+        AppLogger.recordError(e, st, context: 'Position hub stream error');
+        _throttledPositionController?.addError(e, st);
+        _lyricsPositionController?.addError(e, st);
+      },
+    );
   }
 
   /// Disposes background audio stream listeners and cleans up subscriptions.
@@ -863,8 +880,12 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     _playbackEventSub = null;
     _durationSub?.cancel();
     _durationSub = null;
-    _throttledPositionSub?.cancel();
-    _throttledPositionSub = null;
+    _positionHubSub?.cancel();
+    _positionHubSub = null;
+    _throttledPositionController?.close();
+    _throttledPositionController = null;
+    _lyricsPositionController?.close();
+    _lyricsPositionController = null;
     if (_favListener != null) {
       FavoritesManager.favoritesNotifier.removeListener(_favListener!);
       _favListener = null;
@@ -1000,6 +1021,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     bool preserveUserQueue = false,
     PlaybackContext? context,
     bool isPartySyncInternal = false,
+    bool autoPlay = true,
   }) async {
     if (PartySyncCoordinator.role == PartyRole.joiner && !isPartySyncInternal) {
       if (PartySyncCoordinator.onJoinerManualPlayAttempted != null) {
@@ -1043,19 +1065,12 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     await _queueHandler.loadQueue(
       queue ?? [song],
       initialIndex: targetIndex,
-      autoPlay: true,
+      autoPlay: autoPlay,
+      isPartyDriven: isPartySyncInternal,
       preserveUserQueue: isNewSingleQueue || preserveUserQueue,
     );
 
     await applyVolumeNormalization(song);
-
-    if (PartySyncCoordinator.isHost) {
-      PartySyncCoordinator.notifyHostPlay(
-        song,
-        queue: queue ?? _queueHandler.queue,
-        currentIndex: targetIndex,
-      );
-    }
   }
 
   // ================= Queue Management ================= //
@@ -1236,20 +1251,22 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     }
     _isForegroundDowngraded = false;
     _queueHandler.cancelIdleTimer();
-    await _player.play();
+    _player.play().catchError((e) {
+      AppLogger.debug('PaatuAudioHandler', 'Player play error: $e');
+    });
     await applyVolumeNormalization();
     _broadcastState();
-    if (PartySyncCoordinator.isHost) {
+    if (PartySyncCoordinator.isHost && !_queueHandler.isPartyDrivenLoad) {
       PartySyncCoordinator.notifyHostResume();
     }
   }
 
   @override
-  Future<void> pause() async {
+  Future<void> pause({bool isPartyDriven = false}) async {
     await _player.pause();
     _queueHandler.startIdleTimer();
     _broadcastState();
-    if (PartySyncCoordinator.isHost) {
+    if (PartySyncCoordinator.isHost && !isPartyDriven) {
       PartySyncCoordinator.notifyHostPause();
     }
     // If the app UI task was closed from Recents/RAM while persistent playback was enabled,
@@ -1293,10 +1310,10 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   }
 
   @override
-  Future<void> seek(Duration position) async {
+  Future<void> seek(Duration position, {bool isPartyDriven = false}) async {
     await _player.seek(position);
     _broadcastState();
-    if (PartySyncCoordinator.isHost) {
+    if (PartySyncCoordinator.isHost && !isPartyDriven) {
       PartySyncCoordinator.notifyHostSeek(position);
     }
   }
@@ -1329,7 +1346,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     _playerStateSub?.cancel();
     _playbackEventSub?.cancel();
     _durationSub?.cancel();
-    _throttledPositionSub?.cancel();
+    _positionHubSub?.cancel();
+    _throttledPositionController?.close();
+    _lyricsPositionController?.close();
     _queueHandler.dispose();
   }
 

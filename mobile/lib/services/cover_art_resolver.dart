@@ -35,6 +35,15 @@ class CoverArtResolver {
   /// In-flight deduplication to prevent duplicate concurrent network queries for the same song
   static final Map<String, Future<String>> _inFlightRequests = {};
 
+  /// Negative cache to prevent hammering external APIs for tracks with no studio art (TTL: 10 mins)
+  static final Map<String, int> _negativeCache = {};
+  static const int _negativeCacheTtlMs = 600000;
+
+  /// Bounded concurrency pool for network resolution
+  static const int _maxConcurrentResolutions = 4;
+  static int _activeConcurrentResolutions = 0;
+  static final List<_QueuedCoverResolution> _resolutionQueue = [];
+
   /// Duration tolerance in seconds for audio verification
   static const int durationToleranceSec = 4;
 
@@ -65,12 +74,18 @@ class CoverArtResolver {
     _httpClient = client;
     _memoryCache.clear();
     _inFlightRequests.clear();
+    _negativeCache.clear();
+    _resolutionQueue.clear();
+    _activeConcurrentResolutions = 0;
   }
 
   /// Clears in-memory and in-flight caches
   static void clearMemoryCache() {
     _memoryCache.clear();
     _inFlightRequests.clear();
+    _negativeCache.clear();
+    _resolutionQueue.clear();
+    _activeConcurrentResolutions = 0;
   }
 
   /// Synchronously checks if a resolved cover URL is already cached in memory or Hive
@@ -94,13 +109,19 @@ class CoverArtResolver {
   /// Persists a resolved cover in memory and Hive
   static Future<void> _cacheResult(String songId, String coverUrl) async {
     if (songId.isEmpty || coverUrl.isEmpty) return;
+    final existingMem = _memoryCache[songId];
     _memoryCache[songId] = coverUrl;
 
     try {
       if (_cacheBox != null && _cacheBox!.isOpen) {
-        await _cacheBox!.put(songId, coverUrl);
+        final existingBox = _cacheBox!.get(songId)?.toString();
+        if (existingBox != coverUrl) {
+          await _cacheBox!.put(songId, coverUrl);
+        }
       }
-      PlaylistManager.updateTrackCover(songId, coverUrl);
+      if (existingMem != coverUrl) {
+        PlaylistManager.updateTrackCover(songId, coverUrl);
+      }
     } catch (e) {
       AppLogger.log('CoverArtResolver', 'Failed to persist cover cache for $songId: $e');
     }
@@ -117,22 +138,58 @@ class CoverArtResolver {
       return cached;
     }
 
+    // Negative cache check
+    final lastFailedEpoch = _negativeCache[songId];
+    if (lastFailedEpoch != null) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - lastFailedEpoch < _negativeCacheTtlMs) {
+        return song.coverUrl;
+      } else {
+        _negativeCache.remove(songId);
+      }
+    }
+
     // In-flight request deduplication
     if (_inFlightRequests.containsKey(songId)) {
       return _inFlightRequests[songId]!;
     }
 
-    final future = _resolveInternal(song, skipNetwork: skipNetwork);
+    final future = _enqueueResolution(song, skipNetwork);
     _inFlightRequests[songId] = future;
 
     try {
       final result = await future;
       if (result.isNotEmpty && !_isPlaceholder(result)) {
+        _negativeCache.remove(songId);
         await _cacheResult(songId, result);
+      } else {
+        _negativeCache[songId] = DateTime.now().millisecondsSinceEpoch;
       }
       return result;
     } finally {
       _inFlightRequests.remove(songId);
+    }
+  }
+
+  static Future<String> _enqueueResolution(Song song, bool skipNetwork) {
+    final completer = Completer<String>();
+    _resolutionQueue.add(_QueuedCoverResolution(song, skipNetwork, completer));
+    _processQueue();
+    return completer.future;
+  }
+
+  static void _processQueue() {
+    while (_activeConcurrentResolutions < _maxConcurrentResolutions && _resolutionQueue.isNotEmpty) {
+      final task = _resolutionQueue.removeAt(0);
+      _activeConcurrentResolutions++;
+      _resolveInternal(task.song, skipNetwork: task.skipNetwork).then((result) {
+        if (!task.completer.isCompleted) task.completer.complete(result);
+      }).catchError((e, st) {
+        if (!task.completer.isCompleted) task.completer.complete(task.song.coverUrl);
+      }).whenComplete(() {
+        _activeConcurrentResolutions--;
+        _processQueue();
+      });
     }
   }
 
@@ -500,4 +557,12 @@ class CoverArtResolver {
     return (lower.contains('img.youtube.com') || lower.contains('i.ytimg.com')) &&
         (lower.contains('hqdefault') || lower.contains('mqdefault') || lower.contains('maxresdefault') || lower.contains('sddefault'));
   }
+}
+
+class _QueuedCoverResolution {
+  final Song song;
+  final bool skipNetwork;
+  final Completer<String> completer;
+
+  _QueuedCoverResolution(this.song, this.skipNetwork, this.completer);
 }

@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/song.dart';
@@ -8,12 +7,12 @@ import '../../services/catalog_database.dart';
 /// Reusable high-performance cover art widget for Paatu Padava.
 ///
 /// Features:
-/// 1. Decodes images at constrained memory dimensions via `memCacheWidth`/`memCacheHeight`
-///    to eliminate scroll stutter and prevent high-res bitmap bloat in memory.
-/// 2. Gracefully handles 16:9 YouTube video thumbnails: renders a blurred ambient
-///    background fill behind a centered frame rather than awkward hard square crops.
+/// 1. Decodes images at constrained memory dimensions via dynamic layout-derived `memCacheWidth`
+///    (setting only one dimension to preserve native aspect ratio) eliminating scroll stutter.
+/// 2. Gracefully handles 16:9 YouTube video thumbnails: single decode with sleek ambient container
+///    rather than costly duplicate decodes and per-tile GPU blurs.
 /// 3. Asynchronously upgrades YouTube thumbnails to 1000x1000 studio square art
-///    via [CoverArtResolver] in the background without blocking the UI.
+///    via [CoverArtResolver] in the background with bounded concurrency and negative caching.
 /// 4. Renders a sleek neutral gradient placeholder when no cover exists (never stock photos).
 class CoverArtImage extends StatefulWidget {
   final Song? song;
@@ -35,8 +34,8 @@ class CoverArtImage extends StatefulWidget {
     this.height,
     this.borderRadius,
     this.fit = BoxFit.cover,
-    this.memCacheWidth = 150,
-    this.memCacheHeight = 150,
+    this.memCacheWidth,
+    this.memCacheHeight,
     this.autoResolve = true,
     this.errorWidget,
   });
@@ -104,12 +103,19 @@ class _CoverArtImageState extends State<CoverArtImage> {
     final url = CoverArtResolver.isPlaylistCover(rawUrl) ? '' : rawUrl;
     final radius = widget.borderRadius ?? BorderRadius.circular(10);
 
+    // Dynamic resolution derivation: set ONLY ONE dimension to preserve aspect ratio
+    final dpr = MediaQuery.maybeOf(context)?.devicePixelRatio ?? 2.0;
+    final layoutDim = widget.width ?? widget.height ?? 60.0;
+    final int? effectiveCacheWidth = widget.memCacheWidth ??
+        (widget.memCacheHeight == null ? (layoutDim * dpr).clamp(64.0, 1024.0).round() : null);
+    final int? effectiveCacheHeight = widget.memCacheHeight;
+
     // 1. Empty cover or stock placeholder fallback: render neutral gradient
     if (url.isEmpty || url.contains('unsplash.com')) {
       return _buildPlaceholder(radius);
     }
 
-    // 2. 16:9 YouTube video thumbnail: render with blurred ambient background
+    // 2. 16:9 YouTube video thumbnail: single decode with ambient letterbox backdrop
     if (CoverArtResolver.isYouTubeThumbnail(url)) {
       return ClipRRect(
         borderRadius: radius,
@@ -119,26 +125,22 @@ class _CoverArtImageState extends State<CoverArtImage> {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              // Blurred ambient background
-              ImageFiltered(
-                imageFilter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                child: CachedNetworkImage(
-                  imageUrl: url,
-                  fit: BoxFit.cover,
-                  memCacheWidth: widget.memCacheWidth ?? 120,
-                  memCacheHeight: widget.memCacheHeight ?? 120,
-                  errorWidget: (_, __, ___) => _buildPlaceholder(radius),
+              Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF1E1B2E), Color(0xFF0F0D17)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
                 ),
               ),
-              // Dimming scrim
-              Container(color: Colors.black.withValues(alpha: 0.35)),
-              // Contained foreground thumbnail
               CachedNetworkImage(
                 imageUrl: url,
-                fit: BoxFit.contain,
-                memCacheWidth: widget.memCacheWidth ?? 150,
-                memCacheHeight: widget.memCacheHeight ?? 150,
-                errorWidget: (_, __, ___) => _buildPlaceholder(radius),
+                fit: BoxFit.cover,
+                memCacheWidth: effectiveCacheWidth,
+                memCacheHeight: effectiveCacheHeight,
+                placeholder: (_, __) => _buildPlaceholder(radius),
+                errorWidget: (_, __, ___) => widget.errorWidget ?? _buildPlaceholder(radius),
               ),
             ],
           ),
@@ -155,8 +157,8 @@ class _CoverArtImageState extends State<CoverArtImage> {
         child: CachedNetworkImage(
           imageUrl: url,
           fit: widget.fit,
-          memCacheWidth: widget.memCacheWidth,
-          memCacheHeight: widget.memCacheHeight,
+          memCacheWidth: effectiveCacheWidth,
+          memCacheHeight: effectiveCacheHeight,
           placeholder: (_, __) => _buildPlaceholder(radius),
           errorWidget: (_, __, ___) => widget.errorWidget ?? _buildPlaceholder(radius),
         ),

@@ -5,7 +5,6 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/song.dart';
-import 'des_decrypt.dart';
 import 'dynamic_scraper_config_service.dart';
 import 'app_logger.dart';
 import 'artist_sanitizer.dart';
@@ -65,7 +64,6 @@ class SaavnClient {
   static Song _parseSongItem(Map<String, dynamic> item) {
     final more = (item['more_info'] is Map) ? (item['more_info'] as Map) : {};
     final encUrl = (more['encrypted_media_url'] ?? item['encrypted_media_url'])?.toString() ?? '';
-    final audioUrl = DesDecrypt.decrypt(encUrl);
     final rawLang = item['language']?.toString() ?? more['language']?.toString();
 
     // Do NOT treat actors or cast members (e.g. Prakash Raj) as music artists.
@@ -127,7 +125,7 @@ class SaavnClient {
       albumId: more['album_id']?.toString() ?? item['albumid']?.toString() ?? item['album_id']?.toString(),
       artistId: resolvedArtistId ?? more['artistMap']?['primary_artists']?[0]?['id']?.toString() ?? item['artist_id']?.toString(),
       coverUrl: _extractHighResImage(item['image']?.toString()),
-      streamUrl: audioUrl.isNotEmpty ? audioUrl : null,
+      encryptedMediaUrl: encUrl.isNotEmpty ? encUrl : null,
       duration: int.tryParse((more['duration'] ?? item['duration'])?.toString() ?? '0') ?? 0,
       source: 'saavn',
       language: rawLang?.toLowerCase().trim(),

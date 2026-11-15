@@ -36,7 +36,7 @@ void main() {
 
       expect(find.text('Player Overlay'), findsOneWidget);
       expect(find.byType(FluidMeshGradient), findsOneWidget);
-      expect(find.byType(BackdropFilter), findsOneWidget);
+      expect(find.byType(RepaintBoundary), findsAtLeastNWidgets(1));
     });
   });
 

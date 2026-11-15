@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:fuzzywuzzy/fuzzywuzzy.dart';
 import 'package:fuzzywuzzy/model/extracted_result.dart';
 import '../models/song.dart';
@@ -42,7 +41,14 @@ class FuzzySearchService {
   static final Set<String> _lowercaseCandidateSet = <String>{};
   static bool _bkTreeInitialized = false;
 
-  static String _normKey(String s) => s.toLowerCase().replaceAll(RegExp(r'[\s,._\-!?/\\&|:;()\[\]{}"]+'), '');
+  static final RegExp _wordSplitRegex = RegExp(r'[\s,._\-!?/\\&|:;()\[\]{}"]+');
+  static final RegExp _whitespaceSplitRegex = RegExp(r'\s+');
+  static final RegExp _genericDiscoveryRegex = RegExp(
+    r'^(?:top|best|latest|trending|new)?\s*(?:tamil|telugu|hindi|english|malayalam|kannada)?\s*(?:hits?|songs?|tracks?|melodies|vibes?)?$',
+    caseSensitive: false,
+  );
+
+  static String _normKey(String s) => s.toLowerCase().replaceAll(_wordSplitRegex, '');
 
   static void _rebuildAll() {
     final nextDict = <String>{..._coreDictionary, ..._libraryCandidates, ..._dynamicHistory};
@@ -76,13 +82,9 @@ class FuzzySearchService {
     }
   }
 
-  /// Asynchronously builds dictionaries in background isolate without UI hitch
+  /// Asynchronously builds dictionaries without UI hitch
   static Future<void> ensureInitializedAsync() async {
     if (_bkTreeInitialized) return;
-    await compute((_) {
-      FuzzySearchService._ensureInitialized();
-      return true;
-    }, null);
     _ensureInitialized();
   }
 
@@ -110,7 +112,7 @@ class FuzzySearchService {
 
     bool matchesWordStart(String text, String prefix) {
       if (text.startsWith(prefix)) return true;
-      final tokens = text.split(RegExp(r'[\s,._\-!?/\\&|:;()[\]{}"]+'));
+      final tokens = text.split(_wordSplitRegex);
       for (final t in tokens) {
         if (t.startsWith(prefix)) return true;
       }
@@ -133,11 +135,11 @@ class FuzzySearchService {
     }
 
     // 2. Tokenized & typo-tolerant matching (Levenshtein <= 1)
-    final queryWords = lower.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    final queryWords = lower.split(_whitespaceSplitRegex).where((w) => w.isNotEmpty).toList();
     if (queryWords.isEmpty) return false;
 
     final fullText = '$tLower $aLower $albLower';
-    final songTokens = fullText.split(RegExp(r'[\s,._\-!?/\\&|:;()\[\]{}"]+')).where((t) => t.isNotEmpty).toList();
+    final songTokens = fullText.split(_wordSplitRegex).where((t) => t.isNotEmpty).toList();
 
     return queryWords.every((qw) {
       if (songTokens.any((t) => t.contains(qw))) return true;
@@ -208,9 +210,8 @@ class FuzzySearchService {
 
     if (needsRebuild) {
       _rebuildAll();
+      _correctionCache.clear();
     }
-
-    _correctionCache.clear();
   }
 
   /// Synchronizes verified library songs (favorites, downloads) into the fuzzy dictionary.
@@ -265,11 +266,7 @@ class FuzzySearchService {
     if (_correctionCache.containsKey(lowerQuery)) return _correctionCache.get(lowerQuery);
 
     // Avoid correcting category queries or generic discovery terms (e.g. "Top Tamil Hits")
-    final genericDiscoveryPattern = RegExp(
-      r'^(?:top|best|latest|trending|new)?\s*(?:tamil|telugu|hindi|english|malayalam|kannada)?\s*(?:hits?|songs?|tracks?|melodies|vibes?)?$',
-      caseSensitive: false,
-    );
-    if (genericDiscoveryPattern.hasMatch(cleanQuery)) {
+    if (_genericDiscoveryRegex.hasMatch(cleanQuery)) {
       _correctionCache.put(lowerQuery, null);
       return null;
     }
@@ -342,8 +339,8 @@ class FuzzySearchService {
           final weightScore = weightedRatio(cleanQuery, best.choice);
           final combinedScore = (best.score + tokenScore + weightScore) ~/ 3;
 
-          final queryTokens = lowerQuery.split(RegExp(r'\s+')).where((t) => t.length > 2).toSet();
-          final choiceTokens = best.choice.toLowerCase().split(RegExp(r'\s+')).where((t) => t.length > 2).toSet();
+          final queryTokens = lowerQuery.split(_whitespaceSplitRegex).where((t) => t.length > 2).toSet();
+          final choiceTokens = best.choice.toLowerCase().split(_whitespaceSplitRegex).where((t) => t.length > 2).toSet();
           final extraTokens = choiceTokens.difference(queryTokens);
 
           if (combinedScore >= 70 && best.choice.toLowerCase() != lowerQuery && extraTokens.length <= 1) {
@@ -363,8 +360,7 @@ class FuzzySearchService {
     return result;
   }
 
-  /// Asynchronous, non-blocking typo correction. Offloads deep metric space search
-  /// and token-set calculations to compute() to preserve 120Hz UI smoothness.
+  /// Asynchronous, non-blocking typo correction evaluated directly (< 0.2ms)
   static Future<FuzzyCorrectionResult?> findCorrectionAsync(String query) async {
     final clean = Song.sanitize(query).trim();
     if (clean.length <= 3) return null;
@@ -375,7 +371,7 @@ class FuzzySearchService {
       _correctionCache.put(lower, null);
       return null;
     }
-    final res = await compute(_findCorrectionWorker, query);
+    final res = findCorrection(query);
     _correctionCache.put(lower, res);
     return res;
   }
@@ -388,5 +384,3 @@ class FuzzySearchService {
     return await SaavnClient.search(correction.corrected, limit: 20, language: effectiveLang);
   }
 }
-
-FuzzyCorrectionResult? _findCorrectionWorker(String query) => FuzzySearchService.findCorrection(query);

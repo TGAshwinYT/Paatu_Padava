@@ -14,6 +14,52 @@ import 'app_logger.dart';
 /// Embedded SQLite & In-Memory Movie & Song Master Catalog for Paatu Padava.
 /// Guarantees 0ms local searches, role isolation, populates Artists/Albums tabs, and caps dynamic cache.
 class CatalogDatabase {
+  static Map<String, String>? _songCoverMap;
+  static Map<String, String>? _moviePosterMap;
+  static Map<String, String>? _artistAvatarMap;
+
+  static void _ensureArtistAvatarMap() {
+    if (_artistAvatarMap != null) return;
+    final map = <String, String>{};
+    for (final a in CatalogSeedData.initialArtists) {
+      if (a.imageUrl.isEmpty) continue;
+      final aAlpha = a.name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+      final aIdAlpha = a.id.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+      if (aAlpha.isNotEmpty && !map.containsKey(aAlpha)) map[aAlpha] = a.imageUrl;
+      if (aIdAlpha.isNotEmpty && !map.containsKey(aIdAlpha)) map[aIdAlpha] = a.imageUrl;
+    }
+    _artistAvatarMap = map;
+  }
+
+  static void _ensureMoviePosterMap() {
+    if (_moviePosterMap != null) return;
+    final map = <String, String>{};
+    for (final m in CatalogSeedData.initialMovies) {
+      final cUrl = m.coverUrl;
+      if (cUrl != null && cUrl.isNotEmpty && !cUrl.contains('default.jpg')) {
+        final clean = m.title.trim().toLowerCase();
+        if (clean.isNotEmpty && !map.containsKey(clean)) {
+          map[clean] = cUrl;
+        }
+      }
+    }
+    _moviePosterMap = map;
+  }
+
+  static void _ensureSongCoverMap() {
+    if (_songCoverMap != null) return;
+    final map = <String, String>{};
+    for (final s in CatalogSeedData.initialSongs) {
+      if (s.coverUrl.isNotEmpty && !s.coverUrl.contains('default.jpg')) {
+        final clean = SearchQueryPlanner.cleanTitle(s.title).trim().toLowerCase();
+        if (clean.isNotEmpty && !map.containsKey(clean)) {
+          map[clean] = s.coverUrl;
+        }
+      }
+    }
+    _songCoverMap = map;
+  }
+
   static const String _dbName = 'paatu_catalog_v1.db';
   static const int maxDynamicSongsLimit = 2000;
 
@@ -149,21 +195,47 @@ class CatalogDatabase {
             ? [q, prefixQ, q, prefixQ, language.toLowerCase(), q, prefixQ, q, prefixQ, limit]
             : [q, prefixQ, q, prefixQ, q, prefixQ, q, prefixQ, limit]);
       } else {
-        final safeQ = '%$q%';
-        rows = await _db!.rawQuery('''
-          SELECT * FROM songs 
-          WHERE (title LIKE ? OR movie_title LIKE ? OR composer LIKE ? OR singers LIKE ? OR starring LIKE ?)
-          ${hasLang ? 'AND LOWER(language) = ?' : ''}
-          ORDER BY 
-            CASE WHEN LOWER(title) = ? THEN 1
-                 WHEN LOWER(title) LIKE ? THEN 2
-                 WHEN LOWER(movie_title) LIKE ? THEN 3
-                 ELSE 4 END,
-            year DESC
-          LIMIT ?
-        ''', hasLang
-            ? [safeQ, safeQ, safeQ, safeQ, safeQ, language.toLowerCase(), q, '$q%', '$q%', limit]
-            : [safeQ, safeQ, safeQ, safeQ, safeQ, q, '$q%', '$q%', limit]);
+        final ftsQuery = '$q*';
+        List<Map<String, dynamic>> ftsRows = const [];
+        try {
+          ftsRows = await _db!.rawQuery('''
+            SELECT s.* FROM songs s
+            JOIN songs_fts f ON s.rowid = f.rowid
+            WHERE songs_fts MATCH ?
+            ${hasLang ? 'AND LOWER(s.language) = ?' : ''}
+            ORDER BY 
+              CASE WHEN LOWER(s.title) = ? THEN 1
+                   WHEN LOWER(s.title) LIKE ? THEN 2
+                   WHEN LOWER(s.movie_title) = ? THEN 3
+                   ELSE 4 END,
+              s.year DESC
+            LIMIT ?
+          ''', hasLang
+              ? [ftsQuery, language.toLowerCase(), q, '$q%', '$q%', limit]
+              : [ftsQuery, q, '$q%', '$q%', limit]);
+        } catch (_) {
+          ftsRows = const [];
+        }
+
+        if (ftsRows.isNotEmpty) {
+          rows = ftsRows;
+        } else {
+          final safeQ = '%$q%';
+          rows = await _db!.rawQuery('''
+            SELECT * FROM songs 
+            WHERE (title LIKE ? OR movie_title LIKE ? OR composer LIKE ? OR singers LIKE ? OR starring LIKE ?)
+            ${hasLang ? 'AND LOWER(language) = ?' : ''}
+            ORDER BY 
+              CASE WHEN LOWER(title) = ? THEN 1
+                   WHEN LOWER(title) LIKE ? THEN 2
+                   WHEN LOWER(movie_title) = ? THEN 3
+                   ELSE 4 END,
+              year DESC
+            LIMIT ?
+          ''', hasLang
+              ? [safeQ, safeQ, safeQ, safeQ, safeQ, language.toLowerCase(), q, '$q%', '$q%', limit]
+              : [safeQ, safeQ, safeQ, safeQ, safeQ, q, '$q%', '$q%', limit]);
+        }
       }
 
       if (rows.isEmpty) {
@@ -256,15 +328,11 @@ class CatalogDatabase {
       if (img != null && img.isNotEmpty) return img;
     }
 
+    _ensureArtistAvatarMap();
     final alpha = clean.replaceAll(RegExp(r'[^a-z0-9]'), '');
     if (alpha.isNotEmpty) {
-      for (final a in CatalogSeedData.initialArtists) {
-        final aAlpha = a.name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
-        final aIdAlpha = a.id.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
-        if (aAlpha == alpha || aIdAlpha == alpha) {
-          if (a.imageUrl.isNotEmpty) return a.imageUrl;
-        }
-      }
+      final found = _artistAvatarMap![alpha];
+      if (found != null && found.isNotEmpty) return found;
     }
     return null;
   }
@@ -274,26 +342,20 @@ class CatalogDatabase {
     final clean = SearchQueryPlanner.cleanTitle(title).trim().toLowerCase();
     if (clean.isEmpty) return null;
 
-    for (final s in CatalogSeedData.initialSongs) {
-      final sTitle = SearchQueryPlanner.cleanTitle(s.title).trim().toLowerCase();
-      if (sTitle == clean || (clean.length >= 4 && sTitle.contains(clean)) || (sTitle.length >= 4 && clean.contains(sTitle))) {
-        if (s.coverUrl.isNotEmpty && !s.coverUrl.contains('default.jpg')) {
-          return s.coverUrl;
+    _ensureSongCoverMap();
+    final direct = _songCoverMap![clean];
+    if (direct != null) return direct;
+
+    if (clean.length >= 4) {
+      for (final entry in _songCoverMap!.entries) {
+        if (entry.key.contains(clean) || clean.contains(entry.key)) {
+          return entry.value;
         }
       }
     }
 
     if (album != null && album.isNotEmpty) {
-      final cleanAlb = album.trim().toLowerCase();
-      for (final m in CatalogSeedData.initialMovies) {
-        final mTitle = m.title.trim().toLowerCase();
-        if (mTitle == cleanAlb || (cleanAlb.length >= 4 && cleanAlb.contains(mTitle))) {
-          final cUrl = m.coverUrl;
-          if (cUrl != null && cUrl.isNotEmpty && !cUrl.contains('default.jpg')) {
-            return cUrl;
-          }
-        }
-      }
+      return getMoviePoster(album);
     }
 
     return null;
@@ -303,14 +365,19 @@ class CatalogDatabase {
   static String? getMoviePoster(String movieTitle) {
     final clean = movieTitle.trim().toLowerCase();
     if (clean.isEmpty) return null;
-    for (final m in CatalogSeedData.initialMovies) {
-      final mTitle = m.title.trim().toLowerCase();
-      if (mTitle == clean || (clean.length >= 4 && mTitle.contains(clean)) || (mTitle.length >= 4 && clean.contains(mTitle))) {
-        if (m.coverUrl != null && m.coverUrl!.isNotEmpty && !m.coverUrl!.contains('default.jpg')) {
-          return m.coverUrl;
+
+    _ensureMoviePosterMap();
+    final direct = _moviePosterMap![clean];
+    if (direct != null) return direct;
+
+    if (clean.length >= 4) {
+      for (final entry in _moviePosterMap!.entries) {
+        if (entry.key.contains(clean) || clean.contains(entry.key)) {
+          return entry.value;
         }
       }
     }
+
     return null;
   }
 

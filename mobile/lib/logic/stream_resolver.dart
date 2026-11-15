@@ -1,5 +1,6 @@
 import '../services/smart_gapless_precacher.dart';
 import 'dart:async';
+import 'package:hive/hive.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
@@ -9,7 +10,6 @@ import '../services/app_logger.dart';
 import '../services/youtube_client.dart';
 import '../services/saavn_client.dart';
 import '../services/artist_sanitizer.dart';
-import '../services/cover_art_resolver.dart';
 import '../services/download_manager.dart';
 import '../services/dynamic_scraper_config_service.dart';
 import '../core/app_config.dart';
@@ -51,16 +51,65 @@ abstract class StreamResolver {
 /// 3. Resilient timeout management
 /// 4. 3-hour TTL in-memory stream cache (Spotify/YT Music model) with O(1) LRU eviction
 class DefaultStreamResolver implements StreamResolver {
+  static final DefaultStreamResolver instance = DefaultStreamResolver();
+  static final YoutubeClient sharedYoutubeClient = YoutubeClient();
+
   final YoutubeClient _youtubeClient;
 
   DefaultStreamResolver({
     YoutubeClient? youtubeClient,
     SaavnClient? saavnClient,
-  })  : _youtubeClient = youtubeClient ?? YoutubeClient();
+  })  : _youtubeClient = youtubeClient ?? sharedYoutubeClient;
 
-  static const Duration _overallTimeout = Duration(seconds: 30);
-  static const Duration _stageTimeout = Duration(seconds: 5);
+  static const Duration _overallTimeout = Duration(seconds: 12);
+  static const Duration _stageTimeout = Duration(seconds: 3);
   static const Duration cacheTtl = Duration(hours: 3);
+
+  static const String _mappingBoxName = 'resolved_stream_mappings';
+  static Box? _mappingBox;
+
+  static Box? get _syncMappingBox {
+    if (_mappingBox != null && _mappingBox!.isOpen) return _mappingBox;
+    if (Hive.isBoxOpen(_mappingBoxName)) {
+      _mappingBox = Hive.box(_mappingBoxName);
+      return _mappingBox;
+    }
+    return null;
+  }
+
+  static Future<Box?> _getMappingBoxAsync() async {
+    if (_syncMappingBox != null) return _syncMappingBox;
+    try {
+      _mappingBox = await Hive.openBox(_mappingBoxName);
+      return _mappingBox;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Retrieves persistent stream mapping (e.g. 'saavn:pid' or 'youtube:ytId') for instant repeat play
+  static String? getResolvedMapping(String songId) {
+    try {
+      final box = _syncMappingBox;
+      if (box != null) {
+        final val = box.get(songId);
+        if (val is String && val.isNotEmpty) return val;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Persists stream mapping to avoid repeating fuzzy searches on subsequent plays
+  static void saveResolvedMapping(String songId, String mapping) {
+    try {
+      final box = _syncMappingBox;
+      if (box != null) {
+        box.put(songId, mapping);
+      } else {
+        _getMappingBoxAsync().then((b) => b?.put(songId, mapping));
+      }
+    } catch (_) {}
+  }
 
   /// High-integrity HTTP headers for Googlevideo CDN streams (Range + modern User-Agent)
   static Map<String, String> get streamingHeaders => YouTubeClient.streamingHeaders;
@@ -125,7 +174,7 @@ class DefaultStreamResolver implements StreamResolver {
   /// Silently resolves and caches stream URLs for the top tracks in the background
   static Future<void> prewarm(List<TrackEntity> tracks, {int limit = 3}) async {
     final toPrewarm = tracks.take(limit).toList();
-    final resolver = DefaultStreamResolver();
+    final resolver = DefaultStreamResolver.instance;
     await Future.wait(
       toPrewarm.map((t) async {
         try {
@@ -142,7 +191,7 @@ class DefaultStreamResolver implements StreamResolver {
   /// and speculatively pre-caches the first audio chunk for the #1 top result for < 50ms instant playback.
   static Future<void> prewarmSongs(List<Song> songs, {int limit = 3}) async {
     final toPrewarm = songs.take(limit).toList();
-    final resolver = DefaultStreamResolver();
+    final resolver = DefaultStreamResolver.instance;
     await Future.wait(
       toPrewarm.map((s) async {
         try {
@@ -176,9 +225,6 @@ class DefaultStreamResolver implements StreamResolver {
 
   @override
   Future<String?> resolveStreamUrl(Song song, {bool forceSaavnFallback = false, bool forceYouTubeFallback = false}) async {
-    // Proactively resolve high-res studio cover art in background for player and notifications
-    unawaited(CoverArtResolver.resolveCover(song).catchError((_) => ''));
-
     // 0. Check DownloadManager local file path first for offline playback
     if (song.localFilePath != null && File(song.localFilePath!).existsSync()) {
       return song.localFilePath;
@@ -193,6 +239,39 @@ class DefaultStreamResolver implements StreamResolver {
     if (song.source == 'audius' && song.streamUrl != null && song.streamUrl!.isNotEmpty) {
       cacheStream(song.id, song.streamUrl!, source: 'audius');
       return song.streamUrl;
+    }
+
+    // Fast path: Check persistent stream mapping from previous play
+    if (!forceSaavnFallback && !forceYouTubeFallback) {
+      final savedMapping = getResolvedMapping(song.id);
+      if (savedMapping != null) {
+        final colonIdx = savedMapping.indexOf(':');
+        if (colonIdx > 0) {
+          final src = savedMapping.substring(0, colonIdx);
+          final targetId = savedMapping.substring(colonIdx + 1);
+          if (src == 'saavn') {
+            try {
+              final directSong = await SaavnClient.getSongDetails(targetId).timeout(_stageTimeout, onTimeout: () => null);
+              if (directSong != null && directSong.streamUrl != null && directSong.streamUrl!.contains('saavncdn.com')) {
+                song.source = 'saavn';
+                song.streamUrl = directSong.streamUrl;
+                cacheStream(song.id, directSong.streamUrl!, source: 'saavn');
+                return directSong.streamUrl;
+              }
+            } catch (_) {}
+          } else if (src == 'youtube') {
+            try {
+              final ytUrl = await _youtubeClient.getStreamUrl(targetId, title: song.title, artist: song.artist).timeout(const Duration(seconds: 4), onTimeout: () => null);
+              if (ytUrl != null && ytUrl.isNotEmpty) {
+                song.source = 'youtube';
+                song.streamUrl = ytUrl;
+                cacheStream(song.id, ytUrl, source: 'youtube');
+                return ytUrl;
+              }
+            } catch (_) {}
+          }
+        }
+      }
     }
 
     // Check in-memory stream cache (3-hour TTL) unless forceSaavnFallback or forceYouTubeFallback is true
@@ -451,6 +530,106 @@ class DefaultStreamResolver implements StreamResolver {
     return false;
   }
 
+  Future<String?> _resolveViaSaavn(Song song, {required String cleanTitleOnly}) async {
+    // ── STAGE 0 (Direct JioSaavn PID Details Lookup <150ms) ──
+    if (song.source == 'saavn' || (!song.id.startsWith('cat_') && song.id.length != 11)) {
+      try {
+        final directSong = await SaavnClient.getSongDetails(song.id).timeout(_stageTimeout, onTimeout: () => null);
+        if (directSong != null && directSong.streamUrl != null && directSong.streamUrl!.contains('saavncdn.com')) {
+          AppLogger.log('StreamResolver', 'Direct Saavn PID details resolved for "${song.title}": ${directSong.streamUrl}');
+          song.source = 'saavn';
+          song.streamUrl = directSong.streamUrl;
+          if (directSong.duration > 0 && song.duration == 0) {
+            song.duration = directSong.duration;
+          }
+          saveResolvedMapping(song.id, 'saavn:${song.id}');
+          return directSong.streamUrl;
+        }
+      } catch (e) {
+        AppLogger.log('StreamResolver', 'Direct Saavn PID details notice for ${song.id}: $e');
+      }
+    }
+
+    // ── STAGE A (Exact Clean Title + Primary Artist on Saavn) ──
+    final cleanBase = extractCleanBaseTitle(song.title, song.artist);
+    final firstArtist = extractFirstArtist(song.artist);
+    final queryA = '$cleanBase $firstArtist'.trim();
+    if (queryA.isNotEmpty) {
+      try {
+        AppLogger.log('StreamResolver', 'Stage A search on Saavn: "$queryA"');
+        final saavnMatchesA = await SaavnClient.search(queryA, limit: 5, language: 'all')
+            .timeout(_stageTimeout, onTimeout: () => <Song>[]);
+        for (final match in saavnMatchesA) {
+          if (match.streamUrl != null && match.streamUrl!.contains('saavncdn.com')) {
+            if (song.duration > 0 && match.duration > 0 && (song.duration - match.duration).abs() > 60) {
+              continue;
+            }
+            if (!verifyMatch(match, song)) {
+              continue;
+            }
+            AppLogger.log('StreamResolver', 'Stage A matched for "${song.title}": "${match.title}" -> ${match.streamUrl}');
+            song.source = 'saavn';
+            song.streamUrl = match.streamUrl;
+            saveResolvedMapping(song.id, 'saavn:${match.id}');
+            return match.streamUrl;
+          }
+        }
+      } catch (e) {
+        AppLogger.log('StreamResolver', 'Stage A notice: $e');
+      }
+    }
+
+    // ── STAGE B (Title-Only Search on Saavn) ──
+    if (cleanTitleOnly.isNotEmpty) {
+      try {
+        AppLogger.log('StreamResolver', 'Stage B search on Saavn: "$cleanTitleOnly"');
+        final saavnMatchesB = await SaavnClient.search(cleanTitleOnly, limit: 5, language: 'all')
+            .timeout(_stageTimeout, onTimeout: () => <Song>[]);
+        for (final match in saavnMatchesB) {
+          if (match.streamUrl != null && match.streamUrl!.contains('saavncdn.com')) {
+            if (song.duration > 0 && match.duration > 0 && (song.duration - match.duration).abs() > 60) {
+              continue;
+            }
+            if (!verifyMatch(match, song)) {
+              continue;
+            }
+            AppLogger.log('StreamResolver', 'Stage B matched for "${song.title}": "${match.title}" -> ${match.streamUrl}');
+            song.source = 'saavn';
+            song.streamUrl = match.streamUrl;
+            saveResolvedMapping(song.id, 'saavn:${match.id}');
+            return match.streamUrl;
+          }
+        }
+      } catch (e) {
+        AppLogger.log('StreamResolver', 'Stage B notice: $e');
+      }
+    }
+
+    return null;
+  }
+
+  Future<String?> _resolveViaYouTube(Song song, {String? targetVideoId}) async {
+    try {
+      AppLogger.log('StreamResolver', 'Stage C direct YouTube stream for: ${song.id}');
+      String? ytVideoId = targetVideoId ?? ((song.source == 'youtube' && song.id.length == 11) ? song.id : null);
+      ytVideoId ??= await YouTubeClient.resolveVideoIdForSong(song).timeout(const Duration(seconds: 4), onTimeout: () => null);
+      if (ytVideoId != null && ytVideoId.isNotEmpty) {
+        final ytUrl = await _youtubeClient
+            .getStreamUrl(ytVideoId, title: song.title, artist: song.artist)
+            .timeout(const Duration(seconds: 6), onTimeout: () => null);
+        if (ytUrl != null && ytUrl.isNotEmpty) {
+          song.source = 'youtube';
+          song.streamUrl = ytUrl;
+          saveResolvedMapping(song.id, 'youtube:$ytVideoId');
+          return ytUrl;
+        }
+      }
+    } catch (e) {
+      AppLogger.log('StreamResolver', 'Stage C direct YouTube notice: $e');
+    }
+    return null;
+  }
+
   Future<String?> _resolveStreamUrlInternal(
     Song song, {
     bool forceSaavnFallback = false,
@@ -473,175 +652,102 @@ class DefaultStreamResolver implements StreamResolver {
 
     final cleanTitleOnly = extractCleanTitleOnly(song.title);
     final bool isCompilation = isLongFormOrCompilation(song);
-    final bool shouldBypassSaavnMatching = forceYouTubeFallback ||
+    final bool shouldPrioritizeYouTube = forceYouTubeFallback ||
         (isCompilation && (song.source == 'youtube' || song.duration > 600));
 
-    if (shouldBypassSaavnMatching) {
+    if (shouldPrioritizeYouTube) {
       AppLogger.log(
         'StreamResolver',
         forceYouTubeFallback
             ? 'Bypassing Saavn search: forceYouTubeFallback is true for "${song.title}". Direct YouTube extraction prioritized.'
             : 'Bypassing Saavn Stage A/B search: "${song.title}" is a long-form compilation (${song.duration}s). Direct YouTube extraction prioritized.',
       );
-    } else {
-      // ── STAGE 0 (Direct JioSaavn PID Details Lookup <150ms) ──
-      if (!forceYouTubeFallback &&
-          (song.source == 'saavn' || (!song.id.startsWith('cat_') && song.id.length != 11))) {
-        try {
-          final directSong = await SaavnClient.getSongDetails(song.id);
-          if (directSong != null && directSong.streamUrl != null && directSong.streamUrl!.contains('saavncdn.com')) {
-            AppLogger.log('StreamResolver', 'Direct Saavn PID details resolved for "${song.title}": ${directSong.streamUrl}');
-            song.source = 'saavn';
-            song.streamUrl = directSong.streamUrl;
-            if (directSong.duration > 0 && song.duration == 0) {
-              song.duration = directSong.duration;
-            }
-            cacheStream(song.id, directSong.streamUrl!, source: 'saavn');
-            return directSong.streamUrl;
-          }
-        } catch (e) {
-          AppLogger.log('StreamResolver', 'Direct Saavn PID details notice for ${song.id}: $e');
-        }
+      final ytUrl = await _resolveViaYouTube(song);
+      if (ytUrl != null && ytUrl.isNotEmpty) {
+        return ytUrl;
       }
-
-      // ── STAGE A (Exact Clean Title + Primary Artist on Saavn) ──
-      // Strip parentheticals (From ...), [Official ...], quotes, and featured artists.
-      // Take song title before '-' or '(' and first artist name (e.g. "Hukum Anirudh").
-      final cleanBase = extractCleanBaseTitle(song.title, song.artist);
-      final firstArtist = extractFirstArtist(song.artist);
-      final queryA = '$cleanBase $firstArtist'.trim();
-      if (queryA.isNotEmpty) {
-        try {
-          AppLogger.log('StreamResolver', 'Stage A search on Saavn: "$queryA"');
-          final saavnMatchesA = await SaavnClient.search(queryA, limit: 5, language: 'all')
-              .timeout(_stageTimeout, onTimeout: () => <Song>[]);
-          for (final match in saavnMatchesA) {
-            if (match.streamUrl != null && match.streamUrl!.contains('saavncdn.com')) {
-              // Ensure match doesn't have an extreme duration mismatch with target song (>60s)
-              if (song.duration > 0 && match.duration > 0 && (song.duration - match.duration).abs() > 60) {
-                continue;
-              }
-              if (!verifyMatch(match, song)) {
-                continue;
-              }
-              AppLogger.log('StreamResolver', 'Stage A matched for "${song.title}": "${match.title}" -> ${match.streamUrl}');
-              song.source = 'saavn';
-              song.streamUrl = match.streamUrl;
-              cacheStream(song.id, match.streamUrl!, source: 'saavn');
-              return match.streamUrl;
-            }
-          }
-        } catch (e) {
-          AppLogger.log('StreamResolver', 'Stage A notice: $e');
-        }
+      // Silent Fallback Rescue on Saavn
+      final saavnUrl = await _resolveViaSaavn(song, cleanTitleOnly: cleanTitleOnly);
+      if (saavnUrl != null && saavnUrl.isNotEmpty) {
+        return saavnUrl;
       }
-
-      // ── STAGE B (Title-Only Search on Saavn) ──
-      // If Stage A returns empty, search Saavn with cleanTitleOnly (e.g. "Hukum Thalaivar Alappara").
-      if (cleanTitleOnly.isNotEmpty) {
-        try {
-          AppLogger.log('StreamResolver', 'Stage B search on Saavn: "$cleanTitleOnly"');
-          final saavnMatchesB = await SaavnClient.search(cleanTitleOnly, limit: 5, language: 'all')
-              .timeout(_stageTimeout, onTimeout: () => <Song>[]);
-          for (final match in saavnMatchesB) {
-            if (match.streamUrl != null && match.streamUrl!.contains('saavncdn.com')) {
-              if (song.duration > 0 && match.duration > 0 && (song.duration - match.duration).abs() > 60) {
-                continue;
-              }
-              if (!verifyMatch(match, song)) {
-                continue;
-              }
-              AppLogger.log('StreamResolver', 'Stage B matched for "${song.title}": "${match.title}" -> ${match.streamUrl}');
-              song.source = 'saavn';
-              song.streamUrl = match.streamUrl;
-              cacheStream(song.id, match.streamUrl!, source: 'saavn');
-              return match.streamUrl;
-            }
-          }
-        } catch (e) {
-          AppLogger.log('StreamResolver', 'Stage B notice: $e');
-        }
-      }
-    }
-
-    // If forceSaavnFallback is true, do not call YouTube
-    if (forceSaavnFallback) {
+    } else if (forceSaavnFallback) {
       AppLogger.log('StreamResolver', 'forceSaavnFallback is true; skipping YouTube stages for ${song.id}');
-      return null;
-    }
+      final saavnUrl = await _resolveViaSaavn(song, cleanTitleOnly: cleanTitleOnly);
+      if (saavnUrl != null && saavnUrl.isNotEmpty) {
+        return saavnUrl;
+      }
+    } else {
+      // ── Hedged Parallel Race (Saavn first; if > 600ms or fails, launch YouTube) ──
+      final completer = Completer<String?>();
+      var saavnDone = false;
+      var ytDone = false;
+      String? saavnResult;
+      String? ytResult;
+      Timer? hedgeTimer;
+      Future<String?>? ytFuture;
 
-    // ── STAGE C (Direct YouTube InnerTube Stream) ──
-    // If Stages A & B find nothing on Saavn, call YoutubeClient().getStreamUrl(track.id)
-    try {
-      AppLogger.log('StreamResolver', 'Stage C direct YouTube stream for: ${song.id}');
-      String? ytVideoId = (song.source == 'youtube' && song.id.length == 11) ? song.id : null;
-      ytVideoId ??= await YouTubeClient.resolveVideoIdForSong(song);
-      if (ytVideoId != null && ytVideoId.isNotEmpty) {
-        final ytUrl = await _youtubeClient
-            .getStreamUrl(ytVideoId, title: song.title, artist: song.artist)
-            .timeout(const Duration(seconds: 24), onTimeout: () => null);
-        if (ytUrl != null && ytUrl.isNotEmpty) {
-          song.source = 'youtube';
-          song.streamUrl = ytUrl;
-          cacheStream(song.id, ytUrl, source: 'youtube');
-          return ytUrl;
-        }
+      void launchYouTube() {
+        if (ytFuture != null || completer.isCompleted) return;
+        ytFuture = _resolveViaYouTube(song).then((res) {
+          ytDone = true;
+          ytResult = res;
+          if (res != null && res.isNotEmpty && !completer.isCompleted) {
+            completer.complete(res);
+          } else if (saavnDone && !completer.isCompleted) {
+            completer.complete(saavnResult);
+          }
+          return res;
+        }).catchError((e) {
+          ytDone = true;
+          if (saavnDone && !completer.isCompleted) {
+            completer.complete(saavnResult);
+          }
+          return null;
+        });
       }
 
-      // Silent Fallback Rescue: If YouTube returned null / cipher failure, search JioSaavn
-      if (shouldBypassSaavnMatching) {
-        try {
-          final cleanBase = extractCleanBaseTitle(song.title, song.artist);
-          final firstArtist = extractFirstArtist(song.artist);
-          final queryA = '$cleanBase $firstArtist'.trim();
-          if (queryA.isNotEmpty) {
-            AppLogger.log('StreamResolver', 'Silent Fallback Rescue on Saavn (YouTube returned null): "$queryA"');
-            final saavnMatches = await SaavnClient.search(queryA, limit: 5, language: 'all')
-                .timeout(_stageTimeout, onTimeout: () => <Song>[]);
-            for (final match in saavnMatches) {
-              if (match.streamUrl != null && match.streamUrl!.contains('saavncdn.com')) {
-                if (verifyMatch(match, song)) {
-                  AppLogger.log('StreamResolver', 'Silent Fallback Rescue matched for "${song.title}": "${match.title}" -> ${match.streamUrl}');
-                  song.source = 'saavn';
-                  song.streamUrl = match.streamUrl;
-                  cacheStream(song.id, match.streamUrl!, source: 'saavn');
-                  return match.streamUrl;
-                }
-              }
-            }
+      final saavnFuture = _resolveViaSaavn(song, cleanTitleOnly: cleanTitleOnly).then((res) {
+        saavnDone = true;
+        saavnResult = res;
+        if (res != null && res.isNotEmpty && !completer.isCompleted) {
+          completer.complete(res);
+        } else {
+          launchYouTube();
+          if (ytDone && !completer.isCompleted) {
+            completer.complete(ytResult);
           }
-        } catch (saavnErr) {
-          AppLogger.log('StreamResolver', 'Silent Fallback Rescue Saavn notice: $saavnErr');
         }
-      }
-    } catch (e) {
-      AppLogger.log('StreamResolver', 'Stage C direct YouTube notice: $e');
+        return res;
+      }).catchError((e) {
+        saavnDone = true;
+        launchYouTube();
+        if (ytDone && !completer.isCompleted) {
+          completer.complete(ytResult);
+        }
+        return null;
+      });
 
-      // Silent Fallback Rescue on YouTube 403 / cipher error
-      if (shouldBypassSaavnMatching) {
-        try {
-          final cleanBase = extractCleanBaseTitle(song.title, song.artist);
-          final firstArtist = extractFirstArtist(song.artist);
-          final queryA = '$cleanBase $firstArtist'.trim();
-          if (queryA.isNotEmpty) {
-            AppLogger.log('StreamResolver', 'Silent Fallback Rescue on Saavn (YouTube 403/cipher exception): "$queryA"');
-            final saavnMatches = await SaavnClient.search(queryA, limit: 5, language: 'all')
-                .timeout(_stageTimeout, onTimeout: () => <Song>[]);
-            for (final match in saavnMatches) {
-              if (match.streamUrl != null && match.streamUrl!.contains('saavncdn.com')) {
-                if (verifyMatch(match, song)) {
-                  AppLogger.log('StreamResolver', 'Silent Fallback Rescue matched for "${song.title}": "${match.title}" -> ${match.streamUrl}');
-                  song.source = 'saavn';
-                  song.streamUrl = match.streamUrl;
-                  cacheStream(song.id, match.streamUrl!, source: 'saavn');
-                  return match.streamUrl;
-                }
-              }
-            }
-          }
-        } catch (saavnErr) {
-          AppLogger.log('StreamResolver', 'Silent Fallback Rescue Saavn exception notice: $saavnErr');
+      hedgeTimer = Timer(const Duration(milliseconds: 600), () {
+        if (!completer.isCompleted) {
+          launchYouTube();
         }
+      });
+
+      Future<String?> waitFallback() async {
+        await Future.wait([saavnFuture, ytFuture ?? Future.value(null)]);
+        if (completer.isCompleted) return completer.future;
+        return saavnResult ?? ytResult;
+      }
+
+      final firstResult = await Future.any<String?>([
+        completer.future,
+        waitFallback(),
+      ]);
+
+      hedgeTimer.cancel();
+      if (firstResult != null && firstResult.isNotEmpty) {
+        return firstResult;
       }
     }
 

@@ -12,8 +12,19 @@ class AppLogger {
   static const int _maxFileSizeBytes = 512 * 1024; // 512 KB cap
 
   static File? _logFile;
+  static IOSink? _sink;
+  static int _approxBytesWritten = 0;
+  static Timer? _flushTimer;
   static final _queue = StreamController<String>();
   static bool _initialized = false;
+
+  /// Closes flush timer and log file sink
+  static void dispose() {
+    _flushTimer?.cancel();
+    _flushTimer = null;
+    _sink?.close();
+    _initialized = false;
+  }
   static final List<String> _preInitBuffer = [];
 
   /// Initialize file sink and background sequential processor
@@ -24,7 +35,13 @@ class AppLogger {
       _logFile = File('${dir.path}/$_logFileName');
       if (!await _logFile!.exists()) {
         await _logFile!.create(recursive: true);
+      } else {
+        _approxBytesWritten = await _logFile!.length();
       }
+      _sink = _logFile!.openWrite(mode: FileMode.append);
+      _flushTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+        _sink?.flush();
+      });
       _initialized = true;
 
       // Drain queue sequentially via asyncMap to guarantee strict FIFO ordering without concurrent write races
@@ -46,10 +63,17 @@ class AppLogger {
 
   /// Logs a structured message with ISO-8601 timestamp, log level, and component tag
   static void log(String tag, String message, {LogLevel level = LogLevel.info}) {
+    // In release mode, gate file logging to warn and error only to conserve disk I/O and battery
+    if (kReleaseMode && level.index < LogLevel.warn.index) {
+      return;
+    }
+
     final timestamp = DateTime.now().toIso8601String();
     final levelStr = level.name.toUpperCase();
     final entry = '[$timestamp] [$levelStr] [$tag] $message\n';
-    debugPrint(entry.trim());
+    if (!kReleaseMode) {
+      debugPrint(entry.trim());
+    }
 
     if (_initialized) {
       _queue.add(entry);
@@ -67,23 +91,30 @@ class AppLogger {
     final ctx = context != null ? ' ($context)' : '';
     final entry = 'ERROR$ctx: $error\n${stackTrace ?? StackTrace.current}\n';
     log('CRASH/FATAL', entry, level: LogLevel.error);
+    _sink?.flush();
   }
 
-  /// Appends message to disk and rolls log if file exceeds size cap
+  /// Appends message to buffered sink and rolls log if file exceeds size cap
   static Future<void> _writeToFile(String text) async {
     try {
-      if (_logFile == null) return;
-      if (await _logFile!.exists()) {
-        final length = await _logFile!.length();
-        if (length > _maxFileSizeBytes) {
-          // Truncate oldest half of the file
+      if (_sink == null) return;
+      _sink!.write(text);
+      _approxBytesWritten += text.length;
+
+      if (_approxBytesWritten > _maxFileSizeBytes) {
+        await _sink!.flush();
+        await _sink!.close();
+        _sink = null;
+
+        if (await _logFile!.exists()) {
           final content = await _logFile!.readAsString();
           final lines = content.split('\n');
           final halfLines = lines.sublist((lines.length / 2).floor());
-          await _logFile!.writeAsString('--- LOG ROLLED ---\n${halfLines.join('\n')}\n', mode: FileMode.write, flush: true);
+          await _logFile!.writeAsString('--- LOG ROLLED ---\n${halfLines.join('\n')}\n', mode: FileMode.write);
+          _approxBytesWritten = await _logFile!.length();
         }
+        _sink = _logFile!.openWrite(mode: FileMode.append);
       }
-      await _logFile!.writeAsString(text, mode: FileMode.append, flush: true);
     } catch (e) {
       debugPrint('[AppLogger] Write failure: $e');
     }

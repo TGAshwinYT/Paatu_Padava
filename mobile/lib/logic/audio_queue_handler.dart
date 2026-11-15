@@ -23,7 +23,6 @@ import '../services/queue_cooldown_manager.dart';
 import '../services/des_decrypt.dart';
 import '../services/connectivity_service.dart';
 import '../services/smart_cache_service.dart';
-import '../services/smart_gapless_precacher.dart';
 import '../services/sleep_timer_service.dart';
 import '../services/party_sync_coordinator.dart';
 import 'stream_resolver.dart';
@@ -130,6 +129,7 @@ class AudioQueueHandler {
   int _activeLoadSessionToken = 0;
   bool _isLoading = false;
   bool _isDisposed = false;
+  bool isPartyDrivenLoad = false;
   int _fadeToken = 0;
   int _lastCrossfadeTimeMs = 0;
   late final CrossfadeEngine _crossfadeEngine = CrossfadeEngine(primaryPlayer: player);
@@ -676,7 +676,7 @@ class AudioQueueHandler {
             );
             await player.setAudioSource(_playlistSource, initialPosition: currentPos);
             await _ensureAudioSessionActive();
-            await player.play();
+            player.play().catchError((e, st) => AppLogger.recordError(e, st, context: 'stall rescue play'));
             final targetNorm = getEffectiveVolumeForSong(current);
             await player.setVolume(targetNorm);
             _startVolumeWatchdog(current);
@@ -870,7 +870,7 @@ class AudioQueueHandler {
                 if (token != _sessionToken || _isDisposed) return;
                 await _ensureAudioSessionActive();
                 if (token != _sessionToken || _isDisposed) return;
-                await player.play();
+                player.play().catchError((e, st) => AppLogger.recordError(e, st, context: 'saavn bitrate fallback play'));
                 if (token != _sessionToken || _isDisposed) return;
                 final targetNorm = getEffectiveVolumeForSong(current);
                 await player.setVolume(targetNorm);
@@ -916,7 +916,7 @@ class AudioQueueHandler {
               if (token != _sessionToken || _isDisposed) return;
               await _ensureAudioSessionActive();
               if (token != _sessionToken || _isDisposed) return;
-              await player.play();
+              player.play().catchError((e, st) => AppLogger.recordError(e, st, context: 'fallback recovery play'));
               if (token != _sessionToken || _isDisposed) return;
               final targetNorm = getEffectiveVolumeForSong(current);
               await player.setVolume(targetNorm);
@@ -1019,7 +1019,7 @@ class AudioQueueHandler {
             );
             await player.setAudioSource(_playlistSource, initialPosition: resumeOffset);
             await _ensureAudioSessionActive();
-            await player.play();
+            player.play().catchError((e, st) => AppLogger.recordError(e, st, context: 'stall rescue play'));
             final targetNorm = getEffectiveVolumeForSong(current);
             await player.setVolume(targetNorm);
             _startVolumeWatchdog(current);
@@ -1064,8 +1064,12 @@ class AudioQueueHandler {
     List<dynamic> tracks, {
     int initialIndex = 0,
     bool autoPlay = true,
+    bool isPartyDriven = false,
     bool preserveUserQueue = false,
   }) async {
+    if (isPartyDriven) {
+      isPartyDrivenLoad = true;
+    }
     if (tracks.isEmpty) {
       _isLoading = false;
       return;
@@ -1125,7 +1129,9 @@ class AudioQueueHandler {
       _syncState();
 
       final activeSong = _currentTrack!.toSong();
-      onSongChanged?.call(activeSong);
+      if (!isPartyDrivenLoad) {
+        onSongChanged?.call(activeSong);
+      }
 
       final currentRequestId = ++_loadRequestId;
       // JIT resolve stream URL for active song
@@ -1217,11 +1223,24 @@ class AudioQueueHandler {
 
         if (autoPlay) {
           await _ensureAudioSessionActive();
-          await player.play();
+          player.play().catchError((e, st) {
+            AppLogger.recordError(e, st, context: 'player.play in loadQueue');
+          });
           try {
             await player.setVolume(targetNorm);
           } catch (_) {}
           _startVolumeWatchdog(activeSong);
+        } else {
+          // autoPlay: false path (used for PartySync prepare/barrier)
+          try {
+            if (player.processingState != ProcessingState.ready) {
+              await player.processingStateStream
+                  .firstWhere((state) => state == ProcessingState.ready || state == ProcessingState.idle)
+                  .timeout(const Duration(seconds: 8));
+            }
+          } catch (e) {
+            AppLogger.log('AudioQueueHandler', 'autoPlay=false wait for ready timed out or noticed: $e');
+          }
         }
 
         _hasRetriedCurrentTrack = false;
@@ -1422,7 +1441,7 @@ class AudioQueueHandler {
         if (_currentTrack != null) {
           _isAdvancing = false;
           await player.seek(Duration.zero);
-          await player.play();
+          player.play().catchError((e, st) => AppLogger.recordError(e, st, context: 'loop one play'));
           return;
         }
       }
@@ -1913,7 +1932,7 @@ class AudioQueueHandler {
         _isAdvancing = false;
         if (token != _sessionToken || activeToken != _activeLoadToken) return;
         await _ensureAudioSessionActive();
-        await player.play();
+        player.play().catchError((e, st) => AppLogger.recordError(e, st, context: 'track advance play'));
         _crossfadeEngine.onIncomingTrackStarted(player);
         _consecutivePlaybackErrors = 0; // Playback began successfully
         _hasRetriedCurrentTrack = false;
@@ -1982,7 +2001,6 @@ class AudioQueueHandler {
     if (token != _sessionToken || _isDisposed) return;
 
     final song = next.toSong();
-    SmartGaplessPrecacher.instance.precacheTrackHeader(song, resolver: streamResolver);
     final source = await _buildAudioSource(song, allowNetworkResolve: false);
     if (source == null || token != _sessionToken || _isDisposed) return;
 
@@ -2059,9 +2077,6 @@ class AudioQueueHandler {
         }());
       }
     }
-
-    // Trigger Smart Predictive Offline Caching for upcoming tracks in background
-    SmartCacheService.instance.onQueueUpdated(currentSong, queue);
   }
 
   Future<void> _invalidateUpcomingPlaylistSource() async {

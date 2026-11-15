@@ -65,25 +65,52 @@ class EqualizerService {
     }
   }
 
+  static int? _lastBoundSessionId;
+
   /// Sets the native AudioSessionId
   static Future<void> setAudioSessionId(int? sessionId) async {
     if (defaultTargetPlatform != TargetPlatform.android) return;
     if (sessionId == null || sessionId == 0) {
       _activeSessionId = null;
+      _lastBoundSessionId = null;
       _isBound = false;
       return;
     }
+    if (_lastBoundSessionId == sessionId && _isBound) return;
+    _lastBoundSessionId = sessionId;
+
     try {
       _activeSessionId = sessionId;
       await _channel.invokeMethod('setAudioSessionId', {'sessionId': sessionId});
       _isBound = true;
-      _isDspAvailable = await AudioPlatform.isDspAvailable();
-      _hardwareBandCount = await AudioPlatform.getBandCount();
+      final results = await Future.wait([
+        AudioPlatform.getDspStatus(),
+        AudioPlatform.getBandCount(),
+      ]);
+      final dspStatus = results[0] as Map<String, dynamic>;
+      _isDspAvailable = dspStatus['attached'] == true;
+      _hardwareBandCount = results[1] as int;
       debugPrint('[EqualizerService] Bound to Android AudioSession: $sessionId (DSP: $_isDspAvailable, bands: $_hardwareBandCount)');
-      // Apply existing saved bands and effects immediately
-      await applyBassBoost();
-      await applyVirtualizer();
-      await applyCurrentBands();
+
+      if (_isDspAvailable && _vocalAttenuation > 0.0) {
+        await AudioPlatform.setVocalCancellation(_vocalAttenuation);
+        isDspActiveNotifier.value = true;
+      }
+
+      final isNeutral = SettingsManager.bassBoost == 0.0 &&
+          SettingsManager.virtualizer == 0.0 &&
+          _vocalAttenuation == 0.0 &&
+          SettingsManager.eqBands.every((b) => b == 0.0);
+
+      if (!isNeutral) {
+        await Future.wait([
+          if (SettingsManager.bassBoost > 0.0)
+            _channel.invokeMethod('setBassBoostStrength', {'strength': (SettingsManager.bassBoost * 1000).round()}),
+          if (SettingsManager.virtualizer > 0.0)
+            _channel.invokeMethod('setVirtualizerStrength', {'strength': (SettingsManager.virtualizer * 1000).round()}),
+          applyCurrentBands(),
+        ]);
+      }
     } catch (e) {
       debugPrint('[EqualizerService] setAudioSessionId error: $e');
     }
@@ -134,12 +161,27 @@ class EqualizerService {
     return effectiveBands;
   }
 
+  /// Refreshes DSP availability and re-applies vocal cancellation if active.
+  static Future<bool> refreshDspStatus() async {
+    final status = await AudioPlatform.getDspStatus();
+    _isDspAvailable = status['attached'] == true;
+    if (_isDspAvailable && _vocalAttenuation > 0.0) {
+      await AudioPlatform.setVocalCancellation(_vocalAttenuation);
+      isDspActiveNotifier.value = true;
+    } else {
+      isDspActiveNotifier.value = false;
+    }
+    return _isDspAvailable;
+  }
+
   /// Sets the vocal attenuation factor (0.0 = full vocals, 1.0 = full karaoke / vocal suppression).
   /// If native DSP center-channel cancellation is available, routes directly to AudioPlatform.
   /// Otherwise, falls back to graphic EQ formant notch attenuation.
   static Future<void> setVocalAttenuation(double factor) async {
     final clamped = factor.clamp(0.0, 1.0);
     _vocalAttenuation = clamped;
+
+    await refreshDspStatus();
 
     if (_isDspAvailable) {
       isDspActiveNotifier.value = clamped > 0.0;
@@ -185,7 +227,18 @@ class EqualizerService {
 
       // Convert dB to millibels (1 dB = 100 mB)
       final millibels = effectiveBands.map((dB) => (dB * 100).round()).toList();
-      await _channel.invokeMethod('setAllBands', {'levels': millibels});
+      List<int> targetBands;
+      if (millibels.length == _hardwareBandCount) {
+        targetBands = millibels;
+      } else if (millibels.length > _hardwareBandCount) {
+        targetBands = millibels.sublist(0, _hardwareBandCount);
+      } else {
+        targetBands = List<int>.from(millibels);
+        while (targetBands.length < _hardwareBandCount) {
+          targetBands.add(targetBands.isNotEmpty ? targetBands.last : 0);
+        }
+      }
+      await _channel.invokeMethod('setAllBands', {'levels': targetBands});
     } catch (e) {
       debugPrint('[EqualizerService] applyCurrentBands error: $e');
     }
@@ -198,7 +251,6 @@ class EqualizerService {
     try {
       final strength = (SettingsManager.bassBoost * 1000).round();
       await _channel.invokeMethod('setBassBoostStrength', {'strength': strength});
-      await applyCurrentBands();
     } catch (e) {
       debugPrint('[EqualizerService] applyBassBoost error: $e');
     }
@@ -211,7 +263,6 @@ class EqualizerService {
     try {
       final strength = (SettingsManager.virtualizer * 1000).round();
       await _channel.invokeMethod('setVirtualizerStrength', {'strength': strength});
-      await applyCurrentBands();
     } catch (e) {
       debugPrint('[EqualizerService] applyVirtualizer error: $e');
     }

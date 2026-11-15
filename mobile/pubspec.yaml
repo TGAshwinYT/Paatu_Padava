@@ -72,3 +72,7 @@ flutter:
     - assets/logo.png
     - assets/innertube_clients.json
     - assets/scraper_config.json
+
+dependency_overrides:
+  just_audio:
+    path: third_party/just_audio

@@ -48,7 +48,8 @@ class LyricsScreen extends StatefulWidget {
 class _LyricsScreenState extends State<LyricsScreen> {
   final ScrollController _scrollController = ScrollController();
   final List<LyricLine> _lines = [];
-  final List<GlobalKey> _lineKeys = [];
+  final ValueNotifier<int> _activeIndexNotifier = ValueNotifier<int>(-1);
+  final ValueNotifier<Duration> _activePositionNotifier = ValueNotifier<Duration>(Duration.zero);
 
   StreamSubscription<Duration>? _posSub;
   Timer? _userScrollResumeTimer;
@@ -88,6 +89,8 @@ class _LyricsScreenState extends State<LyricsScreen> {
     _posSub?.cancel();
     _userScrollResumeTimer?.cancel();
     _scrollController.dispose();
+    _activeIndexNotifier.dispose();
+    _activePositionNotifier.dispose();
     audioHandler.currentLyricsNotifier.removeListener(_onLyricsChanged);
     audioHandler.lyricsStateNotifier.removeListener(_onLyricsChanged);
     audioHandler.lyricsOffsetMsNotifier.removeListener(_onOffsetChanged);
@@ -119,7 +122,6 @@ class _LyricsScreenState extends State<LyricsScreen> {
 
   void _parseLyrics(String? rawLyrics) {
     _lines.clear();
-    _lineKeys.clear();
 
     if (rawLyrics == null || rawLyrics.trim().isEmpty) {
       _isLrc = false;
@@ -138,14 +140,11 @@ class _LyricsScreenState extends State<LyricsScreen> {
     _lines.addAll(parsed);
     _isLrc = _lines.isNotEmpty;
 
-    for (int i = 0; i < _lines.length; i++) {
-      _lineKeys.add(GlobalKey());
-    }
-
     if (_lines.isNotEmpty) {
       final offsetMs = audioHandler.lyricsOffsetMsNotifier.value;
       final effectivePosition = audioHandler.player.position + Duration(milliseconds: 180 + offsetMs);
       _activeIndex = _findActiveLineIndex(effectivePosition);
+      _activeIndexNotifier.value = _activeIndex;
     }
   }
 
@@ -199,84 +198,43 @@ class _LyricsScreenState extends State<LyricsScreen> {
     if (!_isLrc || _lines.isEmpty) return;
 
     _currentAudioPosition = currentPosition;
+    _activePositionNotifier.value = currentPosition;
     final offsetMs = audioHandler.lyricsOffsetMsNotifier.value;
     final effectivePosition = currentPosition + Duration(milliseconds: 180 + offsetMs);
     final idx = _findActiveLineIndex(effectivePosition);
 
     if (idx != _activeIndex || immediate) {
       _activeIndex = idx;
-      if (mounted) {
-        setState(() {});
-      }
+      _activeIndexNotifier.value = idx;
       _scrollToActive(idx, immediate: immediate);
-    } else if (audioHandler.isKaraokeModeNotifier.value && mounted) {
-      setState(() {});
     }
   }
 
-  /// Two-phase center-scrolling for active lyric line:
-  /// 1. If key is already mounted, Scrollable.ensureVisible centers at 45% eye-level.
-  /// 2. If item is off-screen (unrendered in lazy ListView), jump/animate to estimated
-  ///    offset to mount it, then refine with exact ensureVisible on the following frame.
+  /// High-performance index-based center-scrolling for active lyric line:
+  /// Calculates exact target offset without per-line GlobalKeys or context queries.
   void _scrollToActive(int idx, {bool immediate = false}) {
     if (_isUserScrolling && !immediate) return;
-    if (idx < 0 || idx >= _lineKeys.length) return;
+    if (idx < 0 || idx >= _lines.length) return;
+    if (!_scrollController.hasClients || !_scrollController.position.hasContentDimensions) return;
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final keyContext = _lineKeys[idx].currentContext;
-      if (keyContext != null) {
-        Scrollable.ensureVisible(
-          keyContext,
-          alignment: 0.45, // Centers active line smoothly at 45% eye-level
-          duration: immediate ? Duration.zero : const Duration(milliseconds: 350),
-          curve: Curves.easeOutCubic,
-        );
-      } else if (_scrollController.hasClients && _scrollController.position.hasContentDimensions) {
-        final viewportHeight = _scrollController.position.viewportDimension;
-        final topPadding = viewportHeight * 0.38;
-        const estimatedLineHeight = 58.0;
-        final estimatedOffset = (topPadding + (idx * estimatedLineHeight)) - (viewportHeight * 0.45);
-        final maxExtent = _scrollController.position.maxScrollExtent;
-        final targetOffset = maxExtent > 0
-            ? estimatedOffset.clamp(0.0, maxExtent)
-            : math.max(0.0, estimatedOffset);
+    final viewportHeight = _scrollController.position.viewportDimension;
+    final topPadding = viewportHeight * 0.38;
+    const estimatedLineHeight = 58.0;
+    final estimatedOffset = (topPadding + (idx * estimatedLineHeight)) - (viewportHeight * 0.45);
+    final maxExtent = _scrollController.position.maxScrollExtent;
+    final targetOffset = maxExtent > 0
+        ? estimatedOffset.clamp(0.0, maxExtent)
+        : math.max(0.0, estimatedOffset);
 
-        if (immediate) {
-          _scrollController.jumpTo(targetOffset);
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            final mountedContext = _lineKeys[idx].currentContext;
-            if (mountedContext != null && mountedContext.mounted) {
-              Scrollable.ensureVisible(
-                mountedContext,
-                alignment: 0.45,
-                duration: Duration.zero,
-              );
-            }
-          });
-        } else {
-          _scrollController
-              .animateTo(
-            targetOffset,
-            duration: const Duration(milliseconds: 350),
-            curve: Curves.easeOutCubic,
-          )
-              .then((_) {
-            if (!mounted) return;
-            final mountedContext = _lineKeys[idx].currentContext;
-            if (mountedContext != null && mountedContext.mounted) {
-              Scrollable.ensureVisible(
-                mountedContext,
-                alignment: 0.45,
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOutCubic,
-              );
-            }
-          });
-        }
-      }
-    });
+    if (immediate) {
+      _scrollController.jumpTo(targetOffset);
+    } else {
+      _scrollController.animateTo(
+        targetOffset,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+      );
+    }
   }
 
   void _onUserScrollStart() {
@@ -556,56 +514,80 @@ class _LyricsScreenState extends State<LyricsScreen> {
         itemCount: _lines.length,
         itemBuilder: (context, idx) {
           final line = _lines[idx];
-          final isActive = idx == _activeIndex;
-          final int distance = (idx - _activeIndex).abs();
 
-          // Apple Music high-contrast typography & optical depth falloff
-          final double opacity = isActive
-              ? 1.0
-              : (_activeIndex == -1
-                  ? 0.50
-                  : (distance == 1
-                      ? 0.38
-                      : (distance == 2
-                          ? 0.25
-                          : 0.16)));
+          return ValueListenableBuilder<int>(
+            valueListenable: _activeIndexNotifier,
+            builder: (context, activeIdx, _) {
+              final isActive = idx == activeIdx;
+              final int distance = (idx - activeIdx).abs();
 
-          final double fontSize = isActive ? 28.0 : 21.0;
-          final FontWeight fontWeight = isActive ? FontWeight.w800 : FontWeight.w700;
+              // Apple Music high-contrast typography & optical depth falloff
+              final double opacity = isActive
+                  ? 1.0
+                  : (activeIdx == -1
+                      ? 0.50
+                      : (distance == 1
+                          ? 0.38
+                          : (distance == 2
+                              ? 0.25
+                              : 0.16)));
 
-          return Align(
-            alignment: Alignment.centerLeft,
-            key: _lineKeys[idx],
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => _seekToLine(line, idx),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 14.0),
-                child: line.isBgm
-                    ? BgmPulseIndicator(isActive: isActive)
-                    : ValueListenableBuilder<bool>(
-                        valueListenable: audioHandler.isKaraokeModeNotifier,
-                        builder: (context, isKaraoke, _) {
-                          return ValueListenableBuilder<LyricsLanguage>(
-                            valueListenable: audioHandler.lyricsLanguageNotifier,
-                            builder: (context, lang, _) {
-                              return KaraokeLineText(
-                                line: line,
-                                position: _currentAudioPosition,
-                                isActive: isActive,
-                                isKaraokeMode: isKaraoke,
-                                language: lang,
-                                fontSize: fontSize,
-                                fontWeight: fontWeight,
-                                baseColor: Colors.white.withValues(alpha: opacity),
-                                activeColor: Colors.white,
+              final double fontSize = isActive ? 28.0 : 21.0;
+              final FontWeight fontWeight = isActive ? FontWeight.w800 : FontWeight.w700;
+
+              return Align(
+                alignment: Alignment.centerLeft,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _seekToLine(line, idx),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 14.0),
+                    child: line.isBgm
+                        ? BgmPulseIndicator(isActive: isActive)
+                        : ValueListenableBuilder<bool>(
+                            valueListenable: audioHandler.isKaraokeModeNotifier,
+                            builder: (context, isKaraoke, _) {
+                              return ValueListenableBuilder<LyricsLanguage>(
+                                valueListenable: audioHandler.lyricsLanguageNotifier,
+                                builder: (context, lang, _) {
+                                  if (isActive && isKaraoke) {
+                                    return ValueListenableBuilder<Duration>(
+                                      valueListenable: _activePositionNotifier,
+                                      builder: (context, pos, _) {
+                                        return KaraokeLineText(
+                                          line: line,
+                                          position: pos,
+                                          isActive: true,
+                                          isKaraokeMode: true,
+                                          language: lang,
+                                          fontSize: fontSize,
+                                          fontWeight: fontWeight,
+                                          baseColor: Colors.white.withValues(alpha: opacity),
+                                          activeColor: Colors.white,
+                                        );
+                                      },
+                                    );
+                                  }
+
+                                  return KaraokeLineText(
+                                    line: line,
+                                    position: _currentAudioPosition,
+                                    isActive: isActive,
+                                    isKaraokeMode: isKaraoke,
+                                    language: lang,
+                                    fontSize: fontSize,
+                                    fontWeight: fontWeight,
+                                    baseColor: Colors.white.withValues(alpha: opacity),
+                                    activeColor: Colors.white,
+                                  );
+                                },
                               );
                             },
-                          );
-                        },
-                      ),
-              ),
-            ),
+                          ),
+                  ),
+                ),
+              );
+            },
           );
         },
       ),

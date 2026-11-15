@@ -1,11 +1,13 @@
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:palette_generator/palette_generator.dart';
 
+/// High-performance fluid mesh gradient that renders animated luminous radial blobs.
+/// Optimized for 60/120fps with zero full-screen BackdropFilter GPU blurs,
+/// isolated in a RepaintBoundary with reusable Paint caches and 32x32 palette decoding.
 class FluidMeshGradient extends StatefulWidget {
   final String? imageUrl;
   final Widget? child;
@@ -14,19 +16,20 @@ class FluidMeshGradient extends StatefulWidget {
   final bool animate;
 
   const FluidMeshGradient({
-    Key? key,
+    super.key,
     required this.imageUrl,
     this.child,
     this.blurSigma = 70.0,
     this.opacity = 0.55,
     this.animate = true,
-  }) : super(key: key);
+  });
 
   @override
   State<FluidMeshGradient> createState() => _FluidMeshGradientState();
 }
 
-class _FluidMeshGradientState extends State<FluidMeshGradient> with SingleTickerProviderStateMixin {
+class _FluidMeshGradientState extends State<FluidMeshGradient>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   static final Map<String, List<Color>> _paletteCache = {};
 
   late AnimationController _controller;
@@ -40,6 +43,7 @@ class _FluidMeshGradientState extends State<FluidMeshGradient> with SingleTicker
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 14),
@@ -52,15 +56,32 @@ class _FluidMeshGradientState extends State<FluidMeshGradient> with SingleTicker
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      if (_controller.isAnimating) _controller.stop();
+    } else if (state == AppLifecycleState.resumed && widget.animate) {
+      if (!_controller.isAnimating) _controller.repeat();
+    }
+  }
+
+  @override
   void didUpdateWidget(FluidMeshGradient oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.imageUrl != widget.imageUrl) {
       _extractColors();
     }
+    if (oldWidget.animate != widget.animate) {
+      if (widget.animate) {
+        if (!_controller.isAnimating) _controller.repeat();
+      } else {
+        if (_controller.isAnimating) _controller.stop();
+      }
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
     super.dispose();
   }
@@ -80,7 +101,12 @@ class _FluidMeshGradientState extends State<FluidMeshGradient> with SingleTicker
     }
 
     try {
-      final imageProvider = CachedNetworkImageProvider(url);
+      // Decode a lightweight 32x32 thumbnail instead of high-res bitmap for instant palette extraction
+      final imageProvider = ResizeImage(
+        CachedNetworkImageProvider(url),
+        width: 32,
+        height: 32,
+      );
       final palette = await PaletteGenerator.fromImageProvider(
         imageProvider,
         maximumColorCount: 16,
@@ -104,6 +130,9 @@ class _FluidMeshGradientState extends State<FluidMeshGradient> with SingleTicker
         while (vibrantList.length < 4) {
           vibrantList.add(vibrantList.first.withValues(alpha: 0.8));
         }
+        if (_paletteCache.length >= 50) {
+          _paletteCache.remove(_paletteCache.keys.first);
+        }
         _paletteCache[url] = vibrantList.take(4).toList();
         if (mounted) {
           setState(() {
@@ -122,31 +151,25 @@ class _FluidMeshGradientState extends State<FluidMeshGradient> with SingleTicker
       fit: StackFit.expand,
       children: [
         // Base dark backdrop
-        Container(color: const Color(0xFF0A0E1A)),
+        const ColoredBox(color: Color(0xFF0A0E1A)),
 
-        // Animated Fluid Mesh Blobs
-        AnimatedBuilder(
-          animation: _controller,
-          builder: (context, _) {
-            final t = _controller.value * 2 * math.pi;
-
-            return CustomPaint(
-              painter: _FluidMeshPainter(
-                colors: _colors,
-                progress: t,
-                opacity: widget.opacity,
-              ),
-              child: const SizedBox.expand(),
-            );
-          },
-        ),
-
-        // Deep Gaussian Blur for smooth luminous fluid effect
+        // Animated Fluid Mesh Blobs isolated in a RepaintBoundary
         Positioned.fill(
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: widget.blurSigma, sigmaY: widget.blurSigma),
-            child: Container(
-              color: Colors.transparent,
+          child: RepaintBoundary(
+            child: AnimatedBuilder(
+              animation: _controller,
+              builder: (context, _) {
+                final t = _controller.value * 2 * math.pi;
+
+                return CustomPaint(
+                  painter: _FluidMeshPainter(
+                    colors: _colors,
+                    progress: t,
+                    opacity: widget.opacity,
+                  ),
+                  child: const SizedBox.expand(),
+                );
+              },
             ),
           ),
         ),
@@ -180,6 +203,9 @@ class _FluidMeshPainter extends CustomPainter {
   final List<Color> colors;
   final double progress;
   final double opacity;
+
+  // Cached reusable Paint instances to eliminate per-frame allocations
+  static final List<Paint> _cachedPaints = List.generate(4, (_) => Paint());
 
   _FluidMeshPainter({
     required this.colors,
@@ -221,25 +247,31 @@ class _FluidMeshPainter extends CustomPainter {
     );
     final r4 = size.width * 0.48;
 
-    // Draw radial gradient spheres
-    _drawRadialBlob(canvas, p1, r1, c1);
-    _drawRadialBlob(canvas, p2, r2, c2);
-    _drawRadialBlob(canvas, p3, r3, c3);
-    _drawRadialBlob(canvas, p4, r4, c4);
+    // Draw multi-stop soft radial gradient spheres without heavy GPU BackdropFilter passes
+    _drawRadialBlob(canvas, _cachedPaints[0], p1, r1, c1);
+    _drawRadialBlob(canvas, _cachedPaints[1], p2, r2, c2);
+    _drawRadialBlob(canvas, _cachedPaints[2], p3, r3, c3);
+    _drawRadialBlob(canvas, _cachedPaints[3], p4, r4, c4);
   }
 
-  void _drawRadialBlob(Canvas canvas, Offset center, double radius, Color color) {
-    final paint = Paint()
-      ..shader = RadialGradient(
-        colors: [color, color.withValues(alpha: 0.0)],
-        stops: const [0.0, 1.0],
-      ).createShader(Rect.fromCircle(center: center, radius: radius));
+  void _drawRadialBlob(Canvas canvas, Paint paint, Offset center, double radius, Color color) {
+    paint.shader = RadialGradient(
+      colors: [
+        color,
+        color.withValues(alpha: color.a * 0.70),
+        color.withValues(alpha: color.a * 0.25),
+        color.withValues(alpha: 0.0),
+      ],
+      stops: const [0.0, 0.35, 0.70, 1.0],
+    ).createShader(Rect.fromCircle(center: center, radius: radius));
 
     canvas.drawCircle(center, radius, paint);
   }
 
   @override
   bool shouldRepaint(covariant _FluidMeshPainter oldDelegate) {
-    return oldDelegate.progress != progress || oldDelegate.colors != colors;
+    return oldDelegate.progress != progress ||
+        oldDelegate.colors != colors ||
+        oldDelegate.opacity != opacity;
   }
 }

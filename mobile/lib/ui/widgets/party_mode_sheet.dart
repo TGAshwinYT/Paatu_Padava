@@ -294,23 +294,36 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF10B981).withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.sensors_rounded, color: Color(0xFF34D399), size: 14),
-                        const SizedBox(width: 6),
-                        Text(
-                          role == PartyRole.host ? 'HOSTING SESSION' : 'CONNECTED JOINER',
-                          style: const TextStyle(color: Color(0xFF34D399), fontSize: 11, fontWeight: FontWeight.bold),
+                  ValueListenableBuilder<String>(
+                    valueListenable: PartySyncCoordinator.syncStatusDescription,
+                    builder: (context, status, _) {
+                      final isConnecting = role == PartyRole.joiner &&
+                          (status.startsWith('Connecting') || status.startsWith('Searching'));
+                      final badgeColor = isConnecting ? const Color(0xFFF59E0B) : const Color(0xFF10B981);
+                      final textColor = isConnecting ? const Color(0xFFFBBF24) : const Color(0xFF34D399);
+                      final label = role == PartyRole.host
+                          ? 'HOSTING SESSION'
+                          : (isConnecting ? 'SEARCHING...' : 'CONNECTED JOINER');
+
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: badgeColor.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: badgeColor.withValues(alpha: 0.4)),
                         ),
-                      ],
-                    ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.sensors_rounded, color: textColor, size: 14),
+                            const SizedBox(width: 6),
+                            Text(
+                              label,
+                              style: TextStyle(color: textColor, fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
                   const SizedBox(width: 8),
                   ValueListenableBuilder<bool>(

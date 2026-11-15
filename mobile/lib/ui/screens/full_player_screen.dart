@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:just_audio/just_audio.dart';
 import '../../models/song.dart';
 import '../../services/player_handler.dart';
 import '../../services/favorites_manager.dart';
@@ -177,37 +176,38 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<SequenceState?>(
-      stream: audioHandler.player.sequenceStateStream,
-      initialData: audioHandler.player.sequenceState,
-      builder: (context, seqSnapshot) {
-        final currentTag = seqSnapshot.data?.currentSource?.tag;
-        final Song? directSong = currentTag is Song ? currentTag : null;
+    return ValueListenableBuilder<Song?>(
+      valueListenable: audioHandler.currentSongNotifier,
+      builder: (context, fallbackSong, _) {
+        final song = fallbackSong ?? audioHandler.currentSong;
+        if (song == null) {
+          return const Scaffold(
+            backgroundColor: Color(0xFF0A0E1A),
+            body: Center(
+              child: Text('No song playing', style: TextStyle(color: Colors.white70)),
+            ),
+          );
+        }
 
-        return ValueListenableBuilder<Song?>(
-          valueListenable: audioHandler.currentSongNotifier,
-          builder: (context, fallbackSong, _) {
-            // Prioritize fallbackSong (currentSongNotifier) since it represents the actively selected
-            // song immediately, avoiding stale artwork/source chip while player loads the new audio source.
-            final song = fallbackSong ?? directSong;
-            if (song == null) {
-              return const Scaffold(
-                backgroundColor: Color(0xFF0A0E1A),
-                body: Center(
-                  child: Text('No song playing', style: TextStyle(color: Colors.white70)),
+        return PopScope(
+          canPop: true,
+          child: Scaffold(
+            backgroundColor: const Color(0xFF0A0E1A),
+            body: Stack(
+              fit: StackFit.expand,
+              children: [
+                // 1. Background Mesh: Isolated in RepaintBoundary so controls/ticks don't re-render it
+                RepaintBoundary(
+                  child: FluidMeshGradient(
+                    imageUrl: song.coverUrl,
+                  ),
                 ),
-              );
-            }
-            return PopScope(
-              canPop: true,
-              child: Scaffold(
-                backgroundColor: const Color(0xFF0A0E1A),
-          body: FluidMeshGradient(
-            imageUrl: song.coverUrl,
-            child: SafeArea(
-              child: Column(
-                children: [
-                    // Top App Bar
+
+                // 2. Main Foreground UI
+                SafeArea(
+                  child: Column(
+                    children: [
+                      // Top App Bar
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                       child: Row(
@@ -765,13 +765,12 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                         ),
                       ),
                     ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-                ),
-              ),
-            );
-          },
+              ],
+            ),
+          ),
         );
       },
     );

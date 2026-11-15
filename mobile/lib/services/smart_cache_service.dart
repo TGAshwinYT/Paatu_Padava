@@ -28,6 +28,9 @@ class SmartCacheService {
   );
 
   final Map<String, File> _cachedAudioMap = {};
+  final Map<String, int> _cacheSizeBytes = {};
+  final Map<String, DateTime> _cacheLastAccessed = {};
+  int _totalCacheBytes = 0;
   final Set<String> _activeDownloadingSongIds = {};
   Directory? _smartCacheDir;
   bool _isInitialized = false;
@@ -41,8 +44,8 @@ class SmartCacheService {
     try {
       final baseDir = await getTemporaryDirectory();
       _smartCacheDir = Directory('${baseDir.path}/smart_cache');
-      if (!_smartCacheDir!.existsSync()) {
-        _smartCacheDir!.createSync(recursive: true);
+      if (!await _smartCacheDir!.exists()) {
+        await _smartCacheDir!.create(recursive: true);
       }
       await _indexCachedFiles();
       _isInitialized = true;
@@ -52,20 +55,26 @@ class SmartCacheService {
     }
   }
 
-  /// Scans smart_cache directory and populates index
+  /// Scans smart_cache directory and populates index asynchronously
   Future<void> _indexCachedFiles() async {
-    if (_smartCacheDir == null || !_smartCacheDir!.existsSync()) return;
+    if (_smartCacheDir == null || !await _smartCacheDir!.exists()) return;
     _cachedAudioMap.clear();
+    _cacheSizeBytes.clear();
+    _cacheLastAccessed.clear();
+    _totalCacheBytes = 0;
 
     try {
-      final entities = _smartCacheDir!.listSync();
-      for (final entity in entities) {
+      await for (final entity in _smartCacheDir!.list()) {
         if (entity is File && !entity.path.endsWith('.tmp')) {
-          if (entity.lengthSync() >= minValidAudioSizeBytes) {
+          final stat = await entity.stat();
+          if (stat.size >= minValidAudioSizeBytes) {
             final fileName = entity.uri.pathSegments.last;
             final songId = _decodeSongIdFromFileName(fileName);
             if (songId.isNotEmpty) {
               _cachedAudioMap[songId] = entity;
+              _cacheSizeBytes[songId] = stat.size;
+              _cacheLastAccessed[songId] = stat.modified;
+              _totalCacheBytes += stat.size;
             }
           }
         }
@@ -91,8 +100,7 @@ class SmartCacheService {
   /// Returns true if the song is ready in offline smart cache
   bool isCached(String songId) {
     final sanitized = songId.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
-    final file = _cachedAudioMap[sanitized];
-    return file != null && file.existsSync() && file.lengthSync() >= minValidAudioSizeBytes;
+    return _cachedAudioMap.containsKey(sanitized);
   }
 
   /// Returns true if a background download is currently in flight for [songId]
@@ -105,11 +113,8 @@ class SmartCacheService {
   File? getCachedAudioFile(String songId) {
     final sanitized = songId.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
     final file = _cachedAudioMap[sanitized];
-    if (file != null && file.existsSync() && file.lengthSync() >= minValidAudioSizeBytes) {
-      // Touch file modified date for LRU recency
-      try {
-        file.setLastModifiedSync(DateTime.now());
-      } catch (_) {}
+    if (file != null) {
+      _cacheLastAccessed[sanitized] = DateTime.now();
       return file;
     }
     return null;
@@ -117,7 +122,7 @@ class SmartCacheService {
 
   /// Triggered whenever the active track or queue updates:
   /// Identifies the next [preloadCount] upcoming tracks and caches them predictively in the background.
-  void onQueueUpdated(Song? activeSong, List<Song> upcomingQueue, {int preloadCount = 3}) {
+  void onQueueUpdated(Song? activeSong, List<Song> upcomingQueue, {int preloadCount = 1}) {
     if (upcomingQueue.isEmpty) return;
 
     // Run in unawaited background task so player audio thread is never impeded
@@ -132,7 +137,7 @@ class SmartCacheService {
           if (idx != -1) activeIdx = idx;
         }
 
-        // Slice next 2-3 tracks
+        // Slice next track (default 1)
         final candidates = upcomingQueue
             .skip(activeIdx + 1)
             .take(preloadCount)
@@ -205,14 +210,20 @@ class SmartCacheService {
         ),
       );
 
-      if (tmpFile.existsSync() && tmpFile.lengthSync() >= minValidAudioSizeBytes) {
-        if (targetFile.existsSync()) targetFile.deleteSync();
-        tmpFile.renameSync(targetFile.path);
-        _cachedAudioMap[sanitizedId] = targetFile;
-        cachedSongsCountNotifier.value = _cachedAudioMap.length;
-        AppLogger.log('SmartCacheService', 'Predictive caching complete for: "${song.title}" (${(targetFile.lengthSync() / (1024 * 1024)).toStringAsFixed(1)} MB)');
-      } else {
-        if (tmpFile.existsSync()) tmpFile.deleteSync();
+      if (await tmpFile.exists()) {
+        final length = await tmpFile.length();
+        if (length >= minValidAudioSizeBytes) {
+          if (await targetFile.exists()) await targetFile.delete();
+          await tmpFile.rename(targetFile.path);
+          _cachedAudioMap[sanitizedId] = targetFile;
+          _cacheSizeBytes[sanitizedId] = length;
+          _cacheLastAccessed[sanitizedId] = DateTime.now();
+          _totalCacheBytes += length;
+          cachedSongsCountNotifier.value = _cachedAudioMap.length;
+          AppLogger.log('SmartCacheService', 'Predictive caching complete for: "${song.title}" (${(length / (1024 * 1024)).toStringAsFixed(1)} MB)');
+        } else {
+          await tmpFile.delete();
+        }
       }
     } catch (e) {
       AppLogger.log('SmartCacheService', 'Error pre-caching track "${song.title}": $e');
@@ -221,51 +232,40 @@ class SmartCacheService {
     }
   }
 
-  /// Enforces LRU size cap (150 MB)
+  /// Enforces LRU size cap (150 MB) using in-memory index
   Future<void> _enforceLruCap() async {
-    if (_smartCacheDir == null || !_smartCacheDir!.existsSync()) return;
+    if (_totalCacheBytes <= maxCacheBytes) return;
 
     try {
-      int totalBytes = 0;
-      final fileList = <MapEntry<File, DateTime>>[];
-
-      for (final entity in _smartCacheDir!.listSync()) {
-        if (entity is File && !entity.path.endsWith('.tmp')) {
-          final stat = entity.statSync();
-          totalBytes += stat.size;
-          fileList.add(MapEntry(entity, stat.modified));
-        }
-      }
-
-      if (totalBytes <= maxCacheBytes) return;
-
-      // Sort oldest accessed first
-      fileList.sort((a, b) => a.value.compareTo(b.value));
+      final entries = _cacheLastAccessed.entries.toList();
+      entries.sort((a, b) => a.value.compareTo(b.value));
 
       int evicted = 0;
       final targetBytes = (maxCacheBytes * 0.75).round();
 
-      for (final entry in fileList) {
-        if (totalBytes <= targetBytes) break;
-        final file = entry.key;
-        final size = file.lengthSync();
-        final fileName = file.uri.pathSegments.last;
-        final songId = _decodeSongIdFromFileName(fileName);
-
-        // Don't evict currently downloading files
+      for (final entry in entries) {
+        if (_totalCacheBytes <= targetBytes) break;
+        final songId = entry.key;
         if (_activeDownloadingSongIds.contains(songId)) continue;
 
+        final file = _cachedAudioMap[songId];
+        final size = _cacheSizeBytes[songId] ?? 0;
+
         try {
-          file.deleteSync();
+          if (file != null && await file.exists()) {
+            await file.delete();
+          }
           _cachedAudioMap.remove(songId);
-          totalBytes -= size;
+          _cacheSizeBytes.remove(songId);
+          _cacheLastAccessed.remove(songId);
+          _totalCacheBytes -= size;
           evicted++;
         } catch (_) {}
       }
 
       cachedSongsCountNotifier.value = _cachedAudioMap.length;
       if (evicted > 0) {
-        AppLogger.log('SmartCacheService', 'LRU cache eviction: purged $evicted old tracks, new cache size: ${(totalBytes / (1024 * 1024)).toStringAsFixed(1)} MB');
+        AppLogger.log('SmartCacheService', 'LRU cache eviction: purged $evicted old tracks, new cache size: ${(_totalCacheBytes / (1024 * 1024)).toStringAsFixed(1)} MB');
       }
     } catch (e) {
       AppLogger.log('SmartCacheService', 'LRU enforcement notice: $e');
@@ -274,16 +274,19 @@ class SmartCacheService {
 
   /// Clears entire smart cache folder
   Future<void> clearCache() async {
-    if (_smartCacheDir == null || !_smartCacheDir!.existsSync()) return;
+    if (_smartCacheDir == null || !await _smartCacheDir!.exists()) return;
     try {
-      for (final entity in _smartCacheDir!.listSync()) {
+      await for (final entity in _smartCacheDir!.list()) {
         if (entity is File) {
           try {
-            entity.deleteSync();
+            await entity.delete();
           } catch (_) {}
         }
       }
       _cachedAudioMap.clear();
+      _cacheSizeBytes.clear();
+      _cacheLastAccessed.clear();
+      _totalCacheBytes = 0;
       cachedSongsCountNotifier.value = 0;
       AppLogger.log('SmartCacheService', 'Smart cache cleared');
     } catch (e) {

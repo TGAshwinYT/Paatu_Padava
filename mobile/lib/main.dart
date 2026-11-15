@@ -64,7 +64,7 @@ Future<void> main() async {
     CacheManager.configureMemoryLimits();
 
 
-    // 4. Fast local startup: only await local Hive engine and critical settings preferences
+    // 4. Ultra-fast cold start: only await local Hive engine, user settings, and audio service
     try {
       await Hive.initFlutter();
       await SettingsManager.init();
@@ -72,26 +72,7 @@ Future<void> main() async {
       AppLogger.recordError(e, stack, context: 'SettingsManager.init');
     }
 
-    // 5. Fast local storage boxes (pure in-memory/disk deserialization, < 25ms total)
-    try {
-      await Future.wait([
-        FavoritesManager.init(),
-        HistoryManager.init(),
-        SearchHistoryManager.init(),
-        DownloadManager.init(),
-        PlaylistManager.init(),
-        CoverArtResolver.init(),
-        Hive.openBox('home_feed_cache'),
-        AuthManager.initLocalCache(),
-        BlacklistManager.init(),
-        CatalogDatabase.init(),
-        DynamicScraperConfigService.initLocal(),
-      ]);
-    } catch (e, stack) {
-      AppLogger.recordError(e, stack, context: 'Local Hive boxes init');
-    }
-
-    // 6. Initialize background AudioService engine
+    // 5. Initialize background AudioService engine
     Object? audioInitError;
     try {
       audioHandler = await AudioService.init(
@@ -115,10 +96,10 @@ Future<void> main() async {
       return;
     }
 
-    // 7. Mount and render application frame immediately (< 250ms cold start)
+    // 6. Mount and render application frame immediately (< 100ms cold start)
     runApp(const PaatuPadavaApp());
 
-    // 8. Defer non-critical and network-dependent services to post-first-frame
+    // 7. Defer local databases, catalog indices, and cloud sync to post-first-frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_initDeferredServices());
     });
@@ -128,6 +109,25 @@ Future<void> main() async {
 }
 
 Future<void> _initDeferredServices() async {
+  // Local storage boxes & catalog database deferred post-frame
+  try {
+    await Future.wait([
+      FavoritesManager.init(),
+      HistoryManager.init(),
+      SearchHistoryManager.init(),
+      DownloadManager.init(),
+      PlaylistManager.init(),
+      CoverArtResolver.init(),
+      Hive.openBox('home_feed_cache'),
+      AuthManager.initLocalCache(),
+      BlacklistManager.init(),
+      CatalogDatabase.init(),
+      DynamicScraperConfigService.initLocal(),
+    ]);
+  } catch (e, stack) {
+    AppLogger.recordError(e, stack, context: 'Deferred Hive boxes init');
+  }
+
   // File-based logging
   try {
     await AppLogger.init();

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:audio_service/audio_service.dart';
 import 'package:html_unescape/html_unescape.dart';
 import '../../services/cover_art_resolver.dart';
+import '../../services/des_decrypt.dart';
 
 /// Unified Clean Architecture Domain Entity for all audio tracks in Paatu Paadava.
 /// Guarantees centralized string sanitization, deduplication across multi-source catalogs,
@@ -29,9 +30,17 @@ class TrackEntity {
   final String? albumId;
   final String? artistId;
   final String coverUrl;
+  final String? encryptedMediaUrl;
+  String? _streamUrl;
   /// Ephemeral runtime stream URL. Never treated as permanent data.
   /// Signed CDN URLs expire in 2-6 hours and must be resolved Just-In-Time (JIT) via StreamResolver.
-  String? streamUrl;
+  String? get streamUrl {
+    if (_streamUrl == null && encryptedMediaUrl != null && encryptedMediaUrl!.isNotEmpty) {
+      _streamUrl = DesDecrypt.decrypt(encryptedMediaUrl!);
+    }
+    return _streamUrl;
+  }
+  set streamUrl(String? value) => _streamUrl = value;
   int duration;
   int get durationMs => duration * 1000;
   set durationMs(int ms) => duration = ms ~/ 1000;
@@ -54,7 +63,8 @@ class TrackEntity {
     this.albumId,
     this.artistId,
     required this.coverUrl,
-    this.streamUrl,
+    String? streamUrl,
+    this.encryptedMediaUrl,
     this.duration = 0,
     this.isDownloaded = false,
     this.localFilePath,
@@ -67,7 +77,8 @@ class TrackEntity {
     this.isUserEnqueued = false,
     this.addedBy,
     this.versions = const [],
-  })  : title = sanitize(title, fallback: 'Unknown Title'),
+  })  : _streamUrl = streamUrl,
+        title = sanitize(title, fallback: 'Unknown Title'),
         artist = sanitize(artist, fallback: 'Unknown Artist'),
         album = sanitize(album, fallback: 'Unknown Album');
 
@@ -211,7 +222,8 @@ class TrackEntity {
         albumId: primary.albumId,
         artistId: primary.artistId,
         coverUrl: primary.coverUrl,
-        streamUrl: primary.streamUrl,
+        streamUrl: primary._streamUrl,
+        encryptedMediaUrl: primary.encryptedMediaUrl,
         duration: primary.duration,
         isDownloaded: primary.isDownloaded,
         localFilePath: primary.localFilePath,
@@ -329,7 +341,8 @@ class TrackEntity {
       duration: duration > 0 ? Duration(seconds: duration) : null,
       artUri: effectiveCover.isNotEmpty ? Uri.tryParse(effectiveCover) : null,
       extras: {
-        'streamUrl': streamUrl,
+        'streamUrl': _streamUrl,
+        'encryptedMediaUrl': encryptedMediaUrl,
         'source': source,
         'isDownloaded': isDownloaded,
         'localFilePath': localFilePath,
@@ -353,6 +366,7 @@ class TrackEntity {
       duration: item.duration?.inSeconds ?? 0,
       coverUrl: item.artUri?.toString() ?? '',
       streamUrl: item.extras?['streamUrl']?.toString(),
+      encryptedMediaUrl: item.extras?['encryptedMediaUrl']?.toString(),
       source: item.extras?['source']?.toString() ?? 'saavn',
       isDownloaded: item.extras?['isDownloaded'] == true,
       localFilePath: item.extras?['localFilePath']?.toString(),
@@ -372,7 +386,8 @@ class TrackEntity {
       'albumId': albumId,
       'artistId': artistId,
       'coverUrl': coverUrl,
-      'streamUrl': streamUrl,
+      'streamUrl': _streamUrl,
+      'encryptedMediaUrl': encryptedMediaUrl,
       'duration': duration,
       'isDownloaded': isDownloaded,
       'localFilePath': localFilePath,
@@ -398,6 +413,7 @@ class TrackEntity {
       artistId: map['artistId']?.toString() ?? map['artist_id']?.toString(),
       coverUrl: map['coverUrl']?.toString() ?? map['cover_url']?.toString() ?? map['image']?.toString() ?? '',
       streamUrl: map['streamUrl']?.toString() ?? map['audio_url']?.toString(),
+      encryptedMediaUrl: map['encryptedMediaUrl']?.toString() ?? map['encrypted_media_url']?.toString(),
       duration: int.tryParse(map['duration']?.toString() ?? '0') ?? 0,
       isDownloaded: map['isDownloaded'] == true,
       localFilePath: map['localFilePath']?.toString() ?? map['local_file_path']?.toString(),
@@ -445,6 +461,7 @@ class TrackEntity {
     String? artistId,
     String? coverUrl,
     String? streamUrl,
+    String? encryptedMediaUrl,
     int? duration,
     bool? isDownloaded,
     String? localFilePath,
@@ -466,7 +483,8 @@ class TrackEntity {
       albumId: albumId ?? this.albumId,
       artistId: artistId ?? this.artistId,
       coverUrl: coverUrl ?? this.coverUrl,
-      streamUrl: streamUrl ?? this.streamUrl,
+      streamUrl: streamUrl ?? _streamUrl,
+      encryptedMediaUrl: encryptedMediaUrl ?? this.encryptedMediaUrl,
       duration: duration ?? this.duration,
       isDownloaded: isDownloaded ?? this.isDownloaded,
       localFilePath: localFilePath ?? this.localFilePath,

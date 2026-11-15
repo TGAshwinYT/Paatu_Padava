@@ -6,7 +6,6 @@ import '../domain/models/listening_session.dart';
 import '../domain/models/track_entity.dart';
 import '../models/song.dart';
 import 'api_client.dart';
-import 'auth_manager.dart';
 import 'playlist_manager.dart';
 import 'supabase_service.dart';
 import 'app_logger.dart';
@@ -38,11 +37,6 @@ class HistoryManager {
     await Hive.openBox(sessionsBoxName);
     _refreshList();
     _refreshSessions();
-
-    // Background sync with cloud history if authenticated
-    if (AuthManager.isLoggedIn) {
-      syncCloudHistory();
-    }
   }
 
   /// Internal reload and cache synchronization

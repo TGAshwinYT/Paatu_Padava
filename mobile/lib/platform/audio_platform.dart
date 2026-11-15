@@ -30,12 +30,23 @@ class AudioPlatform {
 
   /// Checks if native DSP vocal cancellation is available on this device/platform.
   static Future<bool> isDspAvailable() async {
-    if (defaultTargetPlatform != TargetPlatform.android) return false;
+    final status = await getDspStatus();
+    return status['attached'] == true;
+  }
+
+  /// Queries the active native DSP status (attached, active, attenuation, mode, channelCount).
+  static Future<Map<String, dynamic>> getDspStatus() async {
+    if (defaultTargetPlatform != TargetPlatform.android) {
+      return {'attached': false, 'active': false, 'attenuation': 0.0, 'mode': 'none'};
+    }
     try {
-      final bool? available = await _channel.invokeMethod<bool>('isDspAvailable');
-      return available ?? false;
+      final Map<dynamic, dynamic>? status = await _channel.invokeMethod<Map<dynamic, dynamic>>('getDspStatus');
+      if (status != null) {
+        return Map<String, dynamic>.from(status);
+      }
+      return {'attached': false, 'active': false, 'attenuation': 0.0, 'mode': 'none'};
     } catch (_) {
-      return false;
+      return {'attached': false, 'active': false, 'attenuation': 0.0, 'mode': 'none'};
     }
   }
 

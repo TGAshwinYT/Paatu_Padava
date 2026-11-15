@@ -10,7 +10,11 @@ import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
+import java.net.Inet4Address;
 import java.net.InetAddress;
+import java.net.InterfaceAddress;
+import java.net.NetworkInterface;
+import java.util.Enumeration;
 
 public class SyncPlatformBridge implements MethodCallHandler {
     private static final String CHANNEL_NAME = "com.tamilgaming.paatupadava/sync";
@@ -98,19 +102,39 @@ public class SyncPlatformBridge implements MethodCallHandler {
             }
             case "getWifiBroadcastAddress": {
                 try {
-                    WifiManager wifiManager = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
-                    DhcpInfo dhcp = (wifiManager != null) ? wifiManager.getDhcpInfo() : null;
-                    if (dhcp != null && dhcp.ipAddress != 0) {
-                        int broadcast = (dhcp.ipAddress & dhcp.netmask) | ~dhcp.netmask;
-                        byte[] bytes = new byte[4];
-                        for (int i = 0; i < 4; i++) {
-                            bytes[i] = (byte) ((broadcast >> (i * 8)) & 0xFF);
+                    String broadcastAddress = null;
+                    Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+                    while (interfaces != null && interfaces.hasMoreElements()) {
+                        NetworkInterface iface = interfaces.nextElement();
+                        if (iface.isLoopback() || !iface.isUp()) continue;
+                        for (InterfaceAddress addr : iface.getInterfaceAddresses()) {
+                            InetAddress bcast = addr.getBroadcast();
+                            if (bcast != null && bcast instanceof Inet4Address && !bcast.isLoopbackAddress()) {
+                                broadcastAddress = bcast.getHostAddress();
+                                break;
+                            }
                         }
-                        String address = InetAddress.getByAddress(bytes).getHostAddress();
-                        result.success(address);
-                    } else {
-                        result.success(null);
+                        if (broadcastAddress != null) break;
                     }
+
+                    if (broadcastAddress == null) {
+                        @SuppressWarnings("deprecation")
+                        WifiManager wifiManager = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
+                        if (wifiManager != null) {
+                            @SuppressWarnings("deprecation")
+                            DhcpInfo dhcp = wifiManager.getDhcpInfo();
+                            if (dhcp != null && dhcp.ipAddress != 0) {
+                                int broadcast = (dhcp.ipAddress & dhcp.netmask) | ~dhcp.netmask;
+                                byte[] bytes = new byte[4];
+                                for (int i = 0; i < 4; i++) {
+                                    bytes[i] = (byte) ((broadcast >> (i * 8)) & 0xFF);
+                                }
+                                broadcastAddress = InetAddress.getByAddress(bytes).getHostAddress();
+                            }
+                        }
+                    }
+
+                    result.success(broadcastAddress);
                 } catch (Exception e) {
                     result.success(null);
                 }

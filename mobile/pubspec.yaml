@@ -15,7 +15,7 @@ dependencies:
   google_sign_in: ^6.2.1
 
   # Package Info & Versioning
-  package_info_plus: ^8.0.0
+  package_info_plus: ^10.2.2
 
   # Audio & Background Playback Engine
   just_audio: ^0.9.36

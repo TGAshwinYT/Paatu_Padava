@@ -69,29 +69,31 @@ class DefaultStreamResolver implements StreamResolver {
   static Box? _mappingBox;
 
   static Box? get _syncMappingBox {
-    if (_mappingBox != null && _mappingBox!.isOpen) return _mappingBox;
-    if (Hive.isBoxOpen(_mappingBoxName)) {
-      _mappingBox = Hive.box(_mappingBoxName);
-      return _mappingBox;
-    }
+    try {
+      if (_mappingBox != null && _mappingBox!.isOpen) return _mappingBox;
+      if (Hive.isBoxOpen(_mappingBoxName)) {
+        _mappingBox = Hive.box(_mappingBoxName);
+        return _mappingBox;
+      }
+    } catch (_) {}
     return null;
   }
 
-  static Future<Box?> _getMappingBoxAsync() async {
-    if (_syncMappingBox != null) return _syncMappingBox;
+  static Future<void> init() async {
     try {
-      _mappingBox = await Hive.openBox(_mappingBoxName);
-      return _mappingBox;
-    } catch (_) {
-      return null;
-    }
+      if (!Hive.isBoxOpen(_mappingBoxName)) {
+        _mappingBox = await Hive.openBox(_mappingBoxName);
+      } else {
+        _mappingBox = Hive.box(_mappingBoxName);
+      }
+    } catch (_) {}
   }
 
   /// Retrieves persistent stream mapping (e.g. 'saavn:pid' or 'youtube:ytId') for instant repeat play
   static String? getResolvedMapping(String songId) {
     try {
       final box = _syncMappingBox;
-      if (box != null) {
+      if (box != null && box.isOpen) {
         final val = box.get(songId);
         if (val is String && val.isNotEmpty) return val;
       }
@@ -103,10 +105,8 @@ class DefaultStreamResolver implements StreamResolver {
   static void saveResolvedMapping(String songId, String mapping) {
     try {
       final box = _syncMappingBox;
-      if (box != null) {
+      if (box != null && box.isOpen) {
         box.put(songId, mapping);
-      } else {
-        _getMappingBoxAsync().then((b) => b?.put(songId, mapping));
       }
     } catch (_) {}
   }

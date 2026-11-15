@@ -106,6 +106,10 @@ void main() {
         }
       },
       timeout: const Timeout(Duration(seconds: 30)),
+      skip: (Platform.environment['CI'] == 'true' ||
+              Platform.environment['GITHUB_ACTIONS'] == 'true')
+          ? 'Skipping live network YouTube test on CI runners (datacenter IPs are blocked by YouTube with HTTP 400)'
+          : null,
     );
 
     test(
@@ -139,6 +143,10 @@ void main() {
         expect(response.statusCode == 200 || response.statusCode == 206, isTrue);
       },
       timeout: const Timeout(Duration(seconds: 30)),
+      skip: (Platform.environment['CI'] == 'true' ||
+              Platform.environment['GITHUB_ACTIONS'] == 'true')
+          ? 'Skipping live network YouTube probe on CI runners (datacenter IPs are blocked by YouTube with HTTP 400)'
+          : null,
     );
 
     test(

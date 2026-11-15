@@ -20,7 +20,7 @@ on:
 jobs:
   build-ios-test:
     name: Build iOS Test Artifacts
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - name: Checkout Repository

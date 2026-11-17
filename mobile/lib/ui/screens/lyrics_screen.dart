@@ -12,7 +12,6 @@ import '../../services/lyrics_client.dart';
 import '../widgets/lyrics/bgm_pulse_indicator.dart';
 import '../widgets/lyrics/karaoke_line_text.dart';
 import '../widgets/lyrics/karaoke_vocal_slider.dart';
-import '../widgets/lyrics/studio_karaoke_pill.dart';
 import '../widgets/lyrics/lyrics_playback_bar.dart';
 import '../widgets/lyrics/wrong_lyrics_sheet.dart';
 import '../widgets/lyrics/lyrics_top_bar.dart';
@@ -313,13 +312,6 @@ class _LyricsScreenState extends State<LyricsScreen> {
                       onCollapse: () => Navigator.of(context).pop(),
                     ),
                   ),
-
-                // 3.5. Studio Karaoke Available Notification Pill
-                Positioned(
-                  top: MediaQuery.of(context).padding.top + 60,
-                  left: 20,
-                  child: const StudioKaraokePill(),
-                ),
 
                 // 3.6. Vertical Apple Music Sing Vocal Attenuation Capsule Slider
                 Positioned(

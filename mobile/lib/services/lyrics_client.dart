@@ -11,7 +11,6 @@ import '../models/song.dart';
 import 'app_logger.dart';
 import 'saavn_client.dart';
 import 'youtube_client.dart';
-import '../logic/stream_resolver.dart';
 
 /// Represents a single word in a synchronized lyric line with start and end timestamps.
 class LyricWord {
@@ -913,70 +912,5 @@ class LyricsClient {
         }
       }
     } catch (_) {}
-  }
-
-  static final Map<String, Song> _studioKaraokeCache = {};
-
-  /// Searches and resolves an authentic official studio karaoke or instrumental version
-  /// of the target song from YouTube/Saavn, matching duration within tolerance.
-  Future<Song?> resolveStudioKaraoke(Song song) async {
-    if (_studioKaraokeCache.containsKey(song.id)) {
-      return _studioKaraokeCache[song.id];
-    }
-    final cleanTitle = sanitizeTitle(song.title);
-    if (cleanTitle.isEmpty) return null;
-
-    final primaryArtist = sanitizeArtist(song.artist);
-    final queries = [
-      '$cleanTitle Karaoke',
-      '$cleanTitle Instrumental',
-      if (primaryArtist.isNotEmpty) '$cleanTitle $primaryArtist Karaoke',
-    ];
-
-    for (final q in queries) {
-      try {
-        final results = await YouTubeClient.search(q, limit: 5);
-        for (final candidate in results) {
-          final titleLower = candidate.title.toLowerCase();
-
-          // Invariant 1: Must contain karaoke or instrumental in the title
-          final isKaraokeMarker = titleLower.contains('karaoke') ||
-              titleLower.contains('instrumental') ||
-              titleLower.contains('bgm');
-          if (!isKaraokeMarker) continue;
-
-          // Invariant 2: Must NOT be an amateur cover or tutorial
-          final isBlacklisted = titleLower.contains('vocal cover') ||
-              titleLower.contains('cover by') ||
-              titleLower.contains('female cover') ||
-              titleLower.contains('male cover') ||
-              titleLower.contains('piano tutorial') ||
-              titleLower.contains('guitar tutorial') ||
-              titleLower.contains('remix') ||
-              titleLower.contains('speed up') ||
-              titleLower.contains('slowed');
-          if (isBlacklisted) continue;
-
-          // Invariant 3: Duration check within +/- 18 seconds if duration is known
-          if (song.duration > 0 && candidate.duration > 0) {
-            final diff = (candidate.duration - song.duration).abs();
-            if (diff > 18) continue;
-          }
-
-          _studioKaraokeCache[song.id] = candidate;
-          DefaultStreamResolver().resolveStreamUrl(candidate).then((url) {
-            if (url != null && url.isNotEmpty) {
-              candidate.streamUrl = url;
-            }
-          });
-
-          AppLogger.log('LyricsClient', 'Found studio karaoke candidate for "${song.title}": "${candidate.title}" (id: ${candidate.id})');
-          return candidate;
-        }
-      } catch (e) {
-        AppLogger.log('LyricsClient', 'Studio karaoke lookup notice for "$q": $e');
-      }
-    }
-    return null;
   }
 }

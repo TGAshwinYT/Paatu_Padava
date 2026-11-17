@@ -783,6 +783,8 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
                         boolean enableFloatOutput,
                         boolean enableAudioTrackPlaybackParams) {
                     return new DefaultAudioSink.Builder(context)
+                            .setEnableFloatOutput(enableFloatOutput)
+                            .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                             .setAudioProcessors(new AudioProcessor[] {
                                 KaraokeDsp.getInstance().getProcessor()
                             })
@@ -1072,6 +1074,7 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
         clearAudioEffects();
         if (player != null) {
             player.release();
+            KaraokeDsp.getInstance().setAttached(false);
             player = null;
             processingState = ProcessingState.none;
             broadcastImmediatePlaybackEvent();

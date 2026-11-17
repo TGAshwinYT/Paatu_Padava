@@ -23,6 +23,8 @@ class EqualizerService {
   static double _vocalAttenuation = 0.0;
   static double get vocalAttenuation => _vocalAttenuation;
   static Timer? _throttleTimer;
+  static Timer? _vocalIpcThrottleTimer;
+  static double? _pendingVocalDspValue;
 
   static VoidCallback? _eqBandsListener;
   static VoidCallback? _bassBoostListener;
@@ -158,17 +160,8 @@ class EqualizerService {
     return result;
   }
 
-  /// Calculates effective acoustic frequency bands (-10.0 to +10.0 dB)
-  /// Incorporates:
-  /// 1. User baseline equalizer band settings
-  /// 2. Bass Boost dynamic punch (+0 to +5 dB on 60Hz, +0 to +3 dB on 230Hz)
-  /// 3. 3D Spatial virtualizer (+0 to +2.5 dB on 3.6kHz, +0 to +3.5 dB on 14kHz)
-  /// 4. Real-time Apple Music Sing-inspired vocal formant notch filtering:
-  ///    - Band 2 (910 Hz): Core vocal formant notch (up to -12 dB)
-  ///    - Band 3 (3.6 kHz): Consonant & presence notch (up to -8 dB)
-  ///    - Band 1 (230 Hz): Lower chest voice resonance attenuation (up to -4 dB)
-  ///    - Band 0 (60 Hz): Sub-bass / kick punch compensation (+2 dB) to maintain rhythm drive
-  ///    - Band 4 (14 kHz): Air / shimmer preservation (+1.5 dB)
+  /// Calculates effective acoustic frequency bands (-10.0 to +10.0 dB) incorporating
+  /// baseline EQ, bass boost (+0..5 dB), 3D virtualizer, and vocal notch filtering.
   static List<double> calculateEffectiveBands({
     required List<double> baseBands,
     double bassBoost = 0.0,
@@ -217,18 +210,36 @@ class EqualizerService {
   }
 
   /// Sets the vocal attenuation factor (0.0 = full vocals, 1.0 = full karaoke / vocal suppression).
-  /// If native DSP center-channel cancellation is available, routes directly to AudioPlatform.
+  /// If native DSP center-channel cancellation is available, routes directly to AudioPlatform
+  /// with 30ms throttling and trailing send, preserving clean baseline graphic EQ.
   /// Otherwise, falls back to graphic EQ formant notch attenuation.
   static Future<void> setVocalAttenuation(double factor) async {
     final clamped = factor.clamp(0.0, 1.0);
     _vocalAttenuation = clamped;
 
-    await refreshDspStatus();
+    if (_isDspAvailable) {
+      isDspActiveNotifier.value = clamped > 0.0;
+      if (clamped == 0.0 || clamped == 1.0) {
+        _vocalIpcThrottleTimer?.cancel();
+        _vocalIpcThrottleTimer = null;
+        _pendingVocalDspValue = null;
+        await AudioPlatform.setVocalCancellation(clamped);
+        return;
+      }
+      _pendingVocalDspValue = clamped;
+      if (_vocalIpcThrottleTimer?.isActive == true) return;
+      _vocalIpcThrottleTimer = Timer(const Duration(milliseconds: 30), () {
+        final val = _pendingVocalDspValue ?? clamped;
+        _pendingVocalDspValue = null;
+        AudioPlatform.setVocalCancellation(val);
+      });
+      return;
+    }
 
+    await refreshDspStatus();
     if (_isDspAvailable) {
       isDspActiveNotifier.value = clamped > 0.0;
       await AudioPlatform.setVocalCancellation(clamped);
-      await applyCurrentBands();
       return;
     }
 
@@ -350,6 +361,9 @@ class EqualizerService {
   static void dispose() {
     _throttleTimer?.cancel();
     _throttleTimer = null;
+    _vocalIpcThrottleTimer?.cancel();
+    _vocalIpcThrottleTimer = null;
+    _pendingVocalDspValue = null;
     _vocalAttenuation = 0.0;
     _isDspAvailable = false;
     isDspActiveNotifier.value = false;

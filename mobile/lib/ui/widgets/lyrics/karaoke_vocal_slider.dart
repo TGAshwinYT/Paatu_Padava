@@ -4,9 +4,9 @@ import 'package:flutter/services.dart';
 import '../../../services/player_handler.dart';
 import '../../../services/equalizer_service.dart';
 
-/// Apple Music Sing-inspired vertical capsule slider for real-time vocal attenuation.
-/// Provides real-time acoustic formant notch filtering, haptic detents, and seamless
-/// transition to official studio karaoke stems.
+/// Apple Music Sing-inspired vertical capsule slider for real-time in-place vocal attenuation.
+/// Provides real-time Media3 DSP center cancellation with smooth 40ms sample interpolation
+/// and haptic detents.
 class KaraokeVocalSlider extends StatefulWidget {
   const KaraokeVocalSlider({super.key});
 
@@ -43,8 +43,7 @@ class _KaraokeVocalSliderState extends State<KaraokeVocalSlider> {
     }
   }
 
-  String _getModeLabel(double vocalLevel, bool isStudioActive, bool isDspActive) {
-    if (isStudioActive) return 'Studio Stem';
+  String _getModeLabel(double vocalLevel, bool isDspActive) {
     if (vocalLevel <= 0.08) {
       return isDspActive ? 'DSP Vocal Cancel' : 'Vocal Reduce (EQ Fallback)';
     }
@@ -62,12 +61,9 @@ class _KaraokeVocalSliderState extends State<KaraokeVocalSlider> {
         final isMuted = vocalLevel <= 0.08;
 
         return ValueListenableBuilder<bool>(
-          valueListenable: audioHandler.isUsingStudioKaraokeNotifier,
-          builder: (context, isStudioActive, _) {
-            return ValueListenableBuilder<bool>(
-              valueListenable: EqualizerService.isDspActiveNotifier,
-              builder: (context, isDspActive, _) {
-                final modeLabel = _getModeLabel(vocalLevel, isStudioActive, isDspActive);
+          valueListenable: EqualizerService.isDspActiveNotifier,
+          builder: (context, isDspActive, _) {
+            final modeLabel = _getModeLabel(vocalLevel, isDspActive);
 
             return Row(
               mainAxisSize: MainAxisSize.min,
@@ -75,7 +71,7 @@ class _KaraokeVocalSliderState extends State<KaraokeVocalSlider> {
               children: [
                 // Floating Mode Tooltip (Visible during active dragging or when BGM is active)
                 AnimatedOpacity(
-                  opacity: (_isDragging || isMuted || isStudioActive) ? 1.0 : 0.0,
+                  opacity: (_isDragging || isMuted) ? 1.0 : 0.0,
                   duration: const Duration(milliseconds: 200),
                   child: Container(
                     margin: const EdgeInsets.only(right: 10),
@@ -84,13 +80,13 @@ class _KaraokeVocalSliderState extends State<KaraokeVocalSlider> {
                       color: const Color(0xFF0F172A).withValues(alpha: 0.90),
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(
-                        color: (isMuted || isStudioActive)
+                        color: isMuted
                             ? const Color(0xFF06B6D4).withValues(alpha: 0.6)
                             : Colors.white.withValues(alpha: 0.16),
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: (isMuted || isStudioActive)
+                          color: isMuted
                               ? const Color(0xFF06B6D4).withValues(alpha: 0.25)
                               : Colors.black.withValues(alpha: 0.35),
                           blurRadius: 10,
@@ -98,85 +94,60 @@ class _KaraokeVocalSliderState extends State<KaraokeVocalSlider> {
                         ),
                       ],
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (isStudioActive) ...[
-                          const Icon(Icons.check_circle_rounded, size: 12, color: Color(0xFF06B6D4)),
-                          const SizedBox(width: 4),
-                        ],
-                        Text(
-                          modeLabel,
-                          style: TextStyle(
-                            color: (isMuted || isStudioActive)
-                                ? const Color(0xFF06B6D4)
-                                : Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.2,
-                          ),
-                        ),
-                      ],
+                    child: Text(
+                      modeLabel,
+                      style: TextStyle(
+                        color: isMuted ? const Color(0xFF06B6D4) : Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ),
 
-                // Vertical Capsule Slider Container
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(24),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                    child: Container(
-                      width: 46,
-                      height: 156,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF0F172A).withValues(alpha: 0.85),
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(
-                          color: (isMuted || isStudioActive)
-                              ? const Color(0xFF06B6D4).withValues(alpha: 0.6)
-                              : Colors.white.withValues(alpha: 0.16),
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: (isMuted || isStudioActive)
-                                ? const Color(0xFF06B6D4).withValues(alpha: 0.25)
-                                : Colors.black.withValues(alpha: 0.35),
-                            blurRadius: 16,
-                            offset: const Offset(0, 4),
+                // Apple Music Sing Glassmorphic Capsule
+                GestureDetector(
+                  onVerticalDragStart: (details) {
+                    setState(() => _isDragging = true);
+                    _handleDrag(details.globalPosition);
+                  },
+                  onVerticalDragUpdate: (details) => _handleDrag(details.globalPosition),
+                  onVerticalDragEnd: (_) => _finishDrag(),
+                  onVerticalDragCancel: () => _finishDrag(),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(24),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                      child: Container(
+                        width: 44,
+                        height: 150,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.20),
+                            width: 1.2,
                           ),
-                        ],
-                      ),
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onVerticalDragStart: (details) {
-                          setState(() => _isDragging = true);
-                          _handleDrag(details.globalPosition);
-                        },
-                        onVerticalDragUpdate: (details) {
-                          _handleDrag(details.globalPosition);
-                        },
-                        onVerticalDragEnd: (_) => _finishDrag(),
-                        onVerticalDragCancel: () => _finishDrag(),
-                        onTap: () {
-                          // Quick toggle between full vocals (100%) and karaoke mode (0%)
-                          HapticFeedback.mediumImpact();
-                          if (vocalLevel > 0.5) {
-                            audioHandler.setVocalAttenuation(1.0); // 0% vocals (Karaoke BGM)
-                          } else {
-                            audioHandler.setVocalAttenuation(0.0); // 100% vocals
-                          }
-                        },
+                          boxShadow: [
+                            BoxShadow(
+                              color: isMuted
+                                  ? const Color(0xFF06B6D4).withValues(alpha: 0.3)
+                                  : Colors.black.withValues(alpha: 0.25),
+                              blurRadius: 14,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
                         child: Stack(
                           alignment: Alignment.bottomCenter,
                           children: [
-                            // 1. Subtle notch guide markers at 25%, 50%, 75%
+                            // 1. Subtle Haptic Detent Tick Marks
                             Positioned(
-                              top: 39,
+                              top: 37,
                               child: Container(width: 14, height: 1, color: Colors.white.withValues(alpha: 0.12)),
                             ),
                             Positioned(
-                              top: 78,
+                              top: 75,
                               child: Container(width: 20, height: 1, color: Colors.white.withValues(alpha: 0.15)),
                             ),
                             Positioned(
@@ -193,7 +164,7 @@ class _KaraokeVocalSliderState extends State<KaraokeVocalSlider> {
                                   gradient: LinearGradient(
                                     begin: Alignment.bottomCenter,
                                     end: Alignment.topCenter,
-                                    colors: (isMuted || isStudioActive)
+                                    colors: isMuted
                                         ? [const Color(0xFF06B6D4), const Color(0xFF38BDF8)]
                                         : [const Color(0xFF6366F1), const Color(0xFF818CF8)],
                                   ),
@@ -206,12 +177,10 @@ class _KaraokeVocalSliderState extends State<KaraokeVocalSlider> {
                             Positioned(
                               top: 10,
                               child: Text(
-                                isStudioActive
-                                    ? 'STEM'
-                                    : (isMuted ? (isDspActive ? 'DSP' : 'EQ') : '${(vocalLevel * 100).round()}%'),
+                                isMuted ? (isDspActive ? 'DSP' : 'EQ') : '${(vocalLevel * 100).round()}%',
                                 style: TextStyle(
                                   color: Colors.white,
-                                  fontSize: (isMuted || isStudioActive) ? 10 : 9,
+                                  fontSize: isMuted ? 10 : 9,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -233,8 +202,6 @@ class _KaraokeVocalSliderState extends State<KaraokeVocalSlider> {
                   ),
                 ),
               ],
-            );
-              },
             );
           },
         );

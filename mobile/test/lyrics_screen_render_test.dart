@@ -5,7 +5,6 @@ import 'package:paatu_padava_mobile/models/song.dart';
 import 'package:paatu_padava_mobile/services/player_handler.dart';
 import 'package:paatu_padava_mobile/ui/screens/lyrics_screen.dart';
 import 'package:paatu_padava_mobile/ui/widgets/lyrics/karaoke_vocal_slider.dart';
-import 'package:paatu_padava_mobile/ui/widgets/lyrics/studio_karaoke_pill.dart';
 import 'package:paatu_padava_mobile/ui/widgets/lyrics/lyrics_top_bar.dart';
 
 void main() {
@@ -22,7 +21,6 @@ void main() {
   setUp(() {
     audioHandler = PaatuAudioHandler();
     audioHandler.isKaraokeModeNotifier.value = false;
-    audioHandler.studioKaraokeTrackNotifier.value = null;
   });
 
   testWidgets('LyricsScreen builds and renders with lyrics', (tester) async {
@@ -48,7 +46,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('LyricsScreen renders in Karaoke Mode with Studio Karaoke Pill and Slider', (tester) async {
+  testWidgets('LyricsScreen renders in Karaoke Mode with Karaoke Vocal Slider', (tester) async {
     const lrc = '''
 [00:10.00] First lyric line
 [00:20.00] Second lyric line
@@ -57,7 +55,6 @@ void main() {
     audioHandler.currentLyricsNotifier.value = lrc;
     audioHandler.lyricsStateNotifier.value = const LyricsState.loaded(lrc);
     audioHandler.isKaraokeModeNotifier.value = true;
-    audioHandler.studioKaraokeTrackNotifier.value = testSong;
 
     await tester.pumpWidget(
       MaterialApp(
@@ -68,7 +65,6 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
 
     expect(find.byType(KaraokeVocalSlider), findsOneWidget);
-    expect(find.byType(StudioKaraokePill), findsOneWidget);
     expect(find.byType(LyricsTopBar), findsOneWidget);
     expect(find.text('First lyric line'), findsOneWidget);
     expect(tester.takeException(), isNull);

@@ -1,8 +1,10 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paatu_padava_mobile/logic/party_sync_engine.dart';
 import 'package:paatu_padava_mobile/models/song.dart';
 import 'package:paatu_padava_mobile/platform/audio_platform.dart';
 import 'package:paatu_padava_mobile/platform/sync_platform.dart';
+import 'package:paatu_padava_mobile/ui/widgets/lyrics/studio_karaoke_pill.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -56,6 +58,26 @@ void main() {
 
       final success = await AudioPlatform.setVocalCancellation(0.8);
       expect(success, isFalse);
+    });
+
+    test('EqualizerService setVocalAttenuation clamps values and stores attenuation state', () async {
+      await EqualizerService.setVocalAttenuation(0.85);
+      expect(EqualizerService.vocalAttenuation, closeTo(0.85, 0.001));
+
+      await EqualizerService.setVocalAttenuation(1.5);
+      expect(EqualizerService.vocalAttenuation, equals(1.0));
+
+      await EqualizerService.setVocalAttenuation(-0.2);
+      expect(EqualizerService.vocalAttenuation, equals(0.0));
+    });
+
+    testWidgets('StudioKaraokePill renders zero-overhead SizedBox.shrink stub', (tester) async {
+      await tester.pumpWidget(const Directionality(
+        textDirection: TextDirection.ltr,
+        child: StudioKaraokePill(),
+      ));
+      expect(find.byType(StudioKaraokePill), findsOneWidget);
+      expect(find.byType(SizedBox), findsOneWidget);
     });
   });
 

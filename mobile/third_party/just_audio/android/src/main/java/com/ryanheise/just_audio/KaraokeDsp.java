@@ -1,5 +1,6 @@
 package com.ryanheise.just_audio;
 
+import androidx.media3.common.C;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -47,10 +48,14 @@ public class KaraokeDsp {
     public Map<String, Object> getDspStatus() {
         Map<String, Object> status = new HashMap<>();
         status.put("attached", isAttached);
-        status.put("active", isAttached && processor.isActive());
+        status.put("active", isAttached && processor.isActive() && processor.isProcessingLiveAudio());
         status.put("attenuation", (double) targetAttenuation);
-        status.put("mode", isAttached ? "native_dsp_center_cancellation" : "none");
-        status.put("channelCount", 2);
+        status.put("mode", isAttached ? processor.getCurrentMode() : "none");
+        status.put("channelCount", processor.getChannelCount() > 0 ? processor.getChannelCount() : 2);
+        status.put("sampleRate", processor.getSampleRate());
+        status.put("buffersProcessed", processor.getBuffersProcessed());
+        status.put("encoding", processor.getEncoding() == C.ENCODING_PCM_FLOAT ? "float" :
+                (processor.getEncoding() == C.ENCODING_PCM_16BIT ? "16bit" : "unknown"));
         return status;
     }
 }

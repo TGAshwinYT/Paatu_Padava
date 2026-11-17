@@ -114,4 +114,26 @@ class AppTheme {
       useMaterial3: true,
     );
   }
+
+  /// Default text height behavior that applies padding to first ascent and last descent,
+  /// preventing Tamil/Indic combining diacritic glyph clipping.
+  static const TextHeightBehavior defaultTextHeightBehavior = TextHeightBehavior(
+    applyHeightToFirstAscent: true,
+    applyHeightToLastDescent: true,
+  );
+
+  /// Consistent song title typography with generous line-height for Tamil/Indic vowel diacritics.
+  static TextStyle songTitleStyle({
+    double fontSize = 14.0,
+    FontWeight fontWeight = FontWeight.w600,
+    Color color = AppColors.textWhite,
+    double height = 1.25,
+  }) {
+    return TextStyle(
+      fontSize: fontSize,
+      fontWeight: fontWeight,
+      color: color,
+      height: height,
+    );
+  }
 }

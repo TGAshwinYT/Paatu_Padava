@@ -37,28 +37,35 @@ class QuickGridSection extends StatelessWidget {
 
         final activeTiles = displayTiles.take(6).toList();
 
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          child: Column(
-            children: [
-              for (int r = 0; r < (activeTiles.length / 2).ceil(); r++) ...[
-                if (r > 0) const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _QuickTileItem(tile: activeTiles[r * 2]),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: (r * 2 + 1 < activeTiles.length)
-                          ? _QuickTileItem(tile: activeTiles[r * 2 + 1])
-                          : const SizedBox.shrink(),
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final horizontalPad = AppDimensions.screenPadding(context);
+            final availableWidth = constraints.maxWidth;
+            final columns = availableWidth < 320 ? 1 : (availableWidth >= 600 ? 3 : 2);
+
+            return Padding(
+              padding: EdgeInsets.symmetric(horizontal: horizontalPad, vertical: 8),
+              child: Column(
+                children: [
+                  for (int r = 0; r < (activeTiles.length / columns).ceil(); r++) ...[
+                    if (r > 0) const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        for (int c = 0; c < columns; c++) ...[
+                          if (c > 0) const SizedBox(width: 8),
+                          Expanded(
+                            child: (r * columns + c < activeTiles.length)
+                                ? _QuickTileItem(tile: activeTiles[r * columns + c])
+                                : const SizedBox.shrink(),
+                          ),
+                        ],
+                      ],
                     ),
                   ],
-                ),
-              ],
-            ],
-          ),
+                ],
+              ),
+            );
+          },
         );
       },
     );
@@ -182,12 +189,16 @@ class _QuickTileItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasCover = tile.coverUrl.isNotEmpty;
+    final isCompact = AppDimensions.isCompact(context);
+    final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+    final tileHeight = (56.0 * textScale.clamp(1.0, 1.25)).ceilToDouble();
+    final thumbSize = isCompact ? 48.0 : 56.0;
 
     return InkWell(
       onTap: () => _onTileTapped(context),
       borderRadius: BorderRadius.circular(8),
       child: Container(
-        height: 56,
+        height: tileHeight,
         decoration: BoxDecoration(
           color: AppColors.surfaceElevated,
           borderRadius: BorderRadius.circular(8),
@@ -195,18 +206,18 @@ class _QuickTileItem extends StatelessWidget {
         ),
         child: Row(
           children: [
-            // Left 56x56 square thumbnail
+            // Left square thumbnail
             ClipRRect(
               borderRadius: const BorderRadius.horizontal(left: Radius.circular(8)),
               child: SizedBox(
-                width: 56,
-                height: 56,
+                width: thumbSize,
+                height: tileHeight,
                 child: hasCover
                     ? CachedNetworkImage(
                         imageUrl: tile.coverUrl,
                         fit: BoxFit.cover,
-                        memCacheWidth: 120,
-                        memCacheHeight: 120,
+                        memCacheWidth: AppDimensions.memCachePhysical(context, thumbSize),
+                        memCacheHeight: AppDimensions.memCachePhysical(context, thumbSize),
                         placeholder: (_, __) => Container(
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
@@ -215,7 +226,7 @@ class _QuickTileItem extends StatelessWidget {
                               end: Alignment.bottomRight,
                             ),
                           ),
-                          child: Icon(_getFallbackIcon(), color: Colors.white70, size: 24),
+                          child: Icon(_getFallbackIcon(), color: Colors.white70, size: isCompact ? 20 : 24),
                         ),
                         errorWidget: (_, __, ___) => Container(
                           decoration: BoxDecoration(
@@ -225,7 +236,7 @@ class _QuickTileItem extends StatelessWidget {
                               end: Alignment.bottomRight,
                             ),
                           ),
-                          child: Icon(_getFallbackIcon(), color: Colors.white70, size: 24),
+                          child: Icon(_getFallbackIcon(), color: Colors.white70, size: isCompact ? 20 : 24),
                         ),
                       )
                     : Container(
@@ -236,7 +247,7 @@ class _QuickTileItem extends StatelessWidget {
                             end: Alignment.bottomRight,
                           ),
                         ),
-                        child: Icon(_getFallbackIcon(), color: Colors.white, size: 24),
+                        child: Icon(_getFallbackIcon(), color: Colors.white, size: isCompact ? 20 : 24),
                       ),
               ),
             ),
@@ -248,9 +259,10 @@ class _QuickTileItem extends StatelessWidget {
                 tile.title,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
+                textHeightBehavior: AppTheme.defaultTextHeightBehavior,
                 style: GoogleFonts.outfit(
                   color: Colors.white,
-                  fontSize: 12.5,
+                  fontSize: isCompact ? 11.5 : 12.5,
                   fontWeight: FontWeight.w700,
                   height: 1.15,
                   letterSpacing: -0.2,
@@ -267,8 +279,8 @@ class _QuickTileItem extends StatelessWidget {
                   onTap: () => _onPlayTapped(context),
                   borderRadius: BorderRadius.circular(16),
                   child: Container(
-                    width: 30,
-                    height: 30,
+                    width: isCompact ? 26 : 30,
+                    height: isCompact ? 26 : 30,
                     decoration: BoxDecoration(
                       color: AppColors.neonViolet.withValues(alpha: 0.9),
                       shape: BoxShape.circle,
@@ -280,10 +292,10 @@ class _QuickTileItem extends StatelessWidget {
                         ),
                       ],
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.play_arrow_rounded,
                       color: Colors.white,
-                      size: 20,
+                      size: isCompact ? 16 : 20,
                     ),
                   ),
                 ),

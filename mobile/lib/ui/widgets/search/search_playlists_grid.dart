@@ -33,10 +33,17 @@ class SearchPlaylistsGrid extends StatelessWidget {
       );
     }
 
+    final cacheSize = AppDimensions.memCachePhysical(context, 200);
+
     return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
+      padding: EdgeInsets.fromLTRB(
+        AppDimensions.screenPadding(context),
+        12,
+        AppDimensions.screenPadding(context),
+        AppDimensions.bottomClearance(context, hasBottomNav: true),
+      ),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 200,
         childAspectRatio: 0.76,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
@@ -94,8 +101,8 @@ class SearchPlaylistsGrid extends StatelessWidget {
                               ? CachedNetworkImage(
                                   imageUrl: img,
                                   fit: BoxFit.cover,
-                                  memCacheWidth: 350,
-                                  memCacheHeight: 350,
+                                  memCacheWidth: cacheSize,
+                                  memCacheHeight: cacheSize,
                                   errorWidget: (_, __, ___) => Container(
                                     color: AppColors.surfaceDark,
                                     child: const Icon(Icons.queue_music_rounded, color: Colors.white24, size: 40),

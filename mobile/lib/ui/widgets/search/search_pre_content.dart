@@ -61,7 +61,12 @@ class SearchPreContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 110),
+      padding: EdgeInsets.fromLTRB(
+        AppDimensions.screenPadding(context),
+        8,
+        AppDimensions.screenPadding(context),
+        12,
+      ),
       children: [
         // 1. Spotify Import Quick Action
         Container(
@@ -264,8 +269,8 @@ class SearchPreContent extends StatelessWidget {
         GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 200,
             childAspectRatio: 1.7,
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,

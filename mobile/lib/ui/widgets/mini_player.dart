@@ -8,6 +8,7 @@ import '../../services/party_sync_coordinator.dart';
 import '../screens/full_player_screen.dart';
 import 'artist_picker_sheet.dart';
 import 'cover_art_image.dart';
+import '../theme/app_theme.dart';
 
 class MiniPlayer extends StatelessWidget {
   final bool? hasBottomNav;
@@ -94,15 +95,15 @@ class MiniPlayer extends StatelessWidget {
                     // Main Row
                     Expanded(
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                        padding: EdgeInsets.symmetric(horizontal: AppDimensions.isCompact(context) ? 8.0 : 12.0),
                         child: Row(
                           children: [
                             // Thumbnail
                             ClipRRect(
                               borderRadius: BorderRadius.circular(10),
                               child: SizedBox(
-                                width: 44,
-                                height: 44,
+                                width: AppDimensions.isCompact(context) ? 40 : 44,
+                                height: AppDimensions.isCompact(context) ? 40 : 44,
                                 child: (song.localFilePath != null && File(song.localFilePath!).existsSync())
                                     ? Image.file(
                                         File(song.localFilePath!),
@@ -111,16 +112,16 @@ class MiniPlayer extends StatelessWidget {
                                       )
                                     : CoverArtImage(
                                         song: song,
-                                        width: 44,
-                                        height: 44,
+                                        width: AppDimensions.isCompact(context) ? 40 : 44,
+                                        height: AppDimensions.isCompact(context) ? 40 : 44,
                                         borderRadius: BorderRadius.circular(10),
-                                        memCacheWidth: 150,
-                                        memCacheHeight: 150,
+                                        memCacheWidth: AppDimensions.memCachePhysical(context, AppDimensions.isCompact(context) ? 40 : 44),
+                                        memCacheHeight: AppDimensions.memCachePhysical(context, AppDimensions.isCompact(context) ? 40 : 44),
                                         errorWidget: _coverFallback(),
                                       ),
                               ),
                             ),
-                            const SizedBox(width: 12),
+                            SizedBox(width: AppDimensions.isCompact(context) ? 8 : 12),
 
                             // Song Title & Artist
                             Expanded(
@@ -132,9 +133,10 @@ class MiniPlayer extends StatelessWidget {
                                     song.title,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
+                                    textHeightBehavior: AppTheme.defaultTextHeightBehavior,
+                                    style: TextStyle(
                                       color: Colors.white,
-                                      fontSize: 14,
+                                      fontSize: AppDimensions.isCompact(context) ? 13 : 14,
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
@@ -146,9 +148,10 @@ class MiniPlayer extends StatelessWidget {
                                       song.artist,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: Color(0xFF94A3B8),
-                                        fontSize: 12,
+                                      textHeightBehavior: AppTheme.defaultTextHeightBehavior,
+                                      style: TextStyle(
+                                        color: const Color(0xFF94A3B8),
+                                        fontSize: AppDimensions.isCompact(context) ? 11 : 12,
                                       ),
                                     ),
                                   ),
@@ -175,7 +178,12 @@ class MiniPlayer extends StatelessWidget {
                                                 children: [
                                                   Icon(Icons.speaker_group_rounded, size: 10, color: Color(0xFF06B6D4)),
                                                   SizedBox(width: 3),
-                                                  Text('Party Speaker', style: TextStyle(color: Color(0xFF06B6D4), fontSize: 9.5, fontWeight: FontWeight.bold)),
+                                                  Text(
+                                                    'Party Speaker',
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: TextStyle(color: Color(0xFF06B6D4), fontSize: 9.5, fontWeight: FontWeight.bold),
+                                                  ),
                                                 ],
                                               ),
                                             ),
@@ -193,10 +201,13 @@ class MiniPlayer extends StatelessWidget {
                               valueListenable: FavoritesManager.favoritesNotifier,
                               builder: (context, _, __) {
                                 final isFav = FavoritesManager.isFavorite(song.id);
+                                final isCompact = AppDimensions.isCompact(context);
                                 return IconButton(
+                                  visualDensity: isCompact ? VisualDensity.compact : VisualDensity.standard,
+                                  padding: isCompact ? EdgeInsets.zero : const EdgeInsets.all(8.0),
                                   icon: Icon(
                                     isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                                    size: 22,
+                                    size: isCompact ? 20 : 22,
                                     color: isFav ? const Color(0xFFEC4899) : Colors.white60,
                                   ),
                                   onPressed: () {
@@ -213,23 +224,26 @@ class MiniPlayer extends StatelessWidget {
                                 final state = snapshot.data;
                                 final playing = state?.playing ?? false;
                                 final processing = state?.processingState;
+                                final isCompact = AppDimensions.isCompact(context);
 
                                 if (processing == ProcessingState.loading || processing == ProcessingState.buffering) {
-                                  return const Padding(
-                                    padding: EdgeInsets.all(12.0),
+                                  return Padding(
+                                    padding: EdgeInsets.all(isCompact ? 6.0 : 12.0),
                                     child: SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF6366F1)),
+                                      width: isCompact ? 18 : 20,
+                                      height: isCompact ? 18 : 20,
+                                      child: const CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF6366F1)),
                                     ),
                                   );
                                 }
 
                                 return IconButton(
+                                  visualDensity: isCompact ? VisualDensity.compact : VisualDensity.standard,
+                                  padding: isCompact ? EdgeInsets.zero : const EdgeInsets.all(8.0),
                                   icon: Icon(
                                     playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
                                     color: Colors.white,
-                                    size: 28,
+                                    size: isCompact ? 26 : 28,
                                   ),
                                   onPressed: () {
                                     if (playing) {
@@ -244,7 +258,13 @@ class MiniPlayer extends StatelessWidget {
 
                             // Next
                             IconButton(
-                              icon: const Icon(Icons.skip_next_rounded, color: Colors.white70, size: 26),
+                              visualDensity: AppDimensions.isCompact(context) ? VisualDensity.compact : VisualDensity.standard,
+                              padding: AppDimensions.isCompact(context) ? EdgeInsets.zero : const EdgeInsets.all(8.0),
+                              icon: Icon(
+                                Icons.skip_next_rounded,
+                                color: Colors.white70,
+                                size: AppDimensions.isCompact(context) ? 24 : 26,
+                              ),
                               onPressed: () => audioHandler.skipToNext(),
                             ),
                           ],

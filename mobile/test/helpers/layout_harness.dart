@@ -17,10 +17,12 @@ class DeviceProfile {
 /// Small -> large. The small phone + big text combination is where most
 /// "broken UI" (overflow stripes, clipped buttons) shows up first.
 const List<DeviceProfile> kDevices = [
+  DeviceProfile('fold-cover', Size(280, 653), 2.0, EdgeInsets.only(top: 24, bottom: 0)),
   DeviceProfile('small-phone', Size(360, 640), 2.0, EdgeInsets.only(top: 24, bottom: 0)),
   DeviceProfile('regular-phone', Size(390, 844), 3.0, EdgeInsets.only(top: 47, bottom: 34)),
   DeviceProfile('large-phone', Size(430, 932), 3.0, EdgeInsets.only(top: 54, bottom: 34)),
   DeviceProfile('tablet', Size(800, 1280), 2.0, EdgeInsets.only(top: 24, bottom: 0)),
+  DeviceProfile('phone-landscape', Size(844, 390), 3.0, EdgeInsets.only(top: 0, bottom: 21, left: 47, right: 47)),
 ];
 
 /// 1.0 = default, 1.5 = what many users set under Android "Font size".

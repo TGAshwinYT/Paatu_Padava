@@ -32,9 +32,14 @@ class SearchAlbumsGrid extends StatelessWidget {
     }
 
     return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
+      padding: EdgeInsets.fromLTRB(
+        AppDimensions.screenPadding(context),
+        12,
+        AppDimensions.screenPadding(context),
+        AppDimensions.bottomClearance(context, hasBottomNav: true),
+      ),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 200,
         childAspectRatio: 0.78,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
@@ -46,6 +51,7 @@ class SearchAlbumsGrid extends StatelessWidget {
         final title = _unescape.convert(Song.sanitize(album['title']?.toString() ?? ''));
         final artist = _unescape.convert(Song.sanitize(album['artist']?.toString() ?? ''));
         final img = album['image']?.toString() ?? '';
+        final cacheSize = AppDimensions.memCachePhysical(context, 200);
 
         return GestureDetector(
           onTap: () {
@@ -78,8 +84,8 @@ class SearchAlbumsGrid extends StatelessWidget {
                       child: CachedNetworkImage(
                         imageUrl: img,
                         fit: BoxFit.cover,
-                        memCacheWidth: 200,
-                        memCacheHeight: 200,
+                        memCacheWidth: cacheSize,
+                        memCacheHeight: cacheSize,
                         errorWidget: (_, __, ___) => Container(color: AppColors.surfaceDark),
                       ),
                     ),

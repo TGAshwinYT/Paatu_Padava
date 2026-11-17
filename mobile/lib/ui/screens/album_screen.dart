@@ -231,7 +231,16 @@ class _AlbumScreenState extends State<AlbumScreen> {
                 ),
 
               SliverToBoxAdapter(
-                child: SizedBox(height: AppDimensions.bottomClearance(context, hasBottomNav: false)),
+                child: ValueListenableBuilder<Song?>(
+                  valueListenable: activeSongNotifier,
+                  builder: (context, song, _) => SizedBox(
+                    height: AppDimensions.bottomClearance(
+                      context,
+                      hasActiveTrack: song != null,
+                      hasBottomNav: false,
+                    ),
+                  ),
+                ),
               ),
             ],
           ),

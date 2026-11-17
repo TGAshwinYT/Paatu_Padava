@@ -95,7 +95,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: Stack(
         children: [
           ListView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+            padding: EdgeInsets.fromLTRB(MediaQuery.sizeOf(context).width < 340 ? 10 : 16, 16, MediaQuery.sizeOf(context).width < 340 ? 10 : 16, 120),
             children: [
               // User Account Header Card
               _buildAccountCard(),
@@ -384,13 +384,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
       children: [
         Icon(icon, color: const Color(0xFF6366F1), size: 16),
         const SizedBox(width: 8),
-        Text(
-          title,
-          style: const TextStyle(
-            color: Color(0xFF818CF8),
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.1,
+        Expanded(
+          child: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0xFF818CF8),
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.1,
+            ),
           ),
         ),
       ],
@@ -471,9 +475,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       valueListenable: AuthManager.authNotifier,
       builder: (context, user, _) {
         final isLoggedIn = user != null && !user.isGuest;
+        final isCompact = MediaQuery.sizeOf(context).width < 340;
 
         return Container(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(isCompact ? 10 : 16),
           decoration: BoxDecoration(
             color: const Color(0xFF131B2E),
             borderRadius: BorderRadius.circular(16),
@@ -482,32 +487,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Row(
             children: [
               CircleAvatar(
-                radius: 26,
+                radius: isCompact ? 18 : 26,
                 backgroundColor: const Color(0xFF6366F1),
                 child: Text(
                   isLoggedIn && user.username.isNotEmpty ? user.username.substring(0, 1).toUpperCase() : 'G',
-                  style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                  style: TextStyle(color: Colors.white, fontSize: isCompact ? 14 : 20, fontWeight: FontWeight.bold),
                 ),
               ),
-              const SizedBox(width: 16),
+              SizedBox(width: isCompact ? 8 : 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       isLoggedIn ? user.username : 'Guest Session',
-                      style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: Colors.white, fontSize: isCompact ? 13 : 16, fontWeight: FontWeight.bold),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 2),
                     Text(
                       isLoggedIn ? user.email : 'Local offline mode active',
-                      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: const Color(0xFF94A3B8), fontSize: isCompact ? 11 : 12),
                     ),
                   ],
                 ),
               ),
+              SizedBox(width: isCompact ? 6 : 8),
               if (isLoggedIn)
                 TextButton(
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.symmetric(horizontal: isCompact ? 8 : 12),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
                   onPressed: () async {
                     await AuthManager.logout();
                   },
@@ -517,10 +532,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF6366F1),
+                    padding: EdgeInsets.symmetric(horizontal: isCompact ? 10 : 16, vertical: 6),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   onPressed: () => AuthDialog.show(context),
-                  child: const Text('Sign In', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  child: Text(
+                    'Sign In',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: isCompact ? 12 : 14),
+                  ),
                 ),
             ],
           ),

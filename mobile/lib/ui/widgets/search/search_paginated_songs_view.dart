@@ -136,6 +136,9 @@ class _SearchPaginatedSongsViewState extends State<SearchPaginatedSongsView> {
     }
 
     final totalCount = _songs.length + (_isLoadingMore || _hasReachedEnd ? 1 : 0);
+    final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+    final hasExpandedContent = _songs.any((s) => s.matchedLyricSnippet != null);
+    final useFixedExtent = textScale <= 1.05 && !hasExpandedContent;
 
     return ListView.builder(
       controller: _scrollController,
@@ -143,7 +146,7 @@ class _SearchPaginatedSongsViewState extends State<SearchPaginatedSongsView> {
         bottom: AppDimensions.bottomClearance(context, hasBottomNav: true),
         top: 4,
       ),
-      itemExtent: _songTileExtent,
+      itemExtent: useFixedExtent ? _songTileExtent : null,
       itemCount: totalCount,
       itemBuilder: (context, index) {
         if (index < _songs.length) {

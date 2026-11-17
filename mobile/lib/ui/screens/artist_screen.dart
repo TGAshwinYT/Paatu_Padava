@@ -496,7 +496,16 @@ class _ArtistScreenState extends State<ArtistScreen> {
 
               // Safe bottom padding for MiniPlayer
               SliverToBoxAdapter(
-                child: SizedBox(height: AppDimensions.bottomClearance(context, hasBottomNav: false)),
+                child: ValueListenableBuilder<Song?>(
+                  valueListenable: activeSongNotifier,
+                  builder: (context, song, _) => SizedBox(
+                    height: AppDimensions.bottomClearance(
+                      context,
+                      hasActiveTrack: song != null,
+                      hasBottomNav: false,
+                    ),
+                  ),
+                ),
               ),
             ],
           ),

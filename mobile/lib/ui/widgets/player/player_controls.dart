@@ -2,12 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import '../../../logic/smart_shuffle_controller.dart';
 import '../../../services/player_handler.dart';
+import '../../theme/app_theme.dart';
 
 class PlayerControls extends StatelessWidget {
   const PlayerControls({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    final isCompact = AppDimensions.isCompact(context);
+    final skipIconSize = isCompact ? 30.0 : 36.0;
+    final secondaryIconSize = isCompact ? 22.0 : 26.0;
+    final playBtnSize = isCompact ? 58.0 : 68.0;
+    final playIconSize = isCompact ? 32.0 : 38.0;
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
@@ -38,7 +45,9 @@ class PlayerControls extends StatelessWidget {
             }
 
             return IconButton(
-              icon: Icon(icon, color: color, size: 26),
+              visualDensity: isCompact ? VisualDensity.compact : VisualDensity.standard,
+              padding: isCompact ? const EdgeInsets.all(4.0) : const EdgeInsets.all(8.0),
+              icon: Icon(icon, color: color, size: secondaryIconSize),
               tooltip: tooltip,
               onPressed: () {
                 audioHandler.toggleSmartShuffle();
@@ -59,7 +68,9 @@ class PlayerControls extends StatelessWidget {
 
         // Previous
         IconButton(
-          icon: const Icon(Icons.skip_previous_rounded, color: Colors.white, size: 36),
+          visualDensity: isCompact ? VisualDensity.compact : VisualDensity.standard,
+          padding: isCompact ? const EdgeInsets.all(4.0) : const EdgeInsets.all(8.0),
+          icon: Icon(Icons.skip_previous_rounded, color: Colors.white, size: skipIconSize),
           onPressed: () => audioHandler.skipToPrevious(),
         ),
 
@@ -73,17 +84,17 @@ class PlayerControls extends StatelessWidget {
 
             if (processing == ProcessingState.loading || processing == ProcessingState.buffering) {
               return Container(
-                width: 68,
-                height: 68,
+                width: playBtnSize,
+                height: playBtnSize,
                 decoration: const BoxDecoration(
                   shape: BoxShape.circle,
                   color: Color(0xFF6366F1),
                 ),
-                child: const Center(
+                child: Center(
                   child: SizedBox(
-                    width: 28,
-                    height: 28,
-                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3),
+                    width: isCompact ? 24 : 28,
+                    height: isCompact ? 24 : 28,
+                    child: const CircularProgressIndicator(color: Colors.white, strokeWidth: 3),
                   ),
                 ),
               );
@@ -97,10 +108,10 @@ class PlayerControls extends StatelessWidget {
                   audioHandler.play();
                 }
               },
-              borderRadius: BorderRadius.circular(36),
+              borderRadius: BorderRadius.circular(playBtnSize / 2),
               child: Container(
-                width: 68,
-                height: 68,
+                width: playBtnSize,
+                height: playBtnSize,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: const LinearGradient(
@@ -119,7 +130,7 @@ class PlayerControls extends StatelessWidget {
                 child: Icon(
                   playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
                   color: Colors.white,
-                  size: 38,
+                  size: playIconSize,
                 ),
               ),
             );
@@ -128,7 +139,9 @@ class PlayerControls extends StatelessWidget {
 
         // Next
         IconButton(
-          icon: const Icon(Icons.skip_next_rounded, color: Colors.white, size: 36),
+          visualDensity: isCompact ? VisualDensity.compact : VisualDensity.standard,
+          padding: isCompact ? const EdgeInsets.all(4.0) : const EdgeInsets.all(8.0),
+          icon: Icon(Icons.skip_next_rounded, color: Colors.white, size: skipIconSize),
           onPressed: () => audioHandler.skipToNext(),
         ),
 
@@ -139,10 +152,12 @@ class PlayerControls extends StatelessWidget {
             final loop = snapshot.data ?? LoopMode.off;
             final isLooping = loop != LoopMode.off;
             return IconButton(
+              visualDensity: isCompact ? VisualDensity.compact : VisualDensity.standard,
+              padding: isCompact ? const EdgeInsets.all(4.0) : const EdgeInsets.all(8.0),
               icon: Icon(
                 loop == LoopMode.one ? Icons.repeat_one_rounded : Icons.repeat_rounded,
                 color: isLooping ? const Color(0xFF6366F1) : const Color(0xFF64748B),
-                size: 26,
+                size: secondaryIconSize,
               ),
               onPressed: () => audioHandler.toggleLoopMode(),
             );

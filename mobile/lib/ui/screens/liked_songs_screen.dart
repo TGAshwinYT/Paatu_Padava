@@ -64,17 +64,23 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                           ),
                         ),
                         child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 70, 20, 20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              Row(
+                          padding: EdgeInsets.fromLTRB(
+                            MediaQuery.sizeOf(context).width < 340 ? 16 : 20,
+                            MediaQuery.sizeOf(context).width < 340 ? 50 : 70,
+                            MediaQuery.sizeOf(context).width < 340 ? 16 : 20,
+                            16,
+                          ),
+                          child: Align(
+                            alignment: Alignment.bottomLeft,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.bottomLeft,
+                              child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
                                   Container(
-                                    width: 80,
-                                    height: 80,
+                                    width: MediaQuery.sizeOf(context).width < 340 ? 64 : 80,
+                                    height: MediaQuery.sizeOf(context).width < 340 ? 64 : 80,
                                     decoration: BoxDecoration(
                                       gradient: const LinearGradient(
                                         colors: [Color(0xFF4F46E5), Color(0xFFEC4899)],
@@ -90,33 +96,41 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                                         ),
                                       ],
                                     ),
-                                    child: const Icon(Icons.favorite_rounded, color: Colors.white, size: 44),
+                                    child: Icon(
+                                      Icons.favorite_rounded,
+                                      color: Colors.white,
+                                      size: MediaQuery.sizeOf(context).width < 340 ? 36 : 44,
+                                    ),
                                   ),
                                   const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          'PLAYLIST',
-                                          style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Text(
+                                        'PLAYLIST',
+                                        style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Liked Songs',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: MediaQuery.sizeOf(context).width < 340 ? 22 : 26,
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: -0.5,
                                         ),
-                                        const SizedBox(height: 4),
-                                        const Text(
-                                          'Liked Songs',
-                                          style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w900, letterSpacing: -0.5),
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          '${favorites.length} songs',
-                                          style: const TextStyle(color: Colors.white60, fontSize: 13),
-                                        ),
-                                      ],
-                                    ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        '${favorites.length} songs',
+                                        style: const TextStyle(color: Colors.white60, fontSize: 13),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
-                            ],
+                            ),
                           ),
                         ),
                       ),
@@ -237,11 +251,10 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
 
                   // Empty State
                   if (favorites.isEmpty)
-                    SliverFillRemaining(
-                      hasScrollBody: false,
+                    SliverToBoxAdapter(
                       child: Center(
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 32),
+                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 32),
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [

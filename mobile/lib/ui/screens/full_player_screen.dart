@@ -27,6 +27,7 @@ import 'playlist_screen.dart';
 import 'album_screen.dart';
 import 'remote_playlist_screen.dart';
 import 'liked_songs_screen.dart';
+import '../theme/app_theme.dart';
 
 class FullPlayerScreen extends StatefulWidget {
   const FullPlayerScreen({Key? key}) : super(key: key);
@@ -209,12 +210,20 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                     children: [
                       // Top App Bar
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: AppDimensions.screenPadding(context),
+                        vertical: AppDimensions.isShortScreen(context) ? 4.0 : 8.0,
+                      ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           IconButton(
-                            icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 34, color: Colors.white),
+                            visualDensity: AppDimensions.isCompact(context) ? VisualDensity.compact : VisualDensity.standard,
+                            icon: Icon(
+                              Icons.keyboard_arrow_down_rounded,
+                              size: AppDimensions.isCompact(context) ? 28 : 34,
+                              color: Colors.white,
+                            ),
                             onPressed: () => Navigator.of(context).pop(),
                           ),
                           Expanded(
@@ -285,6 +294,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                 builder: (context, device, _) {
                                   final isCasting = !device.isLocal;
                                   return IconButton(
+                                    visualDensity: AppDimensions.isCompact(context) ? VisualDensity.compact : VisualDensity.standard,
+                                    padding: AppDimensions.isCompact(context) ? const EdgeInsets.all(4.0) : const EdgeInsets.all(8.0),
                                     icon: Icon(
                                       isCasting ? Icons.cast_connected_rounded : Icons.cast_rounded,
                                       color: isCasting ? const Color(0xFF10B981) : Colors.white70,
@@ -296,6 +307,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                 },
                               ),
                               IconButton(
+                                visualDensity: AppDimensions.isCompact(context) ? VisualDensity.compact : VisualDensity.standard,
+                                padding: AppDimensions.isCompact(context) ? const EdgeInsets.all(4.0) : const EdgeInsets.all(8.0),
                                 icon: const Icon(Icons.tune_rounded, color: Colors.white70, size: 22),
                                 tooltip: 'Equalizer',
                                 onPressed: () => PlayerEqualizerSheet.show(context),
@@ -309,6 +322,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       IconButton(
+                                        visualDensity: AppDimensions.isCompact(context) ? VisualDensity.compact : VisualDensity.standard,
+                                        padding: AppDimensions.isCompact(context) ? const EdgeInsets.all(4.0) : const EdgeInsets.all(8.0),
                                         icon: Icon(
                                           isActive ? Icons.bedtime_rounded : Icons.bedtime_outlined,
                                           color: isActive ? const Color(0xFF6366F1) : Colors.white70,
@@ -355,96 +370,104 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                     // Body
                     Expanded(
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            // Song / Lyrics Selector Pill
-                            Container(
-                              height: 36,
-                              padding: const EdgeInsets.symmetric(horizontal: 4),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF131B2E),
-                                borderRadius: BorderRadius.circular(18),
-                                border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  // Song / Cover mode
+                        padding: EdgeInsets.symmetric(
+                          horizontal: AppDimensions.isCompact(context) ? 14.0 : 24.0,
+                        ),
+                        child: LayoutBuilder(
+                          builder: (context, bodyConstraints) {
+                            final isShort = bodyConstraints.maxHeight < 560 || AppDimensions.isShortScreen(context);
+                            return Column(
+                              mainAxisAlignment: isShort ? MainAxisAlignment.spaceBetween : MainAxisAlignment.spaceEvenly,
+                              children: [
+                                if (!isShort) ...[
+                                  // Song / Lyrics Selector Pill
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                    height: 36,
+                                    padding: const EdgeInsets.symmetric(horizontal: 4),
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFF6366F1),
-                                      borderRadius: BorderRadius.circular(16),
+                                      color: const Color(0xFF131B2E),
+                                      borderRadius: BorderRadius.circular(18),
+                                      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
                                     ),
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
-                                      children: const [
-                                        Icon(
-                                          Icons.music_note_rounded,
-                                          size: 13,
-                                          color: Colors.white,
+                                      children: [
+                                        // Song / Cover mode
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF6366F1),
+                                            borderRadius: BorderRadius.circular(16),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: const [
+                                              Icon(
+                                                Icons.music_note_rounded,
+                                                size: 13,
+                                                color: Colors.white,
+                                              ),
+                                              SizedBox(width: 4),
+                                              Text(
+                                                'Song',
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                        SizedBox(width: 4),
-                                        Text(
-                                          'Song',
-                                          style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.bold,
+                                        const SizedBox(width: 4),
+                                        // Fullscreen Lyrics
+                                        GestureDetector(
+                                          behavior: HitTestBehavior.opaque,
+                                          onTap: () {
+                                            HapticFeedback.selectionClick();
+                                            LyricsScreen.open(context, song: song);
+                                          },
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                            decoration: BoxDecoration(
+                                              color: Colors.transparent,
+                                              borderRadius: BorderRadius.circular(16),
+                                            ),
+                                            child: const Text(
+                                              'Lyrics',
+                                              style: TextStyle(
+                                                color: Color(0xFF94A3B8),
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
                                           ),
                                         ),
                                       ],
                                     ),
                                   ),
-                                  const SizedBox(width: 4),
-                                  // Fullscreen Lyrics
-                                  GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onTap: () {
-                                      HapticFeedback.selectionClick();
-                                      LyricsScreen.open(context, song: song);
-                                    },
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                                      decoration: BoxDecoration(
-                                        color: Colors.transparent,
-                                        borderRadius: BorderRadius.circular(16),
-                                      ),
-                                      child: const Text(
-                                        'Lyrics',
-                                        style: TextStyle(
-                                          color: Color(0xFF94A3B8),
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
+                                ],
+
+                                // Middle Content: Album Artwork with Double-Tap Heart Interaction
+                                Flexible(
+                                  child: RepaintBoundary(
+                                    child: LayoutBuilder(
+                                      builder: (context, constraints) {
+                                        final targetSize = AppDimensions.safeArtworkSize(
+                                          context,
+                                          maxAvailable: constraints.maxHeight,
+                                        );
+                                        return SizedBox(
+                                          height: targetSize,
+                                          child: PlayerGestureDetector(
+                                            onDoubleTap: () => _handleArtworkDoubleTap(song),
+                                            child: _buildArtworkView(song, targetSize),
+                                          ),
+                                        );
+                                      },
                                     ),
                                   ),
-                                ],
-                              ),
-                            ),
-
-                            // Middle Content: Album Artwork with Double-Tap Heart Interaction
-                            Flexible(
-                              child: RepaintBoundary(
-                                child: LayoutBuilder(
-                                  builder: (context, constraints) {
-                                    final maxAvailable = constraints.maxHeight;
-                                    final screenWidth = MediaQuery.sizeOf(context).width;
-                                    final targetSize = (screenWidth * 0.78).clamp(180.0, maxAvailable > 0 ? maxAvailable : 340.0);
-                                    return SizedBox(
-                                      height: targetSize,
-                                      child: PlayerGestureDetector(
-                                        onDoubleTap: () => _handleArtworkDoubleTap(song),
-                                        child: _buildArtworkView(song, targetSize),
-                                      ),
-                                    );
-                                  },
                                 ),
-                              ),
-                            ),
 
                             // Song Title, Artist, and Favorite Row
                             Row(
@@ -672,7 +695,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                       borderRadius: BorderRadius.circular(20),
                                       child: Container(
                                         constraints: BoxConstraints(
-                                          maxWidth: MediaQuery.of(context).size.width - 32,
+                                          maxWidth: bodyConstraints.maxWidth > 0
+                                              ? bodyConstraints.maxWidth
+                                              : (MediaQuery.sizeOf(context).width - (AppDimensions.isCompact(context) ? 28 : 48)),
                                         ),
                                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                                         decoration: BoxDecoration(
@@ -762,9 +787,11 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                               },
                             ),
                           ],
-                        ),
-                      ),
+                        );
+                      },
                     ),
+                  ),
+                ),
                     ],
                   ),
                 ),

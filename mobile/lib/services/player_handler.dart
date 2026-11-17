@@ -73,6 +73,13 @@ set audioHandler(PaatuAudioHandler handler) => _audioHandlerInstance = handler;
 
 bool get isAudioHandlerInitialized => _audioHandlerInstance != null;
 
+final ValueNotifier<Song?> _fallbackNullSongNotifier = ValueNotifier<Song?>(null);
+
+/// Safe, null-resilient notifier for the currently active [Song].
+/// Returns a static null notifier if the audio pipeline has not initialized yet (e.g. in tests or early startup).
+ValueNotifier<Song?> get activeSongNotifier =>
+    _audioHandlerInstance?.currentSongNotifier ?? _fallbackNullSongNotifier;
+
 // ignore: experimental_member_use
 class YouTubeByteStreamSource extends StreamAudioSource {
   final String videoId;

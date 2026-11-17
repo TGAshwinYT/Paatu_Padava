@@ -305,7 +305,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
             // Bottom clearance for persistent MiniPlayer & BottomNavigationBar
             SliverToBoxAdapter(
-              child: SizedBox(height: AppDimensions.bottomClearance(context, hasBottomNav: true)),
+              child: ValueListenableBuilder<Song?>(
+                valueListenable: activeSongNotifier,
+                builder: (context, song, _) => SizedBox(
+                  height: AppDimensions.bottomClearance(
+                    context,
+                    hasActiveTrack: song != null,
+                    hasBottomNav: true,
+                  ),
+                ),
+              ),
             ),
           ],
         ),

@@ -21,6 +21,8 @@ class SpotifyTrackItem {
   final String? album;
   final int durationSeconds;
   final String? coverUrl;
+  final String? spotifyUri;
+  final String? spotifyId;
 
   const SpotifyTrackItem({
     required this.title,
@@ -28,6 +30,8 @@ class SpotifyTrackItem {
     this.album,
     required this.durationSeconds,
     this.coverUrl,
+    this.spotifyUri,
+    this.spotifyId,
   });
 }
 
@@ -729,6 +733,8 @@ class SpotifyImportService {
                 final durationSec = parseDurationSeconds(track['duration_ms']);
                 final trkImages = track['album']?['images'] as List<dynamic>? ?? [];
                 final trkCover = trkImages.isNotEmpty ? trkImages[0]['url']?.toString() : (type == 'album' ? coverUrl : null);
+                final trackId = track['id']?.toString();
+                final trackUri = track['uri']?.toString();
 
                 if (rawTitle.isNotEmpty) {
                   allTracks.add(SpotifyTrackItem(
@@ -737,6 +743,8 @@ class SpotifyImportService {
                     album: albumName != null ? Song.sanitize(albumName) : null,
                     durationSeconds: durationSec,
                     coverUrl: trkCover,
+                    spotifyUri: trackUri,
+                    spotifyId: trackId,
                   ));
                 }
               }
@@ -784,6 +792,8 @@ class SpotifyImportService {
                 final artists = track['artists'] as List<dynamic>? ?? [];
                 final artistName = artists.isNotEmpty ? artists[0]['name']?.toString() ?? '' : 'Artist';
                 final durationSec = parseDurationSeconds(track['duration_ms']);
+                final trackId = track['id']?.toString();
+                final trackUri = track['uri']?.toString();
 
                 if (rawTitle.isNotEmpty) {
                   allTracks.add(SpotifyTrackItem(
@@ -792,6 +802,8 @@ class SpotifyImportService {
                     album: title,
                     durationSeconds: durationSec,
                     coverUrl: coverUrl,
+                    spotifyUri: trackUri,
+                    spotifyId: trackId,
                   ));
                 }
               }
@@ -829,6 +841,8 @@ class SpotifyImportService {
                 album: track['album']?['name'] != null ? Song.sanitize(track['album']['name']) : null,
                 durationSeconds: durationSec,
                 coverUrl: trkCover,
+                spotifyUri: track['uri']?.toString(),
+                spotifyId: id,
               );
               return SpotifyPlaylistMetadata(
                 title: item.title,
@@ -879,6 +893,8 @@ class SpotifyImportService {
                   artist: Song.sanitize(artistName),
                   durationSeconds: durationSec,
                   coverUrl: trackCover,
+                  spotifyUri: 'spotify:track:$id',
+                  spotifyId: id,
                 );
                 return SpotifyPlaylistMetadata(
                   title: item.title,
@@ -896,6 +912,8 @@ class SpotifyImportService {
               final rawTitle = item['title']?.toString() ?? '';
               final subtitle = item['subtitle']?.toString() ?? '';
               final durationSec = parseDurationSeconds(item['duration']);
+              final uri = item['uri']?.toString() ?? '';
+              final trackId = uri.startsWith('spotify:track:') ? uri.replaceFirst('spotify:track:', '') : null;
 
               if (rawTitle.isNotEmpty) {
                 tracks.add(SpotifyTrackItem(
@@ -903,6 +921,8 @@ class SpotifyImportService {
                   artist: Song.sanitize(subtitle),
                   durationSeconds: durationSec,
                   coverUrl: (type == 'album' ? coverUrl : null),
+                  spotifyUri: uri.isNotEmpty ? uri : null,
+                  spotifyId: trackId,
                 ));
               }
             }
@@ -942,18 +962,21 @@ class SpotifyImportService {
         }
 
         final tracksPattern = RegExp(
-          r'\[([^\]]+)\]\(https://open\.spotify\.com/track/[^\)]+\)\s*\n\s*\[([^\]]+)\]\(https://open\.spotify\.com/artist/[^\)]+\)',
+          r'\[([^\]]+)\]\(https://open\.spotify\.com/track/([^\)\?]+)[^\)]*\)\s*\n\s*\[([^\]]+)\]\(https://open\.spotify\.com/artist/[^\)]+\)',
         );
         final List<SpotifyTrackItem> tracks = [];
         for (final m in tracksPattern.allMatches(text)) {
           final tTitle = Song.sanitize(m.group(1)?.trim() ?? '');
-          final tArtist = Song.sanitize(m.group(2)?.trim() ?? '');
+          final trackId = m.group(2)?.trim();
+          final tArtist = Song.sanitize(m.group(3)?.trim() ?? '');
           if (tTitle.isNotEmpty) {
             tracks.add(SpotifyTrackItem(
               title: tTitle,
               artist: tArtist,
               durationSeconds: 0,
               coverUrl: (type == 'album' ? coverUrl : null),
+              spotifyUri: trackId != null ? 'spotify:track:$trackId' : null,
+              spotifyId: trackId,
             ));
           }
         }
@@ -974,6 +997,25 @@ class SpotifyImportService {
     return null;
   }
 
+  /// Resolves the authentic Spotify track thumbnail URL using Spotify's public oEmbed endpoint.
+  /// Requires zero authentication or API tokens. Upgrades 300x300 to 640x640 studio square art.
+  static Future<String?> resolveSpotifyTrackThumbnail(String trackIdOrUri) async {
+    try {
+      final cleanId = trackIdOrUri.replaceFirst('spotify:track:', '').trim();
+      if (cleanId.isEmpty) return null;
+      final uri = Uri.parse('https://open.spotify.com/oembed?url=https://open.spotify.com/track/$cleanId');
+      final res = await http.get(uri, headers: _webHeaders).timeout(const Duration(seconds: 4));
+      if (res.statusCode == 200) {
+        final data = json.decode(res.body);
+        final thumb = data['thumbnail_url']?.toString();
+        if (thumb != null && thumb.isNotEmpty && !CoverArtResolver.isPlaylistCover(thumb)) {
+          return CoverArtResolver.upgradeSpotifyCover(thumb);
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   /// Multi-Pass Smart Matcher:
   /// Uses a 2-stage search pipeline (Title+Artist -> Album+Title -> Title-only),
   /// full-credit multi-artist + album scoring, Tanglish transliteration normalization,
@@ -987,6 +1029,17 @@ class SpotifyImportService {
     final movieHint = extractMovieFromTitle(track.title);
     final targetAlbum = track.album ?? movieHint;
 
+    // Resolve authentic Spotify song thumbnail if missing but Spotify ID or URI is present
+    String? effectiveCover = track.coverUrl;
+    if (effectiveCover != null && CoverArtResolver.isSpotifyCover(effectiveCover)) {
+      effectiveCover = CoverArtResolver.upgradeSpotifyCover(effectiveCover);
+    }
+    if ((effectiveCover == null || effectiveCover.isEmpty || CoverArtResolver.isPlaylistCover(effectiveCover)) &&
+        (track.spotifyId != null || track.spotifyUri != null)) {
+      final idToResolve = track.spotifyId ?? track.spotifyUri!;
+      effectiveCover = await resolveSpotifyTrackThumbnail(idToResolve);
+    }
+
     // ── Tier 0: Instant Local Master Catalog Match (0ms, 100% verified metadata) ──
     try {
       final localCandidates = await CatalogDatabase.searchCatalog(cleanTitle, limit: 5);
@@ -995,7 +1048,13 @@ class SpotifyImportService {
         final cCleanTitle = cleanTrackTitle(candidate.title);
         final titleSim = computeTitleSimilarity(cleanTitle, cCleanTitle);
         if (titleSim >= 85) {
-          return candidate;
+          var matched = candidate;
+          if (effectiveCover != null &&
+              effectiveCover.isNotEmpty &&
+              !CoverArtResolver.isPlaylistCover(effectiveCover)) {
+            matched = matched.copyWith(coverUrl: effectiveCover);
+          }
+          return matched;
         }
       }
     } catch (_) {}
@@ -1075,15 +1134,13 @@ class SpotifyImportService {
           }
         }
 
-        if ((cand.coverUrl.isEmpty || cand.coverUrl.contains('default')) &&
-            track.coverUrl != null &&
-            track.coverUrl!.isNotEmpty &&
-            !CoverArtResolver.isPlaylistCover(track.coverUrl!)) {
-          cand = cand.copyWith(coverUrl: track.coverUrl);
-        }
-
-        // Proactively resolve high-res studio square cover if missing or playlist mosaic
-        if (cand.coverUrl.isEmpty || CoverArtResolver.isPlaylistCover(cand.coverUrl)) {
+        // ALWAYS prefer authentic Spotify song thumbnail over Saavn album/movie cover
+        if (effectiveCover != null &&
+            effectiveCover.isNotEmpty &&
+            !CoverArtResolver.isPlaylistCover(effectiveCover)) {
+          cand = cand.copyWith(coverUrl: effectiveCover);
+        } else if (cand.coverUrl.isEmpty || CoverArtResolver.isPlaylistCover(cand.coverUrl)) {
+          // Fallback: Proactively resolve high-res studio square cover if missing or playlist mosaic
           try {
             final resolved = await CoverArtResolver.resolveCover(cand).timeout(
               const Duration(milliseconds: 1200),
@@ -1120,10 +1177,10 @@ class SpotifyImportService {
 
       if (scoredYt.isNotEmpty) {
         var bestYt = scoredYt.first.key;
-        if (track.coverUrl != null &&
-            track.coverUrl!.isNotEmpty &&
-            !CoverArtResolver.isPlaylistCover(track.coverUrl!)) {
-          bestYt = bestYt.copyWith(coverUrl: track.coverUrl);
+        if (effectiveCover != null &&
+            effectiveCover.isNotEmpty &&
+            !CoverArtResolver.isPlaylistCover(effectiveCover)) {
+          bestYt = bestYt.copyWith(coverUrl: effectiveCover);
         } else {
           // Resolve studio square art for YouTube matches via iTunes/Deezer/CatalogDatabase
           try {

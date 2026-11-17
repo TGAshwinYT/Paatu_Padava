@@ -31,7 +31,6 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> with Ticker
   @override
   void initState() {
     super.initState();
-    _recapFuture = ListeningRecapService.generateRecap();
     _pageController = PageController();
     _progressController = AnimationController(vsync: this, duration: _slideDuration);
 
@@ -41,17 +40,24 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> with Ticker
       }
     });
 
-    _progressController.forward();
+    _recapFuture = ListeningRecapService.generateRecap().then((recap) {
+      if (mounted && !recap.isEmpty) {
+        _progressController.forward();
+      }
+      return recap;
+    });
   }
 
   @override
   void dispose() {
-    _pageController.dispose();
+    _progressController.stop();
     _progressController.dispose();
+    _pageController.dispose();
     super.dispose();
   }
 
   void _nextSlide() {
+    if (!mounted || !_pageController.hasClients) return;
     if (_currentIndex < _totalSlides - 1) {
       setState(() {
         _currentIndex++;
@@ -69,6 +75,7 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> with Ticker
   }
 
   void _prevSlide() {
+    if (!mounted || !_pageController.hasClients) return;
     if (_currentIndex > 0) {
       setState(() {
         _currentIndex--;

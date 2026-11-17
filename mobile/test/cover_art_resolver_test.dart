@@ -322,5 +322,20 @@ void main() {
       expect(resolved, 'https://is1-ssl.mzstatic.com/image/thumb/Music112/v4/1000x1000bb.jpg');
       expect(fakeBox.get('spotify_mosaic_song_1'), 'https://is1-ssl.mzstatic.com/image/thumb/Music112/v4/1000x1000bb.jpg');
     });
+
+    test('12. Spotify Track Art: Preserves and upgrades authentic 300x300 Spotify track art to 640x640 without overwriting', () async {
+      final song = Song(
+        id: 'spotify_track_1',
+        title: 'Backseat',
+        artist: 'breakkaway',
+        coverUrl: 'https://image-cdn-ak.spotifycdn.com/image/ab67616d00001e02c8099634986fc92a5fca1de6',
+        duration: 134,
+        source: 'spotify',
+      );
+
+      final resolved = await CoverArtResolver.resolveCover(song);
+      expect(resolved, 'https://image-cdn-ak.spotifycdn.com/image/ab67616d0000b273c8099634986fc92a5fca1de6');
+      expect(fakeBox.get('spotify_track_1'), 'https://image-cdn-ak.spotifycdn.com/image/ab67616d0000b273c8099634986fc92a5fca1de6');
+    });
   });
 }

@@ -207,6 +207,14 @@ class CoverArtResolver {
 
     // 0. Only accept existing covers if they are NOT playlist mosaics
     if (!isPlaylistCover(rawCover)) {
+      // 0a. Spotify high-res track artwork: PRESERVE & UPGRADE to 640x640
+      if (isSpotifyCover(rawCover)) {
+        final upgraded = upgradeSpotifyCover(rawCover);
+        if (upgraded.isNotEmpty) {
+          return upgraded;
+        }
+      }
+
       // 1. Keep JioSaavn cover if it exists (upgrade 50x50/150x150 to 500x500 square)
       if (_isSaavnCover(rawCover)) {
         final upgraded = _upgradeSaavnCover(rawCover);
@@ -226,8 +234,7 @@ class CoverArtResolver {
 
     // 3. Fast offline lookup in CatalogDatabase (0ms) - skipped during mock testing
     if (_httpClient == null) {
-      final catalogCover = CatalogDatabase.getSongCoverArt(song.title, artist: song.artist, album: song.album) ??
-          CatalogDatabase.getMoviePoster(song.album);
+      final catalogCover = CatalogDatabase.getSongCoverArt(song.title, artist: song.artist, album: song.album);
       if (catalogCover != null && catalogCover.isNotEmpty) {
         return catalogCover;
       }
@@ -283,6 +290,25 @@ class CoverArtResolver {
       }
     } catch (_) {}
     return null;
+  }
+
+  /// Checks if URL is authentic Spotify album/track artwork
+  static bool isSpotifyCover(String url) {
+    if (url.isEmpty || _isPlaceholder(url)) return false;
+    final lower = url.toLowerCase();
+    return (lower.contains('scdn.co') || lower.contains('spotifycdn.com')) &&
+        !isPlaylistCover(lower);
+  }
+
+  /// Upgrades Spotify thumbnail (e.g. ab67616d00001e02 300x300 or ab67616d00004851 64x64) to 640x640 high-res (ab67616d0000b273)
+  static String upgradeSpotifyCover(String url) {
+    var upgraded = url;
+    if (upgraded.startsWith('http://')) {
+      upgraded = upgraded.replaceFirst('http://', 'https://');
+    }
+    return upgraded
+        .replaceAll('ab67616d00001e02', 'ab67616d0000b273')
+        .replaceAll('ab67616d00004851', 'ab67616d0000b273');
   }
 
   /// Checks if URL is from JioSaavn CDN
@@ -537,8 +563,7 @@ class CoverArtResolver {
     if (url.isEmpty) return false;
     final lower = url.toLowerCase();
     return lower.contains('ab67706f') ||
-        lower.contains('mosaic.scdn.co') ||
-        lower.contains('image-cdn-ak.spotifycdn.com');
+        lower.contains('mosaic.scdn.co');
   }
 
   /// Detects whether a cover URL is an unwanted placeholder (Unsplash stock photo or playlist mosaic)

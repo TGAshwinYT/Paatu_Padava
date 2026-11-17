@@ -138,9 +138,10 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
               listenable: SleepTimerService.instance,
               builder: (context, _) {
                 final timer = SleepTimerService.instance;
+                final isCompact = MediaQuery.sizeOf(context).width < 340;
                 return SingleChildScrollView(
                   physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                  padding: EdgeInsets.fromLTRB(isCompact ? 12 : 20, 12, isCompact ? 12 : 20, 24),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -455,6 +456,7 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
   // ================= Configuration View ================= //
 
   Widget _buildConfigTimerView(BuildContext context) {
+    final isCompact = MediaQuery.sizeOf(context).width < 340;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -471,111 +473,115 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
         ),
         const SizedBox(height: 10),
 
-        // 2-Column Preset Grid
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: _presets.length,
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-            childAspectRatio: MediaQuery.textScalerOf(context).scale(1.0) > 1.2 ? 1.7 : 2.2,
-          ),
-          itemBuilder: (context, index) {
-            final preset = _presets[index];
-            final isSelected = preset.isEndOfTrack
-                ? _isEndOfTrack
-                : (preset.isEndOfQueue ? _isEndOfQueue : (!_isEndOfTrack && !_isEndOfQueue && _selectedDuration.inMinutes == preset.minutes));
+        () {
+          final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+          final tileHeight = (isCompact ? 54.0 : 58.0) * textScale.clamp(1.0, 1.3);
 
-            return InkWell(
-              onTap: () => _selectPreset(preset),
-              borderRadius: BorderRadius.circular(16),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? const Color(0xFF6366F1).withValues(alpha: 0.18)
-                      : const Color(0xFF131B2E).withValues(alpha: 0.7),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
+          return GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _presets.length,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: isCompact ? 1 : 2,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 8,
+              mainAxisExtent: tileHeight.ceilToDouble(),
+            ),
+            itemBuilder: (context, index) {
+              final preset = _presets[index];
+              final isSelected = preset.isEndOfTrack
+                  ? _isEndOfTrack
+                  : (preset.isEndOfQueue ? _isEndOfQueue : (!_isEndOfTrack && !_isEndOfQueue && _selectedDuration.inMinutes == preset.minutes));
+
+              return InkWell(
+                onTap: () => _selectPreset(preset),
+                borderRadius: BorderRadius.circular(16),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  padding: EdgeInsets.symmetric(horizontal: isCompact ? 12 : 10, vertical: 6),
+                  decoration: BoxDecoration(
                     color: isSelected
-                        ? const Color(0xFF6366F1)
-                        : Colors.white.withValues(alpha: 0.07),
-                    width: isSelected ? 1.5 : 1,
+                        ? const Color(0xFF6366F1).withValues(alpha: 0.18)
+                        : const Color(0xFF131B2E).withValues(alpha: 0.7),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: isSelected
+                          ? const Color(0xFF6366F1)
+                          : Colors.white.withValues(alpha: 0.07),
+                      width: isSelected ? 1.5 : 1,
+                    ),
+                    boxShadow: isSelected
+                        ? [
+                            BoxShadow(
+                              color: const Color(0xFF6366F1).withValues(alpha: 0.2),
+                              blurRadius: 10,
+                              offset: const Offset(0, 2),
+                            ),
+                          ]
+                        : null,
                   ),
-                  boxShadow: isSelected
-                      ? [
-                          BoxShadow(
-                            color: const Color(0xFF6366F1).withValues(alpha: 0.2),
-                            blurRadius: 10,
-                            offset: const Offset(0, 2),
-                          ),
-                        ]
-                      : null,
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(7),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? const Color(0xFF6366F1).withValues(alpha: 0.3)
-                            : Colors.white.withValues(alpha: 0.05),
-                        borderRadius: BorderRadius.circular(10),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? const Color(0xFF6366F1).withValues(alpha: 0.3)
+                              : Colors.white.withValues(alpha: 0.05),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(
+                          preset.icon,
+                          size: 18,
+                          color: isSelected ? const Color(0xFF818CF8) : const Color(0xFF94A3B8),
+                        ),
                       ),
-                      child: Icon(
-                        preset.icon,
-                        size: 18,
-                        color: isSelected ? const Color(0xFF818CF8) : const Color(0xFF94A3B8),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            preset.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: isSelected ? Colors.white : const Color(0xFFCBD5E1),
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.bold,
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              preset.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: isSelected ? Colors.white : const Color(0xFFCBD5E1),
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 1),
-                          Text(
-                            preset.subtitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: isSelected
-                                  ? const Color(0xFF818CF8)
-                                  : const Color(0xFF64748B),
-                              fontSize: 10.5,
+                            const SizedBox(height: 1),
+                            Text(
+                              preset.subtitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: isSelected
+                                    ? const Color(0xFF818CF8)
+                                    : const Color(0xFF64748B),
+                                fontSize: 10.5,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                    if (isSelected)
-                      const Icon(Icons.check_circle_rounded, size: 16, color: Color(0xFF818CF8)),
-                  ],
+                      if (isSelected)
+                        const Icon(Icons.check_circle_rounded, size: 16, color: Color(0xFF818CF8)),
+                    ],
+                  ),
                 ),
-              ),
-            );
-          },
-        ),
+              );
+            },
+          );
+        }(),
 
         const SizedBox(height: 20),
 
         // Custom Slider Section
         Container(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(isCompact ? 10 : 16),
           decoration: BoxDecoration(
             color: const Color(0xFF131B2E).withValues(alpha: 0.7),
             borderRadius: BorderRadius.circular(20),
@@ -633,8 +639,11 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
                     style: IconButton.styleFrom(
                       backgroundColor: Colors.white.withValues(alpha: 0.06),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      padding: const EdgeInsets.all(8),
+                      padding: const EdgeInsets.all(4),
+                      minimumSize: isCompact ? const Size(30, 30) : const Size(40, 40),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
+                    constraints: isCompact ? const BoxConstraints.tightFor(width: 30, height: 30) : null,
                     icon: const Icon(Icons.remove_rounded, color: Colors.white70, size: 18),
                     onPressed: () => _stepTime(-5),
                   ),
@@ -661,24 +670,31 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
                     style: IconButton.styleFrom(
                       backgroundColor: Colors.white.withValues(alpha: 0.06),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      padding: const EdgeInsets.all(8),
+                      padding: const EdgeInsets.all(4),
+                      minimumSize: isCompact ? const Size(30, 30) : const Size(40, 40),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
+                    constraints: isCompact ? const BoxConstraints.tightFor(width: 30, height: 30) : null,
                     icon: const Icon(Icons.add_rounded, color: Colors.white70, size: 18),
                     onPressed: () => _stepTime(5),
                   ),
                 ],
               ),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('5m', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
-                    Text('30m', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
-                    Text('60m', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
-                    Text('90m', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
-                    Text('120m', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
-                  ],
+                  children: (isCompact
+                          ? const ['5m', '60m', '120m']
+                          : const ['5m', '30m', '60m', '90m', '120m'])
+                      .map((label) => Text(
+                            label,
+                            style: TextStyle(
+                              color: const Color(0xFF64748B),
+                              fontSize: isCompact ? 10 : 11,
+                            ),
+                          ))
+                      .toList(),
                 ),
               ),
             ],
@@ -749,18 +765,18 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
                 children: [
                   const Icon(Icons.bedtime_rounded, size: 20),
                   const SizedBox(width: 8),
-                  Flexible(
+                  Expanded(
                     child: Text(
                       _isEndOfTrack
                           ? 'Start Timer (End of Track)'
                           : (_isEndOfQueue
                               ? 'Start Timer (End of Queue)'
-                              : 'Start Sleep Timer (${_formatDurationTitle(_selectedDuration)})')
-,
+                              : 'Start Timer (${_formatDurationTitle(_selectedDuration)})'),
+                      textAlign: TextAlign.center,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 15.5,
+                      style: TextStyle(
+                        fontSize: MediaQuery.sizeOf(context).width < 340 ? 13.5 : 15.5,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 0.2,
                       ),

@@ -83,7 +83,7 @@ class AppDimensions {
   /// Responsive cover art dimension for song list tiles (46dp compact, 50dp standard, 56dp tablet)
   static double songTileCoverSize(BuildContext context) {
     final w = MediaQuery.sizeOf(context).width;
-    if (w < 340) return 44.0;
+    if (w < 300) return 44.0;
     if (w < 360) return 46.0;
     if (w >= 600) return 56.0;
     return 50.0;

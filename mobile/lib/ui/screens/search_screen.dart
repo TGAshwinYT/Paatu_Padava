@@ -295,7 +295,7 @@ class _SearchScreenState extends State<SearchScreen> {
           _resultsNotifier.value = SearchResultsState(
             topResult: unified.topResult, songs: isSameSongs ? current.songs : unified.songs, ytSongs: unified.ytSongs,
             saavnSongs: unified.saavnSongs, audiusSongs: unified.audiusSongs, albums: unified.albums, artists: unified.artists,
-            playlists: unified.playlists, didYouMean: unified.didYouMean, error: unified.error,
+            playlists: unified.playlists, didYouMean: unified.didYouMean, error: unified.error, isOfflineResult: unified.isOfflineResult,
           );
         }
         if (unified.songs.isNotEmpty || unified.albums.isNotEmpty || unified.artists.isNotEmpty) { _isInitialLoadingNotifier.value = false; if (unified.songs.isNotEmpty) DefaultStreamResolver.prewarmSongs(unified.songs, limit: 3); }
@@ -307,7 +307,10 @@ class _SearchScreenState extends State<SearchScreen> {
     } catch (e, stack) {
       if (mounted && currentRequestId == _searchRequestId) {
         if (_resultsNotifier.value.isEmpty) {
-          _resultsNotifier.value = SearchResultsState(error: ErrorHandler.resolve(e, stackTrace: stack, context: 'SearchScreen._executeSearch'));
+          final offlineMatches = SearchService.searchDownloadedSongs(clean);
+          _resultsNotifier.value = offlineMatches.isNotEmpty
+              ? SearchResultsState(songs: offlineMatches, isOfflineResult: true)
+              : SearchResultsState(error: ErrorHandler.resolve(e, stackTrace: stack, context: 'SearchScreen._executeSearch'));
         } else { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't refresh, showing saved results"), duration: Duration(seconds: 2))); }
         _isSearchingNotifier.value = _isInitialLoadingNotifier.value = false;
       }

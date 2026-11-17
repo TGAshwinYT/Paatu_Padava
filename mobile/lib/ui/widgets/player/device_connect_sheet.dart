@@ -344,6 +344,30 @@ class _DeviceConnectSheetState extends State<DeviceConnectSheet> with SingleTick
               ValueListenableBuilder<List<ConnectedDevice>>(
                 valueListenable: DeviceConnectCoordinator.instance.discoveredDevicesNotifier,
                 builder: (context, devices, _) {
+                  if (devices.isEmpty) {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.03),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.info_outline_rounded, size: 18, color: Colors.white38),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'No network streaming endpoints found. Use Bluetooth or Cast settings below to pair.',
+                              style: GoogleFonts.outfit(color: Colors.white60, fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
                   final activeId = DeviceConnectCoordinator.instance.currentDevice.id;
 
                   return Column(

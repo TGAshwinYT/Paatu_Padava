@@ -4,6 +4,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:paatu_padava_mobile/logic/audio_queue_handler.dart';
 import 'package:paatu_padava_mobile/models/song.dart';
 import 'package:paatu_padava_mobile/services/settings_manager.dart';
+import 'package:paatu_padava_mobile/services/equalizer_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -149,6 +150,45 @@ void main() {
       );
 
       expect(AudioQueueHandler.getNormalizedVolumeForSong(songWithMp4Url), equals(0.80));
+    });
+  });
+
+  group('EqualizerService Dynamic N-Band Logarithmic Interpolation Tests', () {
+    test('Interpolating 5-band reference onto 5 bands yields exact match', () {
+      final base = [4.0, 2.0, -1.0, 3.0, 5.0];
+      final interpolated = EqualizerService.interpolateBands(base, 5);
+      expect(interpolated.length, equals(5));
+      for (int i = 0; i < 5; i++) {
+        expect(interpolated[i], closeTo(base[i], 0.001));
+      }
+    });
+
+    test('Interpolating 5 bands onto 8 hardware bands preserves end points and smoothly scales', () {
+      final base = [6.0, 3.0, 0.0, 2.0, 8.0];
+      final interpolated = EqualizerService.interpolateBands(base, 8);
+      expect(interpolated.length, equals(8));
+      expect(interpolated.first, closeTo(6.0, 0.001));
+      expect(interpolated.last, closeTo(8.0, 0.001));
+      for (final gain in interpolated) {
+        expect(gain, inInclusiveRange(0.0, 8.0));
+      }
+    });
+
+    test('Interpolating 5 bands onto 10 hardware bands yields monotonically smooth transition', () {
+      final base = [-4.0, -2.0, 0.0, 2.0, 4.0];
+      final interpolated = EqualizerService.interpolateBands(base, 10);
+      expect(interpolated.length, equals(10));
+      expect(interpolated.first, closeTo(-4.0, 0.001));
+      expect(interpolated.last, closeTo(4.0, 0.001));
+      for (int i = 0; i < interpolated.length - 1; i++) {
+        expect(interpolated[i] <= interpolated[i + 1] + 0.001, isTrue);
+      }
+    });
+
+    test('Edge cases: empty bands or target <= 0 are handled safely', () {
+      expect(EqualizerService.interpolateBands([], 5), equals([0.0, 0.0, 0.0, 0.0, 0.0]));
+      expect(EqualizerService.interpolateBands([3.0], 5), equals([3.0, 3.0, 3.0, 3.0, 3.0]));
+      expect(EqualizerService.interpolateBands([1.0, 2.0], 0), isEmpty);
     });
   });
 }

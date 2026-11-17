@@ -15,6 +15,7 @@ import 'app_logger.dart';
 import 'des_decrypt.dart';
 import 'connectivity_service.dart';
 import 'favorites_manager.dart';
+import '../logic/stream_resolver.dart';
 
 class DownloadManager {
   static const String boxName = 'offline_songs';
@@ -262,8 +263,17 @@ class DownloadManager {
     try {
       _clearDownloadError(song.id);
 
-      // 1. Resolve Audio URL if not already present
+      // 1. Resolve Audio URL via unified DefaultStreamResolver for 4-stage fallback resilience
       String? audioUrl = song.streamUrl;
+      if (audioUrl == null || audioUrl.isEmpty || DefaultStreamResolver.isStreamExpired(song.id)) {
+        try {
+          audioUrl = await DefaultStreamResolver().resolveStreamUrl(song);
+        } catch (e) {
+          AppLogger.log('DownloadManager', 'DefaultStreamResolver download attempt notice: $e');
+        }
+      }
+
+      // Secondary fallback if StreamResolver returned null
       if (audioUrl == null || audioUrl.isEmpty) {
         if (song.source == 'youtube') {
           audioUrl = await YouTubeClient.getAudioStreamUrl(song.id);

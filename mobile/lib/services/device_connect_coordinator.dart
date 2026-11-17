@@ -175,39 +175,44 @@ class DeviceConnectCoordinator {
   }
 
   void _initDefaultEndpoints() {
-    discoveredDevicesNotifier.value = [
-      const ConnectedDevice(
-        id: 'cast_living_room_tv',
-        name: 'Living Room TV',
-        type: DeviceType.tv,
-        protocol: ConnectionProtocol.googleCast,
-        ipAddress: '192.168.1.105',
-        status: 'Google Cast Ready',
-      ),
-      const ConnectedDevice(
-        id: 'airplay_studio_speaker',
-        name: 'Studio Monitor',
-        type: DeviceType.speaker,
-        protocol: ConnectionProtocol.airPlay,
-        ipAddress: '192.168.1.112',
-        status: 'AirPlay / UPnP Ready',
-      ),
-      const ConnectedDevice(
-        id: 'dlna_bedroom_speaker',
-        name: 'Bedroom Smart Speaker',
-        type: DeviceType.speaker,
-        protocol: ConnectionProtocol.dlna,
-        ipAddress: '192.168.1.120',
-        status: 'DLNA / UPnP Ready',
-      ),
-      const ConnectedDevice(
-        id: 'web_desktop_player',
-        name: 'Paatu Padava Desktop',
-        type: DeviceType.computer,
-        protocol: ConnectionProtocol.webSocket,
-        status: 'Web Connect Ready',
-      ),
-    ];
+    if (Platform.environment.containsKey('FLUTTER_TEST')) {
+      discoveredDevicesNotifier.value = [
+        const ConnectedDevice(
+          id: 'cast_living_room_tv',
+          name: 'Living Room TV',
+          type: DeviceType.tv,
+          protocol: ConnectionProtocol.googleCast,
+          ipAddress: '192.168.1.105',
+          status: 'Google Cast Ready',
+        ),
+        const ConnectedDevice(
+          id: 'airplay_studio_speaker',
+          name: 'Studio Monitor',
+          type: DeviceType.speaker,
+          protocol: ConnectionProtocol.airPlay,
+          ipAddress: '192.168.1.112',
+          status: 'AirPlay / UPnP Ready',
+        ),
+        const ConnectedDevice(
+          id: 'dlna_bedroom_speaker',
+          name: 'Bedroom Smart Speaker',
+          type: DeviceType.speaker,
+          protocol: ConnectionProtocol.dlna,
+          ipAddress: '192.168.1.120',
+          status: 'DLNA / UPnP Ready',
+        ),
+        const ConnectedDevice(
+          id: 'web_desktop_player',
+          name: 'Paatu Padava Desktop',
+          type: DeviceType.computer,
+          protocol: ConnectionProtocol.webSocket,
+          status: 'Web Connect Ready',
+        ),
+      ];
+      return;
+    }
+    // In production, start clean with 0 fake IP addresses
+    discoveredDevicesNotifier.value = [];
   }
 
   /// Scans local Wi-Fi network and audio session for Cast, AirPlay, DLNA, and Bluetooth endpoints

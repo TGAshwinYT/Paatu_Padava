@@ -23,6 +23,7 @@ import 'app_logger.dart';
 import 'artist_sanitizer.dart';
 import 'api_client.dart';
 import 'catalog_database.dart';
+import 'download_manager.dart';
 import 'user_preference_matrix.dart';
 import '../data/repositories/song_repository.dart';
 import '../core/dsa/lru_cache.dart';
@@ -125,6 +126,7 @@ class SearchResults {
   final AppError? error;
   final bool isFinal;
   final bool isCached;
+  final bool isOfflineResult;
 
   SearchResults({
     this.songs = const [],
@@ -139,6 +141,7 @@ class SearchResults {
     this.error,
     this.isFinal = false,
     this.isCached = false,
+    this.isOfflineResult = false,
   });
 
   bool get isEmpty =>
@@ -1394,7 +1397,48 @@ class SearchService {
     } catch (e, stack) {
       AppLogger.log('SearchService', 'searchSongsTab error: $e', level: LogLevel.error);
       AppLogger.recordError(e, stack, context: 'searchSongsTab query="$query"');
+      final offlineMatches = searchDownloadedSongs(query);
+      if (offlineMatches.isNotEmpty) return offlineMatches;
       return <Song>[];
+    }
+  }
+
+  /// Performs fast in-memory title, artist, and album fuzzy search across downloaded songs for offline resilience.
+  static List<Song> searchDownloadedSongs(String query) {
+    try {
+      final downloaded = DownloadManager.getDownloadedSongs();
+      if (downloaded.isEmpty || query.trim().isEmpty) return const [];
+      final q = query.trim().toLowerCase();
+      final tokens = q.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
+
+      final matched = downloaded.where((song) {
+        final t = song.title.toLowerCase();
+        final a = song.artist.toLowerCase();
+        final alb = song.album.toLowerCase();
+
+        if (t.contains(q) || a.contains(q) || alb.contains(q)) return true;
+        if (tokens.isNotEmpty && tokens.every((tok) => t.contains(tok) || a.contains(tok) || alb.contains(tok))) {
+          return true;
+        }
+        return false;
+      }).toList();
+
+      matched.sort((a, b) {
+        final aTitle = a.title.toLowerCase();
+        final bTitle = b.title.toLowerCase();
+        final aStarts = aTitle.startsWith(q) ? 1 : 0;
+        final bStarts = bTitle.startsWith(q) ? 1 : 0;
+        if (aStarts != bStarts) return bStarts.compareTo(aStarts);
+        final aContains = aTitle.contains(q) ? 1 : 0;
+        final bContains = bTitle.contains(q) ? 1 : 0;
+        if (aContains != bContains) return bContains.compareTo(aContains);
+        return 0;
+      });
+
+      return matched;
+    } catch (e) {
+      debugPrint('[SearchService] searchDownloadedSongs error: $e');
+      return const [];
     }
   }
 
@@ -3404,6 +3448,17 @@ class SearchService {
 
       AppError? searchError;
       if (userRankedSongs.isEmpty && ytSongs.isEmpty && initialAlbums.isEmpty && finalArtists.isEmpty && finalPlaylists.isEmpty && (saavnFailed && ytFailed)) {
+        final offlineMatches = searchDownloadedSongs(intent.cleanQuery);
+        if (offlineMatches.isNotEmpty) {
+          final offlineBundle = SearchResults(
+            songs: offlineMatches,
+            isOfflineResult: true,
+            isFinal: true,
+          );
+          SearchCache.put(rawQuery, offlineBundle, language: effectiveLang);
+          yield offlineBundle;
+          return;
+        }
         searchError = AppError.offline(debugDetails: 'All upstream providers failed for "${intent.cleanQuery}"');
       }
 
@@ -3479,7 +3534,16 @@ class SearchService {
           isFinal: true,
         );
       } else {
-        yield SearchResults(error: appErr, isFinal: true);
+        final offlineMatches = searchDownloadedSongs(intent.cleanQuery);
+        if (offlineMatches.isNotEmpty) {
+          yield SearchResults(
+            songs: offlineMatches,
+            isOfflineResult: true,
+            isFinal: true,
+          );
+        } else {
+          yield SearchResults(error: appErr, isFinal: true);
+        }
       }
     }
   }

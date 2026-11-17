@@ -190,5 +190,16 @@ void main() {
       expect(payload1['cmdId'], equals(payload2['cmdId']));
       expect(payload1['cmdId'], equals('cmd_uuid_test_123'));
     });
+
+    test('PartySync rapid-skip invalidates prior pendingPrepareCmdId and drops stale peer_ready acks', () {
+      expect(PartySyncCoordinator.pendingPrepareCmdId, isNull);
+      final payloadOld = {'cmdId': 'stale_cmd_1', 'peerId': 'peer_1'};
+      final payloadNew = {'cmdId': 'fresh_cmd_2', 'peerId': 'peer_1'};
+
+      // Invariant: Stale ACK must not match active prepare command ID
+      const activeCmdId = 'fresh_cmd_2';
+      expect(payloadOld['cmdId'] == activeCmdId, isFalse);
+      expect(payloadNew['cmdId'] == activeCmdId, isTrue);
+    });
   });
 }

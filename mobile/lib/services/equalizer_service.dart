@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../platform/audio_platform.dart';
@@ -116,6 +117,47 @@ class EqualizerService {
     }
   }
 
+  static const List<double> referenceFrequencies = [60.0, 230.0, 910.0, 3600.0, 14000.0];
+
+  /// Interpolates a source band gain curve (e.g. 5-band reference) onto N hardware bands
+  /// using logarithmic frequency interpolation across the audio spectrum.
+  static List<double> interpolateBands(List<double> sourceBands, int targetCount) {
+    if (sourceBands.isEmpty) return List.filled(targetCount > 0 ? targetCount : 0, 0.0);
+    if (targetCount <= 0) return const [];
+    if (sourceBands.length == targetCount) return List<double>.from(sourceBands);
+    if (sourceBands.length == 1) return List.filled(targetCount, sourceBands.first);
+
+    final logRef = referenceFrequencies.map((f) => math.log(f) / math.ln10).toList();
+    final minLog = logRef.first;
+    final maxLog = logRef.last;
+
+    final result = List<double>.filled(targetCount, 0.0);
+    for (int i = 0; i < targetCount; i++) {
+      final targetLog = targetCount == 1
+          ? minLog
+          : minLog + (i / (targetCount - 1)) * (maxLog - minLog);
+
+      if (targetLog <= logRef.first) {
+        result[i] = sourceBands.first;
+      } else if (targetLog >= logRef.last) {
+        result[i] = sourceBands.last;
+      } else {
+        int seg = 0;
+        for (int s = 0; s < logRef.length - 1; s++) {
+          if (targetLog <= logRef[s + 1]) {
+            seg = s;
+            break;
+          }
+        }
+        final fraction = (targetLog - logRef[seg]) / (logRef[seg + 1] - logRef[seg]);
+        final gainA = seg < sourceBands.length ? sourceBands[seg] : sourceBands.last;
+        final gainB = (seg + 1) < sourceBands.length ? sourceBands[seg + 1] : sourceBands.last;
+        result[i] = gainA + fraction * (gainB - gainA);
+      }
+    }
+    return result;
+  }
+
   /// Calculates effective acoustic frequency bands (-10.0 to +10.0 dB)
   /// Incorporates:
   /// 1. User baseline equalizer band settings
@@ -225,19 +267,10 @@ class EqualizerService {
         vocalAttenuation: effectiveVocalAttenuation,
       );
 
+      // Logarithmically interpolate effective bands to hardware band count
+      final interpolated = interpolateBands(effectiveBands, _hardwareBandCount);
       // Convert dB to millibels (1 dB = 100 mB)
-      final millibels = effectiveBands.map((dB) => (dB * 100).round()).toList();
-      List<int> targetBands;
-      if (millibels.length == _hardwareBandCount) {
-        targetBands = millibels;
-      } else if (millibels.length > _hardwareBandCount) {
-        targetBands = millibels.sublist(0, _hardwareBandCount);
-      } else {
-        targetBands = List<int>.from(millibels);
-        while (targetBands.length < _hardwareBandCount) {
-          targetBands.add(targetBands.isNotEmpty ? targetBands.last : 0);
-        }
-      }
+      final targetBands = interpolated.map((dB) => (dB * 100).round()).toList();
       await _channel.invokeMethod('setAllBands', {'levels': targetBands});
     } catch (e) {
       debugPrint('[EqualizerService] applyCurrentBands error: $e');

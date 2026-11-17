@@ -116,6 +116,7 @@ class PartySyncCoordinator {
   static final Set<String> _processedCmdIds = {};
   static Completer<void>? _peerReadyCompleter;
   static String? _pendingPrepareCmdId;
+  static String? get pendingPrepareCmdId => _pendingPrepareCmdId;
   static List<String> _localIps = [];
   static String? _lastAnnouncedSongId;
   static int _lastAnnouncedTimeMs = 0;
@@ -132,6 +133,8 @@ class PartySyncCoordinator {
       if (_peerReadyCompleter != null && !_peerReadyCompleter!.isCompleted) {
         _peerReadyCompleter!.complete();
       }
+    } else {
+      AppLogger.debug('PartySyncCoordinator', 'Ignoring stale or mismatched peer_ready ACK (received: $cmdId, active: $_pendingPrepareCmdId)');
     }
   }
 
@@ -371,6 +374,9 @@ class PartySyncCoordinator {
     _pendingScheduledPlayTimer = null;
     _pendingSeekTimer?.cancel();
     _pendingSeekTimer = null;
+    if (_peerReadyCompleter != null && !_peerReadyCompleter!.isCompleted) {
+      _peerReadyCompleter!.complete();
+    }
   }
 
   static void _handleNtpPong(Map<String, dynamic> payload, RealtimeChannel? channel, PeerDeviceInfo selfPeer) {
@@ -752,6 +758,12 @@ class PartySyncCoordinator {
       _peerReadyCompleter = null;
     }
 
+    // Invariant check: Has a newer skip or track change superseded this prepare cycle?
+    if (_pendingPrepareCmdId != cmdId) {
+      AppLogger.debug('PartySyncCoordinator', 'Prepare cycle for $cmdId superseded by $_pendingPrepareCmdId; aborting stale play broadcast.');
+      return;
+    }
+
     // 3. Go Phase: Audio is now loaded; compute tight startAtEpochMs
     final peerRtts = _knownPeers.values.where((p) => !p.isSelf).map((p) => p.rttMs).toList();
     final isLan = PartyLanAccelerator.isLanActiveNotifier.value;
@@ -839,6 +851,7 @@ class PartySyncCoordinator {
       await audioHandler.playSong(nextSong, queue: queue, preserveUserQueue: false);
       return;
     }
+    _cancelPendingScheduledOperations();
     await audioHandler.playSong(
       nextSong,
       queue: queue,

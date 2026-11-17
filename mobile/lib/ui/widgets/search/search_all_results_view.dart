@@ -154,6 +154,10 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
               : ListView(
                   padding: EdgeInsets.only(bottom: AppDimensions.bottomClearance(context, hasBottomNav: true)),
                   children: [
+              // Offline Downloads Fallback Indicator Banner
+              if (state.isOfflineResult == true)
+                _buildOfflineBanner(),
+
               // Typo / Did You Mean Banner
               if (state.didYouMean != null && _selectedFilter == 'All')
                 _buildDidYouMeanBanner(state.didYouMean!),
@@ -314,6 +318,30 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildOfflineBanner() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceElevated,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.surfaceBorder),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.cloud_off_rounded, color: AppColors.electricCyan, size: 18),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Showing matching offline downloads',
+              style: TextStyle(color: AppColors.textWhite, fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
       ),
     );
   }

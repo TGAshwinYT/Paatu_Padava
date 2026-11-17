@@ -12,6 +12,7 @@ class SearchResultsState {
   final List<Song> audiusSongs;
   final String? didYouMean;
   final AppError? error;
+  final bool isOfflineResult;
 
   const SearchResultsState({
     this.topResult,
@@ -24,6 +25,7 @@ class SearchResultsState {
     this.audiusSongs = const [],
     this.didYouMean,
     this.error,
+    this.isOfflineResult = false,
   });
 
   bool get isEmpty =>

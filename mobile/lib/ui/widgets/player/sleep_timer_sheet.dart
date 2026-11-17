@@ -771,7 +771,7 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> with SingleTickerProv
                           ? 'Start Timer (End of Track)'
                           : (_isEndOfQueue
                               ? 'Start Timer (End of Queue)'
-                              : 'Start Timer (${_formatDurationTitle(_selectedDuration)})'),
+                              : 'Start Sleep Timer (${_formatDurationTitle(_selectedDuration)})'),
                       textAlign: TextAlign.center,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,

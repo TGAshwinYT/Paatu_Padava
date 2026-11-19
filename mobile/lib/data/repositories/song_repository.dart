@@ -55,53 +55,69 @@ class SongRepository {
   static Future<List<Map<String, dynamic>>> searchLyricsCandidates(String query) =>
       ApiClient.searchLyricsCandidates(query);
 
+  // Pre-compiled regular expressions to eliminate hot-loop recompilation on UI thread
+  static final RegExp _handleRegex = RegExp(r'^@[a-zA-Z0-9_.]+\s*[-:|~–—]?\s*');
+  static final RegExp _fromMovieRegex = RegExp(
+    r'\s*[\(\[][Ff]rom\s+["\u201c\u201d\u2018\u2019]?[^)\u201d\]]+["\u201c\u201d\u2018\u2019]?[\)\]]',
+    caseSensitive: false,
+  );
+  static final RegExp _soundtrackRegex = RegExp(
+    r'\s*[\(\[][^)\u201d\]]*(?:motion picture|soundtrack|ost)[^)\u201d\]]*[\)\]]',
+    caseSensitive: false,
+  );
+  static final RegExp _remasterRegex = RegExp(
+    r'\s*[\(\[][^)\u201d\]]*remaster(?:ed)?[^)\u201d\]]*[\)\]]',
+    caseSensitive: false,
+  );
+  static final RegExp _officialMediaRegex = RegExp(
+    r'\s*[\(\[][^)\u201d\]]*(?:official|audio|lyric|video|lyrical)[^)\u201d\]]*[\)\]]',
+    caseSensitive: false,
+  );
+  static final RegExp _featRegex = RegExp(
+    r'\s*[\(\[][Ff](?:eat\.?|t\.)[^)\u201d\]]*[\)\]]',
+    caseSensitive: false,
+  );
+  static final RegExp _pipeSuffixRegex = RegExp(r'\|.*$');
+  static final RegExp _liveSuffixRegex = RegExp(
+    r'\s*-\s*(?:live|single|stereo|mono|edit|remaster(?:ed)?(?:\s*\d{4})?)$',
+    caseSensitive: false,
+  );
+  static final RegExp _stripPunctuationRegex = RegExp(r'[^\w\s\u0B80-\u0BFF\u0C00-\u0C7F\u0900-\u097F]');
+  static final RegExp _whitespaceRegex = RegExp(r'\s+');
+  static final RegExp _artistSplitRegex = RegExp(r'[,&/]|(?:\s+feat\.?|\s+ft\.?)', caseSensitive: false);
+
   /// Normalizes a song title by stripping metadata tags, HTML entities, and punctuation.
   static String normalizeTitle(String rawTitle) {
     if (rawTitle.isEmpty) return '';
     var clean = _unescape.convert(Song.sanitize(rawTitle));
 
     // Strip leading @handle mentions (e.g. "@SaiAbhyankkar - Pavazha Malli")
-    clean = clean.replaceAll(RegExp(r'^@[a-zA-Z0-9_.]+\s*[-:|~–—]?\s*'), '');
+    clean = clean.replaceAll(_handleRegex, '');
 
     // Remove: (From "Movie"), [From "Movie"], (From Movie)
-    clean = clean.replaceAll(
-      RegExp(r'\s*[\(\[][Ff]rom\s+["\u201c\u201d\u2018\u2019]?[^)\u201d\]]+["\u201c\u201d\u2018\u2019]?[\)\]]', caseSensitive: false),
-      '',
-    );
+    clean = clean.replaceAll(_fromMovieRegex, '');
 
     // Remove: (Original Motion Picture Soundtrack), (OST), [Soundtrack Version]
-    clean = clean.replaceAll(
-      RegExp(r'\s*[\(\[][^)\u201d\]]*(?:motion picture|soundtrack|ost)[^)\u201d\]]*[\)\]]', caseSensitive: false),
-      '',
-    );
+    clean = clean.replaceAll(_soundtrackRegex, '');
 
     // Remove: [Remastered...], (Remastered...)
-    clean = clean.replaceAll(
-      RegExp(r'\s*[\(\[][^)\u201d\]]*remaster(?:ed)?[^)\u201d\]]*[\)\]]', caseSensitive: false),
-      '',
-    );
+    clean = clean.replaceAll(_remasterRegex, '');
 
     // Remove: (Official Video), [Official Audio], (Lyric Video), [Lyrical]
-    clean = clean.replaceAll(
-      RegExp(r'\s*[\(\[][^)\u201d\]]*(?:official|audio|lyric|video|lyrical)[^)\u201d\]]*[\)\]]', caseSensitive: false),
-      '',
-    );
+    clean = clean.replaceAll(_officialMediaRegex, '');
 
     // Remove: (Feat. ...), [feat. ...]
-    clean = clean.replaceAll(
-      RegExp(r'\s*[\(\[][Ff](?:eat\.?|t\.)[^)\u201d\]]*[\)\]]', caseSensitive: false),
-      '',
-    );
+    clean = clean.replaceAll(_featRegex, '');
 
     // Remove pipe suffixes: | ...
-    clean = clean.replaceAll(RegExp(r'\|.*$'), '');
+    clean = clean.replaceAll(_pipeSuffixRegex, '');
 
     // Suffix " - Live" or " - Single" or " - From ..."
-    clean = clean.replaceAll(RegExp(r'\s*-\s*(?:live|single|stereo|mono|edit|remaster(?:ed)?(?:\s*\d{4})?)$', caseSensitive: false), '');
+    clean = clean.replaceAll(_liveSuffixRegex, '');
 
     // Strip non-alphanumeric chars for strict fuzzy key comparison
-    clean = clean.replaceAll(RegExp(r'[^\w\s\u0B80-\u0BFF\u0C00-\u0C7F\u0900-\u097F]'), '').toLowerCase().trim();
-    clean = clean.replaceAll(RegExp(r'\s+'), ' ');
+    clean = clean.replaceAll(_stripPunctuationRegex, '').toLowerCase().trim();
+    clean = clean.replaceAll(_whitespaceRegex, ' ');
     return clean;
   }
 
@@ -109,8 +125,8 @@ class SongRepository {
   static String normalizeArtist(String rawArtist) {
     if (rawArtist.isEmpty) return '';
     final clean = _unescape.convert(Song.sanitize(rawArtist));
-    final first = clean.split(RegExp(r'[,&/]|(?:\s+feat\.?|\s+ft\.?)', caseSensitive: false)).first.trim();
-    return first.replaceAll(RegExp(r'[^\w\s\u0B80-\u0BFF\u0C00-\u0C7F\u0900-\u097F]'), '').toLowerCase().trim();
+    final first = clean.split(_artistSplitRegex).first.trim();
+    return first.replaceAll(_stripPunctuationRegex, '').toLowerCase().trim();
   }
 
   static const Set<String> _devanagariLanguages = {

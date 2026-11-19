@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../domain/models/track_entity.dart';
 import '../models/song.dart';
@@ -63,150 +64,26 @@ class SyncManager {
         return;
       }
 
-      debugPrint('[SyncManager] Syncing library via joined query for user ${supaUser.id}...');
-      await SupabaseService.syncPendingUserTaste();
+      debugPrint('[SyncManager] Starting parallel library sync for user ${supaUser.id}...');
 
-      // ================= 1. Sync User Favorite Artists ================= //
-      try {
-        final List<dynamic> remoteArtists = await client
-            .from('user_favorite_artists')
-            .select('artist_name, artist_image_url')
-            .eq('user_id', supaUser.id);
-
-        final List<String> remoteArtistNames = remoteArtists
-            .map((a) => a['artist_name']?.toString() ?? '')
-            .where((n) => n.isNotEmpty)
-            .toList();
-
-        if (remoteArtistNames.isNotEmpty) {
-          final localArtists = AuthManager.currentUser?.favoriteArtists ?? [];
-          final combined = {...localArtists, ...remoteArtistNames}.toList();
-          await AuthManager.updateArtistPreferences(combined);
-        }
-      } catch (e) {
-        debugPrint('[SyncManager] Favorite artists sync notice: $e');
-      }
-
-      // ================= 2. Scalable Joined Playlists & Tracks Query ================= //
-      // Single joined query: selects playlists and embeds playlist_tracks(*) in one network request!
-      List<dynamic> remotePlaylists = [];
-      try {
-        remotePlaylists = await client
-            .from('playlists')
-            .select('id, user_id, title, cover_url, is_collaborative, invite_code, created_at, playlist_tracks(id, track_id, title, artist, artwork_url, stream_url, source_type, added_at, position, added_by)')
-            .eq('user_id', supaUser.id)
-            .order('created_at', ascending: false);
-      } catch (e) {
-        AppLogger.log('SyncManager', 'Playlists added_by select fallback: $e');
-        // Fallback for older schema without added_by column
-        remotePlaylists = await client
-            .from('playlists')
-            .select('id, user_id, title, cover_url, is_collaborative, invite_code, created_at, playlist_tracks(id, track_id, title, artist, artwork_url, stream_url, source_type, added_at, position)')
-            .eq('user_id', supaUser.id)
-            .order('created_at', ascending: false);
-      }
-
-      final Map<String, UserPlaylist> reconciledMap = {};
-
-      for (final pl in remotePlaylists) {
-        final plId = pl['id']?.toString() ?? '';
-        final plTitle = TrackEntity.sanitize(pl['title'], fallback: 'Untitled Playlist');
-        final createdAtStr = pl['created_at']?.toString();
-        final createdAtMs = createdAtStr != null
-            ? (DateTime.tryParse(createdAtStr)?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch)
-            : DateTime.now().millisecondsSinceEpoch;
-
-        // Tracks are directly populated from the joined relation (no N+1 query loop!)
-        final List<dynamic> tracksData = pl['playlist_tracks'] as List<dynamic>? ?? [];
-        tracksData.sort((a, b) => ((a['position'] ?? 0) as num).compareTo((b['position'] ?? 0) as num));
-
-        final List<Song> tracks = tracksData.map((t) {
-          return Song(
-            id: t['track_id']?.toString() ?? '',
-            title: TrackEntity.sanitize(t['title'], fallback: 'Unknown Track'),
-            artist: TrackEntity.sanitize(t['artist'], fallback: 'Various Artists'),
-            album: '',
-            duration: 0,
-            coverUrl: t['artwork_url']?.toString() ?? '',
-            streamUrl: t['stream_url']?.toString(),
-            source: t['source_type']?.toString() ?? 'saavn',
-            addedBy: t['added_by']?.toString(),
-          );
-        }).toList();
-
-        reconciledMap[plId] = UserPlaylist(
-          id: plId,
-          title: plTitle,
-          createdAt: createdAtMs,
-          tracks: tracks,
-          isCollaborative: pl['is_collaborative'] == true,
-          inviteCode: pl['invite_code']?.toString(),
-          ownerId: pl['user_id']?.toString(),
-        );
-      }
-
-      // 3. Reconcile local and remote playlists (merge missing offline tracks without overwriting)
-      final localPlaylists = PlaylistManager.getPlaylists();
-      for (final local in localPlaylists) {
-        if (!reconciledMap.containsKey(local.id)) {
-          await pushPlaylistToCloud(local, supaUser.id);
-          reconciledMap[local.id] = local;
-        } else {
-          final remotePl = reconciledMap[local.id]!;
-          final remoteTrackIds = remotePl.tracks.map((t) => t.id).toSet();
-
-          // Push any offline added tracks to Supabase
-          final missingOnCloud = local.tracks.where((t) => !remoteTrackIds.contains(t.id)).toList();
-          for (final track in missingOnCloud) {
-            unawaited(addSongToPlaylist(local.id, track));
-          }
-
-          // Build merged tracks list: remote tracks + local additions without duplicates
-          final mergedTracks = List<Song>.from(remotePl.tracks);
-          for (final t in local.tracks) {
-            if (!remoteTrackIds.contains(t.id)) {
-              mergedTracks.add(t);
-            }
-          }
-
-          reconciledMap[local.id] = UserPlaylist(
-            id: local.id,
-            title: local.title.isNotEmpty ? local.title : remotePl.title,
-            createdAt: local.createdAt,
-            tracks: mergedTracks,
-            isCollaborative: remotePl.isCollaborative || local.isCollaborative,
-            inviteCode: remotePl.inviteCode ?? local.inviteCode,
-            ownerId: remotePl.ownerId ?? local.ownerId,
-            isBlend: local.isBlend || remotePl.isBlend,
-            blendPartnerName: local.blendPartnerName ?? remotePl.blendPartnerName,
-            tasteMatchScore: local.tasteMatchScore ?? remotePl.tasteMatchScore,
-          );
-        }
-      }
-
-      // 4. Commit unified state down into local Hive cache
-      for (final pl in reconciledMap.values) {
-        await PlaylistManager.savePlaylistDirectly(pl);
-      }
-
-      PlaylistManager.refreshList();
-
-      // ================= 3. Sync Liked Songs / Favorites ================= //
-      try {
-        await FavoritesManager.syncWithCloud();
-      } catch (e) {
-        debugPrint('[SyncManager] Favorites sync notice: $e');
-      }
-
-      // ================= 4. Sync Listening History ================= //
-      try {
-        await HistoryManager.syncCloudHistory();
-      } catch (e) {
-        debugPrint('[SyncManager] History sync notice: $e');
-      }
+      // Execute all independent sync domains concurrently via Future.wait
+      await Future.wait([
+        _syncTasteAndArtists(client, supaUser).timeout(const Duration(seconds: 5)).catchError((e) {
+          debugPrint('[SyncManager] Taste/Artists sync notice: $e');
+        }),
+        _syncPlaylists(client, supaUser).timeout(const Duration(seconds: 6)).catchError((e) {
+          debugPrint('[SyncManager] Playlists sync notice: $e');
+        }),
+        FavoritesManager.syncWithCloud().timeout(const Duration(seconds: 5)).catchError((e) {
+          debugPrint('[SyncManager] Favorites sync notice: $e');
+        }),
+        HistoryManager.syncCloudHistory().timeout(const Duration(seconds: 5)).catchError((e) {
+          debugPrint('[SyncManager] History sync notice: $e');
+        }),
+      ]);
 
       syncStatusNotifier.value = SyncStatus.synced;
-      debugPrint('[SyncManager] Joined sync finished: ${reconciledMap.length} playlists, favorites, and history synchronized.');
+      debugPrint('[SyncManager] Parallel library sync completed successfully.');
     } catch (e) {
       debugPrint('[SyncManager] Sync failed: $e');
       syncErrorNotifier.value = ErrorHandler.resolve(e).userMessage;
@@ -218,6 +95,129 @@ class SyncManager {
         completer.complete();
       }
     }
+  }
+
+  /// Concurrently syncs user taste profile and favorite artists
+  static Future<void> _syncTasteAndArtists(SupabaseClient client, User supaUser) async {
+    try {
+      await SupabaseService.syncPendingUserTaste();
+      final List<dynamic> remoteArtists = await client
+          .from('user_favorite_artists')
+          .select('artist_name, artist_image_url')
+          .eq('user_id', supaUser.id);
+
+      final List<String> remoteArtistNames = remoteArtists
+          .map((a) => a['artist_name']?.toString() ?? '')
+          .where((n) => n.isNotEmpty)
+          .toList();
+
+      if (remoteArtistNames.isNotEmpty) {
+        final localArtists = AuthManager.currentUser?.favoriteArtists ?? [];
+        final combined = {...localArtists, ...remoteArtistNames}.toList();
+        await AuthManager.updateArtistPreferences(combined);
+      }
+    } catch (e) {
+      debugPrint('[SyncManager] Favorite artists sync notice: $e');
+    }
+  }
+
+  /// Concurrently syncs and reconciles playlists and tracks
+  static Future<void> _syncPlaylists(SupabaseClient client, User supaUser) async {
+    List<dynamic> remotePlaylists = [];
+    try {
+      remotePlaylists = await client
+          .from('playlists')
+          .select('id, user_id, title, cover_url, is_collaborative, invite_code, created_at, playlist_tracks(id, track_id, title, artist, artwork_url, stream_url, source_type, added_at, position, added_by)')
+          .eq('user_id', supaUser.id)
+          .order('created_at', ascending: false);
+    } catch (e) {
+      AppLogger.log('SyncManager', 'Playlists added_by select fallback: $e');
+      remotePlaylists = await client
+          .from('playlists')
+          .select('id, user_id, title, cover_url, is_collaborative, invite_code, created_at, playlist_tracks(id, track_id, title, artist, artwork_url, stream_url, source_type, added_at, position)')
+          .eq('user_id', supaUser.id)
+          .order('created_at', ascending: false);
+    }
+
+    final Map<String, UserPlaylist> reconciledMap = {};
+
+    for (final pl in remotePlaylists) {
+      final plId = pl['id']?.toString() ?? '';
+      final plTitle = TrackEntity.sanitize(pl['title'], fallback: 'Untitled Playlist');
+      final createdAtStr = pl['created_at']?.toString();
+      final createdAtMs = createdAtStr != null
+          ? (DateTime.tryParse(createdAtStr)?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch)
+          : DateTime.now().millisecondsSinceEpoch;
+
+      final List<dynamic> tracksData = pl['playlist_tracks'] as List<dynamic>? ?? [];
+      tracksData.sort((a, b) => ((a['position'] ?? 0) as num).compareTo((b['position'] ?? 0) as num));
+
+      final List<Song> tracks = tracksData.map((t) {
+        return Song(
+          id: t['track_id']?.toString() ?? '',
+          title: TrackEntity.sanitize(t['title'], fallback: 'Unknown Track'),
+          artist: TrackEntity.sanitize(t['artist'], fallback: 'Various Artists'),
+          album: '',
+          duration: 0,
+          coverUrl: t['artwork_url']?.toString() ?? '',
+          streamUrl: t['stream_url']?.toString(),
+          source: t['source_type']?.toString() ?? 'saavn',
+          addedBy: t['added_by']?.toString(),
+        );
+      }).toList();
+
+      reconciledMap[plId] = UserPlaylist(
+        id: plId,
+        title: plTitle,
+        createdAt: createdAtMs,
+        tracks: tracks,
+        isCollaborative: pl['is_collaborative'] == true,
+        inviteCode: pl['invite_code']?.toString(),
+        ownerId: pl['user_id']?.toString(),
+      );
+    }
+
+    final localPlaylists = PlaylistManager.getPlaylists();
+    for (final local in localPlaylists) {
+      if (!reconciledMap.containsKey(local.id)) {
+        await pushPlaylistToCloud(local, supaUser.id);
+        reconciledMap[local.id] = local;
+      } else {
+        final remotePl = reconciledMap[local.id]!;
+        final remoteTrackIds = remotePl.tracks.map((t) => t.id).toSet();
+
+        final missingOnCloud = local.tracks.where((t) => !remoteTrackIds.contains(t.id)).toList();
+        for (final track in missingOnCloud) {
+          unawaited(addSongToPlaylist(local.id, track));
+        }
+
+        final mergedTracks = List<Song>.from(remotePl.tracks);
+        for (final t in local.tracks) {
+          if (!remoteTrackIds.contains(t.id)) {
+            mergedTracks.add(t);
+          }
+        }
+
+        reconciledMap[local.id] = UserPlaylist(
+          id: local.id,
+          title: local.title.isNotEmpty ? local.title : remotePl.title,
+          createdAt: local.createdAt,
+          tracks: mergedTracks,
+          isCollaborative: remotePl.isCollaborative || local.isCollaborative,
+          inviteCode: remotePl.inviteCode ?? local.inviteCode,
+          ownerId: remotePl.ownerId ?? local.ownerId,
+          isBlend: local.isBlend || remotePl.isBlend,
+          blendPartnerName: local.blendPartnerName ?? remotePl.blendPartnerName,
+          tasteMatchScore: local.tasteMatchScore ?? remotePl.tasteMatchScore,
+        );
+      }
+    }
+
+    for (final pl in reconciledMap.values) {
+      await PlaylistManager.savePlaylistDirectly(pl);
+    }
+
+    PlaylistManager.refreshList();
   }
 
   // ================= Direct User-Scoped Mutations ================= //

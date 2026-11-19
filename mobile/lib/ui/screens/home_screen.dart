@@ -23,6 +23,7 @@ import '../widgets/common/song_tile.dart';
 import 'settings_screen.dart';
 import 'history_screen.dart';
 import '../../services/settings_manager.dart';
+import '../../services/recent_containers_manager.dart';
 import '../widgets/home/feeling_chips_bar.dart';
 import '../widgets/home/top_hits_hero_card.dart';
 import '../widgets/home/numbered_chart_view.dart';
@@ -42,6 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     HomeFeedProvider.instance.init();
+    RecentContainersManager.init();
   }
 
   String _getGreeting() {
@@ -246,9 +248,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Flagship Spotify-Style 2x3 Quick Tiles Grid with instant 1-tap playback
+                            // =========================================================
+                            // TIER A: Instant Access & Context Anchor
+                            // =========================================================
+                            // Flagship Spotify-Style 2x3 Quick Tiles Grid with instant 1-tap playback (Persistently Loaded from Hive!)
                             if (feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you')
-                              const QuickGridSection(),
+                              const RepaintBoundary(child: QuickGridSection()),
 
                             // YouTube Music Style Feeling & Activity Chips Bar (shown when filtering by Moods)
                             if (feedState.homeFilter == 'moods')
@@ -257,19 +262,86 @@ class _HomeScreenState extends State<HomeScreen> {
                                 child: FeelingChipsBar(),
                               ),
 
+                            // =========================================================
+                            // TIER B: User History & Continuity (User-Owned - HOISTED TO TOP!)
+                            // =========================================================
+                            // "Jump Back In" (Recent History Carousel - clearly demarcated with Bloomee Electric Cyan badge)
+                            if (feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you')
+                              RepaintBoundary(
+                                child: ValueListenableBuilder<List<Song>>(
+                                  valueListenable: HistoryManager.historyNotifier,
+                                  builder: (context, recentSongs, _) {
+                                    final displayHistory = recentSongs.isNotEmpty ? recentSongs : feedState.recentHistory;
+                                    if (displayHistory.isEmpty) return const SizedBox.shrink();
+
+                                    return HomeSongShelf(
+                                      title: 'Jump Back In',
+                                      badgeText: 'LISTENING HISTORY',
+                                      badgeColor: AppColors.electricCyan,
+                                      subtitle: 'Pick up where you left off',
+                                      icon: Icons.history_rounded,
+                                      iconColor: AppColors.electricCyan,
+                                      songs: displayHistory,
+                                      cardWidth: cardWidth,
+                                      carouselHeight: carouselHeight,
+                                      onSeeAll: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(builder: (_) => const HistoryScreen()),
+                                        );
+                                      },
+                                    );
+                                  },
+                                ),
+                              ),
+
+                            // =========================================================
+                            // TIER C: Personalized Recommendations (Algorithmic)
+                            // =========================================================
+                            // "Recommended For You" (User taste / history-based mix with Bloomee Neon Violet badge)
+                            if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you') &&
+                                feedState.madeForYou.isNotEmpty)
+                              RepaintBoundary(
+                                child: HomeSongShelf(
+                                  title: 'Recommended For You',
+                                  badgeText: 'MADE FOR YOU',
+                                  badgeColor: AppColors.neonViolet,
+                                  subtitle: 'Based on your favorite artists & recent tastes',
+                                  icon: Icons.auto_awesome_rounded,
+                                  iconColor: AppColors.neonViolet,
+                                  songs: feedState.madeForYou,
+                                  cardWidth: cardWidth,
+                                  carouselHeight: carouselHeight,
+                                  onPlayAll: () => audioHandler.playSong(feedState.madeForYou.first, queue: feedState.madeForYou),
+                                ),
+                              ),
+
                             // Spotify-Style Clustered Daily Mixes Carousel
                             if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists' || feedState.homeFilter == 'for_you') &&
                                 feedState.dailyMixes.isNotEmpty)
-                              DailyMixesShelf(mixes: feedState.dailyMixes),
+                              RepaintBoundary(child: DailyMixesShelf(mixes: feedState.dailyMixes)),
+
+                            // YouTube Music Style Quick Picks 4-Row Column Grid
+                            if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you') &&
+                                SettingsManager.isHomeShowQuickPicksEnabled &&
+                                feedState.quickPicks.isNotEmpty)
+                              RepaintBoundary(child: QuickPicksGridCarousel(songs: feedState.quickPicks)),
+
+                            // =========================================================
+                            // TIER D: Curated Discovery & Official Regional Charts
+                            // =========================================================
+                            // Flagship Spotify-Style Editorial Showcase Hero Banner
+                            if (feedState.homeFilter == 'all' && feedState.heroShowcase != null && feedState.heroShowcase!.tracks.isNotEmpty)
+                              RepaintBoundary(child: TopHitsHeroCard(showcase: feedState.heroShowcase!)),
+
+                            // Spotify & Billboard Style Top 10 Official Ranked Charts
+                            if (feedState.homeFilter == 'all' && feedState.top10Charts.isNotEmpty)
+                              RepaintBoundary(child: NumberedChartView(charts: feedState.top10Charts)),
 
                             // Decades & Golden Era Collections Carousel
                             if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists') &&
                                 feedState.decadeMixes.isNotEmpty)
-                              DecadesMixesShelf(mixes: feedState.decadeMixes),
-
-                            // Flagship Spotify-Style Editorial Showcase Hero Banner
-                            if (feedState.homeFilter == 'all' && feedState.heroShowcase != null && feedState.heroShowcase!.tracks.isNotEmpty)
-                              TopHitsHeroCard(showcase: feedState.heroShowcase!),
+                              RepaintBoundary(child: DecadesMixesShelf(mixes: feedState.decadeMixes)),
 
                             // Active Mood / Feeling Focused Section (if user chose a mood other than 'all')
                             if (feedState.activeFeeling != 'all') ...[
@@ -334,13 +406,16 @@ class _HomeScreenState extends State<HomeScreen> {
                                       child: ListView.builder(
                                         padding: const EdgeInsets.symmetric(horizontal: 16),
                                         scrollDirection: Axis.horizontal,
+                                        physics: const BouncingScrollPhysics(),
                                         itemCount: activeMix.songs.length,
                                         itemBuilder: (context, index) {
                                           final song = activeMix.songs[index];
-                                          return HomeSongCard(
-                                            song: song,
-                                            width: cardWidth,
-                                            onTap: () => audioHandler.playSong(song, queue: activeMix.songs),
+                                          return RepaintBoundary(
+                                            child: HomeSongCard(
+                                              song: song,
+                                              width: cardWidth,
+                                              onTap: () => audioHandler.playSong(song, queue: activeMix.songs),
+                                            ),
                                           );
                                         },
                                       ),
@@ -349,16 +424,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                 );
                               }(),
                             ],
-
-                            // Spotify & Billboard Style Top 10 Official Ranked Charts
-                            if (feedState.homeFilter == 'all' && feedState.top10Charts.isNotEmpty)
-                              NumberedChartView(charts: feedState.top10Charts),
-
-                            // YouTube Music Style Quick Picks 4-Row Column Grid
-                            if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you') &&
-                                SettingsManager.isHomeShowQuickPicksEnabled &&
-                                feedState.quickPicks.isNotEmpty)
-                              QuickPicksGridCarousel(songs: feedState.quickPicks),
 
                             // Apple Music Style Mood & Activity Stations Carousel
                             if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'moods') &&
@@ -413,102 +478,66 @@ class _HomeScreenState extends State<HomeScreen> {
                                   separatorBuilder: (_, __) => const SizedBox(width: 14),
                                   itemBuilder: (context, index) {
                                     final mix = feedState.feelingMixes[index];
-                                    return MoodStationCard(mix: mix);
+                                    return RepaintBoundary(
+                                      child: MoodStationCard(mix: mix),
+                                    );
                                   },
                                 ),
                               ),
                             ],
 
-                            // "Jump Back In" (Recent History Carousel if available)
-                            if (feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you')
-                              ValueListenableBuilder<List<Song>>(
-                                valueListenable: HistoryManager.historyNotifier,
-                                builder: (context, recentSongs, _) {
-                                  final displayHistory = recentSongs.isNotEmpty ? recentSongs : feedState.recentHistory;
-                                  if (displayHistory.isEmpty) return const SizedBox.shrink();
-
-                                  return HomeSongShelf(
-                                    title: 'Jump Back In',
-                                    icon: Icons.history_rounded,
-                                    iconColor: AppColors.electricCyan,
-                                    songs: displayHistory,
-                                    cardWidth: cardWidth,
-                                    carouselHeight: carouselHeight,
-                                    onSeeAll: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(builder: (_) => const HistoryScreen()),
-                                      );
-                                    },
-                                  );
-                                },
-                              ),
-
-                            // "Made For You" (User taste / history-based mix)
-                            if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'for_you') &&
-                                feedState.madeForYou.isNotEmpty)
-                              HomeSongShelf(
-                                title: 'Made For You',
-                                icon: Icons.auto_awesome_rounded,
-                                iconColor: AppColors.neonViolet,
-                                songs: feedState.madeForYou,
-                                cardWidth: cardWidth,
-                                carouselHeight: carouselHeight,
-                                onPlayAll: () => audioHandler.playSong(feedState.madeForYou.first, queue: feedState.madeForYou),
-                              ),
-
-                            // "Trending Across JioSaavn & YouTube" Carousel
+                            // Unified "Chartbusters & Trending" Carousel (Consolidated JioSaavn & YouTube)
                             if (feedState.homeFilter == 'all' && feedState.trendingMerged.isNotEmpty)
-                              HomeSongShelf(
-                                title: 'Trending Across JioSaavn & YouTube',
-                                icon: Icons.local_fire_department_rounded,
-                                iconColor: AppColors.electricCyan,
-                                songs: feedState.trendingMerged,
-                                cardWidth: cardWidth,
-                                carouselHeight: carouselHeight,
-                                onPlayAll: () => audioHandler.playSong(feedState.trendingMerged.first, queue: feedState.trendingMerged),
-                              ),
-
-                            // "YouTube Music Trending" Carousel
-                            if (feedState.homeFilter == 'all' && feedState.youtubeTrending.isNotEmpty)
-                              HomeSongShelf(
-                                title: 'YouTube Music Trending',
-                                icon: Icons.play_circle_filled_rounded,
-                                iconColor: const Color(0xFFFF0033),
-                                songs: feedState.youtubeTrending,
-                                cardWidth: cardWidth,
-                                carouselHeight: carouselHeight,
-                                onPlayAll: () => audioHandler.playSong(feedState.youtubeTrending.first, queue: feedState.youtubeTrending),
+                              RepaintBoundary(
+                                child: HomeSongShelf(
+                                  title: 'Chartbusters & Trending',
+                                  badgeText: 'TOP CHARTS',
+                                  badgeColor: const Color(0xFF6366F1),
+                                  subtitle: 'The hottest trending tracks across streaming',
+                                  icon: Icons.local_fire_department_rounded,
+                                  iconColor: const Color(0xFF6366F1),
+                                  songs: feedState.trendingMerged,
+                                  cardWidth: cardWidth,
+                                  carouselHeight: carouselHeight,
+                                  onPlayAll: () => audioHandler.playSong(feedState.trendingMerged.first, queue: feedState.trendingMerged),
+                                ),
                               ),
 
                             // "Popular Artists" (High-Res Verified Avatars)
                             if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists') &&
                                 feedState.popularArtists.isNotEmpty)
-                              HomePopularArtists(artists: feedState.popularArtists),
+                              RepaintBoundary(child: HomePopularArtists(artists: feedState.popularArtists)),
 
                             // "New Releases" Carousel
                             if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists') &&
                                 feedState.newReleases.isNotEmpty)
-                              HomeSongShelf(
-                                title: 'New $currentLang Releases',
-                                icon: Icons.new_releases_rounded,
-                                iconColor: AppColors.neonViolet,
-                                songs: feedState.newReleases,
-                                cardWidth: cardWidth,
-                                carouselHeight: carouselHeight,
-                                onPlayAll: () => audioHandler.playSong(feedState.newReleases.first, queue: feedState.newReleases),
+                              RepaintBoundary(
+                                child: HomeSongShelf(
+                                  title: 'New $currentLang Releases',
+                                  badgeText: 'FRESH DROPS',
+                                  badgeColor: AppColors.neonViolet,
+                                  subtitle: 'Latest single & album releases',
+                                  icon: Icons.new_releases_rounded,
+                                  iconColor: AppColors.neonViolet,
+                                  songs: feedState.newReleases,
+                                  cardWidth: cardWidth,
+                                  carouselHeight: carouselHeight,
+                                  onPlayAll: () => audioHandler.playSong(feedState.newReleases.first, queue: feedState.newReleases),
+                                ),
                               ),
 
                             // "Featured Albums"
                             if ((feedState.homeFilter == 'all' || feedState.homeFilter == 'playlists') &&
                                 feedState.featuredAlbums.isNotEmpty)
-                              HomeFeaturedAlbums(
-                                albums: feedState.featuredAlbums,
-                                cardWidth: cardWidth,
-                                carouselHeight: carouselHeight,
+                              RepaintBoundary(
+                                child: HomeFeaturedAlbums(
+                                  albums: feedState.featuredAlbums,
+                                  cardWidth: cardWidth,
+                                  carouselHeight: carouselHeight,
+                                ),
                               ),
 
-                            // Bottom Feed: Trending Tracks List
+                            // Bottom Feed: Trending Tracks List (Virtualized with RepaintBoundary)
                             if (feedState.homeFilter == 'all' && feedState.trendingMerged.isNotEmpty) ...[
                               Padding(
                                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
@@ -518,15 +547,17 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                               ),
                               for (int i = 0; i < (feedState.trendingMerged.length > 20 ? 20 : feedState.trendingMerged.length); i++)
-                                SongTile(
-                                  song: feedState.trendingMerged[i],
-                                  queue: feedState.trendingMerged,
-                                  index: i,
-                                  showRank: true,
-                                  playbackContext: PlaybackContext(
-                                    id: 'popular_hits',
-                                    title: 'Popular Hits in $currentLang',
-                                    type: 'trending',
+                                RepaintBoundary(
+                                  child: SongTile(
+                                    song: feedState.trendingMerged[i],
+                                    queue: feedState.trendingMerged,
+                                    index: i,
+                                    showRank: true,
+                                    playbackContext: PlaybackContext(
+                                      id: 'popular_hits',
+                                      title: 'Popular Hits in $currentLang',
+                                      type: 'trending',
+                                    ),
                                   ),
                                 ),
                             ],

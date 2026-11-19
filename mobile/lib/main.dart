@@ -23,6 +23,7 @@ import 'services/dynamic_scraper_config_service.dart';
 import 'services/innertube_config_service.dart';
 import 'services/sync_manager.dart';
 import 'services/party_sync_coordinator.dart';
+import 'services/recent_containers_manager.dart';
 import 'logic/stream_resolver.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/screens/main_navigation.dart';
@@ -123,6 +124,7 @@ Future<void> _initDeferredServices() async {
       AuthManager.initLocalCache(),
       BlacklistManager.init(),
       CatalogDatabase.init(),
+      RecentContainersManager.init(),
       DynamicScraperConfigService.initLocal(),
       DefaultStreamResolver.init(),
     ]);

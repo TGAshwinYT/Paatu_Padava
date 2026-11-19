@@ -120,7 +120,8 @@ class FavoritesManager {
       final List<dynamic> remoteData = await client
           .from('liked_songs')
           .select('id, track_id, title, artist, cover_url, audio_url, language')
-          .eq('user_id', supaUser.id);
+          .eq('user_id', supaUser.id)
+          .timeout(const Duration(seconds: 5));
 
       final Set<String> remoteTrackIds = {};
 
@@ -144,24 +145,32 @@ class FavoritesManager {
         }
       }
 
-      // 2. Upload any local offline favorites to remote
+      // 2. Upload any local offline favorites to remote via single batch upsert
       final List<Song> localFavorites = getFavorites();
+      final List<Map<String, dynamic>> toUpsert = [];
       for (final local in localFavorites) {
         if (!remoteTrackIds.contains(local.id)) {
-          try {
-            await client.from('liked_songs').upsert({
-              'id': _uuid.v4(),
-              'user_id': supaUser.id,
-              'track_id': local.id,
-              'title': TrackEntity.sanitize(local.title),
-              'artist': TrackEntity.sanitize(local.artist),
-              'cover_url': local.coverUrl,
-              'audio_url': local.streamUrl,
-              'language': local.language ?? '',
-            }, onConflict: 'user_id, track_id');
-          } catch (e) {
-            debugPrint('[FavoritesManager] Local favorite cloud sync notice: $e');
-          }
+          toUpsert.add({
+            'id': _uuid.v4(),
+            'user_id': supaUser.id,
+            'track_id': local.id,
+            'title': TrackEntity.sanitize(local.title),
+            'artist': TrackEntity.sanitize(local.artist),
+            'cover_url': local.coverUrl,
+            'audio_url': local.streamUrl,
+            'language': local.language ?? '',
+          });
+        }
+      }
+
+      if (toUpsert.isNotEmpty) {
+        try {
+          await client
+              .from('liked_songs')
+              .upsert(toUpsert, onConflict: 'user_id, track_id')
+              .timeout(const Duration(seconds: 5));
+        } catch (e) {
+          debugPrint('[FavoritesManager] Batch local favorite cloud sync notice: $e');
         }
       }
 

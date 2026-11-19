@@ -104,7 +104,14 @@ class _CoverArtImageState extends State<CoverArtImage> {
       }
     }
 
-    if (widget.autoResolve) {
+    final isAlreadyHighRes = _resolvedUrl != null &&
+        (_resolvedUrl!.contains('500x500') ||
+         _resolvedUrl!.contains('i.scdn.co') ||
+         _resolvedUrl!.contains('mzstatic.com') ||
+         _resolvedUrl!.contains('aac.saavncdn.com') ||
+         _resolvedUrl!.contains('dzcdn.net'));
+
+    if (widget.autoResolve && !isAlreadyHighRes) {
       CoverArtResolver.resolveCover(effectiveSong).then((url) {
         if (mounted && url.isNotEmpty && url != _resolvedUrl && !CoverArtResolver.isPlaylistCover(url)) {
           setState(() {

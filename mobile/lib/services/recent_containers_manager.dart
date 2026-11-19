@@ -13,8 +13,61 @@ class RecentContainersManager {
   static const String boxName = 'recent_containers_box';
   static const int maxCapacity = 6;
 
+  static List<HomeQuickTile> _getDefaultSeeds() {
+    return const [
+      HomeQuickTile(
+        id: 'liked_songs',
+        title: 'Liked Songs',
+        type: 'liked',
+        coverUrl: '',
+        gradient: [Color(0xFF4C1D95), Color(0xFF7C3AED)],
+        tracks: [],
+      ),
+      HomeQuickTile(
+        id: 'history',
+        title: 'Recently Played',
+        type: 'history',
+        coverUrl: '',
+        gradient: [Color(0xFF0F766E), Color(0xFF06B6D4)],
+        tracks: [],
+      ),
+      HomeQuickTile(
+        id: 'mix_1',
+        title: 'Daily Mix 1',
+        type: 'mix',
+        coverUrl: '',
+        gradient: [Color(0xFFBE185D), Color(0xFFF43F5E)],
+        tracks: [],
+      ),
+      HomeQuickTile(
+        id: 'mix_2',
+        title: 'Daily Mix 2',
+        type: 'mix',
+        coverUrl: '',
+        gradient: [Color(0xFF854D0E), Color(0xFFEAB308)],
+        tracks: [],
+      ),
+      HomeQuickTile(
+        id: 'top_10_charts',
+        title: 'Top 10 Charts',
+        type: 'playlist',
+        coverUrl: '',
+        gradient: [Color(0xFF1E3A8A), Color(0xFF3B82F6)],
+        tracks: [],
+      ),
+      HomeQuickTile(
+        id: 'mix_3',
+        title: 'Daily Mix 3',
+        type: 'mix',
+        coverUrl: '',
+        gradient: [Color(0xFF14532D), Color(0xFF22C55E)],
+        tracks: [],
+      ),
+    ];
+  }
+
   static final ValueNotifier<List<HomeQuickTile>> containersNotifier =
-      ValueNotifier<List<HomeQuickTile>>([]);
+      ValueNotifier<List<HomeQuickTile>>(_getDefaultSeeds());
 
   static Future<void> init() async {
     try {
@@ -24,6 +77,9 @@ class RecentContainersManager {
       _loadFromBox();
     } catch (e) {
       AppLogger.log('RecentContainersManager', 'Hive init notice: $e');
+      if (containersNotifier.value.isEmpty) {
+        containersNotifier.value = List.unmodifiable(_getDefaultSeeds());
+      }
     }
   }
 
@@ -32,7 +88,7 @@ class RecentContainersManager {
       if (!Hive.isBoxOpen(boxName)) return;
       final box = Hive.box(boxName);
       final rawList = box.get('recent_containers');
-      if (rawList is List) {
+      if (rawList is List && rawList.isNotEmpty) {
         final List<HomeQuickTile> loaded = [];
         for (final item in rawList) {
           if (item is Map) {
@@ -41,10 +97,20 @@ class RecentContainersManager {
             } catch (_) {}
           }
         }
-        containersNotifier.value = loaded.take(maxCapacity).toList();
+        if (loaded.isNotEmpty) {
+          containersNotifier.value = List.unmodifiable(loaded.take(maxCapacity));
+          return;
+        }
       }
+      // If box is empty or first run, seed default containers and persist
+      final defaultSeeds = _getDefaultSeeds();
+      containersNotifier.value = List.unmodifiable(defaultSeeds);
+      unawaited(_persist());
     } catch (e) {
       AppLogger.log('RecentContainersManager', 'Load notice: $e');
+      if (containersNotifier.value.isEmpty) {
+        containersNotifier.value = List.unmodifiable(_getDefaultSeeds());
+      }
     }
   }
 
@@ -100,7 +166,7 @@ class RecentContainersManager {
 
   /// Clears all recent containers (e.g. for testing or user profile reset)
   static Future<void> clearAll() async {
-    containersNotifier.value = const [];
+    containersNotifier.value = List.unmodifiable(_getDefaultSeeds());
     try {
       if (Hive.isBoxOpen(boxName)) {
         await Hive.box(boxName).delete('recent_containers');

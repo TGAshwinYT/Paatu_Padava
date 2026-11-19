@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import '../../models/song.dart';
@@ -104,21 +103,15 @@ class MiniPlayer extends StatelessWidget {
                               child: SizedBox(
                                 width: AppDimensions.isCompact(context) ? 40 : 44,
                                 height: AppDimensions.isCompact(context) ? 40 : 44,
-                                child: (song.localFilePath != null && File(song.localFilePath!).existsSync())
-                                    ? Image.file(
-                                        File(song.localFilePath!),
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (_, __, ___) => _coverFallback(),
-                                      )
-                                    : CoverArtImage(
-                                        song: song,
-                                        width: AppDimensions.isCompact(context) ? 40 : 44,
-                                        height: AppDimensions.isCompact(context) ? 40 : 44,
-                                        borderRadius: BorderRadius.circular(10),
-                                        memCacheWidth: AppDimensions.memCachePhysical(context, AppDimensions.isCompact(context) ? 40 : 44),
-                                        memCacheHeight: AppDimensions.memCachePhysical(context, AppDimensions.isCompact(context) ? 40 : 44),
-                                        errorWidget: _coverFallback(),
-                                      ),
+                                child: CoverArtImage(
+                                  song: song,
+                                  width: AppDimensions.isCompact(context) ? 40 : 44,
+                                  height: AppDimensions.isCompact(context) ? 40 : 44,
+                                  borderRadius: BorderRadius.circular(10),
+                                  memCacheWidth: AppDimensions.memCachePhysical(context, AppDimensions.isCompact(context) ? 40 : 44),
+                                  memCacheHeight: AppDimensions.memCachePhysical(context, AppDimensions.isCompact(context) ? 40 : 44),
+                                  errorWidget: _coverFallback(),
+                                ),
                               ),
                             ),
                             SizedBox(width: AppDimensions.isCompact(context) ? 8 : 12),

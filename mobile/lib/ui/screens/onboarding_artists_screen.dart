@@ -526,13 +526,18 @@ class _OnboardingArtistsScreenState extends State<OnboardingArtistsScreen> with 
             Expanded(
               child: AnimatedGrid(
                 key: _gridKey,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: EdgeInsets.symmetric(
+                  horizontal: AppDimensions.isCompact(context) ? 12 : 16,
+                  vertical: 12,
+                ),
                 initialItemCount: _displayedArtists.length,
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 16,
-                  childAspectRatio: 0.78,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: AppDimensions.isTablet(context) ? 5 : 3,
+                  crossAxisSpacing: AppDimensions.isCompact(context) ? 8 : 12,
+                  mainAxisSpacing: 14,
+                  childAspectRatio: AppDimensions.isCompact(context)
+                      ? 0.70
+                      : (MediaQuery.textScalerOf(context).scale(1.0) > 1.2 ? 0.72 : 0.80),
                 ),
                 itemBuilder: (context, index, animation) {
                   final artist = _displayedArtists[index];
@@ -544,79 +549,89 @@ class _OnboardingArtistsScreenState extends State<OnboardingArtistsScreen> with 
                     scale: CurvedAnimation(parent: animation, curve: Curves.easeOutBack),
                     child: FadeTransition(
                       opacity: animation,
-                      child: GestureDetector(
-                        onTap: () => _handleArtistTap(index, artist),
-                        child: Column(
-                          children: [
-                            Stack(
-                              alignment: Alignment.center,
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final avatarSize = (constraints.maxWidth * 0.76).clamp(58.0, 92.0);
+                          return GestureDetector(
+                            onTap: () => _handleArtistTap(index, artist),
+                            child: Column(
                               children: [
-                                // Glowing Selection Ring
-                                AnimatedContainer(
-                                  duration: const Duration(milliseconds: 250),
-                                  width: 96,
-                                  height: 96,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: isSelected ? AppColors.electricCyan : Colors.transparent,
-                                      width: 3.5,
+                                Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    // Glowing Selection Ring
+                                    AnimatedContainer(
+                                      duration: const Duration(milliseconds: 250),
+                                      width: avatarSize,
+                                      height: avatarSize,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: isSelected ? AppColors.electricCyan : Colors.transparent,
+                                          width: 3.0,
+                                        ),
+                                        boxShadow: isSelected
+                                            ? [
+                                                BoxShadow(
+                                                  color: AppColors.electricCyan.withValues(alpha: 0.55),
+                                                  blurRadius: 14,
+                                                  spreadRadius: 2,
+                                                )
+                                              ]
+                                            : null,
+                                      ),
+                                      child: ClipOval(
+                                        child: CachedNetworkImage(
+                                          imageUrl: image,
+                                          fit: BoxFit.cover,
+                                          memCacheWidth: 200,
+                                          memCacheHeight: 200,
+                                          placeholder: (_, __) => Container(color: AppColors.surfaceElevated),
+                                          errorWidget: (_, __, ___) => Container(
+                                            color: AppColors.surfaceElevated,
+                                            child: const Icon(Icons.person_rounded, color: Colors.white30, size: 36),
+                                          ),
+                                        ),
+                                      ),
                                     ),
-                                    boxShadow: isSelected
-                                        ? [
-                                            BoxShadow(
-                                              color: AppColors.electricCyan.withValues(alpha: 0.55),
-                                              blurRadius: 14,
-                                              spreadRadius: 2,
-                                            )
-                                          ]
-                                        : null,
-                                  ),
-                                  child: ClipOval(
-                                    child: CachedNetworkImage(
-                                      imageUrl: image,
-                                      fit: BoxFit.cover,
-                                      memCacheWidth: 200,
-                                      memCacheHeight: 200,
-                                      placeholder: (_, __) => Container(color: AppColors.surfaceElevated),
-                                      errorWidget: (_, __, ___) => Container(
-                                        color: AppColors.surfaceElevated,
-                                        child: const Icon(Icons.person_rounded, color: Colors.white30, size: 36),
+
+                                    // Checkmark Badge when Selected
+                                    if (isSelected)
+                                      Positioned(
+                                        bottom: 0,
+                                        right: 2,
+                                        child: Container(
+                                          padding: const EdgeInsets.all(4),
+                                          decoration: const BoxDecoration(
+                                            gradient: AppColors.neonGradient,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Icon(Icons.check_rounded, color: Colors.white, size: 14),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Expanded(
+                                  child: Center(
+                                    child: Text(
+                                      name,
+                                      maxLines: 2,
+                                      textAlign: TextAlign.center,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.outfit(
+                                        color: isSelected ? Colors.white : Colors.white70,
+                                        fontSize: AppDimensions.isCompact(context) ? 11 : 12,
+                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                        height: 1.15,
                                       ),
                                     ),
                                   ),
                                 ),
-
-                                // Checkmark Badge when Selected
-                                if (isSelected)
-                                  Positioned(
-                                    bottom: 0,
-                                    right: 4,
-                                    child: Container(
-                                      padding: const EdgeInsets.all(4),
-                                      decoration: const BoxDecoration(
-                                        gradient: AppColors.neonGradient,
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: const Icon(Icons.check_rounded, color: Colors.white, size: 16),
-                                    ),
-                                  ),
                               ],
                             ),
-                            const SizedBox(height: 8),
-                            Text(
-                              name,
-                              maxLines: 2,
-                              textAlign: TextAlign.center,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.outfit(
-                                color: isSelected ? Colors.white : Colors.white70,
-                                fontSize: 12,
-                                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
+                          );
+                        },
                       ),
                     ),
                   );

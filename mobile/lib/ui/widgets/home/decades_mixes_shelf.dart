@@ -61,19 +61,23 @@ class DecadesMixesShelf extends StatelessWidget {
             ],
           ),
         ),
-        SizedBox(
-          height: 215,
-          child: ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            itemCount: mixes.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 4),
-            itemBuilder: (context, index) {
-              return DecadesMixCard(mix: mixes[index]);
-            },
-          ),
-        ),
+        () {
+          final cardWidth = AppDimensions.homeCardWidth(context).clamp(130.0, 160.0);
+          final shelfHeight = AppDimensions.homeCarouselHeight(context, cardWidth) + 12.0;
+          return SizedBox(
+            height: shelfHeight,
+            child: ListView.separated(
+              padding: EdgeInsets.symmetric(horizontal: AppDimensions.screenPadding(context)),
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              itemCount: mixes.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 4),
+              itemBuilder: (context, index) {
+                return DecadesMixCard(mix: mixes[index], width: cardWidth);
+              },
+            ),
+          );
+        }(),
       ],
     );
   }

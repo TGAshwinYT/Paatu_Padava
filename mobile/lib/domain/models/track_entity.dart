@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:audio_service/audio_service.dart';
 import 'package:html_unescape/html_unescape.dart';
 import '../../services/cover_art_resolver.dart';
@@ -46,6 +47,7 @@ class TrackEntity {
   set durationMs(int ms) => duration = ms ~/ 1000;
   bool isDownloaded;
   String? localFilePath;
+  String? localCoverPath;
   int? downloadedAt;
   String source; // 'saavn', 'youtube', 'offline'
   String? lyrics;
@@ -68,6 +70,7 @@ class TrackEntity {
     this.duration = 0,
     this.isDownloaded = false,
     this.localFilePath,
+    this.localCoverPath,
     this.downloadedAt,
     this.source = 'saavn',
     this.lyrics,
@@ -330,6 +333,10 @@ class TrackEntity {
   MediaItem toMediaItem() {
     final cached = CoverArtResolver.getCachedCover(id);
     final effectiveCover = (cached != null && cached.isNotEmpty) ? cached : coverUrl;
+    final localArtExists = localCoverPath != null && File(localCoverPath!).existsSync();
+    final effectiveArtUri = localArtExists
+        ? Uri.file(localCoverPath!)
+        : (effectiveCover.isNotEmpty ? Uri.tryParse(effectiveCover) : null);
     return MediaItem(
       id: id,
       title: displayTitle,
@@ -339,15 +346,16 @@ class TrackEntity {
       artist: artist,
       album: album,
       duration: duration > 0 ? Duration(seconds: duration) : null,
-      artUri: effectiveCover.isNotEmpty ? Uri.tryParse(effectiveCover) : null,
+      artUri: effectiveArtUri,
       extras: {
         'streamUrl': _streamUrl,
         'encryptedMediaUrl': encryptedMediaUrl,
         'source': source,
         'isDownloaded': isDownloaded,
         'localFilePath': localFilePath,
+        'localCoverPath': localCoverPath,
         'language': language,
-      'matchedLyricSnippet': matchedLyricSnippet,
+        'matchedLyricSnippet': matchedLyricSnippet,
         'isSmartRecommended': isSmartRecommended,
         'isUserEnqueued': isUserEnqueued,
         'addedBy': addedBy,
@@ -370,6 +378,7 @@ class TrackEntity {
       source: item.extras?['source']?.toString() ?? 'saavn',
       isDownloaded: item.extras?['isDownloaded'] == true,
       localFilePath: item.extras?['localFilePath']?.toString(),
+      localCoverPath: item.extras?['localCoverPath']?.toString(),
       language: item.extras?['language']?.toString(),
       isSmartRecommended: item.extras?['isSmartRecommended'] == true,
       isUserEnqueued: item.extras?['isUserEnqueued'] == true,
@@ -391,6 +400,7 @@ class TrackEntity {
       'duration': duration,
       'isDownloaded': isDownloaded,
       'localFilePath': localFilePath,
+      'localCoverPath': localCoverPath,
       'downloadedAt': downloadedAt,
       'source': source,
       'lyrics': lyrics,
@@ -417,6 +427,7 @@ class TrackEntity {
       duration: int.tryParse(map['duration']?.toString() ?? '0') ?? 0,
       isDownloaded: map['isDownloaded'] == true,
       localFilePath: map['localFilePath']?.toString() ?? map['local_file_path']?.toString(),
+      localCoverPath: map['localCoverPath']?.toString() ?? map['local_cover_path']?.toString(),
       downloadedAt: int.tryParse(map['downloadedAt']?.toString() ?? map['downloaded_at']?.toString() ?? '0'),
       source: map['source']?.toString() ?? 'saavn',
       lyrics: map['lyrics'] != null ? sanitize(map['lyrics']) : null,
@@ -465,6 +476,7 @@ class TrackEntity {
     int? duration,
     bool? isDownloaded,
     String? localFilePath,
+    String? localCoverPath,
     int? downloadedAt,
     String? source,
     String? lyrics,
@@ -488,6 +500,7 @@ class TrackEntity {
       duration: duration ?? this.duration,
       isDownloaded: isDownloaded ?? this.isDownloaded,
       localFilePath: localFilePath ?? this.localFilePath,
+      localCoverPath: localCoverPath ?? this.localCoverPath,
       downloadedAt: downloadedAt ?? this.downloadedAt,
       source: source ?? this.source,
       lyrics: lyrics ?? this.lyrics,

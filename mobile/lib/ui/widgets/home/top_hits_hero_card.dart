@@ -19,9 +19,16 @@ class TopHitsHeroCard extends StatelessWidget {
 
     final firstSong = showcase.tracks.first;
     final cover = showcase.coverUrl.isNotEmpty ? showcase.coverUrl : firstSong.coverUrl;
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final isCompact = AppDimensions.isCompact(context) || screenWidth < 360;
+    final cardPadding = isCompact ? 14.0 : 18.0;
+    final coverSize = isCompact ? 86.0 : (screenWidth < 390 ? 94.0 : 105.0);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      padding: EdgeInsets.symmetric(
+        horizontal: AppDimensions.screenPadding(context),
+        vertical: 8,
+      ),
       child: GestureDetector(
         onTap: () {
           audioHandler.playSong(firstSong, queue: showcase.tracks);
@@ -47,13 +54,14 @@ class TopHitsHeroCard extends StatelessWidget {
             child: Stack(
               children: [
                 // Dynamic gradient background
-                Container(
-                  height: 180,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: showcase.gradientColors,
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: showcase.gradientColors,
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
                     ),
                   ),
                 ),
@@ -85,7 +93,7 @@ class TopHitsHeroCard extends StatelessWidget {
 
                 // Content Row
                 Padding(
-                  padding: const EdgeInsets.all(20),
+                  padding: EdgeInsets.all(cardPadding),
                   child: Row(
                     children: [
                       // Text Info
@@ -95,45 +103,50 @@ class TopHitsHeroCard extends StatelessWidget {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             // Pill badge
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.16),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.25),
-                                  width: 0.8,
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.16),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.25),
+                                    width: 0.8,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.verified_rounded, color: AppColors.electricCyan, size: 12),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'SPOTIFY EDITORIAL • TOP 50',
+                                      style: GoogleFonts.outfit(
+                                        color: Colors.white,
+                                        fontSize: 9.5,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: 0.8,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.verified_rounded, color: AppColors.electricCyan, size: 12),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    'SPOTIFY EDITORIAL • TOP 50',
-                                    style: GoogleFonts.outfit(
-                                      color: Colors.white,
-                                      fontSize: 9.5,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: 0.8,
-                                    ),
-                                  ),
-                                ],
-                              ),
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 6),
 
                             // Main Title
                             Text(
                               showcase.title,
-                              maxLines: 1,
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: GoogleFonts.outfit(
                                 color: Colors.white,
-                                fontSize: 20,
+                                fontSize: isCompact ? 17 : 19,
                                 fontWeight: FontWeight.w900,
-                                letterSpacing: -0.5,
+                                letterSpacing: -0.4,
+                                height: 1.15,
                               ),
                             ),
                             const SizedBox(height: 4),
@@ -145,31 +158,35 @@ class TopHitsHeroCard extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               style: GoogleFonts.outfit(
                                 color: Colors.white.withValues(alpha: 0.85),
-                                fontSize: 12,
+                                fontSize: isCompact ? 11 : 12,
                                 fontWeight: FontWeight.w500,
-                                height: 1.25,
+                                height: 1.2,
                               ),
                             ),
                             const SizedBox(height: 6),
 
                             // Track Count & Master Badge
-                            Row(
-                              children: [
-                                Text(
-                                  '${showcase.tracks.length} tracks • Master Audio',
-                                  style: GoogleFonts.outfit(
-                                    color: AppColors.electricCyan,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Row(
+                                children: [
+                                  Text(
+                                    '${showcase.tracks.length} tracks • Master Audio',
+                                    style: GoogleFonts.outfit(
+                                      color: AppColors.electricCyan,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ],
                         ),
                       ),
 
-                      const SizedBox(width: 14),
+                      SizedBox(width: isCompact ? 10 : 14),
 
                       // Right side: Stacked cover with Floating Play Button
                       Stack(
@@ -177,8 +194,8 @@ class TopHitsHeroCard extends StatelessWidget {
                         alignment: Alignment.center,
                         children: [
                           Container(
-                            width: 105,
-                            height: 105,
+                            width: coverSize,
+                            height: coverSize,
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(16),
                               boxShadow: [

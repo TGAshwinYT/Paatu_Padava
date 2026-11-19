@@ -1,15 +1,11 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../models/song.dart';
 import '../../services/player_handler.dart';
 import '../../services/favorites_manager.dart';
 import '../widgets/queue_sheet.dart';
-import '../widgets/add_to_playlist_dialog.dart';
 import '../widgets/fluid_mesh_gradient.dart';
-import '../widgets/player/player_download_button.dart';
-import '../widgets/player/player_equalizer_sheet.dart';
 import '../widgets/player/player_controls.dart';
 import '../widgets/player/player_scrubber.dart';
 import '../widgets/player/player_gesture_detector.dart';
@@ -27,6 +23,7 @@ import 'playlist_screen.dart';
 import 'album_screen.dart';
 import 'remote_playlist_screen.dart';
 import 'liked_songs_screen.dart';
+import '../widgets/player/player_utilities_sheet.dart';
 import '../theme/app_theme.dart';
 
 class FullPlayerScreen extends StatefulWidget {
@@ -289,77 +286,50 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              ValueListenableBuilder<ConnectedDevice>(
-                                valueListenable: DeviceConnectCoordinator.instance.currentDeviceNotifier,
-                                builder: (context, device, _) {
-                                  final isCasting = !device.isLocal;
-                                  return IconButton(
-                                    visualDensity: AppDimensions.isCompact(context) ? VisualDensity.compact : VisualDensity.standard,
-                                    padding: AppDimensions.isCompact(context) ? const EdgeInsets.all(4.0) : const EdgeInsets.all(8.0),
-                                    icon: Icon(
-                                      isCasting ? Icons.cast_connected_rounded : Icons.cast_rounded,
-                                      color: isCasting ? const Color(0xFF10B981) : Colors.white70,
-                                      size: 22,
+                              ListenableBuilder(
+                                listenable: SleepTimerService.instance,
+                                builder: (context, _) {
+                                  final timer = SleepTimerService.instance;
+                                  if (!timer.isActive) return const SizedBox.shrink();
+                                  return GestureDetector(
+                                    onTap: _showSleepTimerSheet,
+                                    child: Container(
+                                      margin: const EdgeInsets.only(right: 6),
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF6366F1).withValues(alpha: 0.25),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                          color: const Color(0xFF6366F1).withValues(alpha: 0.5),
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.bedtime_rounded, size: 11, color: Color(0xFF818CF8)),
+                                          const SizedBox(width: 3),
+                                          Text(
+                                            timer.formattedRemainingShort,
+                                            style: const TextStyle(
+                                              color: Color(0xFF818CF8),
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                              fontFeatures: [FontFeature.tabularFigures()],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                    tooltip: isCasting ? 'Streaming on ${device.name}' : 'Connect to a Device',
-                                    onPressed: () => DeviceConnectSheet.show(context),
                                   );
                                 },
                               ),
                               IconButton(
                                 visualDensity: AppDimensions.isCompact(context) ? VisualDensity.compact : VisualDensity.standard,
                                 padding: AppDimensions.isCompact(context) ? const EdgeInsets.all(4.0) : const EdgeInsets.all(8.0),
-                                icon: const Icon(Icons.tune_rounded, color: Colors.white70, size: 22),
-                                tooltip: 'Equalizer',
-                                onPressed: () => PlayerEqualizerSheet.show(context),
-                              ),
-                              ListenableBuilder(
-                                listenable: SleepTimerService.instance,
-                                builder: (context, _) {
-                                  final timer = SleepTimerService.instance;
-                                  final isActive = timer.isActive;
-                                  return Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      IconButton(
-                                        visualDensity: AppDimensions.isCompact(context) ? VisualDensity.compact : VisualDensity.standard,
-                                        padding: AppDimensions.isCompact(context) ? const EdgeInsets.all(4.0) : const EdgeInsets.all(8.0),
-                                        icon: Icon(
-                                          isActive ? Icons.bedtime_rounded : Icons.bedtime_outlined,
-                                          color: isActive ? const Color(0xFF6366F1) : Colors.white70,
-                                          size: 22,
-                                        ),
-                                        tooltip: 'Sleep Timer',
-                                        onPressed: _showSleepTimerSheet,
-                                      ),
-                                      if (isActive)
-                                        GestureDetector(
-                                          onTap: _showSleepTimerSheet,
-                                          child: Container(
-                                            margin: const EdgeInsets.only(right: 4),
-                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: const Color(0xFF6366F1).withValues(alpha: 0.2),
-                                              borderRadius: BorderRadius.circular(8),
-                                              border: Border.all(
-                                                color: const Color(0xFF6366F1).withValues(alpha: 0.4),
-                                                width: 1,
-                                              ),
-                                            ),
-                                            child: Text(
-                                              timer.formattedRemainingShort,
-                                              style: const TextStyle(
-                                                color: Color(0xFF818CF8),
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.bold,
-                                                fontFeatures: [FontFeature.tabularFigures()],
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                    ],
-                                  );
-                                },
+                                icon: const Icon(Icons.more_vert_rounded, color: Colors.white, size: 24),
+                                tooltip: 'Player Options',
+                                onPressed: () => PlayerUtilitiesSheet.show(context, song: song),
                               ),
                             ],
                           ),
@@ -594,6 +564,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                     ],
                                   ),
                                 ),
+                                const SizedBox(width: 8),
                                 ValueListenableBuilder<List<Song>>(
                                   valueListenable: FavoritesManager.favoritesNotifier,
                                   builder: (context, _, __) {
@@ -660,23 +631,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                               child: PlayerControls(),
                             ),
 
-                            // Secondary Utility Actions: Add to Playlist and Download
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 2.0),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.playlist_add_rounded, color: Color(0xFF818CF8), size: 26),
-                                    tooltip: 'Add to Playlist',
-                                    onPressed: () => AddToPlaylistDialog.show(context, song),
-                                  ),
-                                  const SizedBox(width: 32),
-                                  PlayerDownloadButton(song: song),
-                                ],
-                              ),
-                            ),
-
                             // Bottom Queue & Up Next Bar
                             ValueListenableBuilder<List<Song>>(
                               valueListenable: audioHandler.playlistNotifier,
@@ -714,71 +668,76 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                             ),
                                           ],
                                         ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            const Icon(
-                                              Icons.queue_music_rounded,
-                                              size: 18,
-                                              color: Color(0xFF818CF8),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            if (nextSong != null) ...[
-                                              const Text(
-                                                'Up Next: ',
-                                                style: TextStyle(
-                                                  color: Color(0xFF818CF8),
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
+                                        child: MediaQuery(
+                                          data: MediaQuery.of(context).copyWith(
+                                            textScaler: AppDimensions.clampedTextScaler(context, min: 0.85, max: 1.15),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Icon(
+                                                Icons.queue_music_rounded,
+                                                size: 18,
+                                                color: Color(0xFF818CF8),
                                               ),
-                                              Flexible(
-                                                child: Text(
-                                                  '${nextSong.title} • ${nextSong.artist}',
-                                                  maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
+                                              const SizedBox(width: 6),
+                                              if (nextSong != null) ...[
+                                                Text(
+                                                  AppDimensions.isCompact(context) ? 'Next: ' : 'Up Next: ',
                                                   style: const TextStyle(
-                                                    color: Colors.white,
+                                                    color: Color(0xFF818CF8),
                                                     fontSize: 12,
-                                                    fontWeight: FontWeight.bold,
+                                                    fontWeight: FontWeight.w600,
                                                   ),
                                                 ),
-                                              ),
-                                              if (upcomingCount > 1) ...[
-                                                const SizedBox(width: 6),
-                                                Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                                                  decoration: BoxDecoration(
-                                                    color: const Color(0xFF6366F1).withValues(alpha: 0.25),
-                                                    borderRadius: BorderRadius.circular(8),
-                                                  ),
+                                                Flexible(
                                                   child: Text(
-                                                    '+${upcomingCount - 1}',
+                                                    '${nextSong.title} • ${nextSong.artist}',
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
                                                     style: const TextStyle(
-                                                      color: Color(0xFFA5B4FC),
-                                                      fontSize: 10,
+                                                      color: Colors.white,
+                                                      fontSize: 12,
                                                       fontWeight: FontWeight.bold,
                                                     ),
                                                   ),
                                                 ),
-                                              ],
-                                            ] else ...[
-                                              const Text(
-                                                'Queue (Empty)',
-                                                style: TextStyle(
-                                                  color: Colors.white70,
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.bold,
+                                                if (upcomingCount > 1) ...[
+                                                  const SizedBox(width: 4),
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                                    decoration: BoxDecoration(
+                                                      color: const Color(0xFF6366F1).withValues(alpha: 0.25),
+                                                      borderRadius: BorderRadius.circular(8),
+                                                    ),
+                                                    child: Text(
+                                                      '+${upcomingCount - 1}',
+                                                      style: const TextStyle(
+                                                        color: Color(0xFFA5B4FC),
+                                                        fontSize: 10,
+                                                        fontWeight: FontWeight.bold,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ] else ...[
+                                                const Text(
+                                                  'Queue (Empty)',
+                                                  style: TextStyle(
+                                                    color: Colors.white70,
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
                                                 ),
+                                              ],
+                                              const SizedBox(width: 4),
+                                              const Icon(
+                                                Icons.keyboard_arrow_up_rounded,
+                                                size: 16,
+                                                color: Color(0xFF94A3B8),
                                               ),
                                             ],
-                                            const SizedBox(width: 6),
-                                            const Icon(
-                                              Icons.keyboard_arrow_up_rounded,
-                                              size: 16,
-                                              color: Color(0xFF94A3B8),
-                                            ),
-                                          ],
+                                          ),
                                         ),
                                       ),
                                     );
@@ -827,19 +786,13 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
             child: Stack(
               fit: StackFit.expand,
               children: [
-                (song.localFilePath != null && File(song.localFilePath!).existsSync())
-                    ? Image.file(
-                        File(song.localFilePath!),
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => _defaultCover(),
-                      )
-                    : CoverArtImage(
-                        song: song,
-                        borderRadius: BorderRadius.circular(28),
-                        memCacheWidth: 800,
-                        memCacheHeight: 800,
-                        errorWidget: _defaultCover(),
-                      ),
+                CoverArtImage(
+                  song: song,
+                  borderRadius: BorderRadius.circular(28),
+                  memCacheWidth: 800,
+                  memCacheHeight: 800,
+                  errorWidget: _defaultCover(),
+                ),
                 if (_showHeartOverlay)
                   Center(
                     child: AnimatedBuilder(

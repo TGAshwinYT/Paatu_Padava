@@ -1,12 +1,10 @@
-import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../logic/smart_shuffle_controller.dart';
 import '../../models/song.dart';
 import '../../domain/models/track_entity.dart';
 import '../../services/favorites_manager.dart';
-import '../../services/catalog_database.dart';
-import 'common/cascading_cover_image.dart';
+import 'cover_art_image.dart';
 import '../../services/player_handler.dart';
 import 'queue/queue_tuner_bar.dart';
 import 'save_queue_dialog.dart';
@@ -543,26 +541,12 @@ class _QueueSheetState extends State<QueueSheet> {
           const SizedBox(width: 10),
 
           // Artwork
-          (song.localFilePath != null && File(song.localFilePath!).existsSync())
-              ? ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: SizedBox(
-                    width: 48,
-                    height: 48,
-                    child: Image.file(File(song.localFilePath!), fit: BoxFit.cover),
-                  ),
-                )
-              : CascadingCoverImage(
-                  imageUrl: (song.coverUrl.isNotEmpty && !song.coverUrl.contains('default.jpg'))
-                      ? song.coverUrl
-                      : (CatalogDatabase.getSongCoverArt(song.title, artist: song.artist, album: song.album) ??
-                          CatalogDatabase.getMoviePoster(song.album) ??
-                          song.coverUrl),
-                  seed: '${song.title}_${song.artist}',
-                  width: 48,
-                  height: 48,
-                  borderRadius: 10,
-                ),
+          CoverArtImage(
+            song: song,
+            width: 48,
+            height: 48,
+            borderRadius: BorderRadius.circular(10),
+          ),
           const SizedBox(width: 12),
 
           // Title & Artist
@@ -709,26 +693,12 @@ class _QueueSheetState extends State<QueueSheet> {
               ),
             ),
             const SizedBox(width: 8),
-            (song.localFilePath != null && File(song.localFilePath!).existsSync())
-                ? ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: SizedBox(
-                      width: 44,
-                      height: 44,
-                      child: Image.file(File(song.localFilePath!), fit: BoxFit.cover),
-                    ),
-                  )
-                : CascadingCoverImage(
-                    imageUrl: (song.coverUrl.isNotEmpty && !song.coverUrl.contains('default.jpg'))
-                        ? song.coverUrl
-                        : (CatalogDatabase.getSongCoverArt(song.title, artist: song.artist, album: song.album) ??
-                            CatalogDatabase.getMoviePoster(song.album) ??
-                            song.coverUrl),
-                    seed: '${song.title}_${song.artist}',
-                    width: 44,
-                    height: 44,
-                    borderRadius: 8,
-                  ),
+            CoverArtImage(
+              song: song,
+              width: 44,
+              height: 44,
+              borderRadius: BorderRadius.circular(8),
+            ),
           ],
         ),
         title: Column(

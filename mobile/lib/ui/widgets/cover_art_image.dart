@@ -1,8 +1,10 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/song.dart';
 import '../../services/cover_art_resolver.dart';
 import '../../services/catalog_database.dart';
+import '../../services/download_manager.dart';
 
 /// Reusable high-performance cover art widget for Paatu Padava.
 ///
@@ -109,6 +111,23 @@ class _CoverArtImageState extends State<CoverArtImage> {
     final int? effectiveCacheWidth = widget.memCacheWidth ??
         (widget.memCacheHeight == null ? (layoutDim * dpr).clamp(64.0, 1024.0).round() : null);
     final int? effectiveCacheHeight = widget.memCacheHeight;
+
+    // 0. Local offline artwork: If song is downloaded and local cover exists on disk, load directly from file
+    final localArt = widget.song?.localCoverPath ?? (widget.song != null ? DownloadManager.getLocalCoverPath(widget.song!.id) : null);
+    if (localArt != null && File(localArt).existsSync()) {
+      return ClipRRect(
+        borderRadius: radius,
+        child: SizedBox(
+          width: widget.width,
+          height: widget.height,
+          child: Image.file(
+            File(localArt),
+            fit: widget.fit,
+            errorBuilder: (_, __, ___) => widget.errorWidget ?? _buildPlaceholder(radius),
+          ),
+        ),
+      );
+    }
 
     // 1. Empty cover or stock placeholder fallback: render neutral gradient
     if (url.isEmpty || url.contains('unsplash.com')) {

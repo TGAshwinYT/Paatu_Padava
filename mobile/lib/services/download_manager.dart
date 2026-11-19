@@ -75,6 +75,7 @@ class DownloadManager {
     }
     _rebuildBloomFilter();
     downloadedSongsNotifier.value = getDownloadedSongs();
+    unawaited(backfillMissingCovers());
   }
 
   static Box get _box => Hive.box(boxName);
@@ -108,6 +109,25 @@ class DownloadManager {
     return null;
   }
 
+  /// Retrieves verified local cover artwork path if downloaded and file exists on disk
+  static String? getLocalCoverPath(String songId) {
+    final safeName = songId.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+    if (_documentsDirPath != null) {
+      final defaultCover = File('$_documentsDirPath/offline_covers/$safeName.jpg');
+      if (defaultCover.existsSync()) return defaultCover.path;
+    }
+    if (Hive.isBoxOpen(boxName)) {
+      final data = _box.get(songId);
+      if (data != null && data is Map) {
+        final path = data['localCoverPath']?.toString();
+        if (path != null && File(path).existsSync()) {
+          return path;
+        }
+      }
+    }
+    return null;
+  }
+
   static List<Song> getDownloadedSongs() {
     if (!Hive.isBoxOpen(boxName)) return [];
     final List<Song> songs = [];
@@ -116,8 +136,10 @@ class DownloadManager {
       if (data != null && data is Map) {
         final song = Song.fromMap(data);
         // Verify local file exists on disk
-        final p = getLocalFilePath(song.id); if (p != null) {
-          songs.add(song.copyWith(localFilePath: p));
+        final p = getLocalFilePath(song.id);
+        if (p != null) {
+          final cp = getLocalCoverPath(song.id) ?? song.localCoverPath;
+          songs.add(song.copyWith(localFilePath: p, localCoverPath: cp));
         }
       }
     }
@@ -390,10 +412,38 @@ class DownloadManager {
       }
       tempFile.renameSync(filePath);
 
+      // 3b. Atomic Cover Art Persistence: Save high-res artwork alongside audio
+      String? localCoverFilePath;
+      if (song.coverUrl.isNotEmpty && !song.coverUrl.contains('unsplash.com')) {
+        try {
+          final coversDir = Directory('${dir.path}/offline_covers');
+          if (!coversDir.existsSync()) {
+            coversDir.createSync(recursive: true);
+          }
+          final coverPath = '${coversDir.path}/$safeName.jpg';
+          final tempCoverPath = '$coverPath.download';
+          await _dio.download(
+            song.coverUrl,
+            tempCoverPath,
+            cancelToken: cancelToken,
+          );
+          final tempCoverFile = File(tempCoverPath);
+          if (tempCoverFile.existsSync() && tempCoverFile.lengthSync() > 100) {
+            final targetCover = File(coverPath);
+            if (targetCover.existsSync()) targetCover.deleteSync();
+            tempCoverFile.renameSync(coverPath);
+            localCoverFilePath = coverPath;
+          }
+        } catch (e) {
+          AppLogger.log('DownloadManager', 'Artwork download notice for "${song.title}": $e');
+        }
+      }
+
       // 4. Save metadata to Hive
       final downloadedSong = song.copyWith(
         isDownloaded: true,
         localFilePath: filePath,
+        localCoverPath: localCoverFilePath,
         downloadedAt: DateTime.now().millisecondsSinceEpoch,
         source: 'offline',
       );
@@ -434,6 +484,13 @@ class DownloadManager {
             file.deleteSync();
           }
         }
+        final coverPath = data['localCoverPath']?.toString() ?? getLocalCoverPath(songId);
+        if (coverPath != null) {
+          final coverFile = File(coverPath);
+          if (coverFile.existsSync()) {
+            coverFile.deleteSync();
+          }
+        }
       }
       await _box.delete(songId);
       _rebuildBloomFilter();
@@ -467,6 +524,17 @@ class DownloadManager {
           }
         }
       }
+      final coversDir = Directory('${dir.path}/offline_covers');
+      if (coversDir.existsSync()) {
+        final files = coversDir.listSync();
+        for (final file in files) {
+          if (file is File) {
+            try {
+              file.deleteSync();
+            } catch (_) {}
+          }
+        }
+      }
     } catch (e, stack) {
       AppLogger.recordError(e, stack, context: 'DownloadManager.clearAllDownloads');
     }
@@ -477,6 +545,37 @@ class DownloadManager {
     }
 
     downloadedSongsNotifier.value = [];
+  }
+
+  /// Lazy backfill: silently downloads missing cover art for already-downloaded songs when connected
+  static Future<void> backfillMissingCovers() async {
+    if (!Hive.isBoxOpen(boxName) || _documentsDirPath == null) return;
+    try {
+      final coversDir = Directory('$_documentsDirPath/offline_covers');
+      if (!coversDir.existsSync()) coversDir.createSync(recursive: true);
+
+      for (final key in _box.keys) {
+        final data = _box.get(key);
+        if (data != null && data is Map) {
+          final song = Song.fromMap(data);
+          final existing = getLocalCoverPath(song.id);
+          if (existing == null && song.coverUrl.isNotEmpty && !song.coverUrl.contains('unsplash.com')) {
+            final safeName = song.id.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+            final targetPath = '${coversDir.path}/$safeName.jpg';
+            final tmp = '$targetPath.tmp';
+            await _dio.download(song.coverUrl, tmp);
+            final tmpF = File(tmp);
+            if (tmpF.existsSync() && tmpF.lengthSync() > 100) {
+              final targetF = File(targetPath);
+              if (targetF.existsSync()) targetF.deleteSync();
+              tmpF.renameSync(targetPath);
+              final updated = song.copyWith(localCoverPath: targetPath);
+              await _box.put(key, updated.toMap());
+            }
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   /// Returns file size in bytes for a specific song

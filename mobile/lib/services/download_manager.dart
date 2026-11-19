@@ -638,12 +638,12 @@ class DownloadManager {
           final existing = getLocalCoverPath(song.id);
           if (existing == null) {
             String artUrl = song.coverUrl;
-            if (artUrl.isEmpty || CoverArtResolver.isPlaylistCover(artUrl) || artUrl.startsWith('file://')) {
+            if (artUrl.isEmpty || CoverArtResolver.isPlaylistCover(artUrl) || artUrl.startsWith('file://') || artUrl.startsWith('/') || artUrl.contains(':\\')) {
               try {
                 artUrl = await CoverArtResolver.resolveCover(song);
               } catch (_) {}
             }
-            if (artUrl.isEmpty || artUrl.startsWith('file://')) {
+            if (artUrl.isEmpty || artUrl.startsWith('file://') || artUrl.startsWith('/') || artUrl.contains(':\\')) {
               artUrl = CatalogDatabase.getSongCoverArt(song.title, artist: song.artist, album: song.album) ??
                   CatalogDatabase.getMoviePoster(song.album) ?? '';
             }

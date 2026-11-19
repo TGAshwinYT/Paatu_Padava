@@ -239,7 +239,7 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
           _totalTracks = total;
           _progressFraction = progress;
           _currentStatus = 'Matching tracks ($current/$total)...';
-          if (current <= meta!.tracks.length) {
+          if (current > 0 && current <= meta!.tracks.length) {
             final t = meta.tracks[current - 1];
             _activeTrackTitle = t.title;
             _activeTrackArtist = t.artist;
@@ -253,7 +253,22 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
       },
     );
 
-    if (!mounted || _isCancelled) return;
+    if (!mounted) return;
+    if (_isCancelled) {
+      if (result.importedSongs.isNotEmpty && saveAsPlaylist) {
+        if (target != null) {
+          for (final s in result.importedSongs) {
+            await PlaylistManager.addSongToPlaylist(target.id, s);
+          }
+        } else {
+          await PlaylistManager.createPlaylist(
+            copyTitle ?? '${result.playlistTitle} (Partial)',
+            initialTracks: result.importedSongs,
+          );
+        }
+      }
+      return;
+    }
 
     // 4. Save to Local Hive Playlist Table named after the imported Spotify playlist
     // result.importedSongs now contains ONLY songs that were newly matched

@@ -144,13 +144,14 @@ class DecadesMixCard extends StatelessWidget {
             // Era Title
             Text(
               mix.title,
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: GoogleFonts.outfit(
                 color: Colors.white,
                 fontSize: 13.5,
                 fontWeight: FontWeight.w700,
                 letterSpacing: -0.2,
+                height: 1.15,
               ),
             ),
             const SizedBox(height: 2),

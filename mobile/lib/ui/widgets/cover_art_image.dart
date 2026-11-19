@@ -93,7 +93,9 @@ class _CoverArtImageState extends State<CoverArtImage> {
 
     final hasValidCover = effectiveSong.coverUrl.isNotEmpty &&
         !CoverArtResolver.isPlaylistCover(effectiveSong.coverUrl) &&
-        !effectiveSong.coverUrl.startsWith('file://');
+        !effectiveSong.coverUrl.startsWith('file://') &&
+        !effectiveSong.coverUrl.startsWith('/') &&
+        !effectiveSong.coverUrl.contains(':\\');
     if (hasValidCover) {
       _resolvedUrl = effectiveSong.coverUrl;
     } else {
@@ -159,13 +161,23 @@ class _CoverArtImageState extends State<CoverArtImage> {
       }
     }
 
+    // Fallback: If local file path failed or is missing, recover remote cover or catalog art
+    var effectiveUrl = url;
+    if (effectiveUrl.startsWith('/') || effectiveUrl.contains(':\\') || effectiveUrl.startsWith('file://')) {
+      final catalogArt = widget.song != null
+          ? (CatalogDatabase.getSongCoverArt(widget.song!.title, artist: widget.song!.artist, album: widget.song!.album) ??
+              CatalogDatabase.getMoviePoster(widget.song!.album))
+          : null;
+      effectiveUrl = catalogArt ?? CoverArtResolver.getCachedCover(widget.song?.id ?? '') ?? '';
+    }
+
     // 1. Empty cover or stock placeholder fallback or unresolvable file URI: render neutral gradient
-    if (url.isEmpty || url.contains('unsplash.com') || url.startsWith('file://') || url.startsWith('/') || url.contains(':\\')) {
+    if (effectiveUrl.isEmpty || effectiveUrl.contains('unsplash.com') || effectiveUrl.startsWith('file://') || effectiveUrl.startsWith('/') || effectiveUrl.contains(':\\')) {
       return widget.errorWidget ?? _buildPlaceholder(radius);
     }
 
     // 2. 16:9 YouTube video thumbnail: single decode with ambient letterbox backdrop
-    if (CoverArtResolver.isYouTubeThumbnail(url)) {
+    if (CoverArtResolver.isYouTubeThumbnail(effectiveUrl)) {
       return ClipRRect(
         borderRadius: radius,
         child: SizedBox(
@@ -184,7 +196,7 @@ class _CoverArtImageState extends State<CoverArtImage> {
                 ),
               ),
               CachedNetworkImage(
-                imageUrl: url,
+                imageUrl: effectiveUrl,
                 fit: BoxFit.cover,
                 memCacheWidth: effectiveCacheWidth,
                 memCacheHeight: effectiveCacheHeight,
@@ -204,7 +216,7 @@ class _CoverArtImageState extends State<CoverArtImage> {
         width: widget.width,
         height: widget.height,
         child: CachedNetworkImage(
-          imageUrl: url,
+          imageUrl: effectiveUrl,
           fit: widget.fit,
           memCacheWidth: effectiveCacheWidth,
           memCacheHeight: effectiveCacheHeight,

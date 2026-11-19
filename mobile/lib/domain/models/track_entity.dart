@@ -360,6 +360,7 @@ class TrackEntity {
       duration: duration > 0 ? Duration(seconds: duration) : null,
       artUri: effectiveArtUri,
       extras: {
+        'coverUrl': coverUrl,
         'streamUrl': _streamUrl,
         'encryptedMediaUrl': encryptedMediaUrl,
         'source': source,
@@ -380,9 +381,10 @@ class TrackEntity {
   factory TrackEntity.fromMediaItem(MediaItem item) {
     final rawArt = item.artUri;
     final isFileUri = rawArt != null && rawArt.isScheme('file');
-    final resolvedCover = isFileUri
-        ? rawArt.toFilePath()
-        : (rawArt?.toString() ?? '');
+    final remoteCover = item.extras?['coverUrl']?.toString() ?? '';
+    final resolvedCover = remoteCover.isNotEmpty && !remoteCover.startsWith('file://') && !remoteCover.startsWith('/')
+        ? remoteCover
+        : (isFileUri ? rawArt.toFilePath() : (rawArt?.toString() ?? ''));
     final resolvedLocalCover = item.extras?['localCoverPath']?.toString() ??
         (isFileUri ? rawArt.toFilePath() : null);
 

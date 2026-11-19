@@ -467,11 +467,22 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                               style: TextStyle(color: Color(0xFF94A3B8), fontSize: 15),
                                             );
                                           }
-                                          return SingleChildScrollView(
-                                            scrollDirection: Axis.horizontal,
-                                            child: Row(
-                                              children: [
-                                                for (int i = 0; i < artists.length; i++) ...[
+                                          return ShaderMask(
+                                            shaderCallback: (Rect bounds) {
+                                              return const LinearGradient(
+                                                begin: Alignment.centerLeft,
+                                                end: Alignment.centerRight,
+                                                colors: [Colors.white, Colors.white, Colors.transparent],
+                                                stops: [0.0, 0.90, 1.0],
+                                              ).createShader(bounds);
+                                            },
+                                            blendMode: BlendMode.dstIn,
+                                            child: SingleChildScrollView(
+                                              scrollDirection: Axis.horizontal,
+                                              physics: const BouncingScrollPhysics(),
+                                              child: Row(
+                                                children: [
+                                                  for (int i = 0; i < artists.length; i++) ...[
                                                   GestureDetector(
                                                     behavior: HitTestBehavior.opaque,
                                                     onTap: () {
@@ -525,8 +536,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                                 ],
                                               ],
                                             ),
-                                          );
-                                        },
+                                          ),
+                                        );
+                                      },
                                       ),
                                       const SizedBox(height: 6),
                                       // Discreet Audio Quality Micro-Pill below artist
@@ -705,7 +717,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                                 if (upcomingCount > 1) ...[
                                                   const SizedBox(width: 4),
                                                   Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
                                                     decoration: BoxDecoration(
                                                       color: const Color(0xFF6366F1).withValues(alpha: 0.25),
                                                       borderRadius: BorderRadius.circular(8),
@@ -730,7 +742,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                                   ),
                                                 ),
                                               ],
-                                              const SizedBox(width: 4),
+                                              const SizedBox(width: 6),
                                               const Icon(
                                                 Icons.keyboard_arrow_up_rounded,
                                                 size: 16,

@@ -138,21 +138,17 @@ class TopHitsHeroCard extends StatelessWidget {
                             const SizedBox(height: 6),
 
                             // Main Title
-                            FittedBox(
-                              fit: BoxFit.scaleDown,
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                showcase.title,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                textScaler: textScaler,
-                                style: GoogleFonts.outfit(
-                                  color: Colors.white,
-                                  fontSize: isCompact ? 16 : 18,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: -0.4,
-                                  height: 1.15,
-                                ),
+                            Text(
+                              showcase.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              textScaler: textScaler,
+                              style: GoogleFonts.outfit(
+                                color: Colors.white,
+                                fontSize: isCompact ? 16 : 18,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.4,
+                                height: 1.15,
                               ),
                             ),
                             const SizedBox(height: 4),
@@ -235,8 +231,8 @@ class TopHitsHeroCard extends StatelessWidget {
 
                           // Play Button Overlay
                           Positioned(
-                            bottom: -6,
-                            right: -6,
+                            bottom: 4,
+                            right: 4,
                             child: Container(
                               width: 38,
                               height: 38,

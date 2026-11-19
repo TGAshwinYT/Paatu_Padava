@@ -63,7 +63,7 @@ class DecadesMixesShelf extends StatelessWidget {
         ),
         () {
           final cardWidth = AppDimensions.homeCardWidth(context).clamp(130.0, 160.0);
-          final shelfHeight = AppDimensions.homeCarouselHeight(context, cardWidth) + 12.0;
+          final shelfHeight = AppDimensions.homeCarouselHeight(context, cardWidth) + 20.0;
           return SizedBox(
             height: shelfHeight,
             child: ListView.separated(

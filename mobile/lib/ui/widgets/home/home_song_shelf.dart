@@ -34,12 +34,15 @@ class HomeSongShelf extends StatelessWidget {
   Widget build(BuildContext context) {
     if (songs.isEmpty) return const SizedBox.shrink();
 
+    final screenPadding = AppDimensions.screenPadding(context);
+    final textScaler = MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.25);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Shelf Header: Icon + Title + Action Button
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+          padding: EdgeInsets.fromLTRB(screenPadding, 18, screenPadding, 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -53,6 +56,7 @@ class HomeSongShelf extends StatelessWidget {
                         title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
+                        textScaler: textScaler,
                         style: GoogleFonts.outfit(
                           color: Colors.white,
                           fontSize: 17,

@@ -21,8 +21,9 @@ class TopHitsHeroCard extends StatelessWidget {
     final cover = showcase.coverUrl.isNotEmpty ? showcase.coverUrl : firstSong.coverUrl;
     final screenWidth = MediaQuery.sizeOf(context).width;
     final isCompact = AppDimensions.isCompact(context) || screenWidth < 360;
+    final textScaler = MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.25);
     final cardPadding = isCompact ? 14.0 : 18.0;
-    final coverSize = isCompact ? 86.0 : (screenWidth < 390 ? 94.0 : 105.0);
+    final coverSize = isCompact ? 78.0 : (screenWidth < 390 ? 86.0 : 96.0);
 
     return Padding(
       padding: EdgeInsets.symmetric(
@@ -137,16 +138,21 @@ class TopHitsHeroCard extends StatelessWidget {
                             const SizedBox(height: 6),
 
                             // Main Title
-                            Text(
-                              showcase.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.outfit(
-                                color: Colors.white,
-                                fontSize: isCompact ? 17 : 19,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: -0.4,
-                                height: 1.15,
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                showcase.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                textScaler: textScaler,
+                                style: GoogleFonts.outfit(
+                                  color: Colors.white,
+                                  fontSize: isCompact ? 16 : 18,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: -0.4,
+                                  height: 1.15,
+                                ),
                               ),
                             ),
                             const SizedBox(height: 4),
@@ -156,9 +162,10 @@ class TopHitsHeroCard extends StatelessWidget {
                               showcase.subtitle,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
+                              textScaler: textScaler,
                               style: GoogleFonts.outfit(
                                 color: Colors.white.withValues(alpha: 0.85),
-                                fontSize: isCompact ? 11 : 12,
+                                fontSize: isCompact ? 10.5 : 11.5,
                                 fontWeight: FontWeight.w500,
                                 height: 1.2,
                               ),

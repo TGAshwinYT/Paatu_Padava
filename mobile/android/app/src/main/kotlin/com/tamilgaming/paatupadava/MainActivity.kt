@@ -14,6 +14,31 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity: AudioServiceActivity() {
     private val BATTERY_CHANNEL = "com.tamilgaming.paatupadava/battery"
     private val WIDGET_CHANNEL = "com.tamilgaming.paatupadava/widget"
+    private val SYNC_CHANNEL_ID = "com.paatupaadava.music.channel.sync"
+    private val SYNC_NOTIFICATION_ID = 2001
+    private var dataSyncWakeLock: PowerManager.WakeLock? = null
+
+    private fun updateSyncNotification(title: String, message: String, progress: Int, max: Int) {
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager ?: return
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            android.app.Notification.Builder(applicationContext, SYNC_CHANNEL_ID)
+        } else {
+            @Suppress("DEPRECATION")
+            android.app.Notification.Builder(applicationContext)
+        }
+        val appIcon = applicationInfo.icon.takeIf { it != 0 } ?: android.R.drawable.stat_sys_download
+        builder.setContentTitle(title)
+            .setContentText(message)
+            .setSmallIcon(appIcon)
+            .setOngoing(true)
+            .setAutoCancel(false)
+        if (max > 0) {
+            builder.setProgress(max, progress, false)
+        } else {
+            builder.setProgress(0, 0, true)
+        }
+        notificationManager.notify(SYNC_NOTIFICATION_ID, builder.build())
+    }
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -33,6 +58,18 @@ class MainActivity: AudioServiceActivity() {
                     enableLights(false)
                 }
                 notificationManager.createNotificationChannel(channel)
+
+                val syncChannel = android.app.NotificationChannel(
+                    SYNC_CHANNEL_ID,
+                    "Paatu Padava Background Tasks",
+                    android.app.NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = "Download and playlist sync progress"
+                    setShowBadge(false)
+                    enableVibration(false)
+                    enableLights(false)
+                }
+                notificationManager.createNotificationChannel(syncChannel)
             }
         }
         // Request POST_NOTIFICATIONS runtime permission on Android 13+ (API 33+) on launch
@@ -69,6 +106,43 @@ class MainActivity: AudioServiceActivity() {
                     result.success(isIgnoring)
                 }
                 "detachForeground" -> {
+                    result.success(true)
+                }
+                "startDataSync" -> {
+                    val title = call.argument<String>("title") ?: "Background Task"
+                    val message = call.argument<String>("message") ?: "Processing..."
+                    val max = call.argument<Int>("max") ?: 0
+                    val progress = call.argument<Int>("progress") ?: 0
+
+                    if (dataSyncWakeLock == null) {
+                        val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                        dataSyncWakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PaatuPadava:DataSyncWakeLock")?.apply {
+                            setReferenceCounted(false)
+                        }
+                    }
+                    try {
+                        dataSyncWakeLock?.acquire(30 * 60 * 1000L) // 30 min safety timeout
+                    } catch (_: Exception) {}
+
+                    updateSyncNotification(title, message, progress, max)
+                    result.success(true)
+                }
+                "updateDataSyncProgress" -> {
+                    val title = call.argument<String>("title") ?: "Background Task"
+                    val message = call.argument<String>("message") ?: "Processing..."
+                    val max = call.argument<Int>("max") ?: 0
+                    val progress = call.argument<Int>("progress") ?: 0
+                    updateSyncNotification(title, message, progress, max)
+                    result.success(true)
+                }
+                "stopDataSync" -> {
+                    val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+                    notificationManager?.cancel(SYNC_NOTIFICATION_ID)
+                    try {
+                        if (dataSyncWakeLock?.isHeld == true) {
+                            dataSyncWakeLock?.release()
+                        }
+                    } catch (_: Exception) {}
                     result.success(true)
                 }
                 "openBatteryOptimizationSettings" -> {
@@ -148,6 +222,13 @@ class MainActivity: AudioServiceActivity() {
     }
 
     override fun onDestroy() {
+        try {
+            if (dataSyncWakeLock?.isHeld == true) {
+                dataSyncWakeLock?.release()
+            }
+        } catch (_: Exception) {}
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+        notificationManager?.cancel(SYNC_NOTIFICATION_ID)
         super.onDestroy()
     }
 }

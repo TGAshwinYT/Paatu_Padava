@@ -75,6 +75,58 @@ class BatteryOptimizationService {
     }
   }
 
+  /// Starts an Android ongoing background data sync notification and acquires a partial WakeLock
+  static Future<bool> startDataSync({
+    required String title,
+    required String message,
+    int progress = 0,
+    int max = 0,
+  }) async {
+    if (!Platform.isAndroid) return true;
+    try {
+      final success = await _channel.invokeMethod<bool>('startDataSync', {
+        'title': title,
+        'message': message,
+        'progress': progress,
+        'max': max,
+      });
+      return success ?? false;
+    } catch (e) {
+      AppLogger.log('BatteryOpt', 'startDataSync error: $e');
+      return false;
+    }
+  }
+
+  /// Updates ongoing background data sync progress
+  static Future<void> updateDataSyncProgress({
+    required String title,
+    required String message,
+    int progress = 0,
+    int max = 0,
+  }) async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod<bool>('updateDataSyncProgress', {
+        'title': title,
+        'message': message,
+        'progress': progress,
+        'max': max,
+      });
+    } catch (_) {}
+  }
+
+  /// Stops the background data sync notification and releases the WakeLock
+  static Future<bool> stopDataSync() async {
+    if (!Platform.isAndroid) return true;
+    try {
+      final success = await _channel.invokeMethod<bool>('stopDataSync');
+      return success ?? false;
+    } catch (e) {
+      AppLogger.log('BatteryOpt', 'stopDataSync error: $e');
+      return false;
+    }
+  }
+
   /// Explicitly releases native CPU WakeLocks by deactivating audio session
   static Future<void> releaseWakeLock() async {
     try {

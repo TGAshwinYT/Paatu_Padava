@@ -13,6 +13,7 @@ import 'app_logger.dart';
 import 'cover_art_resolver.dart';
 import '../core/app_config.dart';
 import 'spotify_track_key.dart';
+import 'battery_optimization_service.dart';
 
 /// Single Spotify Track representation extracted from Spotify Web API or Embed
 class SpotifyTrackItem {
@@ -1217,7 +1218,7 @@ class SpotifyImportService {
         ));
   }
 
-  /// 3. Complete Batch Importer with Progress Notification
+  /// 3. Complete Batch Importer with High-Performance Concurrent Matching
   static Future<SpotifyImportResult> importPlaylistWithProgress({
     required SpotifyPlaylistMetadata metadata,
     required void Function(
@@ -1233,62 +1234,130 @@ class SpotifyImportService {
     // they are skipped without any network matching.
     bool Function(SpotifyTrackItem track)? isAlreadyImported,
   }) async {
-    int alreadyPresent = 0;
-    final List<String> handledKeys = [];
-    final List<Song> importedSongs = [];
-    final List<SpotifyTrackItem> skippedTracks = [];
     final total = metadata.tracks.length;
-
-    for (int i = 0; i < total; i++) {
-      if (isCancelled?.call() == true) {
-        debugPrint('[SpotifyImportService] Import cancelled by user at track $i of $total');
-        break;
-      }
-
-      final track = metadata.tracks[i];
-      final currentNum = i + 1;
-      final progress = currentNum / (total > 0 ? total : 1);
-
-      if (isAlreadyImported != null && isAlreadyImported(track)) {
-        alreadyPresent++;
-        handledKeys.add(trackKey(track));
-        onProgress(currentNum, total, progress, 'Already in playlist: "${cleanTrackTitle(track.title)}"', null);
-        continue;
-      }
-
-      onProgress(
-        currentNum,
-        total,
-        progress,
-        'Matching track $currentNum of $total: "${track.title}"...',
-        null,
+    if (total == 0) {
+      return SpotifyImportResult(
+        playlistTitle: metadata.title,
+        coverUrl: metadata.coverUrl,
+        totalTracks: 0,
+        importedSongs: const [],
+        skippedTracks: const [],
+        alreadyPresentCount: 0,
+        handledKeys: const [],
       );
+    }
 
-      final matched = await matchSingleTrack(track, preferredLanguage: preferredLanguage);
-      if (matched != null) {
-        importedSongs.add(matched);
-        handledKeys.add(trackKey(track));
-        onProgress(
-          currentNum,
-          total,
-          progress,
-          'Matched "${cleanTrackTitle(track.title)}"',
-          matched,
-        );
-      } else {
-        skippedTracks.add(track);
-        onProgress(
-          currentNum,
-          total,
-          progress,
-          'Skipped "${cleanTrackTitle(track.title)}" (no match)',
+    final matchedSlots = List<Song?>.filled(total, null);
+    final skippedSlots = List<SpotifyTrackItem?>.filled(total, null);
+    final isPresentSlots = List<bool>.filled(total, false);
+    final handledKeySlots = List<String?>.filled(total, null);
+
+    int nextIndex = 0;
+    int completedCount = 0;
+    DateTime lastProgressEmit = DateTime.fromMillisecondsSinceEpoch(0);
+
+    // Keep app awake and display ongoing foreground notification while matching
+    unawaited(BatteryOptimizationService.startDataSync(
+      title: 'Importing Spotify Playlist',
+      message: 'Matching tracks (0/$total)...',
+      progress: 0,
+      max: total,
+    ));
+
+    void emitProgress(int current, double prog, String status, Song? matched) {
+      final now = DateTime.now();
+      if (now.difference(lastProgressEmit).inMilliseconds >= 80 || current == total) {
+        lastProgressEmit = now;
+        onProgress(current, total, prog, status, matched);
+        unawaited(BatteryOptimizationService.updateDataSyncProgress(
+          title: 'Importing Spotify Playlist',
+          message: '$status ($current/$total)',
+          progress: current,
+          max: total,
+        ));
+      }
+    }
+
+    // Bounded concurrency worker pool (5 parallel matching workers)
+    final concurrency = total < 5 ? total : 5;
+    final workers = List.generate(concurrency, (_) async {
+      while (true) {
+        if (isCancelled?.call() == true) {
+          debugPrint('[SpotifyImportService] Import cancelled by user');
+          break;
+        }
+
+        final i = nextIndex++;
+        if (i >= total) break;
+
+        final track = metadata.tracks[i];
+        final cleanTitle = cleanTrackTitle(track.title);
+
+        if (isAlreadyImported != null && isAlreadyImported(track)) {
+          isPresentSlots[i] = true;
+          handledKeySlots[i] = trackKey(track);
+          completedCount++;
+          emitProgress(
+            completedCount,
+            completedCount / total,
+            'Already in playlist: "$cleanTitle"',
+            null,
+          );
+          continue;
+        }
+
+        emitProgress(
+          completedCount,
+          completedCount / total,
+          'Matching: "$cleanTitle"...',
           null,
         );
-      }
 
-      // Small tick delay to keep UI responsive and prevent rate limiting
-      await Future.delayed(const Duration(milliseconds: 50));
-    }
+        try {
+          final matched = await matchSingleTrack(track, preferredLanguage: preferredLanguage);
+          if (matched != null) {
+            matchedSlots[i] = matched;
+            handledKeySlots[i] = trackKey(track);
+            completedCount++;
+            emitProgress(
+              completedCount,
+              completedCount / total,
+              'Matched "$cleanTitle"',
+              matched,
+            );
+          } else {
+            skippedSlots[i] = track;
+            completedCount++;
+            emitProgress(
+              completedCount,
+              completedCount / total,
+              'Skipped "$cleanTitle" (no match)',
+              null,
+            );
+          }
+        } catch (e) {
+          skippedSlots[i] = track;
+          completedCount++;
+          emitProgress(
+            completedCount,
+            completedCount / total,
+            'Skipped "$cleanTitle" (error: $e)',
+            null,
+          );
+        }
+
+        // Bounded micro-yield to keep isolate event loop receptive
+        await Future.delayed(const Duration(milliseconds: 15));
+      }
+    });
+
+    await Future.wait(workers);
+    unawaited(BatteryOptimizationService.stopDataSync());
+
+    final importedSongs = matchedSlots.whereType<Song>().toList();
+    final skippedTracks = skippedSlots.whereType<SpotifyTrackItem>().toList();
+    final handledKeys = handledKeySlots.whereType<String>().toList();
+    final alreadyPresent = isPresentSlots.where((p) => p).length;
 
     return SpotifyImportResult(
       playlistTitle: metadata.title,

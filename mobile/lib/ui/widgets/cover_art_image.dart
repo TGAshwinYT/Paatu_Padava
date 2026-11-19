@@ -64,6 +64,19 @@ class _CoverArtImageState extends State<CoverArtImage> {
     }
   }
 
+  static String? _normalizePath(String? path) {
+    if (path == null || path.isEmpty) return null;
+    final trimmed = path.trim();
+    if (trimmed.startsWith('file://')) {
+      try {
+        return Uri.parse(trimmed).toFilePath();
+      } catch (_) {
+        return trimmed.replaceFirst('file://', '');
+      }
+    }
+    return trimmed;
+  }
+
   void _checkAndResolve() {
     final effectiveSong = widget.song;
     if (effectiveSong == null) {
@@ -78,7 +91,10 @@ class _CoverArtImageState extends State<CoverArtImage> {
       return;
     }
 
-    if (effectiveSong.coverUrl.isNotEmpty && !CoverArtResolver.isPlaylistCover(effectiveSong.coverUrl)) {
+    final hasValidCover = effectiveSong.coverUrl.isNotEmpty &&
+        !CoverArtResolver.isPlaylistCover(effectiveSong.coverUrl) &&
+        !effectiveSong.coverUrl.startsWith('file://');
+    if (hasValidCover) {
       _resolvedUrl = effectiveSong.coverUrl;
     } else {
       final catalogArt = CatalogDatabase.getSongCoverArt(effectiveSong.title, artist: effectiveSong.artist, album: effectiveSong.album) ??
@@ -112,26 +128,33 @@ class _CoverArtImageState extends State<CoverArtImage> {
         (widget.memCacheHeight == null ? (layoutDim * dpr).clamp(64.0, 1024.0).round() : null);
     final int? effectiveCacheHeight = widget.memCacheHeight;
 
-    // 0. Local offline artwork: If song is downloaded and local cover exists on disk, load directly from file
-    final localArt = widget.song?.localCoverPath ?? (widget.song != null ? DownloadManager.getLocalCoverPath(widget.song!.id) : null);
-    if (localArt != null && File(localArt).existsSync()) {
-      return ClipRRect(
-        borderRadius: radius,
-        child: SizedBox(
-          width: widget.width,
-          height: widget.height,
-          child: Image.file(
-            File(localArt),
-            fit: widget.fit,
-            errorBuilder: (_, __, ___) => widget.errorWidget ?? _buildPlaceholder(radius),
+    // 0. Local offline artwork: If song is downloaded or local cover exists on disk, load directly from file
+    final candidateLocal = _normalizePath(widget.song?.localCoverPath) ??
+        (widget.song != null ? _normalizePath(DownloadManager.getLocalCoverPath(widget.song!.id)) : null) ??
+        _normalizePath(widget.coverUrl) ??
+        _normalizePath(rawUrl);
+
+    if (candidateLocal != null && (candidateLocal.startsWith('/') || candidateLocal.contains(':\\') || candidateLocal.contains(':/'))) {
+      final localFile = File(candidateLocal);
+      if (localFile.existsSync()) {
+        return ClipRRect(
+          borderRadius: radius,
+          child: SizedBox(
+            width: widget.width,
+            height: widget.height,
+            child: Image.file(
+              localFile,
+              fit: widget.fit,
+              errorBuilder: (_, __, ___) => widget.errorWidget ?? _buildPlaceholder(radius),
+            ),
           ),
-        ),
-      );
+        );
+      }
     }
 
-    // 1. Empty cover or stock placeholder fallback: render neutral gradient
-    if (url.isEmpty || url.contains('unsplash.com')) {
-      return _buildPlaceholder(radius);
+    // 1. Empty cover or stock placeholder fallback or unresolvable file URI: render neutral gradient
+    if (url.isEmpty || url.contains('unsplash.com') || url.startsWith('file://') || url.startsWith('/') || url.contains(':\\')) {
+      return widget.errorWidget ?? _buildPlaceholder(radius);
     }
 
     // 2. 16:9 YouTube video thumbnail: single decode with ambient letterbox backdrop

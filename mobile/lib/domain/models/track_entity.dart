@@ -333,10 +333,22 @@ class TrackEntity {
   MediaItem toMediaItem() {
     final cached = CoverArtResolver.getCachedCover(id);
     final effectiveCover = (cached != null && cached.isNotEmpty) ? cached : coverUrl;
-    final localArtExists = localCoverPath != null && File(localCoverPath!).existsSync();
+    String? normalizedLocalCover;
+    if (localCoverPath != null) {
+      normalizedLocalCover = localCoverPath!.startsWith('file://')
+          ? (Uri.tryParse(localCoverPath!)?.toFilePath() ?? localCoverPath)
+          : localCoverPath;
+    }
+    final localArtExists = normalizedLocalCover != null && File(normalizedLocalCover).existsSync();
     final effectiveArtUri = localArtExists
-        ? Uri.file(localCoverPath!)
-        : (effectiveCover.isNotEmpty ? Uri.tryParse(effectiveCover) : null);
+        ? Uri.file(normalizedLocalCover)
+        : (effectiveCover.isNotEmpty
+            ? (effectiveCover.startsWith('file://')
+                ? Uri.tryParse(effectiveCover)
+                : (effectiveCover.startsWith('/') || effectiveCover.contains(':\\')
+                    ? Uri.file(effectiveCover)
+                    : Uri.tryParse(effectiveCover)))
+            : null);
     return MediaItem(
       id: id,
       title: displayTitle,
@@ -353,7 +365,7 @@ class TrackEntity {
         'source': source,
         'isDownloaded': isDownloaded,
         'localFilePath': localFilePath,
-        'localCoverPath': localCoverPath,
+        'localCoverPath': normalizedLocalCover ?? localCoverPath,
         'language': language,
         'matchedLyricSnippet': matchedLyricSnippet,
         'isSmartRecommended': isSmartRecommended,
@@ -366,19 +378,27 @@ class TrackEntity {
 
   /// Creates a TrackEntity from an audio_service MediaItem
   factory TrackEntity.fromMediaItem(MediaItem item) {
+    final rawArt = item.artUri;
+    final isFileUri = rawArt != null && rawArt.isScheme('file');
+    final resolvedCover = isFileUri
+        ? rawArt.toFilePath()
+        : (rawArt?.toString() ?? '');
+    final resolvedLocalCover = item.extras?['localCoverPath']?.toString() ??
+        (isFileUri ? rawArt.toFilePath() : null);
+
     return TrackEntity(
       id: item.id,
       title: item.title,
       artist: item.artist ?? 'Unknown Artist',
       album: item.album ?? '',
       duration: item.duration?.inSeconds ?? 0,
-      coverUrl: item.artUri?.toString() ?? '',
+      coverUrl: resolvedCover,
       streamUrl: item.extras?['streamUrl']?.toString(),
       encryptedMediaUrl: item.extras?['encryptedMediaUrl']?.toString(),
       source: item.extras?['source']?.toString() ?? 'saavn',
       isDownloaded: item.extras?['isDownloaded'] == true,
       localFilePath: item.extras?['localFilePath']?.toString(),
-      localCoverPath: item.extras?['localCoverPath']?.toString(),
+      localCoverPath: resolvedLocalCover,
       language: item.extras?['language']?.toString(),
       isSmartRecommended: item.extras?['isSmartRecommended'] == true,
       isUserEnqueued: item.extras?['isUserEnqueued'] == true,

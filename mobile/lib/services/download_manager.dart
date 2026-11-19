@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
@@ -16,10 +17,13 @@ import 'des_decrypt.dart';
 import 'connectivity_service.dart';
 import 'favorites_manager.dart';
 import '../logic/stream_resolver.dart';
+import 'cover_art_resolver.dart';
+import 'catalog_database.dart';
+import 'battery_optimization_service.dart';
 
 class DownloadManager {
   static const String boxName = 'offline_songs';
-  static const int maxConcurrentDownloads = 2;
+  static const int maxConcurrentDownloads = 4;
 
   static final Dio _dio = Dio();
   static final ValueNotifier<Map<String, double>> activeDownloads = ValueNotifier({});
@@ -70,6 +74,19 @@ class DownloadManager {
       final dir = await getApplicationDocumentsDirectory();
       _documentsDirPath = dir.path;
     } catch (_) {}
+
+    // Optimize Dio connection pool for parallel stream downloads
+    try {
+      _dio.httpClientAdapter = IOHttpClientAdapter(
+        createHttpClient: () {
+          final client = HttpClient();
+          client.maxConnectionsPerHost = 6;
+          client.idleTimeout = const Duration(seconds: 15);
+          return client;
+        },
+      );
+    } catch (_) {}
+
     if (!Hive.isBoxOpen(boxName)) {
       await Hive.openBox(boxName);
     }
@@ -119,9 +136,19 @@ class DownloadManager {
     if (Hive.isBoxOpen(boxName)) {
       final data = _box.get(songId);
       if (data != null && data is Map) {
-        final path = data['localCoverPath']?.toString();
+        var path = data['localCoverPath']?.toString();
+        if (path != null && path.startsWith('file://')) {
+          try {
+            path = Uri.parse(path).toFilePath();
+          } catch (_) {}
+        }
         if (path != null && File(path).existsSync()) {
           return path;
+        }
+        if (path != null && _documentsDirPath != null) {
+          final relName = path.split('/').last.split('\\').last;
+          final altCover = File('$_documentsDirPath/offline_covers/$relName');
+          if (altCover.existsSync()) return altCover.path;
         }
       }
     }
@@ -249,16 +276,35 @@ class DownloadManager {
     }
   }
 
+  static void _updateBackgroundServiceState() {
+    final activeCount = _activeDownloadSongIds.length;
+    final queuedCount = _downloadQueue.length;
+    final totalRemaining = activeCount + queuedCount;
+    if (totalRemaining > 0) {
+      unawaited(BatteryOptimizationService.startDataSync(
+        title: 'Downloading Music',
+        message: '$activeCount active • $queuedCount waiting in queue',
+        progress: activeCount,
+        max: totalRemaining,
+      ));
+    } else {
+      unawaited(BatteryOptimizationService.stopDataSync());
+    }
+  }
+
   /// Internal queue processor enforcing maxConcurrentDownloads
   static void _processQueue() {
+    _updateBackgroundServiceState();
     while (_activeDownloadSongIds.length < maxConcurrentDownloads && _downloadQueue.isNotEmpty) {
       final nextSong = _downloadQueue.removeAt(0);
       queueLengthNotifier.value = _downloadQueue.length;
       _activeDownloadSongIds.add(nextSong.id);
+      _updateBackgroundServiceState();
 
       _executeSingleDownload(nextSong).whenComplete(() {
         _activeDownloadSongIds.remove(nextSong.id);
         _cancelTokens.remove(nextSong.id);
+        _updateBackgroundServiceState();
         _processQueue(); // Automatically trigger next waiting song
       });
     }
@@ -337,6 +383,31 @@ class DownloadManager {
       final filePath = '${audioDir.path}/$safeName.mp3';
       final tempFilePath = '$filePath.download';
 
+      // 2b. High-Res Artwork Pre-Resolution
+      String targetCoverUrl = song.coverUrl;
+      if (targetCoverUrl.isEmpty || CoverArtResolver.isPlaylistCover(targetCoverUrl) || targetCoverUrl.contains('unsplash.com')) {
+        try {
+          final resolvedArt = await CoverArtResolver.resolveCover(song);
+          if (resolvedArt.isNotEmpty && !CoverArtResolver.isPlaylistCover(resolvedArt)) {
+            targetCoverUrl = resolvedArt;
+          }
+        } catch (_) {}
+      }
+      if (targetCoverUrl.isEmpty) {
+        final catalogArt = CatalogDatabase.getSongCoverArt(song.title, artist: song.artist, album: song.album) ??
+            CatalogDatabase.getMoviePoster(song.album);
+        if (catalogArt != null && catalogArt.isNotEmpty) {
+          targetCoverUrl = catalogArt;
+        }
+      }
+
+      final coversDir = Directory('${dir.path}/offline_covers');
+      if (!coversDir.existsSync()) {
+        coversDir.createSync(recursive: true);
+      }
+      final coverPath = '${coversDir.path}/$safeName.jpg';
+      final tempCoverPath = '$coverPath.download';
+
       // 3. Track active progress & expected size
       activeDownloads.value = {
         ...activeDownloads.value,
@@ -351,28 +422,56 @@ class DownloadManager {
           ? (Map<String, String>.from(YouTubeClient.headersForUrl(audioUrl))..remove('Range'))
           : null;
 
-      await _dio.download(
-        audioUrl,
-        tempFilePath,
-        options: ytDownloadHeaders != null ? Options(headers: ytDownloadHeaders) : null,
-        cancelToken: cancelToken,
-        onReceiveProgress: (received, total) {
-          if (total > 0) expectedTotalBytes = total;
-          if (total > 0 && !cancelToken.isCancelled) {
-            final p = received / total;
-            activeDownloads.value = {
-              ...activeDownloads.value,
-              song.id: p,
-            };
-            onProgress?.call(p);
-          }
-        },
-      );
+      String? localCoverFilePath;
+      final downloadFutures = <Future<dynamic>>[
+        _dio.download(
+          audioUrl,
+          tempFilePath,
+          options: ytDownloadHeaders != null ? Options(headers: ytDownloadHeaders) : null,
+          cancelToken: cancelToken,
+          onReceiveProgress: (received, total) {
+            if (total > 0) expectedTotalBytes = total;
+            if (total > 0 && !cancelToken.isCancelled) {
+              final p = received / total;
+              activeDownloads.value = {
+                ...activeDownloads.value,
+                song.id: p,
+              };
+              onProgress?.call(p);
+            }
+          },
+        ),
+      ];
+
+      // Download high-res cover art concurrently with the audio stream
+      if (targetCoverUrl.isNotEmpty && (targetCoverUrl.startsWith('http://') || targetCoverUrl.startsWith('https://'))) {
+        downloadFutures.add(
+          _dio.download(
+            targetCoverUrl,
+            tempCoverPath,
+            cancelToken: cancelToken,
+          ).then((_) {
+            final tempCoverFile = File(tempCoverPath);
+            if (tempCoverFile.existsSync() && tempCoverFile.lengthSync() > 100) {
+              final targetCover = File(coverPath);
+              if (targetCover.existsSync()) targetCover.deleteSync();
+              tempCoverFile.renameSync(coverPath);
+              localCoverFilePath = coverPath;
+            }
+          }).catchError((e) {
+            AppLogger.log('DownloadManager', 'Artwork download notice for "${song.title}": $e');
+          }),
+        );
+      }
+
+      await Future.wait(downloadFutures);
 
       if (cancelToken.isCancelled) {
-        // Clean up partial temporary file if cancelled
+        // Clean up partial temporary files if cancelled
         final partial = File(tempFilePath);
         if (partial.existsSync()) partial.deleteSync();
+        final partialCover = File(tempCoverPath);
+        if (partialCover.existsSync()) partialCover.deleteSync();
         return false;
       }
 
@@ -412,31 +511,9 @@ class DownloadManager {
       }
       tempFile.renameSync(filePath);
 
-      // 3b. Atomic Cover Art Persistence: Save high-res artwork alongside audio
-      String? localCoverFilePath;
-      if (song.coverUrl.isNotEmpty && !song.coverUrl.contains('unsplash.com')) {
-        try {
-          final coversDir = Directory('${dir.path}/offline_covers');
-          if (!coversDir.existsSync()) {
-            coversDir.createSync(recursive: true);
-          }
-          final coverPath = '${coversDir.path}/$safeName.jpg';
-          final tempCoverPath = '$coverPath.download';
-          await _dio.download(
-            song.coverUrl,
-            tempCoverPath,
-            cancelToken: cancelToken,
-          );
-          final tempCoverFile = File(tempCoverPath);
-          if (tempCoverFile.existsSync() && tempCoverFile.lengthSync() > 100) {
-            final targetCover = File(coverPath);
-            if (targetCover.existsSync()) targetCover.deleteSync();
-            tempCoverFile.renameSync(coverPath);
-            localCoverFilePath = coverPath;
-          }
-        } catch (e) {
-          AppLogger.log('DownloadManager', 'Artwork download notice for "${song.title}": $e');
-        }
+      // Verify or assign localCoverFilePath
+      if (localCoverFilePath == null && File(coverPath).existsSync()) {
+        localCoverFilePath = coverPath;
       }
 
       // 4. Save metadata to Hive
@@ -559,18 +636,32 @@ class DownloadManager {
         if (data != null && data is Map) {
           final song = Song.fromMap(data);
           final existing = getLocalCoverPath(song.id);
-          if (existing == null && song.coverUrl.isNotEmpty && !song.coverUrl.contains('unsplash.com')) {
-            final safeName = song.id.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
-            final targetPath = '${coversDir.path}/$safeName.jpg';
-            final tmp = '$targetPath.tmp';
-            await _dio.download(song.coverUrl, tmp);
-            final tmpF = File(tmp);
-            if (tmpF.existsSync() && tmpF.lengthSync() > 100) {
-              final targetF = File(targetPath);
-              if (targetF.existsSync()) targetF.deleteSync();
-              tmpF.renameSync(targetPath);
-              final updated = song.copyWith(localCoverPath: targetPath);
-              await _box.put(key, updated.toMap());
+          if (existing == null) {
+            String artUrl = song.coverUrl;
+            if (artUrl.isEmpty || CoverArtResolver.isPlaylistCover(artUrl) || artUrl.startsWith('file://')) {
+              try {
+                artUrl = await CoverArtResolver.resolveCover(song);
+              } catch (_) {}
+            }
+            if (artUrl.isEmpty || artUrl.startsWith('file://')) {
+              artUrl = CatalogDatabase.getSongCoverArt(song.title, artist: song.artist, album: song.album) ??
+                  CatalogDatabase.getMoviePoster(song.album) ?? '';
+            }
+            if (artUrl.isNotEmpty && (artUrl.startsWith('http://') || artUrl.startsWith('https://'))) {
+              final safeName = song.id.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+              final targetPath = '${coversDir.path}/$safeName.jpg';
+              final tmp = '$targetPath.tmp';
+              try {
+                await _dio.download(artUrl, tmp);
+                final tmpF = File(tmp);
+                if (tmpF.existsSync() && tmpF.lengthSync() > 100) {
+                  final targetF = File(targetPath);
+                  if (targetF.existsSync()) targetF.deleteSync();
+                  tmpF.renameSync(targetPath);
+                  final updated = song.copyWith(localCoverPath: targetPath, coverUrl: artUrl);
+                  await _box.put(key, updated.toMap());
+                }
+              } catch (_) {}
             }
           }
         }

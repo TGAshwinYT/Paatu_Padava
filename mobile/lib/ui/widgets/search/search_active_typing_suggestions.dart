@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
 import '../../../services/favorites_manager.dart';
 import '../../../services/search_history_manager.dart';
@@ -8,8 +7,6 @@ import '../../theme/app_theme.dart';
 import '../../screens/album_screen.dart';
 
 class SearchActiveTypingSuggestions extends StatelessWidget {
-  static final HtmlUnescape _unescape = HtmlUnescape();
-
   static final RegExp _mixOrBgmRegex = RegExp(
     r'\b(bgm|theme|ost|score|background\s*score|instrumental|remix|mashup|lo[\s\-]?fi|slowed|reverb|acoustic|reprise|extended|mix|version|soundtrack)\b',
     caseSensitive: false,
@@ -87,8 +84,8 @@ class SearchActiveTypingSuggestions extends StatelessWidget {
             ),
           ),
           ...orderedSongMatches.take(3).map((song) {
-            final cleanTitle = _unescape.convert(Song.sanitize(song.title));
-            final cleanArtist = _unescape.convert(Song.sanitize(song.artist));
+            final cleanTitle = Song.sanitize(song.title);
+            final cleanArtist = Song.sanitize(song.artist);
 
             return ValueListenableBuilder<List<Song>>(
               valueListenable: FavoritesManager.favoritesNotifier,
@@ -174,8 +171,8 @@ class SearchActiveTypingSuggestions extends StatelessWidget {
             ),
           ),
           ...matchingAlbums.take(2).map((alb) {
-            final title = _unescape.convert((alb['title'] ?? alb['name'] ?? '').toString());
-            final artist = _unescape.convert((alb['artist'] ?? alb['music'] ?? alb['description'] ?? '').toString());
+            final title = Song.sanitize((alb['title'] ?? alb['name'] ?? '').toString());
+            final artist = Song.sanitize((alb['artist'] ?? alb['music'] ?? alb['description'] ?? '').toString());
             final img = (alb['image'] ?? alb['cover_url'] ?? '').toString();
             final id = alb['id']?.toString() ?? '';
 
@@ -243,7 +240,7 @@ class SearchActiveTypingSuggestions extends StatelessWidget {
             ),
           ),
           ...effectiveCompletions.take(maxCompletions).map((q) {
-            final clean = _unescape.convert(Song.sanitize(q));
+            final clean = Song.sanitize(q);
             final isHistory = historyQueries.contains(clean.toLowerCase().trim());
             return ListTile(
               dense: true,

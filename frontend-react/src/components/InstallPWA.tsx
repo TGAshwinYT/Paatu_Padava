@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowDownTrayIcon, ArrowUpOnSquareIcon } from '@heroicons/react/24/outline';
+import { Download, Share } from 'lucide-react';
 
 const InstallPWA: React.FC = () => {
     const [isIOS, setIsIOS] = useState(false);
@@ -59,7 +59,7 @@ const InstallPWA: React.FC = () => {
                     onClick={handleInstallClick}
                     className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-brand text-black font-bold rounded-xl hover:bg-brand-hover transition shadow-lg active:scale-95"
                 >
-                    <ArrowDownTrayIcon className="w-5 h-5" strokeWidth={2.5} />
+                    <Download className="w-5 h-5" strokeWidth={2.5} />
                     Install App
                 </button>
             )}
@@ -68,7 +68,7 @@ const InstallPWA: React.FC = () => {
             {isIOS && !isInstallable && (
                 <div className="bg-surface text-gray-300 text-sm p-4 rounded-xl flex items-center gap-3 border border-white/5 animate-in fade-in slide-in-from-bottom-2 duration-500">
                     <div className="bg-white/10 p-2 rounded-lg">
-                        <ArrowUpOnSquareIcon className="w-6 h-6 text-white" />
+                        <Share className="w-6 h-6 text-white" />
                     </div>
                     <p className="leading-tight">
                         To install the app, tap the <span className="text-white font-bold">Share</span> icon below and select <span className="text-white font-bold">"Add to Home Screen"</span>.

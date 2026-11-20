@@ -1,6 +1,5 @@
 import '../../../services/search_service.dart';
 import 'package:flutter/material.dart';
-import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
 import '../../../logic/track_quality_filter.dart';
 import '../../../domain/models/clustered_track_result.dart';
@@ -38,7 +37,6 @@ class SearchAllResultsView extends StatefulWidget {
 }
 
 class _SearchAllResultsViewState extends State<SearchAllResultsView> {
-  static final HtmlUnescape _unescape = HtmlUnescape();
   String _selectedFilter = 'All';
 
   // Memoized collections precomputed on state change (NOT on every build frame)
@@ -347,7 +345,7 @@ class _SearchAllResultsViewState extends State<SearchAllResultsView> {
   }
 
   Widget _buildDidYouMeanBanner(String suggestion) {
-    final cleanSuggestion = _unescape.convert(Song.sanitize(suggestion));
+    final cleanSuggestion = Song.sanitize(suggestion);
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),

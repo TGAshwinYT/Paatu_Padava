@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
 import '../../../services/player_handler.dart';
 import '../../../services/download_manager.dart';
@@ -14,8 +13,6 @@ import '../cover_art_image.dart';
 /// Replaces all disparate _showSongOptions implementations with a unified,
 /// Spotify/Apple Music-grade context menu with haptic feedback.
 class SongOptionsSheet {
-  static final HtmlUnescape _unescape = HtmlUnescape();
-
   static void show(
     BuildContext context,
     Song song, {
@@ -23,8 +20,8 @@ class SongOptionsSheet {
     String? removeLabel,
   }) {
     HapticFeedback.lightImpact();
-    final cleanTitle = _unescape.convert(Song.sanitize(song.title));
-    final cleanArtist = _unescape.convert(Song.sanitize(song.artist));
+    final cleanTitle = song.title;
+    final cleanArtist = song.artist;
 
     showModalBottomSheet(
       context: context,

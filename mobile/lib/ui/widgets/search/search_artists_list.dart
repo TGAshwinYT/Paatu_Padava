@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
 import '../../theme/app_theme.dart';
 import '../../screens/artist_screen.dart';
 
 class SearchArtistsList extends StatelessWidget {
-  static final HtmlUnescape _unescape = HtmlUnescape();
-
   final List<Map<String, dynamic>> artists;
   final String query;
   final VoidCallback onRecordClick;
@@ -37,7 +34,7 @@ class SearchArtistsList extends StatelessWidget {
       itemBuilder: (context, index) {
         final art = artists[index];
         final id = art['id']?.toString() ?? '';
-        final name = _unescape.convert(Song.sanitize(art['name']?.toString() ?? ''));
+        final name = Song.sanitize(art['name']?.toString() ?? '');
         final img = art['image']?.toString() ?? '';
 
         return ListTile(

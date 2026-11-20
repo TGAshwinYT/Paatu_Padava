@@ -1,5 +1,5 @@
 import os
-import requests
+import httpx
 
 def send_password_reset_email(to_email: str, otp: str) -> bool:
     """
@@ -15,10 +15,10 @@ def send_password_reset_email(to_email: str, otp: str) -> bool:
     try:
         # Step 2: Make the POST request to the webhook
         # The payload matches the Google Apps Script EXPECTATIONS (to, otp)
-        response = requests.post(
+        response = httpx.post(
             webhook_url, 
             json={"to": to_email, "otp": otp}, 
-            timeout=10
+            timeout=10.0
         )
         
         # Step 3: Parse response and check for success

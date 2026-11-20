@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
 import '../../theme/app_theme.dart';
 import '../../screens/artist_screen.dart';
 
 /// Horizontal carousel displaying verified popular artists on HomeScreen.
 class HomePopularArtists extends StatelessWidget {
-  static final HtmlUnescape _unescape = HtmlUnescape();
   final List<Map<String, dynamic>> artists;
 
   const HomePopularArtists({super.key, required this.artists});
@@ -42,7 +40,7 @@ class HomePopularArtists extends StatelessWidget {
               separatorBuilder: (_, __) => const SizedBox(width: 12),
               itemBuilder: (context, index) {
                 final art = artists[index];
-                final name = _unescape.convert(Song.sanitize(art['name']?.toString() ?? 'Artist'));
+                final name = Song.sanitize(art['name']?.toString() ?? 'Artist');
                 final img = art['image']?.toString() ?? '';
                 final id = art['id']?.toString() ?? '';
 

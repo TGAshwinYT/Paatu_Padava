@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/song.dart';
@@ -20,12 +19,26 @@ class SmartCacheService {
   static const int maxCacheBytes = 150 * 1024 * 1024; // 150 MB smart cache cap (~30 tracks)
   static const int minValidAudioSizeBytes = 100 * 1024; // 100 KB sanity minimum
 
-  final Dio _dio = Dio(
-    BaseOptions(
-      connectTimeout: const Duration(seconds: 10),
-      receiveTimeout: const Duration(seconds: 30),
-    ),
-  );
+  static final HttpClient _httpClient = HttpClient()
+    ..connectionTimeout = const Duration(seconds: 10)
+    ..idleTimeout = const Duration(seconds: 15);
+
+  Future<void> _downloadFile(String url, String savePath, {Map<String, String>? headers}) async {
+    final uri = Uri.parse(url);
+    final request = await _httpClient.getUrl(uri);
+    headers?.forEach((k, v) => request.headers.set(k, v));
+    final response = await request.close();
+    if (response.statusCode >= 400) {
+      throw HttpException('Pre-cache download failed with status ${response.statusCode}', uri: uri);
+    }
+    final file = File(savePath);
+    final sink = file.openWrite();
+    try {
+      await response.pipe(sink);
+    } finally {
+      await sink.close();
+    }
+  }
 
   final Map<String, File> _cachedAudioMap = {};
   final Map<String, int> _cacheSizeBytes = {};
@@ -202,12 +215,10 @@ class SmartCacheService {
 
       AppLogger.log('SmartCacheService', 'Predictive caching started for: "${song.title}"');
 
-      await _dio.download(
+      await _downloadFile(
         streamUrl,
         tmpFile.path,
-        options: Options(
-          headers: DefaultStreamResolver.streamingHeaders,
-        ),
+        headers: DefaultStreamResolver.streamingHeaders,
       );
 
       if (await tmpFile.exists()) {

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
 import '../../../services/player_handler.dart';
 import '../../../services/download_manager.dart';
@@ -10,8 +9,7 @@ import '../add_to_playlist_dialog.dart';
 import '../cover_art_image.dart';
 
 void showHomeSongContextMenu(BuildContext context, Song song) {
-  final unescape = HtmlUnescape();
-  final cleanTitle = unescape.convert(Song.sanitize(song.title));
+  final cleanTitle = song.title;
 
   showModalBottomSheet(
     context: context,
@@ -90,7 +88,6 @@ class HomeSongCard extends StatelessWidget {
   final Song song;
   final VoidCallback onTap;
   final double? width;
-  static final HtmlUnescape _unescape = HtmlUnescape();
 
   const HomeSongCard({
     super.key,
@@ -101,8 +98,8 @@ class HomeSongCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cleanTitle = _unescape.convert(Song.sanitize(song.title));
-    final cleanArtist = _unescape.convert(Song.sanitize(song.artist));
+    final cleanTitle = song.title;
+    final cleanArtist = song.artist;
     final cardWidth = width ?? AppDimensions.homeCardWidth(context);
 
     return GestureDetector(

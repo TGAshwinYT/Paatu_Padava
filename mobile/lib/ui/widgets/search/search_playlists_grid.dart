@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
 import '../../theme/app_theme.dart';
 import '../../screens/remote_playlist_screen.dart';
 
 class SearchPlaylistsGrid extends StatelessWidget {
-  static final HtmlUnescape _unescape = HtmlUnescape();
-
   final List<Map<String, dynamic>> playlists;
   final String query;
   final VoidCallback onRecordClick;
@@ -52,8 +49,8 @@ class SearchPlaylistsGrid extends StatelessWidget {
       itemBuilder: (context, index) {
         final item = playlists[index];
         final id = item['id']?.toString() ?? '';
-        final title = _unescape.convert(Song.sanitize(item['title']?.toString() ?? ''));
-        final subtitle = _unescape.convert(item['subtitle']?.toString() ?? '');
+        final title = Song.sanitize(item['title']?.toString() ?? '');
+        final subtitle = Song.sanitize(item['subtitle']?.toString() ?? '');
         final img = item['image']?.toString() ?? '';
         final source = item['source']?.toString() ?? 'saavn';
         final isYoutube = source == 'youtube';

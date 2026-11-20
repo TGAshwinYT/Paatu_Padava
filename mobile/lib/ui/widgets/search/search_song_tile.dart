@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 // import 'package:cached_network_image/cached_network_image.dart';
-import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
 import '../../../logic/search_query_planner.dart';
 import '../../../services/player_handler.dart';
@@ -13,8 +12,6 @@ import '../../theme/app_theme.dart';
 import '../common/cascading_cover_image.dart';
 
 class SearchSongTile extends StatelessWidget {
-  static final HtmlUnescape _unescape = HtmlUnescape();
-
   final Song song;
   final VoidCallback onTap;
   final VoidCallback onShowOptions;
@@ -88,7 +85,7 @@ class SearchSongTile extends StatelessWidget {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Added to Play Next: ${_unescape.convert(Song.sanitize(song.title))}',
+                      'Added to Play Next: ${song.title}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: Colors.white, fontSize: 13),
@@ -106,11 +103,11 @@ class SearchSongTile extends StatelessWidget {
   }
 
   Widget _buildTileContent(BuildContext context, {required bool isPlaying}) {
-    final cleanTitle = _unescape.convert(Song.sanitize(song.title));
-    final cleanArtist = _unescape.convert(Song.sanitize(song.artist));
+    final cleanTitle = song.title;
+    final cleanArtist = song.artist;
     final genuineSingers = ArtistSanitizer.extractAllGenuineArtists(cleanArtist);
     final displayArtists = genuineSingers.isNotEmpty ? genuineSingers.join(', ') : cleanArtist;
-    final cleanAlbum = _unescape.convert(Song.sanitize(song.album));
+    final cleanAlbum = song.album;
     final hasGenuineAlbum = cleanAlbum.isNotEmpty &&
         cleanAlbum.toLowerCase() != 'unknown album' &&
         cleanAlbum.toLowerCase() != 'single' &&

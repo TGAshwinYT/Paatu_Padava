@@ -1,6 +1,5 @@
 import 'dart:async';
-import 'package:fuzzywuzzy/fuzzywuzzy.dart';
-import 'package:fuzzywuzzy/model/extracted_result.dart';
+import '../core/dsa/string_similarity.dart';
 import '../models/song.dart';
 import '../core/dsa/bk_tree.dart';
 import '../core/dsa/lru_cache.dart';

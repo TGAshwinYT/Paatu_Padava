@@ -1,7 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:dio/dio.dart';
-import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
@@ -21,11 +19,26 @@ import 'cover_art_resolver.dart';
 import 'catalog_database.dart';
 import 'battery_optimization_service.dart';
 
+/// Lightweight cancellation token for background stream downloads
+class DownloadCancelToken {
+  bool _isCancelled = false;
+  String? _reason;
+  bool get isCancelled => _isCancelled;
+  String? get reason => _reason;
+  void cancel([String? reason]) {
+    _isCancelled = true;
+    _reason = reason;
+  }
+}
+
 class DownloadManager {
   static const String boxName = 'offline_songs';
   static const int maxConcurrentDownloads = 4;
 
-  static final Dio _dio = Dio();
+  static final HttpClient _httpClient = HttpClient()
+    ..maxConnectionsPerHost = 6
+    ..idleTimeout = const Duration(seconds: 15)
+    ..connectionTimeout = const Duration(seconds: 10);
   static final ValueNotifier<Map<String, double>> activeDownloads = ValueNotifier({});
   static final ValueNotifier<Map<String, AppError>> downloadErrorsNotifier = ValueNotifier({});
   static final ValueNotifier<List<Song>> downloadedSongsNotifier = ValueNotifier<List<Song>>([]);
@@ -50,7 +63,7 @@ class DownloadManager {
   // Managed Concurrency Queue
   static final List<Song> _downloadQueue = [];
   static final Set<String> _activeDownloadSongIds = {};
-  static final Map<String, CancelToken> _cancelTokens = {};
+  static final Map<String, DownloadCancelToken> _cancelTokens = {};
 
   // Space-efficient O(1) Bloom Filter gate (p < 0.005) for zero-cost membership checking
   static final BloomFilter _downloadBloomFilter = BloomFilter(
@@ -75,24 +88,56 @@ class DownloadManager {
       _documentsDirPath = dir.path;
     } catch (_) {}
 
-    // Optimize Dio connection pool for parallel stream downloads
-    try {
-      _dio.httpClientAdapter = IOHttpClientAdapter(
-        createHttpClient: () {
-          final client = HttpClient();
-          client.maxConnectionsPerHost = 6;
-          client.idleTimeout = const Duration(seconds: 15);
-          return client;
-        },
-      );
-    } catch (_) {}
-
     if (!Hive.isBoxOpen(boxName)) {
       await Hive.openBox(boxName);
     }
     _rebuildBloomFilter();
     downloadedSongsNotifier.value = getDownloadedSongs();
     unawaited(backfillMissingCovers());
+  }
+
+  /// High-performance chunked file downloader with progress reporting and cancellation support
+  static Future<void> _downloadFile(
+    String url,
+    String savePath, {
+    Map<String, String>? headers,
+    DownloadCancelToken? cancelToken,
+    void Function(int received, int total)? onReceiveProgress,
+  }) async {
+    final uri = Uri.parse(url);
+    final request = await _httpClient.getUrl(uri);
+    headers?.forEach((k, v) => request.headers.set(k, v));
+
+    if (cancelToken?.isCancelled == true) {
+      request.abort();
+      return;
+    }
+
+    final response = await request.close();
+    if (response.statusCode >= 400) {
+      throw HttpException('Download failed with status ${response.statusCode}', uri: uri);
+    }
+
+    final total = response.contentLength;
+    int received = 0;
+    final file = File(savePath);
+    final sink = file.openWrite();
+
+    try {
+      await for (final chunk in response) {
+        if (cancelToken?.isCancelled == true) {
+          request.abort();
+          break;
+        }
+        sink.add(chunk);
+        received += chunk.length;
+        if (total > 0 && onReceiveProgress != null) {
+          onReceiveProgress(received, total);
+        }
+      }
+    } finally {
+      await sink.close();
+    }
   }
 
   static Box get _box => Hive.box(boxName);
@@ -325,7 +370,7 @@ class DownloadManager {
   static Future<bool> _executeSingleDownload(Song song, {Function(double progress)? onProgress}) async {
     if (isDownloaded(song.id)) return true;
 
-    final cancelToken = CancelToken();
+    final cancelToken = DownloadCancelToken();
     _cancelTokens[song.id] = cancelToken;
 
     try {
@@ -424,10 +469,10 @@ class DownloadManager {
 
       String? localCoverFilePath;
       final downloadFutures = <Future<dynamic>>[
-        _dio.download(
+        _downloadFile(
           audioUrl,
           tempFilePath,
-          options: ytDownloadHeaders != null ? Options(headers: ytDownloadHeaders) : null,
+          headers: ytDownloadHeaders,
           cancelToken: cancelToken,
           onReceiveProgress: (received, total) {
             if (total > 0) expectedTotalBytes = total;
@@ -446,7 +491,7 @@ class DownloadManager {
       // Download high-res cover art concurrently with the audio stream
       if (targetCoverUrl.isNotEmpty && (targetCoverUrl.startsWith('http://') || targetCoverUrl.startsWith('https://'))) {
         downloadFutures.add(
-          _dio.download(
+          _downloadFile(
             targetCoverUrl,
             tempCoverPath,
             cancelToken: cancelToken,
@@ -652,7 +697,7 @@ class DownloadManager {
               final targetPath = '${coversDir.path}/$safeName.jpg';
               final tmp = '$targetPath.tmp';
               try {
-                await _dio.download(artUrl, tmp);
+                await _downloadFile(artUrl, tmp);
                 final tmpF = File(tmp);
                 if (tmpF.existsSync() && tmpF.lengthSync() > 100) {
                   final targetF = File(targetPath);

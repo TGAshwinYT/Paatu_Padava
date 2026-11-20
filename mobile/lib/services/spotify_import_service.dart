@@ -3,7 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:fuzzywuzzy/fuzzywuzzy.dart';
+import '../core/dsa/string_similarity.dart';
 import 'package:html_unescape/html_unescape.dart';
 import '../models/song.dart';
 import '../domain/models/track_entity.dart';

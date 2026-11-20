@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:dio/dio.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../domain/models/app_error.dart';
 
@@ -51,38 +50,20 @@ class ErrorHandler {
       return AppError.timeout(debugDetails: error.toString());
     }
 
-    // 2. Dio Exceptions (used in DownloadManager and HTTP clients)
-    if (error is DioException) {
-      switch (error.type) {
-        case DioExceptionType.connectionTimeout:
-        case DioExceptionType.sendTimeout:
-        case DioExceptionType.receiveTimeout:
-          return AppError.timeout(debugDetails: error.message);
-        case DioExceptionType.connectionError:
-          return AppError.offline(debugDetails: error.message);
-        case DioExceptionType.badResponse:
-          final statusCode = error.response?.statusCode;
-          return resolveHttpStatus(statusCode, responseBody: error.response?.data, debugDetails: error.message);
-        case DioExceptionType.cancel:
-          return const AppError(
-            category: AppErrorCategory.unknown,
-            userMessage: 'The download was cancelled.',
-            errorCode: 'ERR_CANCELLED',
-          );
-        default:
-          final msg = (error.message ?? '').toLowerCase();
-          if (msg.contains('socket') || msg.contains('network') || msg.contains('connection')) {
-            return AppError.offline(debugDetails: error.message);
-          }
-          return AppError(
-            category: AppErrorCategory.unknown,
-            userMessage: 'A network error occurred. Please try again.',
-            actionLabel: 'Retry',
-            actionType: AppActionType.retry,
-            errorCode: 'ERR_DIO_UNKNOWN',
-            debugDetails: error.message,
-          );
+    // 2. HTTP Exceptions
+    if (error is HttpException) {
+      final msg = error.message.toLowerCase();
+      if (msg.contains('socket') || msg.contains('network') || msg.contains('connection')) {
+        return AppError.offline(debugDetails: error.message);
       }
+      return AppError(
+        category: AppErrorCategory.offline,
+        userMessage: 'A network communication error occurred. Please try again.',
+        actionLabel: 'Retry',
+        actionType: AppActionType.retry,
+        errorCode: 'ERR_HTTP_EXCEPTION',
+        debugDetails: error.message,
+      );
     }
 
     // 3. Supabase / GoTrue Auth Exceptions

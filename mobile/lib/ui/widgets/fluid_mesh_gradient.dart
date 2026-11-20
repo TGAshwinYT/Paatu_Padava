@@ -1,9 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:palette_generator/palette_generator.dart';
 
 /// High-performance fluid mesh gradient that renders animated luminous radial blobs.
 /// Optimized for 60/120fps with zero full-screen BackdropFilter GPU blurs,
@@ -101,39 +102,72 @@ class _FluidMeshGradientState extends State<FluidMeshGradient>
     }
 
     try {
-      // Decode a lightweight 32x32 thumbnail instead of high-res bitmap for instant palette extraction
+      // Decode a lightweight 16x16 thumbnail for instant sub-millisecond dominant color extraction
       final imageProvider = ResizeImage(
         CachedNetworkImageProvider(url),
-        width: 32,
-        height: 32,
-      );
-      final palette = await PaletteGenerator.fromImageProvider(
-        imageProvider,
-        maximumColorCount: 16,
+        width: 16,
+        height: 16,
       );
 
-      final extracted = <Color>[];
+      final completer = Completer<ui.Image>();
+      final stream = imageProvider.resolve(ImageConfiguration.empty);
+      late ImageStreamListener listener;
+      listener = ImageStreamListener(
+        (info, _) {
+          if (!completer.isCompleted) completer.complete(info.image);
+          stream.removeListener(listener);
+        },
+        onError: (err, stack) {
+          if (!completer.isCompleted) completer.completeError(err);
+          stream.removeListener(listener);
+        },
+      );
+      stream.addListener(listener);
 
-      if (palette.vibrantColor != null) extracted.add(palette.vibrantColor!.color);
-      if (palette.lightVibrantColor != null) extracted.add(palette.lightVibrantColor!.color);
-      if (palette.darkVibrantColor != null) extracted.add(palette.darkVibrantColor!.color);
-      if (palette.dominantColor != null) extracted.add(palette.dominantColor!.color);
-      if (palette.mutedColor != null) extracted.add(palette.mutedColor!.color);
+      final uiImage = await completer.future.timeout(const Duration(seconds: 3));
+      final byteData = await uiImage.toByteData(format: ui.ImageByteFormat.rawRgba);
+      if (byteData == null) return;
 
-      // Filter out overly dark or grayscale colors
-      final vibrantList = extracted.where((c) {
-        final hsl = HSLColor.fromColor(c);
-        return hsl.saturation > 0.15 && hsl.lightness > 0.15 && hsl.lightness < 0.85;
-      }).toList();
+      final bytes = byteData.buffer.asUint8List();
+      final candidates = <Color>[];
 
-      if (vibrantList.length >= 2) {
-        while (vibrantList.length < 4) {
-          vibrantList.add(vibrantList.first.withValues(alpha: 0.8));
+      for (int i = 0; i < bytes.length; i += 4) {
+        final r = bytes[i];
+        final g = bytes[i + 1];
+        final b = bytes[i + 2];
+        final a = bytes[i + 3];
+        if (a < 128) continue;
+
+        final max = math.max(r, math.max(g, b));
+        final min = math.min(r, math.min(g, b));
+        final l = (max + min) / 510.0;
+        final s = (max == min) ? 0.0 : (l <= 0.5 ? (max - min) / (max + min) : (max - min) / (510.0 - max - min));
+
+        // Filter for vibrant, colorful pixels
+        if (s > 0.25 && l > 0.20 && l < 0.85) {
+          final c = Color.fromARGB(255, r, g, b);
+          // Check if sufficiently distinct from existing candidates
+          final isDistinct = candidates.every((existing) {
+            final dr = ((existing.r * 255).round() - r).abs();
+            final dg = ((existing.g * 255).round() - g).abs();
+            final db = ((existing.b * 255).round() - b).abs();
+            return (dr + dg + db) > 60;
+          });
+          if (isDistinct) {
+            candidates.add(c);
+            if (candidates.length >= 4) break;
+          }
+        }
+      }
+
+      if (candidates.isNotEmpty) {
+        while (candidates.length < 4) {
+          candidates.add(candidates.first.withValues(alpha: 0.8));
         }
         if (_paletteCache.length >= 50) {
           _paletteCache.remove(_paletteCache.keys.first);
         }
-        _paletteCache[url] = vibrantList.take(4).toList();
+        _paletteCache[url] = candidates.take(4).toList();
         if (mounted) {
           setState(() {
             _colors = _paletteCache[url]!;

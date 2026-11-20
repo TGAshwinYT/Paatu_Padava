@@ -1,15 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
 import '../../../services/search_history_manager.dart';
 import '../../theme/app_theme.dart';
 import '../spotify_import_dialog.dart';
 
 class SearchPreContent extends StatelessWidget {
-  static final HtmlUnescape _unescape = HtmlUnescape();
-
   final List<String> trendingArtists;
   final List<Map<String, dynamic>> browseCategories;
   final ValueChanged<String> onSelectQuery;
@@ -195,8 +192,8 @@ class SearchPreContent extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 ...recentSongs.take(6).map((song) {
-                  final cleanTitle = _unescape.convert(Song.sanitize(song.title));
-                  final cleanArtist = _unescape.convert(Song.sanitize(song.artist));
+                  final cleanTitle = Song.sanitize(song.title);
+                  final cleanArtist = Song.sanitize(song.artist);
 
                   return Container(
                     margin: const EdgeInsets.symmetric(vertical: 3),

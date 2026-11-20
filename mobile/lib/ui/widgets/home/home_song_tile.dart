@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
 import '../../../services/player_handler.dart';
 import '../../theme/app_theme.dart';
@@ -10,7 +9,6 @@ import 'home_song_card.dart';
 class HomeSongTile extends StatelessWidget {
   final Song song;
   final VoidCallback onTap;
-  static final HtmlUnescape _unescape = HtmlUnescape();
 
   const HomeSongTile({
     super.key,
@@ -20,8 +18,8 @@ class HomeSongTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cleanTitle = _unescape.convert(Song.sanitize(song.title));
-    final cleanArtist = _unescape.convert(Song.sanitize(song.artist));
+    final cleanTitle = song.title;
+    final cleanArtist = song.artist;
 
     return ValueListenableBuilder<Song?>(
       valueListenable: audioHandler.currentSongNotifier,

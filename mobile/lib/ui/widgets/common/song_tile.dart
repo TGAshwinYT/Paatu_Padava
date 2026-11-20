@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
 import '../../../services/player_handler.dart';
 import '../../../services/download_manager.dart';
@@ -13,8 +12,6 @@ import 'song_options_sheet.dart';
 /// Delivers Spotify-grade smoothness, active track visual highlighting,
 /// configurable swipe gestures, and universal context options sheet.
 class SongTile extends StatelessWidget {
-  static final HtmlUnescape _unescape = HtmlUnescape();
-
   final Song song;
   final List<Song>? queue;
   final int? index;
@@ -56,8 +53,8 @@ class SongTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cleanTitle = _unescape.convert(Song.sanitize(song.title));
-    final cleanArtist = _unescape.convert(Song.sanitize(song.artist));
+    final cleanTitle = song.title;
+    final cleanArtist = song.artist;
 
     final tile = ValueListenableBuilder<Song?>(
       valueListenable: audioHandler.currentSongNotifier,

@@ -1,13 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
 import '../../theme/app_theme.dart';
 
 class SearchTopResultCard extends StatelessWidget {
-  static final HtmlUnescape _unescape = HtmlUnescape();
-
   final Map<String, dynamic> top;
   final VoidCallback onArtistClick;
   final VoidCallback onPlay;
@@ -30,8 +27,8 @@ class SearchTopResultCard extends StatelessWidget {
     }
 
     final type = top['type']?.toString() ?? 'song';
-    final title = _unescape.convert(Song.sanitize(top['title']?.toString() ?? top['name']?.toString() ?? ''));
-    final artist = _unescape.convert(Song.sanitize(top['artist']?.toString() ?? top['subtitle']?.toString() ?? ''));
+    final title = Song.sanitize(top['title']?.toString() ?? top['name']?.toString() ?? '');
+    final artist = Song.sanitize(top['artist']?.toString() ?? top['subtitle']?.toString() ?? '');
     final cover = top['cover_url']?.toString() ?? top['image']?.toString() ?? '';
     final isArtist = type.toLowerCase() == 'artist';
     final isAlbum = type.toLowerCase() == 'album';

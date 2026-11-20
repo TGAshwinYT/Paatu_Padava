@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
 import '../../theme/app_theme.dart';
 import '../../screens/album_screen.dart';
 
 class SearchAlbumsGrid extends StatelessWidget {
-  static final HtmlUnescape _unescape = HtmlUnescape();
-
   final List<Map<String, dynamic>> albums;
   final String query;
   final VoidCallback onRecordClick;
@@ -48,8 +45,8 @@ class SearchAlbumsGrid extends StatelessWidget {
       itemBuilder: (context, index) {
         final album = albums[index];
         final id = album['id']?.toString() ?? '';
-        final title = _unescape.convert(Song.sanitize(album['title']?.toString() ?? ''));
-        final artist = _unescape.convert(Song.sanitize(album['artist']?.toString() ?? ''));
+        final title = Song.sanitize(album['title']?.toString() ?? '');
+        final artist = Song.sanitize(album['artist']?.toString() ?? '');
         final img = album['image']?.toString() ?? '';
         final cacheSize = AppDimensions.memCachePhysical(context, 200);
 

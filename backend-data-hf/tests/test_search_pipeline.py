@@ -1,7 +1,7 @@
 import unittest
 import sys
 import os
-from jose import jwt
+import jwt
 from unittest.mock import MagicMock, AsyncMock, patch
 
 # Ensure backend-data-hf directory is in Python path
@@ -94,7 +94,7 @@ class TestSearchPipelineAndTrust(unittest.IsolatedAsyncioTestCase):
         """Test that tokens with forged or wrong signatures are cryptographically rejected."""
         user_id = 999
         payload = {"sub": str(user_id), "email": "hacker@evil.com"}
-        forged_token = jwt.encode(payload, "wrong-secret-key-123", algorithm="HS256")
+        forged_token = jwt.encode(payload, "wrong-secret-key-minimum-32-characters-123", algorithm="HS256")
 
         mock_db = AsyncMock()
         user = await _resolve_user_from_token(forged_token, mock_db)

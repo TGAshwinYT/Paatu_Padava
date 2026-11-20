@@ -525,8 +525,7 @@ async def refresh_token(
     Extracts expired/current JWT token from Authorization header or body,
     verifies identity, and issues a fresh JWT without interrupting user session.
     """
-    from jose import jwt, JWTError
-    from auth_utils import SECRET_KEY, ALGORITHM, create_access_token
+    from auth_utils import jwt, JWTError, SECRET_KEY, ALGORITHM, create_access_token
 
     raw_token = None
     auth_header = request.headers.get("Authorization")

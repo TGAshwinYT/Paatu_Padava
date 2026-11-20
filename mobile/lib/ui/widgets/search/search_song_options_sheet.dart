@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
 import '../../../services/player_handler.dart';
 import '../../../services/download_manager.dart';
@@ -9,8 +8,6 @@ import '../../theme/app_theme.dart';
 import '../add_to_playlist_dialog.dart';
 
 class SearchSongOptionsSheet {
-  static final HtmlUnescape _unescape = HtmlUnescape();
-
   static void show(BuildContext context, Song song) {
     showModalBottomSheet(
       context: context,
@@ -29,7 +26,7 @@ class SearchSongOptionsSheet {
                 Navigator.pop(context);
                 audioHandler.startSongRadio(song);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Starting radio for "${_unescape.convert(Song.sanitize(song.title))}"...')),
+                  SnackBar(content: Text('Starting radio for "${song.title}"...')),
                 );
               },
             ),
@@ -40,7 +37,7 @@ class SearchSongOptionsSheet {
                 audioHandler.insertNext(song);
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Playing "${_unescape.convert(Song.sanitize(song.title))}" next')),
+                  SnackBar(content: Text('Playing "${song.title}" next')),
                 );
               },
             ),
@@ -51,7 +48,7 @@ class SearchSongOptionsSheet {
                 audioHandler.addToQueue(song);
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Added "${_unescape.convert(Song.sanitize(song.title))}" to queue')),
+                  SnackBar(content: Text('Added "${song.title}" to queue')),
                 );
               },
             ),
@@ -87,7 +84,7 @@ class SearchSongOptionsSheet {
                 Navigator.pop(context);
                 BlacklistManager.blacklistSong(song);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Blocked "${_unescape.convert(Song.sanitize(song.title))}". Won\'t play again.')),
+                  SnackBar(content: Text('Blocked "${song.title}". Won\'t play again.')),
                 );
               },
             ),

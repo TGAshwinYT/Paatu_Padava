@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:html_unescape/html_unescape.dart';
 import '../../../models/song.dart';
 import '../../theme/app_theme.dart';
 import '../../screens/artist_screen.dart';
@@ -10,8 +9,6 @@ import '../../../services/catalog_database.dart';
 
 /// Clean Spotify-style vertical list tile for an Artist
 class SearchArtistTile extends StatelessWidget {
-  static final HtmlUnescape _unescape = HtmlUnescape();
-
   final Map<String, dynamic> artist;
   final VoidCallback? onRecordClick;
 
@@ -25,7 +22,7 @@ class SearchArtistTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final id = artist['id']?.toString() ?? '';
     final rawName = artist['name']?.toString() ?? artist['title']?.toString() ?? '';
-    final name = _unescape.convert(Song.sanitize(rawName));
+    final name = Song.sanitize(rawName);
     final img = artist['image']?.toString() ?? artist['cover_url']?.toString() ?? artist['fallback_image']?.toString() ?? '';
 
     return ListTile(
@@ -95,8 +92,6 @@ class SearchArtistTile extends StatelessWidget {
 
 /// Clean Spotify-style vertical list tile for an Album
 class SearchAlbumTile extends StatelessWidget {
-  static final HtmlUnescape _unescape = HtmlUnescape();
-
   final Map<String, dynamic> album;
   final VoidCallback? onRecordClick;
 
@@ -110,9 +105,9 @@ class SearchAlbumTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final id = album['id']?.toString() ?? '';
     final rawTitle = album['title']?.toString() ?? album['name']?.toString() ?? '';
-    final title = _unescape.convert(Song.sanitize(rawTitle));
+    final title = Song.sanitize(rawTitle);
     final rawArtist = album['artist']?.toString() ?? album['subtitle']?.toString() ?? album['composer']?.toString() ?? '';
-    final artist = _unescape.convert(Song.sanitize(rawArtist));
+    final artist = Song.sanitize(rawArtist);
     final songCount = int.tryParse(album['song_count']?.toString() ?? '0') ?? 0;
     final year = album['year']?.toString() ?? '';
     var img = album['image']?.toString() ?? album['cover_url']?.toString() ?? '';
@@ -213,8 +208,6 @@ class SearchAlbumTile extends StatelessWidget {
 
 /// Clean Spotify-style vertical list tile for a Playlist
 class SearchPlaylistTile extends StatelessWidget {
-  static final HtmlUnescape _unescape = HtmlUnescape();
-
   final Map<String, dynamic> playlist;
   final VoidCallback? onRecordClick;
 
@@ -228,13 +221,12 @@ class SearchPlaylistTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final id = playlist['id']?.toString() ?? '';
     final rawTitle = playlist['title']?.toString() ?? playlist['name']?.toString() ?? '';
-    final cleanTitle = _unescape
-        .convert(Song.sanitize(rawTitle))
+    final cleanTitle = Song.sanitize(rawTitle)
         .replaceAll(RegExp(r'\s*\((All Songs|Full Album)\)', caseSensitive: false), '')
         .trim();
     final rawSubtitle = playlist['subtitle']?.toString() ?? '';
     final subtitleText = rawSubtitle.isNotEmpty
-        ? 'Playlist • ${_unescape.convert(rawSubtitle)}'
+        ? 'Playlist • ${Song.sanitize(rawSubtitle)}'
         : 'Playlist';
     final img = playlist['image']?.toString() ?? playlist['cover_url']?.toString() ?? '';
     final source = playlist['source']?.toString() ?? 'saavn';

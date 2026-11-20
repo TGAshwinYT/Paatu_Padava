@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request, Response
 from typing import Dict, Any, Optional
 import os
-import requests
+import httpx
 
 router = APIRouter(prefix="/api", tags=["utils"])
 
@@ -177,8 +177,9 @@ async def get_test_location(request: Request):
 
     # 3. Fetch geolocation data
     try:
-        response = requests.get(f"http://ip-api.com/json/{user_ip}")
-        data = response.json()
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"http://ip-api.com/json/{user_ip}")
+            data = response.json()
         
         return {
             "your_ip": data.get("query"),

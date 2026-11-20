@@ -431,6 +431,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                           height: targetSize,
                                           child: PlayerGestureDetector(
                                             onDoubleTap: () => _handleArtworkDoubleTap(song),
+                                            onCollapse: () => Navigator.of(context).pop(),
                                             child: _buildArtworkView(song, targetSize),
                                           ),
                                         );

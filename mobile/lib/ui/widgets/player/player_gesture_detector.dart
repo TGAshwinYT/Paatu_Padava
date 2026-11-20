@@ -9,16 +9,18 @@ import 'volume_hud_overlay.dart';
 /// - Interactive Swipe Left: Card tracks user touch, slides off-screen, and transitions to Next Song
 /// - Interactive Swipe Right: Card tracks user touch, slides off-screen, and transitions to Previous Song
 /// - Incomplete Swipes: Card spring-bounces back to center if release is below commit threshold
+/// - Interactive Pull Down: Smoothly pulls card down and collapses Full Player to Mini Player (Spotify/Apple Music benchmark)
 /// - Swipe Up: Increase in-app music volume
-/// - Swipe Down: Decrease in-app music volume
 class PlayerGestureDetector extends StatefulWidget {
   final Widget child;
   final VoidCallback? onDoubleTap;
+  final VoidCallback? onCollapse;
 
   const PlayerGestureDetector({
     Key? key,
     required this.child,
     this.onDoubleTap,
+    this.onCollapse,
   }) : super(key: key);
 
   @override
@@ -34,7 +36,9 @@ class _PlayerGestureDetectorState extends State<PlayerGestureDetector>
   // Interactive horizontal drag tracking & animation
   late final AnimationController _animController;
   Animation<double>? _slideAnimation;
+  Animation<double>? _verticalSlideAnimation;
   double _dragOffset = 0.0;
+  double _verticalDragOffset = 0.0;
   bool _isDraggingHorizontal = false;
   bool _isDraggingVertical = false;
   bool _isTransitioning = false;
@@ -49,6 +53,11 @@ class _PlayerGestureDetectorState extends State<PlayerGestureDetector>
         if (_slideAnimation != null) {
           setState(() {
             _dragOffset = _slideAnimation!.value;
+          });
+        }
+        if (_verticalSlideAnimation != null) {
+          setState(() {
+            _verticalDragOffset = _verticalSlideAnimation!.value;
           });
         }
       });
@@ -133,10 +142,22 @@ class _PlayerGestureDetectorState extends State<PlayerGestureDetector>
   /// Spring-animates card back to center if swipe didn't cross commit threshold
   void _animateBackToCenter() {
     final start = _dragOffset;
+    _verticalSlideAnimation = null;
     _slideAnimation = Tween<double>(begin: start, end: 0.0).animate(
       CurvedAnimation(parent: _animController, curve: Curves.easeOutCubic),
     );
     _animController.duration = const Duration(milliseconds: 220);
+    _animController.forward(from: 0.0);
+  }
+
+  /// Spring-animates pull-down card back to origin if pull didn't commit collapse
+  void _animateVerticalBackToCenter() {
+    final start = _verticalDragOffset;
+    _slideAnimation = null;
+    _verticalSlideAnimation = Tween<double>(begin: start, end: 0.0).animate(
+      CurvedAnimation(parent: _animController, curve: Curves.easeOutCubic),
+    );
+    _animController.duration = const Duration(milliseconds: 200);
     _animController.forward(from: 0.0);
   }
 
@@ -150,6 +171,7 @@ class _PlayerGestureDetectorState extends State<PlayerGestureDetector>
     final exitTarget = isNext ? -screenWidth * 1.15 : screenWidth * 1.15;
 
     // 1. Smoothly accelerate out off-screen
+    _verticalSlideAnimation = null;
     _slideAnimation = Tween<double>(begin: _dragOffset, end: exitTarget).animate(
       CurvedAnimation(parent: _animController, curve: Curves.easeInCubic),
     );
@@ -183,6 +205,7 @@ class _PlayerGestureDetectorState extends State<PlayerGestureDetector>
     if (mounted) {
       setState(() {
         _dragOffset = 0.0;
+        _verticalDragOffset = 0.0;
         _isTransitioning = false;
       });
     }
@@ -191,6 +214,9 @@ class _PlayerGestureDetectorState extends State<PlayerGestureDetector>
   void _onVerticalDragStart(DragStartDetails details) {
     if (!SettingsManager.isPlayerGesturesEnabled || _isTransitioning) return;
     if (_dragOffset.abs() > 10) return;
+    if (_animController.isAnimating) {
+      _animController.stop();
+    }
     _isDraggingVertical = true;
     _isDraggingHorizontal = false;
   }
@@ -198,28 +224,55 @@ class _PlayerGestureDetectorState extends State<PlayerGestureDetector>
   void _onVerticalDragUpdate(DragUpdateDetails details) {
     if (!SettingsManager.isPlayerGesturesEnabled || _isTransitioning || !_isDraggingVertical) return;
 
-    // Moving up gives negative delta.dy -> increase volume
-    // Full swipe distance (~220 pixels) spans 0.0 to 1.0 volume range
-    const swipeSensitivity = 220.0;
-    final deltaVolume = -details.delta.dy / swipeSensitivity;
-    final newVolume = (_currentVolume + deltaVolume).clamp(0.0, 1.0);
+    final dy = details.delta.dy;
+    if (dy > 0 || _verticalDragOffset > 0) {
+      // Downward drag -> Interactive Pull to Collapse (Spotify/Apple Music benchmark)
+      setState(() {
+        _verticalDragOffset = (_verticalDragOffset + dy).clamp(0.0, 180.0);
+      });
+    } else {
+      // Upward drag -> subtle volume increase
+      const swipeSensitivity = 220.0;
+      final deltaVolume = -dy / swipeSensitivity;
+      final newVolume = (_currentVolume + deltaVolume).clamp(0.0, 1.0);
 
-    if ((newVolume - _currentVolume).abs() > 0.005 || newVolume == 0.0 || newVolume == 1.0) {
-      _currentVolume = newVolume;
-      if (isAudioHandlerInitialized) {
-        audioHandler.setUserVolume(newVolume);
-      }
-      _showVolumeHud(newVolume);
+      if ((newVolume - _currentVolume).abs() > 0.005 || newVolume == 1.0) {
+        _currentVolume = newVolume;
+        if (isAudioHandlerInitialized) {
+          audioHandler.setUserVolume(newVolume);
+        }
+        _showVolumeHud(newVolume);
 
-      // Light haptic tick when hitting limits
-      if (newVolume == 0.0 || newVolume == 1.0) {
-        HapticFeedback.selectionClick();
+        if (newVolume == 1.0) {
+          HapticFeedback.selectionClick();
+        }
       }
     }
   }
 
   void _onVerticalDragEnd(DragEndDetails details) {
+    if (!_isDraggingVertical) return;
     _isDraggingVertical = false;
+
+    final velocity = details.primaryVelocity ?? 0.0;
+    // Commit collapse if pulled down > 65px or flung down with velocity > 300
+    if (_verticalDragOffset > 65.0 || (velocity > 300 && _verticalDragOffset > 20)) {
+      HapticFeedback.lightImpact();
+      if (widget.onCollapse != null) {
+        widget.onCollapse!();
+      } else {
+        Navigator.of(context).maybePop();
+      }
+    } else if (_verticalDragOffset > 0.0) {
+      _animateVerticalBackToCenter();
+    }
+  }
+
+  void _onVerticalDragCancel() {
+    _isDraggingVertical = false;
+    if (_verticalDragOffset > 0.0) {
+      _animateVerticalBackToCenter();
+    }
   }
 
   @override
@@ -255,16 +308,17 @@ class _PlayerGestureDetectorState extends State<PlayerGestureDetector>
               onVerticalDragStart: _onVerticalDragStart,
               onVerticalDragUpdate: _onVerticalDragUpdate,
               onVerticalDragEnd: _onVerticalDragEnd,
+              onVerticalDragCancel: _onVerticalDragCancel,
               onDoubleTap: widget.onDoubleTap,
               child: RepaintBoundary(
                 child: Transform.translate(
-                  offset: Offset(_dragOffset, 0),
+                  offset: Offset(_dragOffset, _verticalDragOffset),
                   child: Transform.rotate(
                     angle: rotationAngle,
                     child: Transform.scale(
-                      scale: scaleFactor,
+                      scale: (scaleFactor * (1.0 - (_verticalDragOffset / 1200.0))).clamp(0.85, 1.0),
                       child: Opacity(
-                        opacity: opacityFactor,
+                        opacity: (opacityFactor * (1.0 - (_verticalDragOffset / 350.0))).clamp(0.0, 1.0),
                         child: widget.child,
                       ),
                     ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../../models/song.dart';
 import '../../../services/player_handler.dart';
 import '../../../services/smart_cache_service.dart';
@@ -86,6 +87,7 @@ class _PlayerScrubberState extends State<PlayerScrubber> {
                       value: displayedMs.clamp(0.0, maxVal),
                       secondaryTrackValue: bufferedClamped.toDouble(),
                       onChangeStart: (val) {
+                        HapticFeedback.selectionClick();
                         setState(() {
                           _isDragging = true;
                           _dragPositionMs = val;
@@ -97,6 +99,7 @@ class _PlayerScrubberState extends State<PlayerScrubber> {
                         });
                       },
                       onChangeEnd: (val) {
+                        HapticFeedback.lightImpact();
                         setState(() {
                           _isDragging = false;
                         });

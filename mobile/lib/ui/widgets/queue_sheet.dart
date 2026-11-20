@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../logic/smart_shuffle_controller.dart';
 import '../../models/song.dart';
 import '../../domain/models/track_entity.dart';
@@ -342,7 +343,9 @@ class _QueueSheetState extends State<QueueSheet> {
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
                           itemCount: userQueueTracks.length,
+                          onReorderStart: (_) => HapticFeedback.selectionClick(),
                           onReorder: (oldIdx, newIdx) {
+                            HapticFeedback.lightImpact();
                             final actualOld = currentIndex + 1 + oldIdx;
                             final actualNew = currentIndex + 1 + newIdx;
                             audioHandler.reorderQueue(actualOld, actualNew);
@@ -434,7 +437,9 @@ class _QueueSheetState extends State<QueueSheet> {
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
                           itemCount: suggestedTracks.length,
+                          onReorderStart: (_) => HapticFeedback.selectionClick(),
                           onReorder: (oldIdx, newIdx) {
+                            HapticFeedback.lightImpact();
                             final baseOffset = currentIndex + 1 + userQueueTracks.length;
                             final actualOld = baseOffset + oldIdx;
                             final actualNew = baseOffset + newIdx;

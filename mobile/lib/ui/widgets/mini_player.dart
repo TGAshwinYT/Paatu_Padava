@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import '../../models/song.dart';
 import '../../services/player_handler.dart';
@@ -51,6 +52,16 @@ class MiniPlayer extends StatelessWidget {
                   },
                 ),
               );
+            },
+            onHorizontalDragEnd: (details) {
+              final velocity = details.primaryVelocity ?? 0.0;
+              if (velocity < -250) {
+                HapticFeedback.lightImpact();
+                audioHandler.skipToNext();
+              } else if (velocity > 250) {
+                HapticFeedback.lightImpact();
+                audioHandler.skipToPrevious();
+              }
             },
             child: Container(
               height: 66,
@@ -204,6 +215,7 @@ class MiniPlayer extends StatelessWidget {
                                     color: isFav ? const Color(0xFFEC4899) : Colors.white60,
                                   ),
                                   onPressed: () {
+                                    HapticFeedback.lightImpact();
                                     FavoritesManager.toggleFavorite(song);
                                   },
                                 );
@@ -239,6 +251,7 @@ class MiniPlayer extends StatelessWidget {
                                     size: isCompact ? 26 : 28,
                                   ),
                                   onPressed: () {
+                                    HapticFeedback.lightImpact();
                                     if (playing) {
                                       audioHandler.pause();
                                     } else {
@@ -258,7 +271,10 @@ class MiniPlayer extends StatelessWidget {
                                 color: Colors.white70,
                                 size: AppDimensions.isCompact(context) ? 24 : 26,
                               ),
-                              onPressed: () => audioHandler.skipToNext(),
+                              onPressed: () {
+                                HapticFeedback.lightImpact();
+                                audioHandler.skipToNext();
+                              },
                             ),
                           ],
                         ),

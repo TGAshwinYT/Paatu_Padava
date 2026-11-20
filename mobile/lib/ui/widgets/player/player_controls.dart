@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import '../../../logic/smart_shuffle_controller.dart';
 import '../../../services/player_handler.dart';
@@ -50,17 +51,8 @@ class PlayerControls extends StatelessWidget {
               icon: Icon(icon, color: color, size: secondaryIconSize),
               tooltip: tooltip,
               onPressed: () {
+                HapticFeedback.selectionClick();
                 audioHandler.toggleSmartShuffle();
-                final newMode = audioHandler.smartShuffleController.mode;
-                final msg = newMode == SmartShuffleMode.smart
-                    ? '✨ Smart Shuffle Enabled (AI Recommendations Interleaved)'
-                    : (newMode == SmartShuffleMode.standard
-                        ? '🔀 Standard Shuffle Enabled (Queue Reordered)'
-                        : '➡️ Shuffle Off (Sequential Playback)');
-                ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(msg), duration: const Duration(seconds: 1)),
-                );
               },
             );
           },
@@ -71,7 +63,10 @@ class PlayerControls extends StatelessWidget {
           visualDensity: isCompact ? VisualDensity.compact : VisualDensity.standard,
           padding: isCompact ? const EdgeInsets.all(4.0) : const EdgeInsets.all(8.0),
           icon: Icon(Icons.skip_previous_rounded, color: Colors.white, size: skipIconSize),
-          onPressed: () => audioHandler.skipToPrevious(),
+          onPressed: () {
+            HapticFeedback.lightImpact();
+            audioHandler.skipToPrevious();
+          },
         ),
 
         // Play / Pause
@@ -102,6 +97,7 @@ class PlayerControls extends StatelessWidget {
 
             return InkWell(
               onTap: () {
+                HapticFeedback.lightImpact();
                 if (playing) {
                   audioHandler.pause();
                 } else {
@@ -142,7 +138,10 @@ class PlayerControls extends StatelessWidget {
           visualDensity: isCompact ? VisualDensity.compact : VisualDensity.standard,
           padding: isCompact ? const EdgeInsets.all(4.0) : const EdgeInsets.all(8.0),
           icon: Icon(Icons.skip_next_rounded, color: Colors.white, size: skipIconSize),
-          onPressed: () => audioHandler.skipToNext(),
+          onPressed: () {
+            HapticFeedback.lightImpact();
+            audioHandler.skipToNext();
+          },
         ),
 
         // Loop Mode
@@ -159,7 +158,10 @@ class PlayerControls extends StatelessWidget {
                 color: isLooping ? const Color(0xFF6366F1) : const Color(0xFF64748B),
                 size: secondaryIconSize,
               ),
-              onPressed: () => audioHandler.toggleLoopMode(),
+              onPressed: () {
+                HapticFeedback.selectionClick();
+                audioHandler.toggleLoopMode();
+              },
             );
           },
         ),

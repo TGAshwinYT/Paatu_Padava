@@ -270,9 +270,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       }
     }
 
-    // 3. Throttled UI position fan-out (500ms foreground / 1500ms background)
+    // 3. Throttled UI position fan-out (100ms foreground / 1500ms background)
     if (_throttledPositionController != null && _throttledPositionController!.hasListener) {
-      final intervalMs = _isAppInBackground ? 1500 : 500;
+      final intervalMs = _isAppInBackground ? 1500 : 100;
       if (now - _lastThrottledEmitMs >= intervalMs || !isPlaying) {
         _lastThrottledEmitMs = now;
         _throttledPositionController!.add(pos);

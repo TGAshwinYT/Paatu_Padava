@@ -173,17 +173,6 @@ class _SearchScreenState extends State<SearchScreen> {
             : [clean, if (!lower.contains(' song')) '$clean songs', if (!lower.contains(' hit')) '$clean hits']);
 
     _typeaheadDebounceTimer = Timer(const Duration(milliseconds: 180), () {
-      final intent = SearchService.understandQuery(lower);
-      SearchService.prewarmQuery(
-        clean,
-        language: intent.explicitLanguage,
-        onPrewarmed: (prewarmedSongs, prewarmedAlbums) {
-          if (mounted && _searchController.text.trim() == clean && !_hasSearchedNotifier.value) {
-            if (_localMatchesNotifier.value.isEmpty && prewarmedSongs.isNotEmpty) _localMatchesNotifier.value = prewarmedSongs;
-            if (_matchingAlbumsNotifier.value.isEmpty && prewarmedAlbums.isNotEmpty) _matchingAlbumsNotifier.value = prewarmedAlbums;
-          }
-        },
-      );
       void applyBundle(SearchTypeaheadBundle b) {
         if (mounted && _searchController.text.trim() == clean && !_hasSearchedNotifier.value) {
           if (b.completions.isNotEmpty) _suggestionsNotifier.value = b.completions;

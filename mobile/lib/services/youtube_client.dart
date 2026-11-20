@@ -1144,6 +1144,12 @@ class YouTubeClient {
     }
   }
 
+  /// Clears all cached YouTube stream URLs (called when network interface transitions)
+  static void clearStreamCache() {
+    _streamCache.clear();
+    AppLogger.log('YouTubeClient', 'Cleared all cached YouTube stream URLs due to network interface transition');
+  }
+
   /// Fast HTTP GET probe to verify whether a googlevideo.com or stream URL is playable
   /// and not 403-blocked by Google CDN. Returns true ONLY on HTTP 200 or 206.
   static Future<bool> probeStreamUrl(String url) async {

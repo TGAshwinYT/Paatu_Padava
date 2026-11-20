@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../core/app_config.dart';
+import '../logic/stream_resolver.dart';
+import 'youtube_client.dart';
 
 /// Connection reachability monitor.
 /// Surfaces live online/offline states to ensure graceful offline degradation
@@ -13,6 +15,7 @@ class ConnectivityService {
   static bool _isPaused = false;
   static int _lastLatencyMs = 50;
   static String _networkType = 'unknown';
+  static String _previousNetworkType = 'unknown';
 
   static ValueListenable<bool> get isOnline => isOnlineNotifier;
   static bool get currentIsOnline => isOnlineNotifier.value;
@@ -154,8 +157,14 @@ class ConnectivityService {
         _lastLatencyMs = sw.elapsedMilliseconds;
       }
 
-      if (isOnlineNotifier.value != reachable) {
+      if (isOnlineNotifier.value != reachable || _previousNetworkType != _networkType) {
         debugPrint('[ConnectivityService] Network state changed: ${reachable ? "ONLINE" : "OFFLINE"} (type: $_networkType, latency: ${_lastLatencyMs}ms)');
+        if (reachable && _previousNetworkType != 'unknown' && _previousNetworkType != _networkType) {
+          // Handover (e.g. Wi-Fi to cellular): clear IP-bound stream tokens to avoid HTTP 403
+          DefaultStreamResolver.clearCache();
+          YouTubeClient.clearStreamCache();
+        }
+        _previousNetworkType = _networkType;
         isOnlineNotifier.value = reachable;
       }
       _isChecking = false;
@@ -168,6 +177,41 @@ class ConnectivityService {
       _isChecking = false;
       return false;
     }
+  }
+
+  /// Evaluates whether an error/exception is a transport-level network fault
+  static bool isNetworkError(Object error) {
+    if (error is SocketException || error is HttpException) return true;
+    final str = error.toString().toLowerCase();
+    return str.contains('socketexception') ||
+        str.contains('httpexception') ||
+        str.contains('failed host lookup') ||
+        str.contains('network is unreachable') ||
+        str.contains('connection refused') ||
+        str.contains('connection reset') ||
+        str.contains('connection closed') ||
+        str.contains('connection abort') ||
+        str.contains('broken pipe') ||
+        str.contains('no route to host') ||
+        str.contains('network error') ||
+        str.contains('403 forbidden') ||
+        str.contains('timed out') ||
+        str.contains('handshakeexception');
+  }
+
+  /// Instantly sets offline and schedules a fast re-check upon receiving an immediate transport exception
+  static void reportTransportFailure(Object error) {
+    if (!isNetworkError(error)) return;
+    if (isOnlineNotifier.value != false) {
+      debugPrint('[ConnectivityService] Immediate transport failure detected: $error -> setting OFFLINE');
+      isOnlineNotifier.value = false;
+    }
+    // Re-probe after a brief delay to detect quick reconnects or interface switches
+    Timer(const Duration(seconds: 2), () {
+      if (!_isPaused) {
+        checkConnection();
+      }
+    });
   }
 
   /// Cancels polling timer

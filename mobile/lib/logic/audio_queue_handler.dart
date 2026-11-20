@@ -959,11 +959,14 @@ class AudioQueueHandler {
         return;
       }
 
-      if (!ConnectivityService.currentIsOnline && _currentTrack != null && !DownloadManager.isDownloaded(_currentTrack!.id)) {
+      final isNetworkFault = !ConnectivityService.currentIsOnline || ConnectivityService.isNetworkError(error);
+      if (isNetworkFault && _currentTrack != null && !DownloadManager.isDownloaded(_currentTrack!.id)) {
         _wasStalledByNetwork = true;
         if (player.position > Duration.zero) {
           _networkStallOffset = player.position;
         }
+        ConnectivityService.reportTransportFailure(error);
+        _consecutivePlaybackErrors = 0; // Prevent network dropouts from tripping circuit breaker
         AppLogger.log('AudioQueueHandler', 'Network offline during playback error. Cached stall offset ${_networkStallOffset.inSeconds}s for automatic zero-touch recovery.');
       }
 
@@ -972,6 +975,13 @@ class AudioQueueHandler {
       onError?.call(appErr);
       if (isAudioHandlerInitialized) {
         audioHandler.playbackErrorNotifier.value = appErr;
+      }
+
+      // If stalled by network, HOLD position rather than auto-skipping and tripping circuit breaker
+      if (_wasStalledByNetwork) {
+        AppLogger.log('AudioQueueHandler', 'Holding playback on network-stalled track "${current.title}". Awaiting connection recovery...');
+        try { player.pause(); } catch (_) {}
+        return;
       }
 
       if (hasNext && !_isDisposed && token == _sessionToken) {

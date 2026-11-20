@@ -8,6 +8,8 @@ import '../logic/stream_resolver.dart';
 import 'lyrics_client.dart';
 import 'app_logger.dart';
 import 'download_manager.dart';
+import 'connectivity_service.dart';
+import 'settings_manager.dart';
 
 /// Spotify & Apple Music style Predictive Smart Caching Service.
 /// Automatically pre-downloads upcoming tracks in the active queue and radio buffer
@@ -141,6 +143,14 @@ class SmartCacheService {
     // Run in unawaited background task so player audio thread is never impeded
     unawaited(() async {
       try {
+        if (!ConnectivityService.currentIsOnline) return;
+
+        // Respect Download Over Wi-Fi Only setting to prevent unmetered cellular data drain
+        if (SettingsManager.downloadWifiOnlyNotifier.value) {
+          final isWifi = await ConnectivityService.isWifi();
+          if (!isWifi) return;
+        }
+
         if (!_isInitialized) await init();
 
         // Find active index
@@ -215,10 +225,13 @@ class SmartCacheService {
 
       AppLogger.log('SmartCacheService', 'Predictive caching started for: "${song.title}"');
 
+      final isGoogleVideo = streamUrl.contains('googlevideo.com');
+      final headers = isGoogleVideo ? DefaultStreamResolver.streamingHeaders : null;
+
       await _downloadFile(
         streamUrl,
         tmpFile.path,
-        headers: DefaultStreamResolver.streamingHeaders,
+        headers: headers,
       );
 
       if (await tmpFile.exists()) {

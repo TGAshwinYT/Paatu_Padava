@@ -105,8 +105,17 @@ class DownloadManager {
     void Function(int received, int total)? onReceiveProgress,
   }) async {
     final uri = Uri.parse(url);
+    final file = File(savePath);
+    final fileExists = file.existsSync();
+    final existingBytes = fileExists ? file.lengthSync() : 0;
+
     final request = await _httpClient.getUrl(uri);
     headers?.forEach((k, v) => request.headers.set(k, v));
+
+    // HTTP Range resumption: resume from partial byte offset if available
+    if (existingBytes > 0) {
+      request.headers.set('Range', 'bytes=$existingBytes-');
+    }
 
     if (cancelToken?.isCancelled == true) {
       request.abort();
@@ -114,14 +123,18 @@ class DownloadManager {
     }
 
     final response = await request.close();
-    if (response.statusCode >= 400) {
+    if (response.statusCode >= 400 && response.statusCode != 416) {
       throw HttpException('Download failed with status ${response.statusCode}', uri: uri);
     }
 
-    final total = response.contentLength;
-    int received = 0;
-    final file = File(savePath);
-    final sink = file.openWrite();
+    final isPartial = response.statusCode == 206;
+    final sink = file.openWrite(mode: isPartial ? FileMode.append : FileMode.write);
+
+    final total = isPartial
+        ? (response.contentLength > 0 ? response.contentLength + existingBytes : -1)
+        : response.contentLength;
+
+    int received = isPartial ? existingBytes : 0;
 
     try {
       await for (final chunk in response) {
@@ -532,10 +545,10 @@ class DownloadManager {
 
       final downloadedBytes = tempFile.lengthSync();
       if (expectedTotalBytes > 0 && downloadedBytes < expectedTotalBytes) {
-        tempFile.deleteSync();
+        // Do NOT delete partial file: preserve it so subsequent retries resume via HTTP Range
         throw AppError(
           category: AppErrorCategory.songUnavailable,
-          userMessage: 'Download verification failed: Truncated stream ($downloadedBytes/$expectedTotalBytes bytes).',
+          userMessage: 'Download interrupted: ($downloadedBytes/$expectedTotalBytes bytes). Resumable on retry.',
           errorCode: 'ERR_DOWNLOAD_CORRUPTED',
         );
       }

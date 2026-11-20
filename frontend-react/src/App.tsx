@@ -184,78 +184,37 @@ const AppContent = () => {
   );
 };
 
-const SplashLoader = () => (
-  <div className="h-screen w-screen bg-surface-base flex flex-col items-center justify-center font-display p-6 text-center select-none">
-    <div className="relative mb-12 group">
-      {/* Icon Logo Container */}
-      <div className="w-24 h-24 bg-neutral-800 rounded-[2rem] flex items-center justify-center border border-neutral-700 shadow-2xl relative z-10 transition-transform duration-700 group-hover:scale-110 overflow-hidden">
-        <img src="/logo.png" className="w-full h-full object-cover" alt="Logo" />
-      </div>
-      
-      {/* Outer Decorative Rings */}
-      <div className="absolute -inset-4 border border-neutral-800 rounded-full animate-pulse opacity-50" />
-      <div className="absolute -inset-8 border border-neutral-800/50 rounded-full animate-pulse opacity-25 [animation-delay:0.5s]" />
-      
-      {/* Spinning Loader Indicator */}
-      <div className="absolute -inset-2 border-2 border-transparent border-t-neutral-500 rounded-full animate-spin z-20" />
-    </div>
-    
-    <div className="space-y-2 mb-8">
-      <h1 className="text-white text-4xl font-black tracking-tighter uppercase italic">Paatu Paaduva</h1>
-      <div className="flex items-center justify-center gap-2">
-        <span className="h-[1px] w-8 bg-neutral-800" />
-        <p className="text-neutral-500 text-[10px] font-bold tracking-[0.3em] uppercase">Hyper Local Music</p>
-        <span className="h-[1px] w-8 bg-neutral-800" />
-      </div>
-    </div>
-
-    <div className="max-w-[280px] w-full space-y-6">
-      <div className="relative">
-        <p className="text-neutral-400 text-sm font-medium animate-pulse mb-3">
-          Waking up our servers...
-        </p>
-        
-        {/* Progress Bar Container */}
-        <div className="h-1.5 w-full bg-neutral-900 rounded-full overflow-hidden border border-neutral-800/50">
-          <div className="h-full bg-gradient-to-r from-neutral-700 via-white/40 to-neutral-700 rounded-full w-1/3 animate-loading" />
-        </div>
-      </div>
-      
-      <p className="text-neutral-600 text-[11px] leading-relaxed">
-        This usually takes 10-15 seconds on the first load due to backend cold starts. <br />
-        Thanks for your patience!
-      </p>
-    </div>
-  </div>
-);
-
 const App = () => {
   const [isServerReady, setIsServerReady] = useState(false);
   const API_URL = import.meta.env.VITE_DATA_API_URL || (import.meta.env.PROD ? 'https://tgashwinyt-paatu-padava.hf.space' : 'http://localhost:8000');
 
   useEffect(() => {
+    let isMounted = true;
     const checkHealth = async () => {
       try {
-        const response = await axios.get(`${API_URL}/api/health`);
-        if (response.status === 200) {
+        const response = await axios.get(`${API_URL}/api/health`, { timeout: 8000 });
+        if (response.status === 200 && isMounted) {
           setIsServerReady(true);
         }
       } catch (err) {
-        console.log("Backend cold starting... retrying in 2s");
-        setTimeout(checkHealth, 2000);
+        console.log("Backend cold starting... retrying in 3s");
+        if (isMounted) setTimeout(checkHealth, 3000);
       }
     };
     checkHealth();
+    return () => { isMounted = false; };
   }, [API_URL]);
-
-  if (!isServerReady) {
-    return <SplashLoader />;
-  }
 
   return (
     <Router>
       <PlaylistModalProvider>
         <AudioProvider>
+          {!isServerReady && (
+            <div className="bg-indigo-900/60 text-indigo-200 text-xs py-1 px-4 text-center border-b border-indigo-500/20 flex items-center justify-center gap-2 z-50">
+              <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+              <span>Connecting to cloud service... Player and offline library are ready.</span>
+            </div>
+          )}
           <AppContent />
         </AudioProvider>
       </PlaylistModalProvider>

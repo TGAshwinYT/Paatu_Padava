@@ -14,6 +14,7 @@ class _MockPlayer extends Fake implements AudioPlayer {
   final StreamController<Duration> _posCtrl = StreamController<Duration>.broadcast();
 
   double _volume = 1.0;
+  double _speed = 1.0;
   bool _playing = false;
   Duration _position = Duration.zero;
   final Duration _dur = const Duration(minutes: 3);
@@ -28,6 +29,8 @@ class _MockPlayer extends Fake implements AudioPlayer {
   @override Stream<SequenceState?> get sequenceStateStream => _seqCtrl.stream;
   @override Stream<Duration> get positionStream => _posCtrl.stream;
   @override double get volume => _volume;
+  @override double get speed => _speed;
+  @override Future<void> setSpeed(double s) async => _speed = s;
   @override bool get playing => _playing;
   @override Duration get position => _position;
   @override Duration? get duration => _dur;

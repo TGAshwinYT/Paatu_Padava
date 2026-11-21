@@ -144,7 +144,10 @@ class CrossfadeEngine {
     int durationMs = 3000,
   }) {
     _tempoRampTimer?.cancel();
-    final startSpeed = player.speed;
+    double startSpeed = 1.0;
+    try {
+      startSpeed = player.speed;
+    } catch (_) {}
     if ((startSpeed - targetSpeed).abs() < 0.005) {
       try {
         player.setSpeed(targetSpeed);
@@ -182,7 +185,10 @@ class CrossfadeEngine {
     int durationMs = 800,
   }) async {
     _fadeTimer?.cancel();
-    final currentVol = player.volume;
+    double currentVol = 1.0;
+    try {
+      currentVol = player.volume;
+    } catch (_) {}
     if ((currentVol - targetVolume).abs() < 0.02 || durationMs <= 50) {
       try {
         await player.setVolume(targetVolume);

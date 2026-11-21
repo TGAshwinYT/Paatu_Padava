@@ -146,11 +146,11 @@ class DriftAction {
 class DriftReconciler {
   /// Computes a jitter-aware deadband threshold.
   /// On local Wi-Fi / Hotspot (LAN), keeps a crisp 25ms window for multi-speaker acoustic alignment.
-  /// On cellular / cloud, expands to 75-120ms to absorb cellular jitter and prevent pitch warble.
+  /// On cellular / cloud, scales with RTT (35ms floor up to 110ms ceiling) to absorb jitter and prevent pitch warble.
   static int calculateAdaptiveDeadband({required int rttMs, bool isLan = false}) {
     if (isLan) return 25;
-    // Cellular / Cloud: 75ms floor up to 120ms ceiling based on RTT to prevent pitch warble
-    return max(75, min(120, (rttMs * 0.45).round()));
+    // Cellular / Cloud: 35ms floor up to 110ms ceiling based on 40% of RTT
+    return max(35, min(110, (rttMs * 0.4).round()));
   }
 
   /// Computes the micro-adjustment ceiling threshold before falling back to hard seek.

@@ -136,42 +136,42 @@ void main() {
 
   group('Adaptive Lead Time & Playback Barrier Calculations', () {
     test('Calculates adaptive lead time on LAN for low latency starts', () {
-      // Empty peers on LAN -> 1200ms baseline
+      // Empty peers on LAN -> 320ms baseline (slashed from legacy 1200ms for instant start)
       final lanEmpty = ScheduledPlaybackCalculator.calculateAdaptiveLeadTimeMs(
         peerRtts: [],
         isLan: true,
       );
-      expect(lanEmpty, equals(1200));
+      expect(lanEmpty, equals(320));
 
-      // Peers with low RTTs on LAN (< 20ms) -> 1200ms
+      // Peers with low RTTs on LAN (< 20ms) -> 320ms
       final lanPeers = ScheduledPlaybackCalculator.calculateAdaptiveLeadTimeMs(
         peerRtts: [5, 12, 15],
         isLan: true,
       );
-      expect(lanPeers, equals(1200));
+      expect(lanPeers, equals(320));
     });
 
     test('Calculates adaptive lead time on WAN scaling with slowest peer', () {
-      // Empty peers on WAN -> 1500ms baseline
+      // Empty peers on WAN -> 600ms baseline (slashed from legacy 1500ms)
       final wanEmpty = ScheduledPlaybackCalculator.calculateAdaptiveLeadTimeMs(
         peerRtts: [],
         isLan: false,
       );
-      expect(wanEmpty, equals(1500));
+      expect(wanEmpty, equals(600));
 
-      // Slow peer with 1000ms RTT on WAN -> 1000 + 750 = 1750ms lead time
+      // Slow peer with 1000ms RTT on WAN -> 1800ms (capped at 1800ms ceiling)
       final wanSlowPeer = ScheduledPlaybackCalculator.calculateAdaptiveLeadTimeMs(
         peerRtts: [60, 110, 1000],
         isLan: false,
       );
-      expect(wanSlowPeer, equals(1750));
+      expect(wanSlowPeer, equals(1800));
 
-      // Extreme RTT peer (2500ms) -> Clamped to 2800ms
+      // Extreme RTT peer (2500ms) -> Clamped to 1800ms ceiling
       final wanExtremePeer = ScheduledPlaybackCalculator.calculateAdaptiveLeadTimeMs(
         peerRtts: [2500],
         isLan: false,
       );
-      expect(wanExtremePeer, equals(2800));
+      expect(wanExtremePeer, equals(1800));
     });
   });
 }

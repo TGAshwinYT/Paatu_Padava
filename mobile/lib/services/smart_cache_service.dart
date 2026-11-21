@@ -66,7 +66,7 @@ class SmartCacheService {
       _isInitialized = true;
       AppLogger.log('SmartCacheService', 'Initialized with ${_cachedAudioMap.length} pre-cached songs');
     } catch (e) {
-      AppLogger.log('SmartCacheService', 'Initialization notice: $e');
+      AppLogger.debug('SmartCacheService', 'Initialization notice: $e');
     }
   }
 

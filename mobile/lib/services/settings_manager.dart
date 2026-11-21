@@ -17,7 +17,7 @@ class SettingsManager {
   static final ValueNotifier<String> downloadQualityNotifier = ValueNotifier<String>('320kbps');
   static final ValueNotifier<bool> volumeNormalizationNotifier = ValueNotifier<bool>(true);
   static final ValueNotifier<bool> autoplayNotifier = ValueNotifier<bool>(true);
-  static final ValueNotifier<int> crossfadeDurationNotifier = ValueNotifier<int>(3);
+  static final ValueNotifier<int> crossfadeDurationNotifier = ValueNotifier<int>(0);
   static final ValueNotifier<bool> beatMatchedTransitionsNotifier = ValueNotifier<bool>(true);
   static final ValueNotifier<int> transitionPhraseBeatsNotifier = ValueNotifier<int>(8);
   static final ValueNotifier<String> eqPresetNotifier = ValueNotifier<String>('flat');
@@ -123,7 +123,7 @@ class SettingsManager {
     downloadQualityNotifier.value = _box.get('download_quality', defaultValue: '320kbps') as String;
     volumeNormalizationNotifier.value = _box.get('volume_normalization', defaultValue: true) as bool;
     autoplayNotifier.value = _box.get('autoplay', defaultValue: true) as bool;
-    crossfadeDurationNotifier.value = (_box.get('crossfade_seconds', defaultValue: 3) as num).toInt().clamp(0, 12);
+    crossfadeDurationNotifier.value = (_box.get('crossfade_seconds', defaultValue: 0) as num).toInt().clamp(0, 12);
     beatMatchedTransitionsNotifier.value = _box.get('beat_match_transitions_enabled', defaultValue: true) as bool;
     transitionPhraseBeatsNotifier.value = (_box.get('transition_phrase_beats', defaultValue: 8) as num).toInt();
     eqPresetNotifier.value = _box.get('eq_preset', defaultValue: 'flat') as String;

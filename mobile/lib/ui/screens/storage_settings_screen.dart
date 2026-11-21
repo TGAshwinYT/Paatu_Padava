@@ -1,6 +1,4 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import '../../models/song.dart';
 import '../../services/cache_manager.dart';
 import '../../services/download_manager.dart';
 import '../../services/settings_manager.dart';
@@ -138,8 +136,6 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
                     _buildCacheLimitCard(),
                     const SizedBox(height: 24),
                     _buildActionsCard(),
-                    const SizedBox(height: 24),
-                    _buildDownloadsExplorer(),
                   ],
                 ),
           const Positioned(
@@ -428,125 +424,6 @@ class _StorageSettingsScreenState extends State<StorageSettingsScreen> {
           ),
         ],
       ),
-    );
-  }
-
-  // ================= Downloads Explorer ================= //
-
-  Widget _buildDownloadsExplorer() {
-    return ValueListenableBuilder<List<Song>>(
-      valueListenable: DownloadManager.downloadedSongsNotifier,
-      builder: (context, downloadedSongs, _) {
-        return Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFF131B2E),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(18),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Downloaded Tracks (${downloadedSongs.length})',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-                    ),
-                    Text(
-                      _breakdown?.offlineAudioFormatted ?? '',
-                      style: const TextStyle(color: Color(0xFF818CF8), fontWeight: FontWeight.bold, fontSize: 13),
-                    ),
-                  ],
-                ),
-              ),
-              if (downloadedSongs.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
-                  child: Center(
-                    child: Column(
-                      children: const [
-                        Icon(Icons.download_done_rounded, color: Color(0xFF64748B), size: 40),
-                        SizedBox(height: 12),
-                        Text(
-                          'No offline tracks downloaded yet',
-                          style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600, fontSize: 14),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          'Tap "Download All" on albums or playlists for instant offline listening.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Color(0xFF64748B), fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              else
-                ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: downloadedSongs.length,
-                  separatorBuilder: (_, __) => const Divider(color: Colors.white10, height: 1),
-                  itemBuilder: (context, index) {
-                    final song = downloadedSongs[index];
-                    final sizeStr = DownloadManager.getSongFileSizeString(song.id);
-
-                    return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                      leading: ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: song.coverUrl.isNotEmpty
-                            ? CachedNetworkImage(
-                                imageUrl: song.coverUrl,
-                                width: 44,
-                                height: 44,
-                                fit: BoxFit.cover,
-                                memCacheWidth: 150,
-                                memCacheHeight: 150,
-                                errorWidget: (_, __, ___) => Container(
-                                  width: 44,
-                                  height: 44,
-                                  color: const Color(0xFF1E293B),
-                                  child: const Icon(Icons.music_note, color: Colors.white54, size: 20),
-                                ),
-                              )
-                            : Container(
-                                width: 44,
-                                height: 44,
-                                color: const Color(0xFF1E293B),
-                                child: const Icon(Icons.music_note, color: Colors.white54, size: 20),
-                              ),
-                      ),
-                      title: Text(
-                        song.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
-                      ),
-                      subtitle: Text(
-                        '${song.artist} • $sizeStr',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
-                      ),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF4444), size: 20),
-                        tooltip: 'Delete track',
-                        onPressed: () async {
-                          await DownloadManager.deleteSong(song.id);
-                          await _refreshStorage();
-                        },
-                      ),
-                    );
-                  },
-                ),
-            ],
-          ),
-        );
-      },
     );
   }
 }

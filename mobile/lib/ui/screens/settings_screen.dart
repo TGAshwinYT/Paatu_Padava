@@ -429,7 +429,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(9),
+                width: 38,
+                height: 38,
+                alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: iconColor.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(12),
@@ -443,6 +445,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     Text(
                       title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 14,
@@ -456,7 +460,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: Color(0xFF94A3B8),
                         fontSize: 12,
                       ),
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ],
@@ -525,6 +529,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   onPressed: () async {
                     await AuthManager.logout();
+                    if (mounted) setState(() {});
                   },
                   child: const Text('Sign Out', style: TextStyle(color: Color(0xFFEF4444))),
                 )
@@ -763,7 +768,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         spacing: 8,
                         runSpacing: 8,
                         children: allLanguages.map((lang) {
-                          final isSelected = currentLangs.contains(lang);
+                          final isSelected = currentLangs.any((l) => l.trim().toLowerCase() == lang.trim().toLowerCase());
                           return FilterChip(
                             label: Text(lang),
                             selected: isSelected,
@@ -777,13 +782,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             checkmarkColor: Colors.white,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                             onSelected: (selected) {
-                              final updated = List<String>.from(currentLangs);
+                              final updated = currentLangs.map((l) => l.trim()).toList();
                               if (selected) {
-                                if (!updated.contains(lang)) updated.add(lang);
+                                if (!updated.any((l) => l.toLowerCase() == lang.toLowerCase())) {
+                                  updated.add(lang);
+                                }
                               } else {
-                                if (updated.length > 1) updated.remove(lang);
+                                if (updated.length > 1) {
+                                  updated.removeWhere((l) => l.toLowerCase() == lang.toLowerCase());
+                                }
                               }
-                              SettingsManager.setPreferredLanguages(updated);
+                              final normalized = updated
+                                  .map((l) => l.isEmpty ? l : (l[0].toUpperCase() + l.substring(1).toLowerCase()))
+                                  .toSet()
+                                  .toList();
+                              SettingsManager.setPreferredLanguages(normalized);
                             },
                           );
                         }).toList(),

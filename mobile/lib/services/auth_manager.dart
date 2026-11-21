@@ -41,11 +41,11 @@ class AuthUser {
 
   factory AuthUser.fromJson(Map<dynamic, dynamic> json) {
     List<String> parseList(dynamic val) {
-      if (val is List) return val.map((e) => e.toString()).toList();
+      if (val is List) return val.map((e) => e.toString().trim()).toList();
       if (val is String && val.isNotEmpty) {
         try {
           final decoded = jsonDecode(val);
-          if (decoded is List) return decoded.map((e) => e.toString()).toList();
+          if (decoded is List) return decoded.map((e) => e.toString().trim()).toList();
         } catch (e) {
           AppLogger.debug('AuthUser', 'Failed to parse JSON list from $val: $e');
         }
@@ -232,9 +232,13 @@ class AuthManager {
   }
 
   static Future<void> logout() async {
-    await SupabaseService.signOut();
+    final guest = AuthUser.guest();
+    authNotifier.value = guest;
     tokenNotifier.value = null;
-    await loginAsGuest();
+    if (_box.isOpen) {
+      await _box.put('user_profile', guest.toJson());
+    }
+    await SupabaseService.signOut();
   }
 
   /// Silently refreshes authentication token via Supabase or backend /api/auth/refresh,

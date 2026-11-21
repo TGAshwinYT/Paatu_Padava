@@ -2379,10 +2379,28 @@ class AudioQueueHandler {
   // ================= Private AudioSource Builders & Helpers ================= //
 
   static TrackEntity _toEntity(dynamic track) {
-    if (track is TrackEntity) return track;
-    if (track is Song) return TrackEntity.fromSong(track);
-    if (track is MediaItem) return TrackEntity.fromMediaItem(track);
-    throw ArgumentError('Track must be TrackEntity, Song, or MediaItem: $track');
+    TrackEntity entity;
+    if (track is TrackEntity) {
+      entity = track;
+    } else if (track is Song) {
+      entity = track;
+    } else if (track is MediaItem) {
+      entity = TrackEntity.fromMediaItem(track);
+    } else {
+      throw ArgumentError('Track must be TrackEntity, Song, or MediaItem: $track');
+    }
+    if (DownloadManager.isDownloaded(entity.id)) {
+      final localAudio = DownloadManager.getLocalFilePath(entity.id);
+      final localCover = DownloadManager.getLocalCoverPath(entity.id);
+      if (localAudio != null && File(localAudio).existsSync()) {
+        return entity.copyWith(
+          isDownloaded: true,
+          localFilePath: localAudio,
+          localCoverPath: localCover ?? entity.localCoverPath,
+        );
+      }
+    }
+    return entity;
   }
 
   List<TrackEntity> _buildMergedQueue() {
@@ -2428,13 +2446,19 @@ class AudioQueueHandler {
     bool preserveBitrate = false,
   }) async {
     if (song.localFilePath != null && File(song.localFilePath!).existsSync()) {
-      return AudioSource.file(song.localFilePath!, tag: song.toMediaItem());
+      final enriched = song.isDownloaded ? song : song.copyWith(isDownloaded: true);
+      return AudioSource.file(song.localFilePath!, tag: enriched.toMediaItem());
     }
     if (DownloadManager.isDownloaded(song.id)) {
-      final downloadedSongs = DownloadManager.getDownloadedSongs();
-      final match = downloadedSongs.firstWhere((s) => s.id == song.id, orElse: () => song);
-      if (match.localFilePath != null && File(match.localFilePath!).existsSync()) {
-        return AudioSource.file(match.localFilePath!, tag: song.toMediaItem());
+      final localAudio = DownloadManager.getLocalFilePath(song.id);
+      final localCover = DownloadManager.getLocalCoverPath(song.id);
+      if (localAudio != null && File(localAudio).existsSync()) {
+        final enriched = song.copyWith(
+          isDownloaded: true,
+          localFilePath: localAudio,
+          localCoverPath: localCover ?? song.localCoverPath,
+        );
+        return AudioSource.file(localAudio, tag: enriched.toMediaItem());
       }
     }
     if (!SmartCacheService.instance.isDownloading(song.id)) {

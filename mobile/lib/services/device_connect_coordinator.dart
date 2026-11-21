@@ -307,6 +307,7 @@ class DeviceConnectCoordinator {
       if (isAudioHandlerInitialized) {
         await audioHandler.setUserVolume(clamped);
       }
+      currentDeviceNotifier.value = currentDevice.copyWith(volume: clamped);
     } else {
       currentDeviceNotifier.value = currentDevice.copyWith(volume: clamped);
       AppLogger.log(

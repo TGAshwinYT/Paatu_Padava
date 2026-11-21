@@ -532,50 +532,61 @@ class _LyricsScreenState extends State<LyricsScreen> {
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () => _seekToLine(line, idx),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 14.0),
-                    child: line.isBgm
-                        ? BgmPulseIndicator(isActive: isActive)
-                        : ValueListenableBuilder<bool>(
-                            valueListenable: audioHandler.isKaraokeModeNotifier,
-                            builder: (context, isKaraoke, _) {
-                              return ValueListenableBuilder<LyricsLanguage>(
-                                valueListenable: audioHandler.lyricsLanguageNotifier,
-                                builder: (context, lang, _) {
-                                  if (isActive && isKaraoke) {
-                                    return ValueListenableBuilder<Duration>(
-                                      valueListenable: _activePositionNotifier,
-                                      builder: (context, pos, _) {
-                                        return KaraokeLineText(
-                                          line: line,
-                                          position: pos,
-                                          isActive: true,
-                                          isKaraokeMode: true,
-                                          language: lang,
-                                          fontSize: fontSize,
-                                          fontWeight: fontWeight,
-                                          baseColor: Colors.white.withValues(alpha: opacity),
-                                          activeColor: Colors.white,
+                  child: AnimatedScale(
+                    scale: isActive ? 1.05 : (distance == 1 ? 0.98 : 0.94),
+                    duration: const Duration(milliseconds: 280),
+                    curve: Curves.easeOutCubic,
+                    alignment: Alignment.centerLeft,
+                    child: AnimatedOpacity(
+                      opacity: opacity,
+                      duration: const Duration(milliseconds: 240),
+                      curve: Curves.easeOut,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 14.0),
+                        child: line.isBgm
+                            ? BgmPulseIndicator(isActive: isActive)
+                            : ValueListenableBuilder<bool>(
+                                valueListenable: audioHandler.isKaraokeModeNotifier,
+                                builder: (context, isKaraoke, _) {
+                                  return ValueListenableBuilder<LyricsLanguage>(
+                                    valueListenable: audioHandler.lyricsLanguageNotifier,
+                                    builder: (context, lang, _) {
+                                      if (isActive && isKaraoke) {
+                                        return ValueListenableBuilder<Duration>(
+                                          valueListenable: _activePositionNotifier,
+                                          builder: (context, pos, _) {
+                                            return KaraokeLineText(
+                                              line: line,
+                                              position: pos,
+                                              isActive: true,
+                                              isKaraokeMode: true,
+                                              language: lang,
+                                              fontSize: fontSize,
+                                              fontWeight: fontWeight,
+                                              baseColor: Colors.white,
+                                              activeColor: Colors.white,
+                                            );
+                                          },
                                         );
-                                      },
-                                    );
-                                  }
+                                      }
 
-                                  return KaraokeLineText(
-                                    line: line,
-                                    position: _currentAudioPosition,
-                                    isActive: isActive,
-                                    isKaraokeMode: isKaraoke,
-                                    language: lang,
-                                    fontSize: fontSize,
-                                    fontWeight: fontWeight,
-                                    baseColor: Colors.white.withValues(alpha: opacity),
-                                    activeColor: Colors.white,
+                                      return KaraokeLineText(
+                                        line: line,
+                                        position: _currentAudioPosition,
+                                        isActive: isActive,
+                                        isKaraokeMode: isKaraoke,
+                                        language: lang,
+                                        fontSize: fontSize,
+                                        fontWeight: fontWeight,
+                                        baseColor: Colors.white,
+                                        activeColor: Colors.white,
+                                      );
+                                    },
                                   );
                                 },
-                              );
-                            },
-                          ),
+                              ),
+                      ),
+                    ),
                   ),
                 ),
               );

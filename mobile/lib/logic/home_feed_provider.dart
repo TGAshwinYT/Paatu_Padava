@@ -181,12 +181,10 @@ class HomeFeedProvider extends ChangeNotifier {
     final topLang = (userLangs != null && userLangs.isNotEmpty)
         ? userLangs.first
         : (SettingsManager.preferredLanguages.isNotEmpty ? SettingsManager.preferredLanguages.first : null);
-    if (topLang != null && topLang.isNotEmpty && topLang != _currentLanguage) {
+    if (topLang != null && topLang.isNotEmpty && topLang.toLowerCase() != _currentLanguage.toLowerCase()) {
       _currentLanguage = topLang;
-      loadFeed(forceRefresh: true);
-    } else if (AuthManager.isLoggedIn) {
-      loadFeed(forceRefresh: true);
     }
+    loadFeed(forceRefresh: true);
   }
 
   void setLanguage(String lang) {

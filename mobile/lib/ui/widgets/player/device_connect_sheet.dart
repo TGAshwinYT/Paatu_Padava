@@ -26,6 +26,7 @@ class DeviceConnectSheet extends StatefulWidget {
 
 class _DeviceConnectSheetState extends State<DeviceConnectSheet> with SingleTickerProviderStateMixin {
   late final AnimationController _scanAnimController;
+  double? _dragVolume;
 
   @override
   void initState() {
@@ -306,11 +307,20 @@ class _DeviceConnectSheetState extends State<DeviceConnectSheet> with SingleTick
                                   inactiveTrackColor: Colors.white12,
                                 ),
                                 child: Slider(
-                                  value: currentDevice.isLocal
-                                      ? (isAudioHandlerInitialized ? audioHandler.userVolume : 1.0)
-                                      : currentDevice.volume,
+                                  value: _dragVolume ??
+                                      (currentDevice.isLocal
+                                          ? (isAudioHandlerInitialized ? audioHandler.userVolume : currentDevice.volume)
+                                          : currentDevice.volume),
                                   onChanged: (v) {
+                                    setState(() {
+                                      _dragVolume = v;
+                                    });
                                     DeviceConnectCoordinator.instance.setVolume(v);
+                                  },
+                                  onChangeEnd: (_) {
+                                    setState(() {
+                                      _dragVolume = null;
+                                    });
                                   },
                                 ),
                               ),

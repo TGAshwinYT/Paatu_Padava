@@ -616,6 +616,7 @@ class SongRepository {
   };
 
   static const Map<String, String> _verifiedArtistAvatars = verifiedArtistAvatars;
+  static final Map<String, String> _dynamicArtistAvatarCache = {};
 
   /// Verified core Tamil artist seeds. Guaranteed to never leak Bollywood/Hindi singers in Tamil mode.
   static const List<String> tamilArtistSeeds = [
@@ -634,21 +635,41 @@ class SongRepository {
     if (artistName.isEmpty) return '';
     final clean = _unescape.convert(Song.sanitize(artistName)).trim();
     final lower = clean.toLowerCase();
+    if (_dynamicArtistAvatarCache.containsKey(lower)) {
+      return _dynamicArtistAvatarCache[lower]!;
+    }
     if (_verifiedArtistAvatars.containsKey(lower)) {
       return _verifiedArtistAvatars[lower]!;
     }
     final norm = normalizeArtist(clean);
+    if (_dynamicArtistAvatarCache.containsKey(norm)) {
+      return _dynamicArtistAvatarCache[norm]!;
+    }
     if (_verifiedArtistAvatars.containsKey(norm)) {
       return _verifiedArtistAvatars[norm]!;
     }
     final canon = ArtistSanitizer.canonicalArtistName(clean).toLowerCase();
+    if (_dynamicArtistAvatarCache.containsKey(canon)) {
+      return _dynamicArtistAvatarCache[canon]!;
+    }
     if (_verifiedArtistAvatars.containsKey(canon)) {
       return _verifiedArtistAvatars[canon]!;
     }
     final alpha = clean.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    for (final entry in _dynamicArtistAvatarCache.entries) {
+      final entryAlpha = entry.key.replaceAll(RegExp(r'[^a-z0-9]'), '');
+      if (entryAlpha.isNotEmpty && entryAlpha == alpha) {
+        return entry.value;
+      }
+    }
     for (final entry in _verifiedArtistAvatars.entries) {
       final entryAlpha = entry.key.replaceAll(RegExp(r'[^a-z0-9]'), '');
       if (entryAlpha.isNotEmpty && entryAlpha == alpha) {
+        return entry.value;
+      }
+    }
+    for (final entry in _dynamicArtistAvatarCache.entries) {
+      if (ArtistSanitizer.areSameOrVariantArtists(entry.key, clean)) {
         return entry.value;
       }
     }
@@ -1385,12 +1406,15 @@ class SongRepository {
   /// Resolves verified high-resolution artist avatar from memory cache, local CatalogDatabase, or remote providers.
   static Future<String?> resolveArtistAvatar(String artistName) async {
     final norm = normalizeArtist(artistName);
+    if (_dynamicArtistAvatarCache.containsKey(norm)) {
+      return _dynamicArtistAvatarCache[norm];
+    }
     if (_verifiedArtistAvatars.containsKey(norm)) {
       return _verifiedArtistAvatars[norm];
     }
     final catalogImg = CatalogDatabase.getArtistProfileImage(artistName);
     if (catalogImg != null && catalogImg.isNotEmpty) {
-      _verifiedArtistAvatars[norm] = catalogImg;
+      _dynamicArtistAvatarCache[norm] = catalogImg;
       return catalogImg;
     }
     try {
@@ -1398,7 +1422,7 @@ class SongRepository {
       for (final a in saavnArtists) {
         final aImg = (a['image'] ?? '').toString();
         if (aImg.isNotEmpty) {
-          _verifiedArtistAvatars[norm] = aImg;
+          _dynamicArtistAvatarCache[norm] = aImg;
           return aImg;
         }
       }

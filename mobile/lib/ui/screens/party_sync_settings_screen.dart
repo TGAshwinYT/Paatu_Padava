@@ -323,7 +323,9 @@ class PartySyncSettingsScreen extends StatelessWidget {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(10),
+                width: 42,
+                height: 42,
+                alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: const Color(0xFF6366F1),
                   borderRadius: BorderRadius.circular(12),
@@ -337,6 +339,8 @@ class PartySyncSettingsScreen extends StatelessWidget {
                   children: [
                     const Text(
                       'Multi-Device Synchronized Audio',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
                     ),
                     const SizedBox(height: 2),
@@ -350,6 +354,8 @@ class PartySyncSettingsScreen extends StatelessWidget {
                                 : 'Connected as Guest (${PartySyncCoordinator.partyCode})');
                         return Text(
                           text,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: role == PartyRole.none ? const Color(0xFF94A3B8) : const Color(0xFF34D399),
                             fontSize: 12,
@@ -725,14 +731,16 @@ class PartySyncSettingsScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+          Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF64748B), fontSize: 11)),
           const SizedBox(height: 4),
           Text(
             value,
-            style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.bold),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 2),
-          Text(status, style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 10)),
+          Text(status, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 10)),
         ],
       ),
     );

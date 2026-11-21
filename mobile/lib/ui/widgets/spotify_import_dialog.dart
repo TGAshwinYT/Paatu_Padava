@@ -239,8 +239,9 @@ class _SpotifyImportDialogState extends State<SpotifyImportDialog> {
           _totalTracks = total;
           _progressFraction = progress;
           _currentStatus = 'Matching tracks ($current/$total)...';
-          if (current > 0 && current <= meta!.tracks.length) {
-            final t = meta.tracks[current - 1];
+          if (meta != null && meta.tracks.isNotEmpty && current > 0) {
+            final safeIndex = (current - 1).clamp(0, meta.tracks.length - 1);
+            final t = meta.tracks[safeIndex];
             _activeTrackTitle = t.title;
             _activeTrackArtist = t.artist;
           }

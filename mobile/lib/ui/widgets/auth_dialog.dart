@@ -200,42 +200,44 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
     final mediaQuery = MediaQuery.of(context);
     final bottomInset = mediaQuery.viewInsets.bottom;
     final maxSheetHeight = mediaQuery.size.height * 0.90;
-    final currentUser = AuthManager.currentUser;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF131B2E),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        border: Border(top: BorderSide(color: const Color(0xFF9333EA).withValues(alpha: 0.4), width: 1.5)),
-      ),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: maxSheetHeight),
-        child: SingleChildScrollView(
-          padding: EdgeInsets.only(
-            left: 24,
-            right: 24,
-            top: 20,
-            bottom: bottomInset + 24,
+    return ValueListenableBuilder<AuthUser?>(
+      valueListenable: AuthManager.authNotifier,
+      builder: (context, currentUser, _) {
+        return Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFF131B2E),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            border: Border(top: BorderSide(color: const Color(0xFF9333EA).withValues(alpha: 0.4), width: 1.5)),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Drag handle
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.white24,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxSheetHeight),
+            child: SingleChildScrollView(
+              padding: EdgeInsets.only(
+                left: 24,
+                right: 24,
+                top: 20,
+                bottom: bottomInset + 24,
               ),
-              const SizedBox(height: 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Drag handle
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
 
-              // If already logged in, show User Profile Card
-              if (currentUser != null && !currentUser.isGuest) ...[
+                  // If already logged in, show User Profile Card
+                  if (currentUser != null && !currentUser.isGuest) ...[
                 Row(
                   children: [
                     CircleAvatar(
@@ -528,6 +530,8 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
         ),
       ),
     );
+  },
+);
   }
 
   Widget _buildSignInForm() {

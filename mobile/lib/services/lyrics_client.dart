@@ -551,6 +551,15 @@ class LyricsClient {
 
   /// Fetches lyrics with 0ms memory & Hive cache checking, querying LRCLIB directly with
   /// duration-scored candidate selection and JioSaavn fallback.
+  static int _getLastLyricTimestamp(String lrc) {
+    final matches = RegExp(r'\[(\d+):(\d+)(?:\.(\d+))?\]').allMatches(lrc);
+    if (matches.isEmpty) return 0;
+    final last = matches.last;
+    final min = int.tryParse(last.group(1) ?? '0') ?? 0;
+    final sec = int.tryParse(last.group(2) ?? '0') ?? 0;
+    return min * 60 + sec;
+  }
+
   Future<LyricsState> fetchLyrics({
     required String trackId,
     required String title,
@@ -608,7 +617,15 @@ class LyricsClient {
           allCandidates.addAll(valid);
 
           // Check if we immediately found a synced lyrics candidate with matching duration
-          final syncedMatches = valid.where((c) => (c['syncedLyrics'] as String?)?.trim().isNotEmpty == true).toList();
+          final syncedMatches = valid.where((c) {
+            final lrc = (c['syncedLyrics'] as String?)?.trim() ?? '';
+            if (lrc.isEmpty) return false;
+            if (durationSeconds >= 60) {
+              final lastTs = _getLastLyricTimestamp(lrc);
+              if (lastTs > 0 && lastTs < durationSeconds * 0.40) return false;
+            }
+            return true;
+          }).toList();
           if (syncedMatches.isNotEmpty) {
             if (durationSeconds > 0) {
               syncedMatches.sort((a, b) {
@@ -693,9 +710,15 @@ class LyricsClient {
     _candidatesCache[trackId] = allCandidates;
 
     // DURATION-SCORED CANDIDATE SELECTION FROM ACCUMULATED LRCLIB POOL
-    final syncedCandidates = allCandidates
-        .where((c) => (c['syncedLyrics'] as String?)?.trim().isNotEmpty == true)
-        .toList();
+    final syncedCandidates = allCandidates.where((c) {
+      final lrc = (c['syncedLyrics'] as String?)?.trim() ?? '';
+      if (lrc.isEmpty) return false;
+      if (durationSeconds >= 60) {
+        final lastTs = _getLastLyricTimestamp(lrc);
+        if (lastTs > 0 && lastTs < durationSeconds * 0.40) return false;
+      }
+      return true;
+    }).toList();
 
     if (syncedCandidates.isNotEmpty) {
       if (durationSeconds > 0) {

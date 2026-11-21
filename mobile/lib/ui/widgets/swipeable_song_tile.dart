@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../models/song.dart';
-import '../../services/download_manager.dart';
 import '../../services/player_handler.dart';
 import 'add_to_playlist_dialog.dart';
 
 import '../../services/favorites_manager.dart';
 import '../../services/blacklist_manager.dart';
 import 'cover_art_image.dart';
+import 'player/player_download_button.dart';
 
 class SwipeableSongTile extends StatelessWidget {
   final Song song;
@@ -249,53 +249,10 @@ class SwipeableSongTile extends StatelessWidget {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ValueListenableBuilder<List<Song>>(
-              valueListenable: DownloadManager.downloadedSongsNotifier,
-              builder: (context, _, __) {
-                return ValueListenableBuilder<Map<String, double>>(
-                  valueListenable: DownloadManager.activeDownloads,
-                  builder: (context, activeDownloads, __) {
-                    final isDownloaded = DownloadManager.isDownloaded(song.id);
-                    final isDownloading = activeDownloads.containsKey(song.id);
-                    final isQueued = DownloadManager.isQueuedOrDownloading(song.id) && !isDownloading && !isDownloaded;
-
-                    if (isDownloading) {
-                      final p = activeDownloads[song.id] ?? 0.0;
-                      return SizedBox(
-                        width: 32,
-                        height: 32,
-                        child: Padding(
-                          padding: const EdgeInsets.all(6.0),
-                          child: CircularProgressIndicator(
-                            value: p > 0 ? p : null,
-                            strokeWidth: 2,
-                            color: const Color(0xFF6366F1),
-                            backgroundColor: Colors.white10,
-                          ),
-                        ),
-                      );
-                    }
-                    if (isQueued) {
-                      return const SizedBox(
-                        width: 32,
-                        height: 32,
-                        child: Icon(Icons.hourglass_empty_rounded, color: Color(0xFF818CF8), size: 18),
-                      );
-                    }
-                    if (isDownloaded) {
-                      return const SizedBox(
-                        width: 32,
-                        height: 32,
-                        child: Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 18),
-                      );
-                    }
-                    return IconButton(
-                      icon: const Icon(Icons.download_for_offline_outlined, color: Color(0xFF64748B), size: 20),
-                      onPressed: () => DownloadManager.downloadSong(song),
-                    );
-                  },
-                );
-              },
+            PlayerDownloadButton(
+              song: song,
+              size: 20,
+              iconColor: const Color(0xFF64748B),
             ),
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert_rounded, color: Color(0xFF94A3B8), size: 20),

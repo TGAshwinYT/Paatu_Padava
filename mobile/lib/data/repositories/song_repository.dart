@@ -8,6 +8,7 @@ import '../../services/history_manager.dart';
 import '../../services/supabase_service.dart';
 import '../../services/app_logger.dart';
 import '../../services/lyrics_client.dart';
+import '../../services/player_handler.dart';
 import '../../services/artist_sanitizer.dart';
 import '../../services/cover_art_resolver.dart';
 import '../../services/youtube_client.dart';
@@ -42,12 +43,19 @@ class SongRepository {
 
   /// Convenience method to retrieve lyrics for a [Song] model.
   static Future<LyricsState> getLyricsForSong(Song song) {
+    int duration = song.duration;
+    if (duration <= 0) {
+      final currentMediaItem = audioHandler.mediaItem.value;
+      if (currentMediaItem?.id == song.id) {
+        duration = audioHandler.player.duration?.inSeconds ?? 0;
+      }
+    }
     return getLyrics(
       trackId: song.id,
       title: song.title,
       artist: song.artist,
       album: song.album,
-      durationSeconds: song.duration,
+      durationSeconds: duration,
     );
   }
 

@@ -3,9 +3,11 @@ import 'package:flutter/scheduler.dart';
 import '../../../domain/models/lyrics_state.dart';
 import '../../../services/lyrics_client.dart';
 
-/// Renders a lyric line with smooth GPU-accelerated word-by-word sweeping highlight
-/// when active in Karaoke mode, without allocating per-word ShaderMask widgets or heavy shadows.
-/// Smoothly interpolates highlight progress between 200ms audio position emissions using a Ticker.
+/// Bloomee Music App grade synchronized lyrics line with:
+/// 1. GPU-accelerated word-by-word or progressive line sweeping highlight when active.
+/// 2. Zero per-frame text layout passes: caches shaped TextPainters across 60/120Hz ticks.
+/// 3. Smooth Ticker-driven progress interpolation between 200ms audio stream packets.
+/// 4. Works seamlessly across both word-timed LRC and standard line-timed LRC.
 class KaraokeLineText extends StatefulWidget {
   final LyricLine line;
   final Duration position;
@@ -57,7 +59,7 @@ class _KaraokeLineTextState extends State<KaraokeLineText> with SingleTickerProv
       _lastPositionReceivedEpochMs = DateTime.now().millisecondsSinceEpoch;
     }
 
-    if (widget.isActive && widget.isKaraokeMode && widget.line.words.isNotEmpty) {
+    if (widget.isActive) {
       _initTickerIfNeeded();
     } else {
       _stopTicker();
@@ -65,7 +67,7 @@ class _KaraokeLineTextState extends State<KaraokeLineText> with SingleTickerProv
   }
 
   void _initTickerIfNeeded() {
-    if (widget.isActive && widget.isKaraokeMode && widget.line.words.isNotEmpty) {
+    if (widget.isActive) {
       if (_ticker == null) {
         _ticker = createTicker(_onTick);
         _ticker!.start();
@@ -82,12 +84,12 @@ class _KaraokeLineTextState extends State<KaraokeLineText> with SingleTickerProv
   }
 
   void _onTick(Duration elapsed) {
-    if (!mounted || !widget.isActive || !widget.isKaraokeMode) return;
+    if (!mounted || !widget.isActive) return;
 
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final elapsedSinceAudioTick = nowMs - _lastPositionReceivedEpochMs;
-    // Interpolate smoothly up to 300ms between audio stream packets
-    final interpolatedMs = _lastAudioPosition.inMilliseconds + elapsedSinceAudioTick.clamp(0, 300);
+    // Interpolate smoothly up to 350ms between audio stream packets
+    final interpolatedMs = _lastAudioPosition.inMilliseconds + elapsedSinceAudioTick.clamp(0, 350);
     final interpolatedPos = Duration(milliseconds: interpolatedMs);
 
     final newProgress = _calculateLineProgress(interpolatedPos);
@@ -99,14 +101,23 @@ class _KaraokeLineTextState extends State<KaraokeLineText> with SingleTickerProv
   }
 
   double _calculateLineProgress(Duration currentPos) {
-    if (widget.line.words.isEmpty) return 0.0;
+    if (widget.line.words.isNotEmpty) {
+      final firstStart = widget.line.words.first.start;
+      final lastEnd = widget.line.words.last.end;
+      final totalDurationMs = (lastEnd - firstStart).inMilliseconds;
+      if (totalDurationMs <= 0) return 1.0;
 
-    final firstStart = widget.line.words.first.start;
-    final lastEnd = widget.line.words.last.end;
-    final totalDurationMs = (lastEnd - firstStart).inMilliseconds;
-    if (totalDurationMs <= 0) return 0.0;
+      final currentElapsedMs = (currentPos - firstStart).inMilliseconds;
+      return (currentElapsedMs / totalDurationMs).clamp(0.0, 1.0);
+    }
 
-    final currentElapsedMs = (currentPos - firstStart).inMilliseconds;
+    // Bloomee progressive sweeping fallback for standard LRC lines without word timestamps
+    final startMs = widget.line.timestamp.inMilliseconds;
+    final endMs = (widget.line.endTimestamp ?? (widget.line.timestamp + const Duration(milliseconds: 3800))).inMilliseconds;
+    final totalDurationMs = endMs - startMs;
+    if (totalDurationMs <= 0) return 1.0;
+
+    final currentElapsedMs = currentPos.inMilliseconds - startMs;
     return (currentElapsedMs / totalDurationMs).clamp(0.0, 1.0);
   }
 
@@ -129,24 +140,15 @@ class _KaraokeLineTextState extends State<KaraokeLineText> with SingleTickerProv
         : widget.line.text;
 
     final baseTextStyle = TextStyle(
-      color: widget.isActive ? widget.activeColor : widget.baseColor,
+      color: widget.isActive ? widget.baseColor.withValues(alpha: 0.38) : widget.baseColor,
       fontSize: widget.fontSize,
       fontWeight: widget.fontWeight,
       height: 1.35,
       letterSpacing: -0.2,
-      shadows: widget.isActive
-          ? [
-              BoxShadow(
-                color: Colors.white.withValues(alpha: 0.20),
-                blurRadius: 10,
-                offset: const Offset(0, 1),
-              ),
-            ]
-          : null,
     );
 
-    // Inactive lines or non-karaoke mode render clean static text with optical depth
-    if (!widget.isActive || !widget.isKaraokeMode || widget.line.words.isEmpty) {
+    // Inactive lines render static text with optical depth
+    if (!widget.isActive) {
       return Text(
         displayText,
         textAlign: TextAlign.left,
@@ -154,37 +156,44 @@ class _KaraokeLineTextState extends State<KaraokeLineText> with SingleTickerProv
       );
     }
 
-    // Active line in Karaoke mode: GPU clip-sweep with zero per-word ShaderMask passes
+    // Active line: GPU clip-sweep with high-contrast glowing highlight
     final activeTextStyle = baseTextStyle.copyWith(
-      color: const Color(0xFF06B6D4), // Cyan active singing fill
+      color: widget.isKaraokeMode
+          ? const Color(0xFF06B6D4) // Vibrant cyan for karaoke
+          : widget.activeColor,      // Pure crisp white for standard Bloomee playback
       fontWeight: FontWeight.w900,
       shadows: [
         BoxShadow(
-          color: const Color(0xFF06B6D4).withValues(alpha: 0.40),
-          blurRadius: 8,
+          color: widget.isKaraokeMode
+              ? const Color(0xFF06B6D4).withValues(alpha: 0.45)
+              : Colors.white.withValues(alpha: 0.35),
+          blurRadius: 10,
           offset: const Offset(0, 1),
         ),
       ],
     );
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return CustomPaint(
-          size: Size(constraints.maxWidth, widget.fontSize * 1.5),
-          painter: _KaraokeSweepPainter(
-            text: displayText,
-            baseStyle: baseTextStyle,
-            activeStyle: activeTextStyle,
-            progress: _smoothProgress,
-            maxWidth: constraints.maxWidth,
-          ),
-          child: Text(
-            displayText,
-            textAlign: TextAlign.left,
-            style: baseTextStyle.copyWith(color: Colors.transparent),
-          ),
-        );
-      },
+    return RepaintBoundary(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final effectiveWidth = constraints.maxWidth > 0 ? constraints.maxWidth : 300.0;
+          return CustomPaint(
+            size: Size(effectiveWidth, widget.fontSize * 1.5),
+            painter: _KaraokeSweepPainter(
+              text: displayText,
+              baseStyle: baseTextStyle,
+              activeStyle: activeTextStyle,
+              progress: _smoothProgress,
+              maxWidth: effectiveWidth,
+            ),
+            child: Text(
+              displayText,
+              textAlign: TextAlign.left,
+              style: baseTextStyle.copyWith(color: Colors.transparent),
+            ),
+          );
+        },
+      ),
     );
   }
 }
@@ -196,6 +205,10 @@ class _KaraokeSweepPainter extends CustomPainter {
   final double progress;
   final double maxWidth;
 
+  TextPainter? _cachedBasePainter;
+  TextPainter? _cachedActivePainter;
+  double _lastWidth = -1.0;
+
   _KaraokeSweepPainter({
     required this.text,
     required this.baseStyle,
@@ -204,39 +217,57 @@ class _KaraokeSweepPainter extends CustomPainter {
     required this.maxWidth,
   });
 
+  void _layoutPainters(double width) {
+    if (_cachedBasePainter == null || _cachedActivePainter == null || _lastWidth != width) {
+      _cachedBasePainter = TextPainter(
+        text: TextSpan(text: text, style: baseStyle),
+        textDirection: TextDirection.ltr,
+        maxLines: 4,
+      )..layout(maxWidth: width);
+
+      _cachedActivePainter = TextPainter(
+        text: TextSpan(text: text, style: activeStyle),
+        textDirection: TextDirection.ltr,
+        maxLines: 4,
+      )..layout(maxWidth: width);
+
+      _lastWidth = width;
+    }
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
-    final basePainter = TextPainter(
-      text: TextSpan(text: text, style: baseStyle),
-      textDirection: TextDirection.ltr,
-      maxLines: 4,
-    )..layout(maxWidth: maxWidth > 0 ? maxWidth : size.width);
+    final width = maxWidth > 0 ? maxWidth : size.width;
+    _layoutPainters(width);
+
+    final base = _cachedBasePainter;
+    final active = _cachedActivePainter;
+    if (base == null || active == null) return;
 
     // 1. Draw full unvoiced base text
-    basePainter.paint(canvas, Offset.zero);
+    base.paint(canvas, Offset.zero);
 
     if (progress <= 0.0) return;
 
     // 2. Draw active singing highlight with a single clipped canvas pass
-    final activePainter = TextPainter(
-      text: TextSpan(text: text, style: activeStyle),
-      textDirection: TextDirection.ltr,
-      maxLines: 4,
-    )..layout(maxWidth: maxWidth > 0 ? maxWidth : size.width);
-
-    final highlightWidth = basePainter.width * progress;
+    final highlightWidth = base.width * progress;
 
     canvas.save();
-    canvas.clipRect(Rect.fromLTWH(0, 0, highlightWidth, basePainter.height));
-    activePainter.paint(canvas, Offset.zero);
+    canvas.clipRect(Rect.fromLTWH(0, 0, highlightWidth, base.height));
+    active.paint(canvas, Offset.zero);
     canvas.restore();
   }
 
   @override
   bool shouldRepaint(covariant _KaraokeSweepPainter oldDelegate) {
-    return oldDelegate.progress != progress ||
-        oldDelegate.text != text ||
+    if (oldDelegate.text != text ||
         oldDelegate.baseStyle != baseStyle ||
-        oldDelegate.activeStyle != activeStyle;
+        oldDelegate.activeStyle != activeStyle ||
+        oldDelegate.maxWidth != maxWidth) {
+      _cachedBasePainter = null;
+      _cachedActivePainter = null;
+      return true;
+    }
+    return (oldDelegate.progress - progress).abs() > 0.001;
   }
 }

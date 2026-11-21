@@ -7,6 +7,8 @@ import '../../../domain/models/lyrics_state.dart';
 import '../../../services/player_handler.dart';
 import '../../../services/lyrics_client.dart';
 import '../../screens/lyrics_screen.dart';
+import '../lyrics/karaoke_line_text.dart';
+import '../lyrics/bgm_pulse_indicator.dart';
 
 class SyncedLyricsEmbed extends StatefulWidget {
   final String lyrics;
@@ -22,13 +24,14 @@ class SyncedLyricsEmbed extends StatefulWidget {
   State<SyncedLyricsEmbed> createState() => _SyncedLyricsEmbedState();
 }
 
-class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
+class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> with WidgetsBindingObserver {
   final ScrollController _scrollController = ScrollController();
   final List<LyricLine> _lines = [];
   final List<GlobalKey> _lineKeys = [];
   StreamSubscription<Duration>? _posSub;
   StreamSubscription<bool>? _playingSub;
   int _activeIndex = -1;
+  Duration _lastPosition = Duration.zero;
   bool _isUserScrolling = false;
   Timer? _userScrollResumeTimer;
   bool _isLrc = false;
@@ -36,6 +39,7 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _parseLyrics();
     _subscribePosition();
     audioHandler.lyricsOffsetMsNotifier.addListener(_onOffsetChanged);
@@ -45,6 +49,19 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
       if (!mounted) return;
       _updateActiveIndexForPosition(audioHandler.player.position, immediate: true);
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+      if (_posSub != null && !_posSub!.isPaused) {
+        _posSub?.pause();
+      }
+    } else if (state == AppLifecycleState.resumed && audioHandler.player.playing) {
+      if (_posSub?.isPaused == true) {
+        _posSub?.resume();
+      }
+    }
   }
 
   void _onOffsetChanged() {
@@ -75,6 +92,7 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
   void _updateActiveIndexForPosition(Duration pos, {bool immediate = false}) {
     if (!_isLrc || _lines.isEmpty) return;
 
+    _lastPosition = pos;
     final offsetMs = audioHandler.lyricsOffsetMsNotifier.value;
     final effectivePosition = pos + Duration(milliseconds: 180 + offsetMs);
     final idx = _findActiveLineIndex(effectivePosition);
@@ -103,6 +121,7 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _playingSub?.cancel();
     _posSub?.cancel();
     _userScrollResumeTimer?.cancel();
@@ -441,34 +460,23 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
                     behavior: HitTestBehavior.opaque,
                     onTap: () => _seekToLine(line, idx),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 10.0),
+                      padding: const EdgeInsets.symmetric(vertical: 8.0),
                       child: line.isBgm
-                          ? _BgmPulseIndicator(isActive: isActive)
-                          : AnimatedDefaultTextStyle(
-                              duration: const Duration(milliseconds: 250),
-                              curve: Curves.easeOut,
-                              style: TextStyle(
-                                color: isActive ? Colors.white : Colors.white.withValues(alpha: 0.35),
+                          ? BgmPulseIndicator(isActive: isActive)
+                          : AnimatedScale(
+                              scale: isActive ? 1.05 : 0.98,
+                              duration: const Duration(milliseconds: 260),
+                              curve: Curves.easeOutBack,
+                              child: KaraokeLineText(
+                                line: line,
+                                position: _lastPosition,
+                                isActive: isActive,
+                                isKaraokeMode: false,
+                                language: audioHandler.lyricsLanguageNotifier.value,
                                 fontSize: isActive ? 20 : 15,
-                                fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
-                                height: 1.45,
-                                shadows: isActive
-                                    ? [
-                                        BoxShadow(
-                                          color: const Color(0xFF1DB954).withValues(alpha: 0.45),
-                                          blurRadius: 14,
-                                          offset: const Offset(0, 2),
-                                        ),
-                                      ]
-                                    : null,
-                              ),
-                              textAlign: TextAlign.center,
-                              child: Text(
-                                (audioHandler.lyricsLanguageNotifier.value == LyricsLanguage.english &&
-                                        line.romanizedText != null &&
-                                        line.romanizedText!.isNotEmpty)
-                                    ? line.romanizedText!
-                                    : line.text,
+                                fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
+                                baseColor: Colors.white.withValues(alpha: 0.35),
+                                activeColor: Colors.white,
                               ),
                             ),
                     ),
@@ -489,117 +497,6 @@ class _SyncedLyricsEmbedState extends State<SyncedLyricsEmbed> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _BgmPulseIndicator extends StatefulWidget {
-  final bool isActive;
-  const _BgmPulseIndicator({Key? key, required this.isActive}) : super(key: key);
-
-  @override
-  State<_BgmPulseIndicator> createState() => _BgmPulseIndicatorState();
-}
-
-class _BgmPulseIndicatorState extends State<_BgmPulseIndicator>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1400),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!widget.isActive) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: const [
-          Text(
-            '• • • ♪',
-            style: TextStyle(
-              color: Colors.white24,
-              fontSize: 16,
-              letterSpacing: 4,
-            ),
-          ),
-        ],
-      );
-    }
-
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, _) {
-        final val = _controller.value;
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1DB954).withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFF1DB954).withValues(alpha: 0.3)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _buildDot(0, val),
-              const SizedBox(width: 6),
-              _buildDot(1, val),
-              const SizedBox(width: 6),
-              _buildDot(2, val),
-              const SizedBox(width: 10),
-              Transform.scale(
-                scale: 1.0 + (0.15 * math.sin(val * 2 * math.pi)),
-                child: const Icon(
-                  Icons.music_note_rounded,
-                  color: Color(0xFF1DB954),
-                  size: 20,
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildDot(int index, double animValue) {
-    final phase = (animValue - (index * 0.2)) % 1.0;
-    final scale = 0.75 + 0.45 * (math.sin(phase * 2 * math.pi).abs());
-    final opacity = 0.35 + 0.65 * (math.sin(phase * 2 * math.pi).abs());
-
-    return Opacity(
-      opacity: opacity.clamp(0.2, 1.0),
-      child: Transform.scale(
-        scale: scale,
-        child: Container(
-          width: 7,
-          height: 7,
-          decoration: const BoxDecoration(
-            color: Color(0xFF1DB954),
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: Color(0x991DB954),
-                blurRadius: 5,
-                spreadRadius: 1,
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

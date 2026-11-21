@@ -551,7 +551,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
                                   return ValueListenableBuilder<LyricsLanguage>(
                                     valueListenable: audioHandler.lyricsLanguageNotifier,
                                     builder: (context, lang, _) {
-                                      if (isActive && isKaraoke) {
+                                      if (isActive) {
                                         return ValueListenableBuilder<Duration>(
                                           valueListenable: _activePositionNotifier,
                                           builder: (context, pos, _) {
@@ -559,7 +559,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
                                               line: line,
                                               position: pos,
                                               isActive: true,
-                                              isKaraokeMode: true,
+                                              isKaraokeMode: isKaraoke,
                                               language: lang,
                                               fontSize: fontSize,
                                               fontWeight: fontWeight,
@@ -573,7 +573,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
                                       return KaraokeLineText(
                                         line: line,
                                         position: _currentAudioPosition,
-                                        isActive: isActive,
+                                        isActive: false,
                                         isKaraokeMode: isKaraoke,
                                         language: lang,
                                         fontSize: fontSize,

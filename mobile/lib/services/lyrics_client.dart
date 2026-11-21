@@ -580,15 +580,34 @@ class LyricsClient {
       if (rawData is Map) {
         final lrc = rawData['lyrics']?.toString();
         if (lrc != null && lrc.trim().isNotEmpty) {
-          final dual = DualLyrics(
-            defaultLyrics: rawData['defaultLyrics']?.toString() ?? lrc,
-            englishLyrics: rawData['englishLyrics']?.toString() ?? lrc,
-            detectedScript: rawData['detectedScript']?.toString() ?? 'latin',
-            isSynced: rawData['isSynced'] as bool? ?? isLrc(lrc),
-          );
-          final state = LyricsState.loaded(lrc, dualLyrics: dual);
-          _putMemoryCache(trackId, state);
-          return state;
+          final cachedDur = (rawData['duration'] as num?)?.toInt() ?? 0;
+          final lastTs = _getLastLyricTimestamp(lrc);
+
+          // Invalidate mismatched cache if duration was known and differs significantly (> 12s)
+          bool isMismatched = false;
+          if (durationSeconds >= 60) {
+            if (cachedDur > 0 && (cachedDur - durationSeconds).abs() > 12) {
+              isMismatched = true;
+            } else if (cachedDur == 0 && lastTs > 0 && (lastTs - durationSeconds).abs() > 25 && lastTs < durationSeconds * 0.45) {
+              isMismatched = true;
+            }
+          }
+
+          if (isMismatched) {
+            AppLogger.log('LyricsClient', 'Invalidating mismatched cached lyrics for $trackId (cached: ${cachedDur}s, actual: ${durationSeconds}s)');
+            await box.delete('lyrics_$trackId');
+            _memoryCache.remove(trackId);
+          } else {
+            final dual = DualLyrics(
+              defaultLyrics: rawData['defaultLyrics']?.toString() ?? lrc,
+              englishLyrics: rawData['englishLyrics']?.toString() ?? lrc,
+              detectedScript: rawData['detectedScript']?.toString() ?? 'latin',
+              isSynced: rawData['isSynced'] as bool? ?? isLrc(lrc),
+            );
+            final state = LyricsState.loaded(lrc, dualLyrics: dual);
+            _putMemoryCache(trackId, state);
+            return state;
+          }
         }
       }
     }
@@ -602,6 +621,38 @@ class LyricsClient {
     );
 
     List<Map<String, dynamic>> allCandidates = [];
+
+    // Step 0: Direct LRCLIB /api/get exact match with known duration
+    if (durationSeconds >= 45) {
+      for (final cand in titleCandidates.take(2)) {
+        try {
+          final uriGet = Uri.parse('https://lrclib.net/api/get').replace(queryParameters: {
+            'track_name': cand,
+            if (primaryArtist.isNotEmpty) 'artist_name': primaryArtist,
+            if (album != null && album.isNotEmpty) 'album_name': album,
+            'duration': durationSeconds.toString(),
+          });
+          final resGet = await http.get(uriGet, headers: {'User-Agent': _userAgent}).timeout(const Duration(seconds: 3));
+          if (resGet.statusCode == 200) {
+            final getJson = json.decode(resGet.body);
+            if (getJson is Map<String, dynamic>) {
+              final rawLrc = (getJson['syncedLyrics'] as String?)?.trim();
+              if (rawLrc != null && rawLrc.isNotEmpty) {
+                final candDur = ((getJson['duration'] as num?)?.toInt() ?? durationSeconds);
+                final dual = buildDualLyrics(rawLrc);
+                final state = LyricsState.loaded(rawLrc, dualLyrics: dual);
+                _putMemoryCache(trackId, state);
+                _savePersistentCache(trackId, rawLrc, dual, durationSeconds: candDur);
+                AppLogger.log('LyricsClient', 'Direct LRCLIB /api/get exact hit for "$title" (dur: ${durationSeconds}s)');
+                return state;
+              }
+            }
+          }
+        } catch (e) {
+          AppLogger.log('LyricsClient', 'LRCLIB /api/get notice for "$cand": $e');
+        }
+      }
+    }
 
     // Step 1: Specific track_name and artist_name search across generated title candidates
     for (final cand in titleCandidates.take(3)) {
@@ -641,7 +692,8 @@ class LyricsClient {
                 final dual = buildDualLyrics(rawLrc);
                 final state = LyricsState.loaded(rawLrc, dualLyrics: dual);
                 _putMemoryCache(trackId, state);
-                _savePersistentCache(trackId, rawLrc, dual);
+                final candDur = ((best['duration'] as num?)?.toInt() ?? durationSeconds);
+                _savePersistentCache(trackId, rawLrc, dual, durationSeconds: candDur);
                 AppLogger.log('LyricsClient', 'Instant synced LRC hit for "$title" using candidate "$cand" (diff: ${bestDiff}s)');
                 return state;
               }
@@ -729,13 +781,23 @@ class LyricsClient {
         });
       }
       final best = syncedCandidates.first;
-      final rawLrc = best['syncedLyrics'] as String;
-      final dual = buildDualLyrics(rawLrc);
-      final state = LyricsState.loaded(rawLrc, dualLyrics: dual);
-      _putMemoryCache(trackId, state);
-      _savePersistentCache(trackId, rawLrc, dual);
-      AppLogger.log('LyricsClient', 'Resolved synced LRC for "$title" (best diff: ${durationSeconds > 0 ? (((best['duration'] as num?)?.toInt() ?? 0) - durationSeconds).abs() : 0}s)');
-      return state;
+      final bestDiff = durationSeconds > 0
+          ? (((best['duration'] as num?)?.toInt() ?? 0) - durationSeconds).abs()
+          : 0;
+
+      // Only accept if duration is unknown (0) or candidate matches within 12s tolerance
+      if (durationSeconds <= 0 || bestDiff <= 12) {
+        final rawLrc = best['syncedLyrics'] as String;
+        final dual = buildDualLyrics(rawLrc);
+        final state = LyricsState.loaded(rawLrc, dualLyrics: dual);
+        _putMemoryCache(trackId, state);
+        final candDur = ((best['duration'] as num?)?.toInt() ?? durationSeconds);
+        _savePersistentCache(trackId, rawLrc, dual, durationSeconds: candDur);
+        AppLogger.log('LyricsClient', 'Resolved synced LRC for "$title" (best diff: ${bestDiff}s)');
+        return state;
+      } else {
+        AppLogger.log('LyricsClient', 'Skipping candidate lyrics for "$title": closest candidate duration delta (${bestDiff}s) exceeds 12s tolerance');
+      }
     }
 
     // Step 3: Direct JioSaavn Fallback for regional tracks (Tamil, Telugu, Hindi, etc.)
@@ -864,6 +926,9 @@ class LyricsClient {
     });
 
     final best = syncedCandidates.first;
+    final bestDiff = (((best['duration'] as num?)?.toInt() ?? actualDurationSeconds) - actualDurationSeconds).abs();
+    if (bestDiff > 12) return null;
+
     final rawLrc = best['syncedLyrics'] as String;
     final current = _memoryCache[trackId];
 
@@ -872,8 +937,8 @@ class LyricsClient {
       final dual = buildDualLyrics(rawLrc);
       final newState = LyricsState.loaded(rawLrc, dualLyrics: dual);
       _putMemoryCache(trackId, newState);
-      _savePersistentCache(trackId, rawLrc, dual);
-      AppLogger.log('LyricsClient', 'Reselected best-matching candidate for $trackId at duration ${actualDurationSeconds}s');
+      _savePersistentCache(trackId, rawLrc, dual, durationSeconds: actualDurationSeconds);
+      AppLogger.log('LyricsClient', 'Reselected best-matching candidate for $trackId at duration ${actualDurationSeconds}s (diff: ${bestDiff}s)');
       return newState;
     }
     return null;
@@ -886,7 +951,7 @@ class LyricsClient {
     _memoryCache[trackId] = state;
   }
 
-  Future<void> _savePersistentCache(String trackId, String lrc, DualLyrics dual) async {
+  Future<void> _savePersistentCache(String trackId, String lrc, DualLyrics dual, {int durationSeconds = 0}) async {
     try {
       final box = await _getBox();
       if (box != null) {
@@ -897,6 +962,7 @@ class LyricsClient {
           'englishLyrics': dual.englishLyrics,
           'detectedScript': dual.detectedScript,
           'isSynced': dual.isSynced,
+          'duration': durationSeconds,
         });
       }
     } catch (_) {}

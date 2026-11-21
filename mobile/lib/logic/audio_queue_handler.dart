@@ -2397,6 +2397,7 @@ class AudioQueueHandler {
           isDownloaded: true,
           localFilePath: localAudio,
           localCoverPath: localCover ?? entity.localCoverPath,
+          source: 'offline',
         );
       }
     }
@@ -2446,7 +2447,7 @@ class AudioQueueHandler {
     bool preserveBitrate = false,
   }) async {
     if (song.localFilePath != null && File(song.localFilePath!).existsSync()) {
-      final enriched = song.isDownloaded ? song : song.copyWith(isDownloaded: true);
+      final enriched = song.copyWith(isDownloaded: true, source: 'offline');
       return AudioSource.file(song.localFilePath!, tag: enriched.toMediaItem());
     }
     if (DownloadManager.isDownloaded(song.id)) {
@@ -2457,6 +2458,7 @@ class AudioQueueHandler {
           isDownloaded: true,
           localFilePath: localAudio,
           localCoverPath: localCover ?? song.localCoverPath,
+          source: 'offline',
         );
         return AudioSource.file(localAudio, tag: enriched.toMediaItem());
       }

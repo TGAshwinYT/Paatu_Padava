@@ -24,7 +24,7 @@ import 'album_screen.dart';
 import 'remote_playlist_screen.dart';
 import 'liked_songs_screen.dart';
 import '../widgets/player/player_utilities_sheet.dart';
-import '../../services/settings_manager.dart';
+import '../../services/download_manager.dart';
 import '../theme/app_theme.dart';
 
 class FullPlayerScreen extends StatefulWidget {
@@ -325,48 +325,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                   );
                                 },
                               ),
-                              ValueListenableBuilder<String>(
-                                valueListenable: SettingsManager.streamingQualityNotifier,
-                                builder: (context, quality, _) {
-                                  final label = switch (quality) {
-                                    '320kbps' => '320k',
-                                    '160kbps' => '160k',
-                                    '96kbps' => '96k',
-                                    _ => quality,
-                                  };
-                                  return GestureDetector(
-                                    onTap: () => PlayerUtilitiesSheet.showQualityPicker(context),
-                                    child: Container(
-                                      margin: const EdgeInsets.only(right: 4),
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
-                                        borderRadius: BorderRadius.circular(8),
-                                        border: Border.all(
-                                          color: const Color(0xFFF59E0B).withValues(alpha: 0.4),
-                                          width: 1,
-                                        ),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Icon(Icons.high_quality_rounded, size: 12, color: Color(0xFFFBBF24)),
-                                          const SizedBox(width: 3),
-                                          Text(
-                                            label,
-                                            style: const TextStyle(
-                                              color: Color(0xFFFBBF24),
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.bold,
-                                              fontFeatures: [FontFeature.tabularFigures()],
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
                               IconButton(
                                 visualDensity: AppDimensions.isCompact(context) ? VisualDensity.compact : VisualDensity.standard,
                                 padding: AppDimensions.isCompact(context) ? const EdgeInsets.all(4.0) : const EdgeInsets.all(8.0),
@@ -586,36 +544,60 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                       ),
                                       const SizedBox(height: 6),
                                       // Discreet Audio Quality Micro-Pill below artist
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white.withValues(alpha: 0.06),
-                                          borderRadius: BorderRadius.circular(6),
-                                          border: Border.all(
-                                            color: song.source == 'offline'
-                                                ? const Color(0xFF10B981).withValues(alpha: 0.35)
-                                                : const Color(0xFF818CF8).withValues(alpha: 0.25),
-                                          ),
-                                        ),
-                                        child: Text(
-                                          song.source == 'offline'
-                                              ? 'LOSSLESS'
-                                              : (song.source == 'youtube'
-                                                  ? 'YOUTUBE'
-                                                  : (song.streamUrl?.contains('_160.') == true
-                                                      ? '160 KBPS • AAC'
-                                                      : (song.streamUrl?.contains('_96.') == true
-                                                          ? '96 KBPS'
-                                                          : '320 KBPS • HQ'))),
-                                          style: TextStyle(
-                                            color: song.source == 'offline'
-                                                ? const Color(0xFF34D399)
-                                                : const Color(0xFF818CF8),
-                                            fontSize: 9.5,
-                                            fontWeight: FontWeight.w700,
-                                            letterSpacing: 0.8,
-                                          ),
-                                        ),
+                                      Builder(
+                                        builder: (context) {
+                                          final isDownloaded = song.isDownloaded ||
+                                              song.source == 'offline' ||
+                                              song.localFilePath != null ||
+                                              DownloadManager.isDownloaded(song.id);
+
+                                          return Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                                            decoration: BoxDecoration(
+                                              color: isDownloaded
+                                                  ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                                                  : Colors.white.withValues(alpha: 0.06),
+                                              borderRadius: BorderRadius.circular(6),
+                                              border: Border.all(
+                                                color: isDownloaded
+                                                    ? const Color(0xFF10B981).withValues(alpha: 0.45)
+                                                    : const Color(0xFF818CF8).withValues(alpha: 0.25),
+                                              ),
+                                            ),
+                                            child: isDownloaded
+                                                ? const Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
+                                                      Icon(Icons.download_done_rounded, size: 10, color: Color(0xFF34D399)),
+                                                      SizedBox(width: 3.5),
+                                                      Text(
+                                                        'LOSSLESS',
+                                                        style: TextStyle(
+                                                          color: Color(0xFF34D399),
+                                                          fontSize: 9.5,
+                                                          fontWeight: FontWeight.w700,
+                                                          letterSpacing: 0.8,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  )
+                                                : Text(
+                                                    song.source == 'youtube'
+                                                        ? 'YOUTUBE'
+                                                        : (song.streamUrl?.contains('_160.') == true
+                                                            ? '160 KBPS • AAC'
+                                                            : (song.streamUrl?.contains('_96.') == true
+                                                                ? '96 KBPS'
+                                                                : '320 KBPS • HQ')),
+                                                    style: const TextStyle(
+                                                      color: Color(0xFF818CF8),
+                                                      fontSize: 9.5,
+                                                      fontWeight: FontWeight.w700,
+                                                      letterSpacing: 0.8,
+                                                    ),
+                                                  ),
+                                          );
+                                        },
                                       ),
                                     ],
                                   ),

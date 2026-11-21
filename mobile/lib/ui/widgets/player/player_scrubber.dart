@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../../../models/song.dart';
 import '../../../services/player_handler.dart';
 import '../../../services/smart_cache_service.dart';
+import '../../../services/download_manager.dart';
 
 /// Standalone playback scrubber widget that isolates seek bar re-renders
 /// from the parent player screen. Prevents UI churn by gating stream updates
@@ -60,9 +61,12 @@ class _PlayerScrubberState extends State<PlayerScrubber> {
             stream: audioHandler.player.bufferedPositionStream,
             initialData: audioHandler.player.bufferedPosition,
             builder: (context, bufSnap) {
-              final isCached = widget.song.isDownloaded ||
+              final isDownloaded = widget.song.isDownloaded ||
+                  widget.song.source == 'offline' ||
+                  widget.song.localFilePath != null ||
+                  DownloadManager.isDownloaded(widget.song.id) ||
                   SmartCacheService.instance.isCached(widget.song.id);
-              final bufferedMs = isCached
+              final bufferedMs = isDownloaded
                   ? maxVal
                   : (bufSnap.data ?? Duration.zero).inMilliseconds.toDouble();
               // Never draw buffered behind the playhead, never beyond the end.

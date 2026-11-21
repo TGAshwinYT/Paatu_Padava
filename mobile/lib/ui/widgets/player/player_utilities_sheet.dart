@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../models/song.dart';
 import '../../../services/device_connect_coordinator.dart';
+import '../../../services/settings_manager.dart';
 import '../../../services/sleep_timer_service.dart';
 import '../../theme/app_theme.dart';
 import '../add_to_playlist_dialog.dart';
@@ -228,9 +229,117 @@ class PlayerUtilitiesSheet extends StatelessWidget {
                 AddToPlaylistDialog.show(context, song);
               },
             ),
+
+            // 5. Streaming Audio Quality Selector
+            ValueListenableBuilder<String>(
+              valueListenable: SettingsManager.streamingQualityNotifier,
+              builder: (context, quality, _) {
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.high_quality_rounded, color: Color(0xFFFBBF24), size: 22),
+                  ),
+                  title: const Text(
+                    'Streaming Quality',
+                    style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Text(
+                    'Bitrate: $quality',
+                    style: const TextStyle(color: Color(0xFFFBBF24), fontSize: 11.5, fontWeight: FontWeight.w600),
+                  ),
+                  trailing: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white10,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: Text(
+                      quality,
+                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  onTap: () => _showQualityPicker(context),
+                );
+              },
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  void _showQualityPicker(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0F172A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        final options = [
+          {'title': '320kbps (Very High)', 'value': '320kbps', 'desc': 'Studio quality, crisp highs'},
+          {'title': '160kbps (High)', 'value': '160kbps', 'desc': 'Standard quality, balanced data'},
+          {'title': '96kbps (Data Saver)', 'value': '96kbps', 'desc': 'Fast buffering on weak networks'},
+        ];
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.white24,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const Text(
+                  'Select Streaming Quality',
+                  style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                ...options.map((opt) {
+                  final isSelected = SettingsManager.streamingQuality == opt['value'];
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
+                      isSelected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+                      color: isSelected ? const Color(0xFFFBBF24) : Colors.white38,
+                    ),
+                    title: Text(
+                      opt['title']!,
+                      style: TextStyle(
+                        color: isSelected ? Colors.white : Colors.white70,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                    subtitle: Text(
+                      opt['desc']!,
+                      style: const TextStyle(color: AppColors.textMuted, fontSize: 11.5),
+                    ),
+                    onTap: () {
+                      SettingsManager.setStreamingQuality(opt['value']!);
+                      Navigator.pop(ctx);
+                    },
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

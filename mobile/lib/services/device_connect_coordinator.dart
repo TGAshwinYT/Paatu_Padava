@@ -97,6 +97,7 @@ class DeviceConnectCoordinator {
 
   bool get isCasting => !currentDeviceNotifier.value.isLocal;
   ConnectedDevice get currentDevice => currentDeviceNotifier.value;
+  bool get isBluetoothActive => currentDeviceNotifier.value.status.contains('Bluetooth Active');
 
   /// Initializes real-time listener for Bluetooth, wired headphones, and system audio routes
   Future<void> initAudioRouteListener() async {

@@ -123,6 +123,30 @@ class PartySyncCoordinator {
   static int _lastHardSeekEpochMs = 0;
   static Function(Song song)? onJoinerManualPlayAttempted;
 
+  static int get _effectiveBluetoothDelayMs {
+    final manual = SettingsManager.bluetoothDelayMs;
+    if (manual != 0) return manual;
+    // Zero-Touch auto-calibration: automatically compensate standard Bluetooth A2DP DAC lag
+    if (DeviceConnectCoordinator.instance.isBluetoothActive) {
+      return -140;
+    }
+    return 0;
+  }
+
+  /// Downshifts high-bitrate 320k streams to 96k/160k on cellular connections or high network latency.
+  /// 70% smaller file size enables instant sub-second audio buffering on weak 1-2 bar cellular.
+  static String _optimizeStreamUrlForNetwork(String url) {
+    if (url.isEmpty) return url;
+    final isLan = PartyLanAccelerator.isLanActiveNotifier.value;
+    final rtt = measuredRttMsNotifier.value;
+    if (!isLan && (rtt > 120 || rtt == 0)) {
+      if (url.contains('_320.mp4')) {
+        return url.replaceAll('_320.mp4', '_96.mp4');
+      }
+    }
+    return url;
+  }
+
   static void _handlePeerReady(Map<String, dynamic> payload) {
     final peerId = payload['peerId']?.toString();
     final cmdId = payload['cmdId']?.toString();
@@ -749,7 +773,7 @@ class PartySyncCoordinator {
     if (hasRemotePeers) {
       _peerReadyCompleter = Completer<void>();
       final isLan = PartyLanAccelerator.isLanActiveNotifier.value;
-      final barrierTimeoutMs = isLan ? 3500 : 6000;
+      final barrierTimeoutMs = isLan ? 1200 : 3500;
       try {
         await _peerReadyCompleter!.future.timeout(Duration(milliseconds: barrierTimeoutMs));
       } catch (_) {
@@ -1017,8 +1041,9 @@ class PartySyncCoordinator {
     try {
       final songData = payload['song'] as Map<dynamic, dynamic>?;
       final songId = payload['songId']?.toString();
-      final directStreamUrl = payload['streamUrl']?.toString() ??
+      final rawStreamUrl = payload['streamUrl']?.toString() ??
           (songData != null ? songData['streamUrl']?.toString() : null);
+      final directStreamUrl = rawStreamUrl != null ? _optimizeStreamUrlForNetwork(rawStreamUrl) : null;
       Song? song;
       if (songData != null) {
         song = Song.fromMap(Map<String, dynamic>.from(songData));
@@ -1086,8 +1111,9 @@ class PartySyncCoordinator {
     try {
       final songData = payload['song'] as Map<dynamic, dynamic>?;
       final songId = payload['songId']?.toString();
-      final directStreamUrl = payload['streamUrl']?.toString() ??
+      final rawStreamUrl = payload['streamUrl']?.toString() ??
           (songData != null ? songData['streamUrl']?.toString() : null);
+      final directStreamUrl = rawStreamUrl != null ? _optimizeStreamUrlForNetwork(rawStreamUrl) : null;
       Song? song;
       if (songData != null) {
         song = Song.fromMap(Map<String, dynamic>.from(songData));
@@ -1138,7 +1164,7 @@ class PartySyncCoordinator {
       }
 
       final hardwareLatencyMs = SettingsManager.hardwareAudioLatencyMs;
-      final bluetoothDelayMs = SettingsManager.bluetoothDelayMs;
+      final bluetoothDelayMs = _effectiveBluetoothDelayMs;
       final latencyOffsetMs = bluetoothDelayMs + hardwareLatencyMs;
 
       final nowLocal = DateTime.now().millisecondsSinceEpoch;
@@ -1206,7 +1232,7 @@ class PartySyncCoordinator {
       await audioHandler.seek(Duration(milliseconds: posMs), isPartyDriven: true);
 
       final hardwareLatencyMs = SettingsManager.hardwareAudioLatencyMs;
-      final bluetoothDelayMs = SettingsManager.bluetoothDelayMs;
+      final bluetoothDelayMs = _effectiveBluetoothDelayMs;
       final latencyOffsetMs = bluetoothDelayMs + hardwareLatencyMs;
 
       final nowLocal = DateTime.now().millisecondsSinceEpoch;
@@ -1347,8 +1373,9 @@ class PartySyncCoordinator {
           syncStatusDescription.value = 'Syncing track: $title';
           try {
             final song = Song.fromMap(Map<String, dynamic>.from(hostSongData));
-            final directStreamUrl = payload['streamUrl']?.toString() ??
+            final rawStreamUrl = payload['streamUrl']?.toString() ??
                 hostSongData['streamUrl']?.toString();
+            final directStreamUrl = rawStreamUrl != null ? _optimizeStreamUrlForNetwork(rawStreamUrl) : null;
             if (directStreamUrl != null && directStreamUrl.isNotEmpty) {
               song.streamUrl = directStreamUrl;
               DefaultStreamResolver.cacheStream(song.id, directStreamUrl);
@@ -1373,7 +1400,7 @@ class PartySyncCoordinator {
                 referenceTrackPositionMs: refHostPos,
                 currentLocalEpochMs: DateTime.now().millisecondsSinceEpoch,
                 clockOffsetMs: clockOffsetMs,
-                bluetoothDelayMs: SettingsManager.bluetoothDelayMs,
+                bluetoothDelayMs: _effectiveBluetoothDelayMs,
                 hardwareLatencyMs: SettingsManager.hardwareAudioLatencyMs,
                 isPlaying: isHostPlaying,
               );
@@ -1419,7 +1446,7 @@ class PartySyncCoordinator {
       referenceTrackPositionMs: refHostPos,
       currentLocalEpochMs: DateTime.now().millisecondsSinceEpoch,
       clockOffsetMs: clockOffsetMs,
-      bluetoothDelayMs: SettingsManager.bluetoothDelayMs,
+      bluetoothDelayMs: _effectiveBluetoothDelayMs,
       hardwareLatencyMs: SettingsManager.hardwareAudioLatencyMs,
       isPlaying: isHostPlaying,
     );

@@ -70,13 +70,15 @@ class NtpCalculator {
     // Prefer clean LAN samples when available (LAN RTT is typically 1-5ms vs Cloud 40-150ms)
     final lanSamples = samples.where((s) => s.isLan).toList();
     final activeSamples = lanSamples.isNotEmpty ? lanSamples : samples;
+    final isLan = activeSamples.any((s) => s.isLan);
 
     // Sort by RTT ascending (cleanest network paths first)
     final sorted = List<NtpSample>.from(activeSamples)..sort((a, b) => a.rtt.compareTo(b.rtt));
 
-    // Reject samples whose RTT exceeds 1.4x of minimum RTT (when >= 3 samples)
+    // Reject samples whose RTT exceeds threshold (tightened to 1.25x on cellular to reject asymmetric uplink delay)
     final minRtt = sorted.first.rtt;
-    final rttThreshold = max(minRtt + 12, (minRtt * 1.4).round());
+    final rttMultiplier = isLan ? 1.4 : 1.25;
+    final rttThreshold = max(minRtt + (isLan ? 12 : 8), (minRtt * rttMultiplier).round());
     final cleanSamples = sorted.length >= 3
         ? sorted.where((s) => s.rtt <= rttThreshold).toList()
         : sorted;
@@ -143,12 +145,12 @@ class DriftAction {
 /// Drift reconciler to preserve audio lockstep without audible clicks/pops or pitch warble.
 class DriftReconciler {
   /// Computes a jitter-aware deadband threshold.
-  /// On local Wi-Fi (LAN), keeps a crisp 25ms window for multi-speaker acoustic alignment.
-  /// On cloud/cellular, scales with RTT to absorb network jitter and prevent speed hunting/pitch warble.
+  /// On local Wi-Fi / Hotspot (LAN), keeps a crisp 25ms window for multi-speaker acoustic alignment.
+  /// On cellular / cloud, expands to 75-120ms to absorb cellular jitter and prevent pitch warble.
   static int calculateAdaptiveDeadband({required int rttMs, bool isLan = false}) {
     if (isLan) return 25;
-    // Cloud / Internet: 35ms floor up to 110ms ceiling based on 40% of RTT
-    return max(35, min(110, (rttMs * 0.4).round()));
+    // Cellular / Cloud: 75ms floor up to 120ms ceiling based on RTT to prevent pitch warble
+    return max(75, min(120, (rttMs * 0.45).round()));
   }
 
   /// Computes the micro-adjustment ceiling threshold before falling back to hard seek.
@@ -233,19 +235,20 @@ class DriftReconciler {
 /// Scheduled epoch playback and Bluetooth compensation calculator.
 class ScheduledPlaybackCalculator {
   /// Computes the presentation lead time for scheduled play / track transition barriers.
-  /// Adapts dynamically based on the highest peer RTT in the session.
-  /// Local LAN only: ~1200ms.
-  /// Cloud / High latency / Long distance: scales up to 1500-2800ms to guarantee all phones buffer in time.
+  /// Adapts dynamically based on the highest peer RTT and connection mode.
+  /// Local Wi-Fi / Hotspot (LAN): ~320-450ms (instant start because stream is pre-buffered).
+  /// Cloud / Cellular: 600-1800ms to guarantee all phones buffer in time across network jitter.
   static int calculateAdaptiveLeadTimeMs({
     required List<int> peerRtts,
     bool isLan = false,
   }) {
-    if (isLan && (peerRtts.isEmpty || peerRtts.every((rtt) => rtt < 20))) {
-      return 1200;
+    final maxRtt = peerRtts.isNotEmpty ? peerRtts.reduce(max) : (isLan ? 5 : 80);
+    if (isLan) {
+      // Local Wi-Fi / Hotspot: pre-warmed stream allows instant start without perceived lag
+      return max(320, min(500, (maxRtt * 2) + 250));
     }
-    final maxRtt = peerRtts.isNotEmpty ? peerRtts.reduce(max) : 100;
-    // Base 1500ms + max RTT + 750ms headroom for ExoPlayer buffer fill
-    return max(1500, min(2800, maxRtt + 750));
+    // Cloud / Cellular: scales with RTT (base 600ms to absorb cellular jitter, max 1800ms)
+    return max(600, min(1800, (maxRtt * 1.5).round() + 350));
   }
 
   /// Calculates the millisecond delay to wait before triggering `player.play()`

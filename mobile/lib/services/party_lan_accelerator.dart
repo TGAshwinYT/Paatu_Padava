@@ -40,10 +40,13 @@ class PartyLanAccelerator {
   static void Function(Map<String, dynamic> payload)? onNtpPongReceived;
   static void Function(String event, Map<String, dynamic> payload)? onSyncEventReceived;
 
-  /// Refreshes local subnet broadcast addresses using native Wi-Fi subnet mask and network interfaces
+  /// Refreshes local subnet broadcast addresses using native Wi-Fi subnet mask, hotspot subnets, and network interfaces
   static Future<void> _refreshBroadcastAddresses() async {
     _broadcastAddresses.clear();
     _broadcastAddresses.add(InternetAddress('255.255.255.255'));
+    // Always include standard Android personal hotspot and Wi-Fi Direct broadcast subnets
+    _broadcastAddresses.add(InternetAddress('192.168.43.255'));
+    _broadcastAddresses.add(InternetAddress('192.168.49.255'));
     try {
       final wifiBroadcast = await SyncPlatform.getWifiBroadcastAddress();
       if (wifiBroadcast != null && wifiBroadcast.isNotEmpty) {
@@ -228,11 +231,23 @@ class PartyLanAccelerator {
   }
 
   static void _sendJoinerProbe() {
-    sendBroadcast('joiner_probe', {
+    final payload = {
       'code': _currentPartyCode,
       'senderId': _selfClientId,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
-    });
+    };
+    sendBroadcast('joiner_probe', payload);
+    // Direct hotspot gateway probe: if joiner is connected to personal hotspot, host is at 192.168.43.1 or 192.168.49.1
+    try {
+      final message = jsonEncode({
+        'partyCode': _currentPartyCode,
+        'event': 'joiner_probe',
+        'payload': payload,
+      });
+      final bytes = utf8.encode(message);
+      _socket?.send(bytes, InternetAddress('192.168.43.1'), defaultPort);
+      _socket?.send(bytes, InternetAddress('192.168.49.1'), defaultPort);
+    } catch (_) {}
   }
 
   static void _startActivityWatchdog() {

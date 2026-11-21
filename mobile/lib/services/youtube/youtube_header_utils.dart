@@ -21,6 +21,8 @@ class YouTubeHeaderUtils {
       url.contains('googlevideo.com') || url.contains('youtube.com/api/manifest');
 
   /// Returns the User-Agent that matches the client which issued [url].
+  /// CDN token validation strictly enforces client-tag consistency:
+  /// a mismatch (e.g. sending ANDROID_VR UA to c=WEB or c=ANDROID stream) triggers HTTP 403 Forbidden.
   static String userAgentForUrl(String url) {
     try {
       final uri = Uri.tryParse(url);
@@ -30,10 +32,13 @@ class YouTubeHeaderUtils {
         return 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)';
       }
       if (c == 'ANDROID') {
-        return 'com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US; Pixel 8 Pro; Build/UQ1A.240205.004) gzip';
+        return androidUserAgent;
       }
-      if (c == 'WEB_REMIX' || url.contains('music.youtube.com')) {
+      if (c == 'WEB' || c == 'MWEB' || c == 'WEB_REMIX' || url.contains('music.youtube.com')) {
         return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+      }
+      if (c == 'TVHTML5' || c == 'TVHTML5_SIMPLY_EMBEDDED_PLAYER') {
+        return 'Mozilla/5.0 (PlayStation; PlayStation 4/10.01) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/10.01 Safari/605.1.15';
       }
     } catch (_) {}
     return vrUserAgent;

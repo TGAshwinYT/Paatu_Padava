@@ -21,6 +21,32 @@ class YouTubeClient {
     return _ytInstance!;
   }
 
+  /// Bounded set of video IDs confirmed permanently unplayable via YouTube InnerTube
+  /// (geo-blocked, age-restricted, deleted, or members-only content).
+  /// Capped at 200 entries — oldest evicted first. Survives the app session
+  /// so the same video never re-attempts the full multi-tier resolution stack.
+  static final _permanentFailCache = <String, String>{};
+  static const int _permanentFailCacheMax = 200;
+
+  /// Marks [videoId] as permanently unplayable on YouTube with the given [reason].
+  /// Signals [StreamResolver] to skip YouTube and go directly to Saavn/Audius.
+  static void markPermanentlyUnplayable(String videoId, String reason) {
+    if (_permanentFailCache.containsKey(videoId)) return;
+    if (_permanentFailCache.length >= _permanentFailCacheMax) {
+      _permanentFailCache.remove(_permanentFailCache.keys.first);
+    }
+    _permanentFailCache[videoId] = reason;
+    AppLogger.log('YouTubeClient', 'Marked $videoId as permanently unplayable: $reason');
+  }
+
+  /// Returns true if [videoId] is known to be permanently unplayable via YouTube.
+  static bool isKnownUnplayable(String videoId) =>
+      _permanentFailCache.containsKey(videoId);
+
+  /// Returns the unplayability reason for [videoId], or null if not cached.
+  static String? unplayableReason(String videoId) =>
+      _permanentFailCache[videoId];
+
   /// Closes any idle YouTube HTTP sockets and resets client instance safely
   static void closeIdleClient() {
     try {
@@ -1228,7 +1254,29 @@ class YouTubeClient {
 
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body) as Map<String, dynamic>?;
-          final streamingData = data?['streamingData'] as Map<String, dynamic>?;
+          if (data == null) return null;
+
+          // ── Inspect playabilityStatus BEFORE accessing streamingData ──────────
+          // YouTube returns 200 OK even for restricted content, but streamingData
+          // will be absent. Reading the status lets us distinguish permanent content
+          // failures (geo-block, age-gate, deleted, members-only) from transient
+          // network errors, so the same video is never wastefully re-attempted.
+          final playability = data['playabilityStatus'] as Map<String, dynamic>?;
+          final playStatus = playability?['status']?.toString() ?? '';
+          if (playStatus == 'LOGIN_REQUIRED' ||
+              playStatus == 'AGE_CHECK_REQUIRED' ||
+              playStatus == 'AGE_VERIFICATION_REQUIRED' ||
+              playStatus == 'UNPLAYABLE' ||
+              playStatus == 'VIDEO_UNAVAILABLE' ||
+              playStatus == 'ERROR') {
+            final reason = playability?['reason']?.toString() ?? playStatus;
+            markPermanentlyUnplayable(cleanId, reason);
+            AppLogger.log('YouTubeClient',
+                'InnerTube ${config['name']}: playabilityStatus=$playStatus ($reason) for $cleanId — will skip YouTube on future attempts.');
+            return null;
+          }
+
+          final streamingData = data['streamingData'] as Map<String, dynamic>?;
           if (streamingData == null) return null;
 
           // Method A: HLS Manifest URL. If present, return .m3u8 immediately!
@@ -1318,6 +1366,13 @@ class YouTubeClient {
   /// Dual-tier: InnerTube (Remote & Cached Configs) -> YouTubeExplode (Full Manifest with Bitrate Fallback).
   /// Returns null if Google CDN returns 403 or times out so Smart Replace is triggered.
   static Future<String?> _resolveAndVerifyStream(String cleanId) async {
+    // Fast-exit: skip all resolution tiers if this video is permanently unplayable.
+    if (isKnownUnplayable(cleanId)) {
+      AppLogger.log('YouTubeClient',
+          'Skipping stream resolution for $cleanId — permanently unplayable (${unplayableReason(cleanId)}). Triggering Saavn fallback.');
+      return null;
+    }
+
     // ── Tier 1: Direct InnerTube (IOS / ANDROID_VR / WEB_REMIX) + HLS ─────────────
     try {
       final directUrl = await _resolveDirectInnertubeStream(cleanId).timeout(const Duration(milliseconds: 2500), onTimeout: () => null);
@@ -1395,15 +1450,20 @@ class YouTubeClient {
             }
           }
 
-          // 6. Safe candidate fallback if probe had network hiccups but valid audio candidates exist
-          if (candidates.isNotEmpty) {
-            final fallbackUrl = candidates.first.url.toString();
-            AppLogger.log('YouTubeClient', 'Probe timed out or blocked; using candidate fallback for $cleanId (itag ${candidates.first.tag})');
-            return fallbackUrl;
-          }
+          // If all candidates and muxed streams failed probe (403 Forbidden or network block),
+          // do NOT poison the player or cache with an unplayable URL.
+          // Returning null allows StreamResolver to trigger clean Smart Replace on JioSaavn.
         }
       } catch (e) {
         AppLogger.log('YouTubeClient', 'YouTubeExplode attempt $attempt notice for $cleanId: $e');
+        final errStr = e.toString().toLowerCase();
+        if (errStr.contains('videounavailable') ||
+            errStr.contains('videorequirespurchase') ||
+            errStr.contains('videoprivated') ||
+            errStr.contains('unplayable')) {
+          markPermanentlyUnplayable(cleanId, e.toString());
+          break;
+        }
         if (e.toString().contains('HttpClientClosedException')) {
           refreshClient();
         }

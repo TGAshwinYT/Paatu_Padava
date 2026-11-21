@@ -614,6 +614,14 @@ class DefaultStreamResolver implements StreamResolver {
       String? ytVideoId = targetVideoId ?? ((song.source == 'youtube' && song.id.length == 11) ? song.id : null);
       ytVideoId ??= await YouTubeClient.resolveVideoIdForSong(song).timeout(const Duration(seconds: 4), onTimeout: () => null);
       if (ytVideoId != null && ytVideoId.isNotEmpty) {
+        // Fast-exit: bypass full InnerTube + YoutubeExplode stack for permanently
+        // content-restricted videos (geo-blocked, age-gated, deleted, members-only).
+        // These will ALWAYS fail on YouTube; go straight to Saavn/Audius.
+        if (YouTubeClient.isKnownUnplayable(ytVideoId)) {
+          AppLogger.log('StreamResolver',
+              'Stage C skipped for $ytVideoId — known permanently unplayable (${YouTubeClient.unplayableReason(ytVideoId)}). Routing to Saavn.');
+          return null;
+        }
         final ytUrl = await _youtubeClient
             .getStreamUrl(ytVideoId, title: song.title, artist: song.artist)
             .timeout(const Duration(seconds: 6), onTimeout: () => null);
@@ -679,6 +687,15 @@ class DefaultStreamResolver implements StreamResolver {
       }
     } else {
       // ── Hedged Parallel Race (Saavn first; if > 600ms or fails, launch YouTube) ──
+      // Optimization: if the song's YouTube video ID is already permanently unplayable
+      // (geo-blocked, age-gated, deleted), skip the hedge entirely and go straight to Saavn.
+      final String? knownYtId = (song.source == 'youtube' && song.id.length == 11) ? song.id : null;
+      if (knownYtId != null && YouTubeClient.isKnownUnplayable(knownYtId)) {
+        AppLogger.log('StreamResolver',
+            'Hedged race bypassed for "${song.title}" — $knownYtId is permanently unplayable. Fast-routing to Saavn.');
+        final saavnUrl = await _resolveViaSaavn(song, cleanTitleOnly: cleanTitleOnly);
+        if (saavnUrl != null && saavnUrl.isNotEmpty) return saavnUrl;
+      } else {
       final completer = Completer<String?>();
       var saavnDone = false;
       var ytDone = false;
@@ -750,6 +767,7 @@ class DefaultStreamResolver implements StreamResolver {
         return firstResult;
       }
     }
+  }
 
     // ── STAGE D (Backend Stream Proxy fallback) ──
     if (DynamicScraperConfigService.isBackendResolverEnabled) {

@@ -2468,19 +2468,11 @@ class AudioQueueHandler {
     final isGoogleVideo = host.contains('googlevideo.com');
 
     // Headers are ONLY for googlevideo.com; Saavn and other hosts get none (headers: null).
-    final Map<String, String>? headers;
-    if (isGoogleVideo) {
-      final isHls = streamUrl.contains('.m3u8') || streamUrl.contains('hls_variant');
-      headers = {
-        'User-Agent': isHls
-            ? 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)'
-            : YouTubeClient.vrUserAgent,
-        'Accept': '*/*',
-        'Connection': 'keep-alive',
-      };
-    } else {
-      headers = null;
-    }
+    // Uses YouTubeClient.headersForUrl to guarantee User-Agent matches the client tag (c=)
+    // on the googlevideo URL, preventing HTTP 403 Forbidden on playback start.
+    final Map<String, String>? headers = isGoogleVideo
+        ? YouTubeClient.headersForUrl(streamUrl)
+        : null;
     song.streamUrl = streamUrl;
 
     try {

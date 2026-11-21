@@ -286,5 +286,28 @@ void main() {
       );
       expect(SongRepository.isLanguageMismatch(fillerSong, 'tamil'), isTrue);
     });
+
+    test('YouTube client-tag User-Agent matching and permanent unplayable cache', () {
+      // 1. User-Agent matches c= tag correctly
+      const webUrl = 'https://rr1---sn-cvh76n7e.googlevideo.com/videoplayback?expire=123456&c=WEB';
+      const androidUrl = 'https://rr1---sn-cvh76n7e.googlevideo.com/videoplayback?expire=123456&c=ANDROID';
+      const tvUrl = 'https://rr1---sn-cvh76n7e.googlevideo.com/videoplayback?expire=123456&c=TVHTML5';
+      const iosUrl = 'https://rr1---sn-cvh76n7e.googlevideo.com/videoplayback?expire=123456&c=IOS';
+      const vrUrl = 'https://rr1---sn-cvh76n7e.googlevideo.com/videoplayback?expire=123456&c=ANDROID_VR';
+
+      expect(YouTubeClient.headersForUrl(webUrl)['User-Agent'], contains('Chrome'));
+      expect(YouTubeClient.headersForUrl(androidUrl)['User-Agent'], contains('com.google.android.youtube'));
+      expect(YouTubeClient.headersForUrl(tvUrl)['User-Agent'], contains('PlayStation'));
+      expect(YouTubeClient.headersForUrl(iosUrl)['User-Agent'], contains('com.google.ios.youtube'));
+      expect(YouTubeClient.headersForUrl(vrUrl)['User-Agent'], contains('com.google.android.apps.youtube.vr.oculus'));
+
+      // 2. Permanent unplayable cache records and signals correctly
+      const testId = 'unplayable_test_vid';
+      expect(YouTubeClient.isKnownUnplayable(testId), isFalse);
+
+      YouTubeClient.markPermanentlyUnplayable(testId, 'LOGIN_REQUIRED');
+      expect(YouTubeClient.isKnownUnplayable(testId), isTrue);
+      expect(YouTubeClient.unplayableReason(testId), equals('LOGIN_REQUIRED'));
+    });
   });
 }

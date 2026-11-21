@@ -903,19 +903,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
         final host = uri?.host.toLowerCase() ?? '';
         final isGoogleVideo = host.contains('googlevideo.com');
 
-        final Map<String, String>? headers;
-        if (isGoogleVideo) {
-          final isHls = url.contains('.m3u8') || url.contains('hls_variant');
-          headers = {
-            'User-Agent': isHls
-                ? 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)'
-                : YouTubeClient.vrUserAgent,
-            'Accept': '*/*',
-            'Connection': 'keep-alive',
-          };
-        } else {
-          headers = null;
-        }
+        final Map<String, String>? headers = isGoogleVideo
+            ? YouTubeClient.headersForUrl(url)
+            : null;
         song.streamUrl = url;
         try {
           final source = AudioSource.uri(
@@ -1584,16 +1574,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   @override
   Future<void> playFromUri(Uri uri, [Map<String, dynamic>? extras]) async {
     final isGoogleVideo = uri.host.toLowerCase().contains('googlevideo.com');
-    final Map<String, String>? headers;
-    if (isGoogleVideo) {
-      headers = {
-        'User-Agent': YouTubeClient.vrUserAgent,
-        'Accept': '*/*',
-        'Connection': 'keep-alive',
-      };
-    } else {
-      headers = null;
-    }
+    final Map<String, String>? headers = isGoogleVideo
+        ? YouTubeClient.headersForUrl(uri.toString())
+        : null;
     try {
       final source = AudioSource.uri(uri, headers: headers);
       await _player.setAudioSource(source);

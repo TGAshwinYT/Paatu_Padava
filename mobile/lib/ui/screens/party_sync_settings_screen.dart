@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/settings_manager.dart';
 import '../../services/party_sync_coordinator.dart';
+import '../../services/device_connect_coordinator.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/party_mode_sheet.dart';
 
@@ -523,7 +524,9 @@ class PartySyncSettingsScreen extends StatelessWidget {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          delayMs == 0 ? '0 ms' : '${delayMs > 0 ? "+$delayMs" : delayMs} ms',
+                          delayMs == 0
+                              ? (DeviceConnectCoordinator.instance.isBluetoothActive ? 'Auto (-140 ms)' : 'Auto (0 ms)')
+                              : '${delayMs > 0 ? "+$delayMs" : delayMs} ms',
                           style: const TextStyle(
                             color: Color(0xFF06B6D4),
                             fontWeight: FontWeight.bold,

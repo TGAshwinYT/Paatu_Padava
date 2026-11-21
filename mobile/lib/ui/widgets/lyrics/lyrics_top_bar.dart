@@ -106,6 +106,12 @@ class LyricsTopBar extends StatelessWidget {
                         'kannada' => 'ಕನ್ನಡ',
                         _ => 'Default',
                       };
+                      final romanLabel = switch (dualLyrics.detectedScript) {
+                        'tamil' => 'Tanglish',
+                        'devanagari' => 'Hinglish',
+                        'telugu' => 'Tenglish',
+                        _ => 'English',
+                      };
 
                       return Container(
                         margin: const EdgeInsets.only(right: 6),
@@ -147,7 +153,7 @@ class LyricsTopBar extends StatelessWidget {
                                   borderRadius: BorderRadius.circular(15),
                                 ),
                                 child: Text(
-                                  'English',
+                                  romanLabel,
                                   style: TextStyle(
                                     color: isEnglish ? Colors.white : Colors.white60,
                                     fontSize: 11,

@@ -10,6 +10,7 @@ import 'device_connect_sheet.dart';
 import 'player_download_button.dart';
 import 'player_equalizer_sheet.dart';
 import 'sleep_timer_sheet.dart';
+import 'song_share_sheet.dart';
 
 /// Consolidated Bloomee-style utilities sheet for FullPlayerScreen.
 /// Houses Equalizer, Sleep Timer, Device Connect, Playlist and Download actions
@@ -264,8 +265,34 @@ class PlayerUtilitiesSheet extends StatelessWidget {
                       style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                   ),
-                  onTap: () => _showQualityPicker(context),
+                  onTap: () => showQualityPicker(context),
                 );
+              },
+            ),
+
+            // 6. Share Track Story Card
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF8B5CF6).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.share_rounded, color: Color(0xFFA78BFA), size: 22),
+              ),
+              title: const Text(
+                'Share Story Card',
+                style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+              ),
+              subtitle: const Text(
+                'Instagram & WhatsApp visual music card',
+                style: TextStyle(color: AppColors.textMuted, fontSize: 11.5),
+              ),
+              trailing: const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white38, size: 14),
+              onTap: () {
+                Navigator.pop(context);
+                SongShareSheet.show(context, song: song);
               },
             ),
           ],
@@ -274,7 +301,7 @@ class PlayerUtilitiesSheet extends StatelessWidget {
     );
   }
 
-  void _showQualityPicker(BuildContext context) {
+  static void showQualityPicker(BuildContext context) {
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF0F172A),

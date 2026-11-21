@@ -136,8 +136,8 @@ class SmartCacheService {
   }
 
   /// Triggered whenever the active track or queue updates:
-  /// Identifies the next [preloadCount] upcoming tracks and caches them predictively in the background.
-  void onQueueUpdated(Song? activeSong, List<Song> upcomingQueue, {int preloadCount = 1}) {
+  /// Identifies the next [preloadCount] upcoming tracks (default 2) and caches them predictively in the background.
+  void onQueueUpdated(Song? activeSong, List<Song> upcomingQueue, {int preloadCount = 2}) {
     if (upcomingQueue.isEmpty) return;
 
     // Run in unawaited background task so player audio thread is never impeded

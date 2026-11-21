@@ -517,8 +517,8 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
       }
     });
 
-    // Predictive Smart Caching for upcoming queue and radio tracks
-    SmartCacheService.instance.onQueueUpdated(song, _queueHandler.queue);
+    // Predictive Smart Caching for upcoming 2 queue and radio tracks
+    SmartCacheService.instance.onQueueUpdated(song, _queueHandler.queue, preloadCount: 2);
 
     // Synchronize automatic or skip track transitions to all party speakers (natural advances only)
     if (PartySyncCoordinator.isHost && !_queueHandler.isPartyDrivenLoad) {

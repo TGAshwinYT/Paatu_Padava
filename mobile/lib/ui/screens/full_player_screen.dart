@@ -24,6 +24,7 @@ import 'album_screen.dart';
 import 'remote_playlist_screen.dart';
 import 'liked_songs_screen.dart';
 import '../widgets/player/player_utilities_sheet.dart';
+import '../../services/settings_manager.dart';
 import '../theme/app_theme.dart';
 
 class FullPlayerScreen extends StatefulWidget {
@@ -313,6 +314,48 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                             timer.formattedRemainingShort,
                                             style: const TextStyle(
                                               color: Color(0xFF818CF8),
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                              fontFeatures: [FontFeature.tabularFigures()],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                              ValueListenableBuilder<String>(
+                                valueListenable: SettingsManager.streamingQualityNotifier,
+                                builder: (context, quality, _) {
+                                  final label = switch (quality) {
+                                    '320kbps' => '320k',
+                                    '160kbps' => '160k',
+                                    '96kbps' => '96k',
+                                    _ => quality,
+                                  };
+                                  return GestureDetector(
+                                    onTap: () => PlayerUtilitiesSheet.showQualityPicker(context),
+                                    child: Container(
+                                      margin: const EdgeInsets.only(right: 4),
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                          color: const Color(0xFFF59E0B).withValues(alpha: 0.4),
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.high_quality_rounded, size: 12, color: Color(0xFFFBBF24)),
+                                          const SizedBox(width: 3),
+                                          Text(
+                                            label,
+                                            style: const TextStyle(
+                                              color: Color(0xFFFBBF24),
                                               fontSize: 10,
                                               fontWeight: FontWeight.bold,
                                               fontFeatures: [FontFeature.tabularFigures()],

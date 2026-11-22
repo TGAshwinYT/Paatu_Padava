@@ -99,9 +99,11 @@ class QuickPicksGridCarousel extends StatelessWidget {
                 width: columnWidth,
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: columnSongs.map((song) {
+                  children: columnSongs.asMap().entries.map((entry) {
+                    final rowIndex = entry.key;
+                    final song = entry.value;
                     return KeyedSubtree(
-                      key: ValueKey(song.id),
+                      key: ValueKey('quick_pick_${colIndex}_${rowIndex}_${song.id}'),
                       child: _buildSongRow(song),
                     );
                   }).toList(),

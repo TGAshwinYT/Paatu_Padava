@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import '../platform/audio_platform.dart';
 import 'settings_manager.dart';
 
+import 'package:paatu_padava_mobile/services/app_logger.dart';
+
 class EqualizerService {
   static const MethodChannel _channel = MethodChannel('com.tamilgaming.paatupadava/equalizer');
 
@@ -384,7 +386,9 @@ class EqualizerService {
     if (defaultTargetPlatform == TargetPlatform.android) {
       try {
         _channel.invokeMethod('release').catchError((_) => null);
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('EqualizerService', 'Handled exception: $e');
+    }
     }
   }
 }

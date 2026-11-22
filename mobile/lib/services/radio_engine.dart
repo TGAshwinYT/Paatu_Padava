@@ -176,13 +176,19 @@ class RadioEngine {
           } else {
             try {
               pool.addAll(HistoryManager.getHistory());
-            } catch (_) {}
+            } catch (e) {
+      AppLogger.debug('RadioEngine', 'Handled exception: $e');
+    }
             try {
               pool.addAll(FavoritesManager.getFavorites());
-            } catch (_) {}
+            } catch (e) {
+      AppLogger.debug('RadioEngine', 'Handled exception: $e');
+    }
             try {
               pool.addAll(DownloadManager.getDownloadedSongs());
-            } catch (_) {}
+            } catch (e) {
+      AppLogger.debug('RadioEngine', 'Handled exception: $e');
+    }
           }
 
           if (pool.isEmpty) return <Song>[];
@@ -430,13 +436,17 @@ class RadioEngine {
       try {
         final artistSongs = await CatalogDatabase.getSongsByArtist(seedSong.primaryArtist);
         candidatePool.addAll(artistSongs);
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('RadioEngine', 'Handled exception: $e');
+    }
       if (candidatePool.length < limit) {
         try {
           final query = '${seedSong.primaryArtist} $targetLang';
           final sRes = await SaavnClient.search(query, limit: 12, language: targetLang);
           candidatePool.addAll(sRes);
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('RadioEngine', 'Handled exception: $e');
+    }
       }
     }
 

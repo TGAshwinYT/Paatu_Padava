@@ -22,25 +22,18 @@ import {
 } from 'lucide-react';
 
 const DownloadedSongs = () => {
-  const [offlineTracks, setOfflineTracks] = useState<OfflineTrackMetadata[]>([]);
+  const [offlineTracks, setOfflineTracks] = useState<OfflineTrackMetadata[]>(() => getOfflineTracks());
   const { playContext, currentTrack, isPlaying, togglePlay } = useAudio();
   const navigate = useNavigate();
 
   const loadTracks = () => {
-    const list = getOfflineTracks();
-    setOfflineTracks(list);
+    setOfflineTracks(getOfflineTracks());
   };
 
   useEffect(() => {
-    loadTracks();
-
-    const handleStorageUpdate = () => {
-      loadTracks();
-    };
-
-    window.addEventListener('paatu:offline-storage-updated', handleStorageUpdate);
+    window.addEventListener('paatu:offline-storage-updated', loadTracks);
     return () => {
-      window.removeEventListener('paatu:offline-storage-updated', handleStorageUpdate);
+      window.removeEventListener('paatu:offline-storage-updated', loadTracks);
     };
   }, []);
 

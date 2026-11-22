@@ -82,7 +82,9 @@ class DefaultStreamResolver implements StreamResolver {
         _mappingBox = Hive.box(_mappingBoxName);
         return _mappingBox;
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('StreamResolver', 'Handled exception: $e');
+    }
     return null;
   }
 
@@ -93,7 +95,9 @@ class DefaultStreamResolver implements StreamResolver {
       } else {
         _mappingBox = Hive.box(_mappingBoxName);
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('StreamResolver', 'Handled exception: $e');
+    }
   }
 
   /// Retrieves persistent stream mapping (e.g. 'saavn:pid' or 'youtube:ytId') for instant repeat play
@@ -104,7 +108,9 @@ class DefaultStreamResolver implements StreamResolver {
         final val = box.get(songId);
         if (val is String && val.isNotEmpty) return val;
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('StreamResolver', 'Handled exception: $e');
+    }
     return null;
   }
 
@@ -115,7 +121,9 @@ class DefaultStreamResolver implements StreamResolver {
       if (box != null && box.isOpen) {
         box.put(songId, mapping);
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('StreamResolver', 'Handled exception: $e');
+    }
   }
 
   /// High-integrity HTTP headers for Googlevideo CDN streams (Range + modern User-Agent)
@@ -189,7 +197,9 @@ class DefaultStreamResolver implements StreamResolver {
           if (getCachedStream(s.id) == null) {
             await resolver.resolveStreamUrl(s).timeout(const Duration(seconds: 4), onTimeout: () => null);
           }
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('StreamResolver', 'Handled exception: $e');
+    }
       }),
     );
   }
@@ -208,7 +218,9 @@ class DefaultStreamResolver implements StreamResolver {
               SmartGaplessPrecacher.instance.precacheTrackHeader(s, resolver: resolver);
             }
           }
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('StreamResolver', 'Handled exception: $e');
+    }
       }),
     );
   }
@@ -265,7 +277,9 @@ class DefaultStreamResolver implements StreamResolver {
                 cacheStream(song.id, directSong.streamUrl!, source: 'saavn');
                 return directSong.streamUrl;
               }
-            } catch (_) {}
+            } catch (e) {
+      AppLogger.debug('StreamResolver', 'Handled exception: $e');
+    }
           } else if (src == 'youtube') {
             try {
               final ytUrl = await _youtubeClient.getStreamUrl(targetId, title: song.title, artist: song.artist).timeout(const Duration(seconds: 4), onTimeout: () => null);
@@ -275,7 +289,9 @@ class DefaultStreamResolver implements StreamResolver {
                 cacheStream(song.id, ytUrl, source: 'youtube');
                 return ytUrl;
               }
-            } catch (_) {}
+            } catch (e) {
+      AppLogger.debug('StreamResolver', 'Handled exception: $e');
+    }
           }
         }
       }
@@ -457,7 +473,9 @@ class DefaultStreamResolver implements StreamResolver {
               }
             }
           }
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('StreamResolver', 'Handled exception: $e');
+    }
       }
 
       final searchUris = [
@@ -484,9 +502,13 @@ class DefaultStreamResolver implements StreamResolver {
               }
             }
           }
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('StreamResolver', 'Handled exception: $e');
+    }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('StreamResolver', 'Handled exception: $e');
+    }
     return null;
   }
 

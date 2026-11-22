@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/song.dart';
 
+import 'package:paatu_padava_mobile/services/app_logger.dart';
+
 class SearchHistoryManager {
   static const String boxName = 'search_history';
   static final ValueNotifier<List<String>> historyNotifier = ValueNotifier<List<String>>([]);
@@ -50,8 +52,8 @@ class SearchHistoryManager {
           }
         }
       } catch (e) {
-        // Skip corrupted entries safely
-      }
+      AppLogger.debug('SearchHistoryManager', 'Handled exception: $e');
+    }
     }
 
     if (list.length > 20) {

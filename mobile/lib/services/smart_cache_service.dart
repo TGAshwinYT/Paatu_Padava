@@ -284,7 +284,9 @@ class SmartCacheService {
           _cacheLastAccessed.remove(songId);
           _totalCacheBytes -= size;
           evicted++;
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('SmartCacheService', 'Handled exception: $e');
+    }
       }
 
       cachedSongsCountNotifier.value = _cachedAudioMap.length;
@@ -304,7 +306,9 @@ class SmartCacheService {
         if (entity is File) {
           try {
             await entity.delete();
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('SmartCacheService', 'Handled exception: $e');
+    }
         }
       }
       _cachedAudioMap.clear();

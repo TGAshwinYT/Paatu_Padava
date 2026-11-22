@@ -20,14 +20,31 @@ const Sidebar: React.FC = () => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showSpotifyModal, setShowSpotifyModal] = useState(false);
 
+  const fetchPlaylists = async () => {
+    try {
+      const response = await api.get('/api/playlists/');
+      setPlaylists(response.data || []);
+    } catch (error) {
+      console.error("Error fetching playlists:", error);
+    }
+  };
+
   useEffect(() => {
+    let ignore = false;
     if (user) {
       refreshPlaylists();
-      fetchPlaylists();
-    } else {
-      setPlaylists([]);
+      api.get('/api/playlists/')
+        .then(response => {
+          if (!ignore) setPlaylists(response.data || []);
+        })
+        .catch(error => {
+          console.error("Error fetching playlists:", error);
+        });
     }
-  }, [user]);
+    return () => {
+      ignore = true;
+    };
+  }, [user, refreshPlaylists]);
 
   useEffect(() => {
     const handleSync = () => {
@@ -39,15 +56,6 @@ const Sidebar: React.FC = () => {
     window.addEventListener('playlists-updated', handleSync);
     return () => window.removeEventListener('playlists-updated', handleSync);
   }, [user]);
-
-  const fetchPlaylists = async () => {
-    try {
-      const response = await api.get('/api/playlists/');
-      setPlaylists(response.data || []);
-    } catch (error) {
-      console.error("Error fetching playlists:", error);
-    }
-  };
 
   const handleCreatePlaylist = async () => {
     if (!user) {

@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../domain/models/app_error.dart';
 
+import 'package:paatu_padava_mobile/services/app_logger.dart';
+
 /// Centralized Exception and HTTP Status Code resolver.
 /// Guarantees that users never see raw exception strings, stack traces, or guesswork,
 /// while providing full debug telemetry to debugPrint.
@@ -261,7 +263,9 @@ class ErrorHandler {
         if (decoded is Map) {
           errorMap = Map<String, dynamic>.from(decoded);
         }
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('ErrorHandler', 'Handled exception: $e');
+    }
     }
 
     if (errorMap != null) {

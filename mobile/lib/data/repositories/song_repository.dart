@@ -891,7 +891,9 @@ class SongRepository {
       try {
         final searchHits = await SaavnClient.search('Top $language Hits', limit: 20, language: language);
         tracks = deduplicateSongs(filterByLanguage(searchHits, language));
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('SongRepository', 'Handled exception: $e');
+    }
     }
 
     final coverUrl = tracks.isNotEmpty ? tracks.first.coverUrl : '';
@@ -914,13 +916,17 @@ class SongRepository {
     try {
       final trending = await getTrendingMerged(language: language);
       rawSongs = trending;
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('SongRepository', 'Handled exception: $e');
+    }
 
     if (rawSongs.length < 10) {
       try {
         final searchHits = await SaavnClient.search('Top $language Songs 2025', limit: 15, language: language);
         rawSongs.addAll(filterByLanguage(searchHits, language));
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('SongRepository', 'Handled exception: $e');
+    }
     }
 
     final distinctSongs = ensureDistinctCovers(deduplicateSongs(filterByLanguage(rawSongs, language))).take(10).toList();
@@ -1059,13 +1065,17 @@ class SongRepository {
     try {
       final madeForYou = await getMadeForYou(language: language);
       picks.addAll(madeForYou);
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('SongRepository', 'Handled exception: $e');
+    }
 
     if (picks.length < 16) {
       try {
         final trending = await getTrendingMerged(language: language);
         picks.addAll(trending);
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('SongRepository', 'Handled exception: $e');
+    }
     }
 
     final distinct = ensureDistinctCovers(deduplicateSongs(filterByLanguage(picks, language)));
@@ -1098,7 +1108,9 @@ class SongRepository {
             imageUrl = matchImg;
           }
         }
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('SongRepository', 'Handled exception: $e');
+    }
     }
 
     List<Song> songs = [];
@@ -1128,7 +1140,9 @@ class SongRepository {
             imageUrl = localSongs.first.coverUrl;
           }
         }
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('SongRepository', 'Handled exception: $e');
+    }
     }
 
     if (songs.isEmpty) {
@@ -1206,7 +1220,9 @@ class SongRepository {
             }
           }
         }
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('SongRepository', 'Handled exception: $e');
+    }
     }
 
 
@@ -1237,7 +1253,9 @@ class SongRepository {
           break;
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('SongRepository', 'Handled exception: $e');
+    }
 
     final List<Song> gathered = [];
 
@@ -1245,7 +1263,9 @@ class SongRepository {
     try {
       final localSongs = await CatalogDatabase.getSongsByArtist(artistName);
       gathered.addAll(localSongs);
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('SongRepository', 'Handled exception: $e');
+    }
 
     try {
       final futures = <Future<List<Song>>>[];
@@ -1286,7 +1306,9 @@ class SongRepository {
       try {
         final fallback = await SaavnClient.search(artistName, limit: 30);
         uniqueSongs = deduplicateSongs(fallback);
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('SongRepository', 'Handled exception: $e');
+    }
     }
 
     // Strict artist verification: prevent cross-contamination (e.g. YouTube returning Premam under Anirudh)
@@ -1344,7 +1366,9 @@ class SongRepository {
           if (img.isNotEmpty) imageUrl = img;
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('SongRepository', 'Handled exception: $e');
+    }
 
     // Fallback: Local catalog if remote playlist had no tracks
     if (fetchedSongs.isEmpty) {
@@ -1355,7 +1379,9 @@ class SongRepository {
           fetchedSongs.addAll(localSongs);
           imageUrl = localSongs.first.coverUrl;
         }
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('SongRepository', 'Handled exception: $e');
+    }
     }
 
     if (fetchedSongs.isEmpty) {
@@ -1366,7 +1392,9 @@ class SongRepository {
         } else {
           fetchedSongs = await YouTubeClient.search(playlistTitle, limit: 25);
         }
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('SongRepository', 'Handled exception: $e');
+    }
     }
 
     // Preserve all distinct curated tracks by unique ID (do not strip titles/durations)
@@ -1434,7 +1462,9 @@ class SongRepository {
           return aImg;
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('SongRepository', 'Handled exception: $e');
+    }
     return null;
   }
 }

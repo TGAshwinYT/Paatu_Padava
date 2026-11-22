@@ -11,6 +11,8 @@ import '../theme/app_theme.dart';
 import '../widgets/common/song_tile.dart';
 import '../../logic/stream_resolver.dart';
 
+import 'package:paatu_padava_mobile/services/app_logger.dart';
+
 class ArtistScreen extends StatefulWidget {
   final String artistId;
   final String artistName;
@@ -64,7 +66,9 @@ class _ArtistScreenState extends State<ArtistScreen> {
         setState(() => _resolvedImageUrl = spotifyImg);
         return;
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('ArtistScreen', 'Handled exception: $e');
+    }
 
     final repoImg = await SongRepository.resolveArtistAvatar(widget.artistName);
     if (repoImg != null && repoImg.isNotEmpty && mounted) {

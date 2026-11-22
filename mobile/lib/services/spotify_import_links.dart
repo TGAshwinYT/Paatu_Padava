@@ -1,5 +1,7 @@
 import 'package:hive_flutter/hive_flutter.dart';
 
+import 'package:paatu_padava_mobile/services/app_logger.dart';
+
 /// Remembers which local playlist a Spotify playlist/album was imported into, and
 /// which Spotify tracks were already handled, so re-importing only adds NEW songs.
 ///
@@ -44,19 +46,25 @@ class SpotifyImportLinks {
     try {
       final data = (await _box()).get(spotifyKey);
       if (data is Map) return SpotifyImportLink.fromMap(data);
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('SpotifyImportLinks', 'Handled exception: $e');
+    }
     return null;
   }
 
   static Future<void> save(SpotifyImportLink link) async {
     try {
       await (await _box()).put(link.spotifyKey, link.toMap());
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('SpotifyImportLinks', 'Handled exception: $e');
+    }
   }
 
   static Future<void> remove(String spotifyKey) async {
     try {
       await (await _box()).delete(spotifyKey);
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('SpotifyImportLinks', 'Handled exception: $e');
+    }
   }
 }

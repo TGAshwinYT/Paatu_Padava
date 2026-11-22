@@ -19,6 +19,8 @@ import 'client_home_feed_engine.dart';
 import '../domain/models/track_entity.dart';
 import '../domain/models/home_feed_models.dart';
 
+import 'package:paatu_padava_mobile/services/app_logger.dart';
+
 class HomeFeedState {
   final List<Song> madeForYou;
   final List<Song> trendingMerged;
@@ -235,7 +237,9 @@ class HomeFeedProvider extends ChangeNotifier {
         if (raw['heroShowcase'] is Map) {
           try {
             heroShowcase = HeroShowcase.fromMap(Map<String, dynamic>.from(raw['heroShowcase'] as Map));
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('HomeFeedProvider', 'Handled exception: $e');
+    }
         }
 
         final top10Charts = (raw['top10Charts'] as List<dynamic>?)
@@ -383,7 +387,9 @@ class HomeFeedProvider extends ChangeNotifier {
       if (item is Map) {
         try {
           songs.add(Song.fromMap(Map<String, dynamic>.from(item)));
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('HomeFeedProvider', 'Handled exception: $e');
+    }
       }
     }
     return songs;
@@ -514,7 +520,9 @@ class HomeFeedProvider extends ChangeNotifier {
       Map<String, dynamic>? unifiedFeed;
       try {
         unifiedFeed = await ApiClient.getHomeFeed(lang).timeout(const Duration(seconds: 3));
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('HomeFeedProvider', 'Handled exception: $e');
+    }
 
       final extra = await extraFutures;
       final heroShowcase = extra[0] as HeroShowcase;
@@ -546,7 +554,9 @@ class HomeFeedProvider extends ChangeNotifier {
               await YouTubeClient.getTrendingTracks(language: lang, limit: 15),
               lang,
             );
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('HomeFeedProvider', 'Handled exception: $e');
+    }
         }
 
         // Spotify Top 10 Hits (capped at 3s)
@@ -558,7 +568,9 @@ class HomeFeedProvider extends ChangeNotifier {
             SongRepository.filterByLanguage(spTracks.map((t) => t.toSong()).toList(), lang),
             lang,
           );
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('HomeFeedProvider', 'Handled exception: $e');
+    }
 
         final newReleases = _filterCrossLanguageLeaks(
           SongRepository.filterByLanguage(_decodeSongList(unifiedFeed['newReleases']), lang),

@@ -94,7 +94,9 @@ class RecentContainersManager {
           if (item is Map) {
             try {
               loaded.add(HomeQuickTile.fromMap(Map<String, dynamic>.from(item)));
-            } catch (_) {}
+            } catch (e) {
+      AppLogger.debug('RecentContainersManager', 'Handled exception: $e');
+    }
           }
         }
         if (loaded.isNotEmpty) {
@@ -171,6 +173,8 @@ class RecentContainersManager {
       if (Hive.isBoxOpen(boxName)) {
         await Hive.box(boxName).delete('recent_containers');
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('RecentContainersManager', 'Handled exception: $e');
+    }
   }
 }

@@ -428,7 +428,9 @@ class SaavnClient {
           return _extractHighResImage(rawImg);
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('SaavnClient', 'Handled exception: $e');
+    }
     return null;
   }
 

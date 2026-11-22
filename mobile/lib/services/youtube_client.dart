@@ -51,7 +51,9 @@ class YouTubeClient {
   static void closeIdleClient() {
     try {
       _ytInstance?.close();
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('YoutubeClient', 'Handled exception: $e');
+    }
     _ytInstance = null;
   }
 
@@ -323,7 +325,9 @@ class YouTubeClient {
                 .toList();
           }
         }
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('YoutubeClient', 'Handled exception: $e');
+    }
       AppLogger.log('YouTubeClient', 'Search suggestions notice: $e');
     }
     return [];
@@ -765,7 +769,9 @@ class YouTubeClient {
       if (ytExplodeTracks.isNotEmpty) {
         return ytExplodeTracks;
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('YoutubeClient', 'Handled exception: $e');
+    }
 
     // FALLBACK GUARANTEE: If the YouTube HTTP request fails or parses 0 items,
     // automatically query SaavnClient.search(query) and map the results with source: 'youtube'
@@ -1015,7 +1021,9 @@ class YouTubeClient {
                 }
               }
             }
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('YoutubeClient', 'Handled exception: $e');
+    }
         }
 
         // 3. Audio-First Master Filtering:
@@ -1150,7 +1158,9 @@ class YouTubeClient {
             if (songs.length >= limit) break;
           }
         }
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('YoutubeClient', 'Handled exception: $e');
+    }
     }
 
     return songs;
@@ -1358,7 +1368,9 @@ class YouTubeClient {
       for (final r in results) {
         if (r != null && r.isNotEmpty) return r;
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('YoutubeClient', 'Handled exception: $e');
+    }
     return null;
   }
 
@@ -1379,7 +1391,9 @@ class YouTubeClient {
       if (directUrl != null && directUrl.isNotEmpty) {
         return directUrl;
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('YoutubeClient', 'Handled exception: $e');
+    }
 
     // ── Tier 2: Client-Side YouTubeExplode Dart (Full Manifest + Bitrate Fallback) ──
     for (int attempt = 1; attempt <= 2; attempt++) {

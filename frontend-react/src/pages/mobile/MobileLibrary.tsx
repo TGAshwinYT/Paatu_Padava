@@ -18,14 +18,33 @@ const MobileLibrary: React.FC = () => {
   const [filter, setFilter] = useState<'all' | 'playlists' | 'artists'>('all');
   const [showSpotifyModal, setShowSpotifyModal] = useState(false);
 
+  const fetchPlaylists = async () => {
+    try {
+      const response = await api.get('/api/playlists/');
+      setPlaylists(response.data || []);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   useEffect(() => {
+    let ignore = false;
     if (user) {
       refreshPlaylists();
-      fetchPlaylists();
-      fetchFollowedArtists();
-      fetchFavoriteArtists();
+      api.get('/api/playlists/')
+        .then(res => { if (!ignore) setPlaylists(res.data || []); })
+        .catch(err => console.error(err));
+      getFollowedArtists()
+        .then(data => { if (!ignore) setFollowedArtists(data); })
+        .catch(err => console.error(err));
+      api.get('/api/auth/me/artists-details')
+        .then(res => { if (!ignore) setFavoriteArtists(res.data); })
+        .catch(err => console.error(err));
     }
-  }, [user]);
+    return () => {
+      ignore = true;
+    };
+  }, [user, refreshPlaylists]);
 
   useEffect(() => {
     const handleSync = () => {
@@ -37,33 +56,6 @@ const MobileLibrary: React.FC = () => {
     window.addEventListener('playlists-updated', handleSync);
     return () => window.removeEventListener('playlists-updated', handleSync);
   }, [user]);
-
-  const fetchFavoriteArtists = async () => {
-    try {
-      const response = await api.get('/api/auth/me/artists-details');
-      setFavoriteArtists(response.data);
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
-  const fetchFollowedArtists = async () => {
-    try {
-      const data = await getFollowedArtists();
-      setFollowedArtists(data);
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
-  const fetchPlaylists = async () => {
-    try {
-      const response = await api.get('/api/playlists/');
-      setPlaylists(response.data || []);
-    } catch (error) {
-      console.error(error);
-    }
-  };
 
   const handleCreatePlaylist = async () => {
     if (!user) {

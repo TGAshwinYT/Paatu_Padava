@@ -1,5 +1,7 @@
 import 'dart:core';
 
+import 'package:paatu_padava_mobile/services/app_logger.dart';
+
 /// High-integrity HTTP headers and User-Agent utilities for YouTube & Googlevideo CDN streams.
 class YouTubeHeaderUtils {
   static const String vrUserAgent =
@@ -40,7 +42,9 @@ class YouTubeHeaderUtils {
       if (c == 'TVHTML5' || c == 'TVHTML5_SIMPLY_EMBEDDED_PLAYER') {
         return 'Mozilla/5.0 (PlayStation; PlayStation 4/10.01) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/10.01 Safari/605.1.15';
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('YoutubeHeaderUtils', 'Handled exception: $e');
+    }
     return vrUserAgent;
   }
 

@@ -183,7 +183,9 @@ class AuthManager {
     authNotifier.value = authUser;
     await _box.put('user_profile', authUser.toJson());
     SettingsManager.languagesNotifier.value = List<String>.from(langs);
-    try { if (Hive.isBoxOpen(SettingsManager.boxName)) await Hive.box(SettingsManager.boxName).put('languages', langs); } catch (_) {}
+    try { if (Hive.isBoxOpen(SettingsManager.boxName)) await Hive.box(SettingsManager.boxName).put('languages', langs); } catch (e) {
+      AppLogger.debug('AuthManager', 'Handled exception: $e');
+    }
     unawaited(SupabaseService.syncPendingUserTaste());
   }
 

@@ -102,7 +102,9 @@ class CoverArtResolver {
           return cached;
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('CoverArtResolver', 'Handled exception: $e');
+    }
     return null;
   }
 
@@ -252,7 +254,9 @@ class CoverArtResolver {
         if (saavnCover != null && saavnCover.isNotEmpty) {
           return saavnCover;
         }
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('CoverArtResolver', 'Handled exception: $e');
+    }
     }
 
     // 5. iTunes Search API (1000x1000 studio square art)
@@ -288,7 +292,9 @@ class CoverArtResolver {
       if (results.isNotEmpty && _isSaavnCover(results.first.coverUrl)) {
         return _upgradeSaavnCover(results.first.coverUrl);
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('CoverArtResolver', 'Handled exception: $e');
+    }
     return null;
   }
 

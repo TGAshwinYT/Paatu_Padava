@@ -6,6 +6,8 @@ import '../models/song.dart';
 import '../services/settings_manager.dart';
 import 'beat_match_engine.dart';
 
+import 'package:paatu_padava_mobile/services/app_logger.dart';
+
 /// Calculation engine for constant acoustic power crossfade transitions.
 class EqualPowerCurve {
   /// Computes equal-power volumes (outgoing, incoming) for normalized progress [t] in [0.0, 1.0].
@@ -110,7 +112,9 @@ class CrossfadeEngine {
         if ((primaryPlayer.speed - plan.speedMultiplierA).abs() > 0.005) {
           primaryPlayer.setSpeed(plan.speedMultiplierA);
         }
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('CrossfadeEngine', 'Handled exception: $e');
+    }
     }
 
     final (outgoingVolRatio, _) = plan != null
@@ -121,7 +125,9 @@ class CrossfadeEngine {
 
     try {
       primaryPlayer.setVolume(effectiveVol);
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('CrossfadeEngine', 'Handled exception: $e');
+    }
   }
 
   /// Handles incoming track initialization with tempo matching and smooth recovery ramp.
@@ -130,7 +136,9 @@ class CrossfadeEngine {
     if (plan != null && plan.hasTempoAdjustment && plan.speedMultiplierB != 1.0) {
       try {
         await player.setSpeed(plan.speedMultiplierB);
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('CrossfadeEngine', 'Handled exception: $e');
+    }
 
       // Smoothly ramp speed back to natural 1.0x over 3.0s after crossfade handoff
       smoothRampSpeed(player, targetSpeed: 1.0, durationMs: 3000);
@@ -147,11 +155,15 @@ class CrossfadeEngine {
     double startSpeed = 1.0;
     try {
       startSpeed = player.speed;
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('CrossfadeEngine', 'Handled exception: $e');
+    }
     if ((startSpeed - targetSpeed).abs() < 0.005) {
       try {
         player.setSpeed(targetSpeed);
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('CrossfadeEngine', 'Handled exception: $e');
+    }
       return;
     }
 
@@ -166,13 +178,17 @@ class CrossfadeEngine {
 
       try {
         player.setSpeed(double.parse(currentSpeed.toStringAsFixed(4)));
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('CrossfadeEngine', 'Handled exception: $e');
+    }
 
       if (currentStep >= totalSteps) {
         timer.cancel();
         try {
           player.setSpeed(targetSpeed);
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('CrossfadeEngine', 'Handled exception: $e');
+    }
       }
     });
   }
@@ -188,11 +204,15 @@ class CrossfadeEngine {
     double currentVol = 1.0;
     try {
       currentVol = player.volume;
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('CrossfadeEngine', 'Handled exception: $e');
+    }
     if ((currentVol - targetVolume).abs() < 0.02 || durationMs <= 50) {
       try {
         await player.setVolume(targetVolume);
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('CrossfadeEngine', 'Handled exception: $e');
+    }
       return;
     }
 
@@ -208,13 +228,17 @@ class CrossfadeEngine {
 
       try {
         player.setVolume(stepVol.clamp(0.0, 1.0));
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('CrossfadeEngine', 'Handled exception: $e');
+    }
 
       if (currentStep >= steps) {
         timer.cancel();
         try {
           player.setVolume(targetVolume.clamp(0.0, 1.0));
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('CrossfadeEngine', 'Handled exception: $e');
+    }
         if (!completer.isCompleted) completer.complete();
       }
     });
@@ -228,7 +252,9 @@ class CrossfadeEngine {
     _activeBeatMatchPlan = null;
     try {
       primaryPlayer.setSpeed(1.0);
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('CrossfadeEngine', 'Handled exception: $e');
+    }
   }
 
   void dispose() {

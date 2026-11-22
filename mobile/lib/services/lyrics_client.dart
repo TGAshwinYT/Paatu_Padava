@@ -720,7 +720,9 @@ class LyricsClient {
               final List dataAlt = json.decode(resAlt.body);
               allCandidates.addAll(dataAlt.whereType<Map<String, dynamic>>());
             }
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('LyricsClient', 'Handled exception: $e');
+    }
         }
       } catch (e) {
         AppLogger.log('LyricsClient', 'LRCLIB Step 1 search notice for "$cand": $e');
@@ -754,7 +756,9 @@ class LyricsClient {
             final List data = json.decode(res3.body);
             allCandidates.addAll(data.whereType<Map<String, dynamic>>());
           }
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('LyricsClient', 'Handled exception: $e');
+    }
       }
     }
 
@@ -857,7 +861,9 @@ class LyricsClient {
         if (ytMatches.isNotEmpty && ytMatches.first.id.length == 11) {
           targetYtId = ytMatches.first.id;
         }
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('LyricsClient', 'Handled exception: $e');
+    }
     }
 
     if (targetYtId != null) {
@@ -965,7 +971,9 @@ class LyricsClient {
           'duration': durationSeconds,
         });
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('LyricsClient', 'Handled exception: $e');
+    }
   }
 
   /// Clears in-memory and persistent cache
@@ -975,7 +983,9 @@ class LyricsClient {
     try {
       final box = await _getBox();
       await box?.clear();
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('LyricsClient', 'Handled exception: $e');
+    }
   }
 
   /// Retrieves user-adjusted lyrics sync offset (in milliseconds) for a given track.
@@ -985,7 +995,9 @@ class LyricsClient {
       if (box != null) {
         return (box.get('offset_$trackId') as num?)?.toInt() ?? 0;
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('LyricsClient', 'Handled exception: $e');
+    }
     return 0;
   }
 
@@ -1000,6 +1012,8 @@ class LyricsClient {
           await box.put('offset_$trackId', offsetMs);
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('LyricsClient', 'Handled exception: $e');
+    }
   }
 }

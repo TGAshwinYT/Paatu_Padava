@@ -492,7 +492,9 @@ class SearchProgressiveOrchestrator {
             const Duration(milliseconds: 650),
             onTimeout: () => <Song>[],
           );
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('SearchProgressiveOrchestrator', 'Handled exception: $e');
+    }
       }
 
       final List<Song> initialPhaseSongs = [];

@@ -11,6 +11,8 @@ import '../widgets/mini_player.dart';
 import '../widgets/batch_download_button.dart';
 import '../widgets/common/song_tile.dart';
 
+import 'package:paatu_padava_mobile/services/app_logger.dart';
+
 class RemotePlaylistScreen extends StatefulWidget {
   final String playlistId;
   final String playlistTitle;
@@ -68,7 +70,9 @@ class _RemotePlaylistScreenState extends State<RemotePlaylistScreen> {
         }
         return;
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('RemotePlaylistScreen', 'Handled exception: $e');
+    }
 
     if (mounted) {
       setState(() => _isLoading = false);

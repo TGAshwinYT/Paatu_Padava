@@ -52,7 +52,9 @@ class PartyLanAccelerator {
       if (wifiBroadcast != null && wifiBroadcast.isNotEmpty) {
         _broadcastAddresses.add(InternetAddress(wifiBroadcast));
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('PartyLanAccelerator', 'Handled exception: $e');
+    }
 
     try {
       final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
@@ -66,7 +68,9 @@ class PartyLanAccelerator {
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('PartyLanAccelerator', 'Handled exception: $e');
+    }
   }
 
   /// Returns active non-loopback local IPv4 addresses
@@ -96,7 +100,9 @@ class PartyLanAccelerator {
         port: port,
         lastSeen: DateTime.now(),
       );
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('PartyLanAccelerator', 'Handled exception: $e');
+    }
   }
 
   /// Registers the discovered host LAN address from cloud handshake
@@ -108,7 +114,9 @@ class PartyLanAccelerator {
     try {
       _discoveredHostAddress = InternetAddress(ipAddress);
       _discoveredHostPort = port;
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('PartyLanAccelerator', 'Handled exception: $e');
+    }
   }
 
   /// Starts Host LAN socket on local Wi-Fi network
@@ -247,7 +255,9 @@ class PartyLanAccelerator {
       final bytes = utf8.encode(message);
       _socket?.send(bytes, InternetAddress('192.168.43.1'), defaultPort);
       _socket?.send(bytes, InternetAddress('192.168.49.1'), defaultPort);
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('PartyLanAccelerator', 'Handled exception: $e');
+    }
   }
 
   static void _startActivityWatchdog() {
@@ -282,9 +292,13 @@ class PartyLanAccelerator {
       for (final bcast in _broadcastAddresses) {
         try {
           _socket?.send(bytes, bcast, defaultPort);
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('PartyLanAccelerator', 'Handled exception: $e');
+    }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('PartyLanAccelerator', 'Handled exception: $e');
+    }
   }
 
   /// Sends synchronization event via direct UNICAST to all registered joiners,
@@ -304,7 +318,9 @@ class PartyLanAccelerator {
         for (final peer in _registeredJoiners.values) {
           try {
             _socket?.send(bytes, peer.address, peer.port);
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('PartyLanAccelerator', 'Handled exception: $e');
+    }
         }
       }
 
@@ -312,9 +328,13 @@ class PartyLanAccelerator {
       for (final bcast in _broadcastAddresses) {
         try {
           _socket?.send(bytes, bcast, defaultPort);
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('PartyLanAccelerator', 'Handled exception: $e');
+    }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('PartyLanAccelerator', 'Handled exception: $e');
+    }
   }
 
   /// Sends direct UDP datagram to discovered host or specific peer
@@ -334,7 +354,9 @@ class PartyLanAccelerator {
       });
       final bytes = utf8.encode(message);
       _socket?.send(bytes, dest, destPort);
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('PartyLanAccelerator', 'Handled exception: $e');
+    }
   }
 
   /// Sends an NTP ping directly to the host over LAN
@@ -456,7 +478,9 @@ class PartyLanAccelerator {
         _recordLanActivity();
         onSyncEventReceived?.call(event, payload);
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('PartyLanAccelerator', 'Handled exception: $e');
+    }
   }
 
   /// Stops LAN accelerator socket and timers
@@ -478,7 +502,9 @@ class PartyLanAccelerator {
     if (_socket != null) {
       try {
         _socket?.close();
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('PartyLanAccelerator', 'Handled exception: $e');
+    }
       _socket = null;
     }
   }

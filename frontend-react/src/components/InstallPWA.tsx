@@ -2,21 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { Download, Share } from 'lucide-react';
 
 const InstallPWA: React.FC = () => {
-    const [isIOS, setIsIOS] = useState(false);
-    const [isStandalone, setIsStandalone] = useState(false);
+    const [isIOS] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        return /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
+    });
+    const [isStandalone] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        return window.matchMedia('(display-mode: standalone)').matches || ('standalone' in window.navigator && (window.navigator as any).standalone);
+    });
     const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
     const [isInstallable, setIsInstallable] = useState(false);
 
     useEffect(() => {
-        // Detect iOS
-        const userAgent = window.navigator.userAgent.toLowerCase();
-        const isIosDevice = /iphone|ipad|ipod/.test(userAgent);
-        setIsIOS(isIosDevice);
-
-        // Detect if already installed (Standalone mode)
-        const isAppInstalled = window.matchMedia('(display-mode: standalone)').matches || ('standalone' in window.navigator && (window.navigator as any).standalone);
-        setIsStandalone(isAppInstalled);
-
         const handleBeforeInstallPrompt = (e: Event) => {
             // Prevent Chrome 67 and earlier from automatically showing the prompt
             e.preventDefault();

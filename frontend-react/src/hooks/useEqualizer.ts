@@ -60,6 +60,11 @@ export function useEqualizer() {
   });
 
   const [isEqAvailable, setIsEqAvailable] = useState(true);
+  const bandsRef = useRef(bands);
+
+  useEffect(() => {
+    bandsRef.current = bands;
+  });
 
   // Persist to localStorage
   useEffect(() => {
@@ -81,7 +86,7 @@ export function useEqualizer() {
       const filter = ctx.createBiquadFilter();
       filter.type = cfg.type;
       filter.frequency.value = cfg.frequency;
-      filter.gain.value = bands[i]?.gain ?? 0;
+      filter.gain.value = bandsRef.current[i]?.gain ?? 0;
       if (cfg.type === 'peaking') {
         filter.Q.value = 1.0;
       }

@@ -64,7 +64,9 @@ class CacheManager {
     try {
       PaintingBinding.instance.imageCache.maximumSizeBytes = maxMemoryImageCacheSizeBytes;
       PaintingBinding.instance.imageCache.maximumSize = maxMemoryImageCacheCount;
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('CacheManager', 'Handled exception: $e');
+    }
   }
 
   /// Runs background cache audit and true LRU eviction.
@@ -89,7 +91,9 @@ class CacheManager {
             return;
           }
         }
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('CacheManager', 'Handled exception: $e');
+    }
     }
 
     try {
@@ -111,7 +115,9 @@ class CacheManager {
             final stat = await entity.stat();
             totalSize += stat.size;
             fileStats.add(MapEntry(entity, stat));
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('CacheManager', 'Handled exception: $e');
+    }
         }
       }
 
@@ -138,7 +144,9 @@ class CacheManager {
             await file.delete();
             totalSize -= stat.size;
             evictedCount++;
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('CacheManager', 'Handled exception: $e');
+    }
         }
 
         // If we reduced below target, stop
@@ -152,7 +160,9 @@ class CacheManager {
         if (Hive.isBoxOpen(SettingsManager.boxName)) {
           await Hive.box(SettingsManager.boxName).put('last_cache_eviction_ms', now.millisecondsSinceEpoch);
         }
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('CacheManager', 'Handled exception: $e');
+    }
 
       if (evictedCount > 0) {
         AppLogger.log('CacheManager', 'Evicted $evictedCount stale/overflow audio cache files');
@@ -174,7 +184,9 @@ class CacheManager {
     try {
       offlineBytes = DownloadManager.getTotalOfflineSizeBytes();
       offlineCount = DownloadManager.getDownloadedSongs().length;
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('CacheManager', 'Handled exception: $e');
+    }
 
     // 2. Documents Directory (Hive boxes & app state)
     try {
@@ -187,12 +199,16 @@ class CacheManager {
             if (name.endsWith('.hive') || name.endsWith('.lock') || name.contains('box')) {
               try {
                 hiveBytes += file.lengthSync();
-              } catch (_) {}
+              } catch (e) {
+      AppLogger.debug('CacheManager', 'Handled exception: $e');
+    }
             }
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('CacheManager', 'Handled exception: $e');
+    }
 
     // 3. Temporary Directory & Streaming Caches
     try {
@@ -209,11 +225,15 @@ class CacheManager {
               } else {
                 tempBytes += len;
               }
-            } catch (_) {}
+            } catch (e) {
+      AppLogger.debug('CacheManager', 'Handled exception: $e');
+    }
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('CacheManager', 'Handled exception: $e');
+    }
 
     final totalApp = offlineBytes + tempBytes + imageBytes + hiveBytes;
 
@@ -274,7 +294,9 @@ class CacheManager {
           return Map<String, dynamic>.from(raw);
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('CacheManager', 'Handled exception: $e');
+    }
     return null;
   }
 
@@ -295,7 +317,9 @@ class CacheManager {
     await clearImageCache();
     try {
       await SmartCacheService.instance.clearCache();
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('CacheManager', 'Handled exception: $e');
+    }
     try {
       final tempDir = await getTemporaryDirectory();
       if (tempDir.existsSync()) {
@@ -307,9 +331,13 @@ class CacheManager {
             } else if (entity is Directory) {
               entity.deleteSync(recursive: true);
             }
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('CacheManager', 'Handled exception: $e');
+    }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('CacheManager', 'Handled exception: $e');
+    }
   }
 }

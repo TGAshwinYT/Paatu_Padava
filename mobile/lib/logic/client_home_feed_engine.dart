@@ -7,6 +7,8 @@ import '../services/history_manager.dart';
 import '../services/saavn_client.dart';
 import '../data/repositories/song_repository.dart';
 
+import 'package:paatu_padava_mobile/services/app_logger.dart';
+
 /// 100% Client-Side Personalized Feed Engine for Paatu Padava.
 /// Generates Spotify-grade 2x3 Quick Tiles, Daily Mixes (1 to 4) clustered by
 /// user's favorite artists, and Decades Mixes on-device in <15ms with zero backend cold starts.
@@ -215,7 +217,9 @@ class ClientHomeFeedEngine {
           final query = '${artistList.first} $language';
           final results = await SaavnClient.search(query, limit: 15, language: language);
           mixTracks.addAll(results);
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('ClientHomeFeedEngine', 'Handled exception: $e');
+    }
       }
 
       // Fallback from seed pool

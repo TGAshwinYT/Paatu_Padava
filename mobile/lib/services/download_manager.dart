@@ -86,7 +86,9 @@ class DownloadManager {
     try {
       final dir = await getApplicationDocumentsDirectory();
       _documentsDirPath = dir.path;
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('DownloadManager', 'Handled exception: $e');
+    }
 
     if (!Hive.isBoxOpen(boxName)) {
       await Hive.openBox(boxName);
@@ -198,7 +200,9 @@ class DownloadManager {
         if (path != null && path.startsWith('file://')) {
           try {
             path = Uri.parse(path).toFilePath();
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('DownloadManager', 'Handled exception: $e');
+    }
         }
         if (path != null && File(path).existsSync()) {
           return path;
@@ -449,7 +453,9 @@ class DownloadManager {
           if (resolvedArt.isNotEmpty && !CoverArtResolver.isPlaylistCover(resolvedArt)) {
             targetCoverUrl = resolvedArt;
           }
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('DownloadManager', 'Handled exception: $e');
+    }
       }
       if (targetCoverUrl.isEmpty) {
         final catalogArt = CatalogDatabase.getSongCoverArt(song.title, artist: song.artist, album: song.album) ??
@@ -666,7 +672,9 @@ class DownloadManager {
           if (file is File) {
             try {
               file.deleteSync();
-            } catch (_) {}
+            } catch (e) {
+      AppLogger.debug('DownloadManager', 'Handled exception: $e');
+    }
           }
         }
       }
@@ -699,7 +707,9 @@ class DownloadManager {
             if (artUrl.isEmpty || CoverArtResolver.isPlaylistCover(artUrl) || artUrl.startsWith('file://') || artUrl.startsWith('/') || artUrl.contains(':\\')) {
               try {
                 artUrl = await CoverArtResolver.resolveCover(song);
-              } catch (_) {}
+              } catch (e) {
+      AppLogger.debug('DownloadManager', 'Handled exception: $e');
+    }
             }
             if (artUrl.isEmpty || artUrl.startsWith('file://') || artUrl.startsWith('/') || artUrl.contains(':\\')) {
               artUrl = CatalogDatabase.getSongCoverArt(song.title, artist: song.artist, album: song.album) ??
@@ -719,12 +729,16 @@ class DownloadManager {
                   final updated = song.copyWith(localCoverPath: targetPath, coverUrl: artUrl);
                   await _box.put(key, updated.toMap());
                 }
-              } catch (_) {}
+              } catch (e) {
+      AppLogger.debug('DownloadManager', 'Handled exception: $e');
+    }
             }
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('DownloadManager', 'Handled exception: $e');
+    }
   }
 
   /// Returns file size in bytes for a specific song

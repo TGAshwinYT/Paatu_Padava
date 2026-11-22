@@ -5,6 +5,8 @@ import '../../../services/player_handler.dart';
 import '../../../services/settings_manager.dart';
 import 'volume_hud_overlay.dart';
 
+import 'package:paatu_padava_mobile/services/app_logger.dart';
+
 /// Wraps player views (such as Album Artwork) with interactive touch gestures:
 /// - Interactive Swipe Left: Card tracks user touch, slides off-screen, and transitions to Next Song
 /// - Interactive Swipe Right: Card tracks user touch, slides off-screen, and transitions to Previous Song
@@ -158,7 +160,9 @@ class _PlayerGestureDetectorState extends State<PlayerGestureDetector>
     _animController.duration = const Duration(milliseconds: 170);
     try {
       await _animController.forward(from: 0.0);
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('PlayerGestureDetector', 'Handled exception: $e');
+    }
 
     // 2. Trigger skip once card has fully departed
     HapticFeedback.lightImpact();
@@ -180,7 +184,9 @@ class _PlayerGestureDetectorState extends State<PlayerGestureDetector>
     _animController.duration = const Duration(milliseconds: 240);
     try {
       await _animController.forward(from: 0.0);
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('PlayerGestureDetector', 'Handled exception: $e');
+    }
 
     if (mounted) {
       setState(() {

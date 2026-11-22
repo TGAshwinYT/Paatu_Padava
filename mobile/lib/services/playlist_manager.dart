@@ -7,6 +7,8 @@ import 'supabase_service.dart';
 import 'sync_manager.dart';
 import 'collaborative_playlist_service.dart';
 
+import 'package:paatu_padava_mobile/services/app_logger.dart';
+
 class UserPlaylist {
   String id;
   String title;
@@ -162,7 +164,9 @@ class PlaylistManager {
       if (anyUpdated) {
         _refreshList();
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('PlaylistManager', 'Handled exception: $e');
+    }
   }
 
   /// Directly deletes a playlist from local Hive cache

@@ -282,7 +282,9 @@ class QueueTunerController {
             }
           }
         }
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('QueueTunerController', 'Handled exception: $e');
+    }
     }
 
     for (final c in matchingComposer) {

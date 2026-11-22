@@ -147,7 +147,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
           'artist': active?.artist ?? 'Tap to play',
           'isPlaying': playing,
         }).catchError((_) {});
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('PlayerHandler', 'Handled exception: $e');
+    }
     }
   }
 

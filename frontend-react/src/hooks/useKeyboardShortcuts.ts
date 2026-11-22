@@ -31,48 +31,37 @@ export const useKeyboardShortcuts = ({
 
   // Keep stable refs to avoid listener churn on audio time updates
   const isPlayingRef = useRef(isPlaying);
-  isPlayingRef.current = isPlaying;
-
   const togglePlayRef = useRef(togglePlay);
-  togglePlayRef.current = togglePlay;
-
   const playNextRef = useRef(playNext);
-  playNextRef.current = playNext;
-
   const playPreviousRef = useRef(playPrevious);
-  playPreviousRef.current = playPrevious;
-
   const currentTimeRef = useRef(currentTime);
-  currentTimeRef.current = currentTime;
-
   const durationRef = useRef(duration);
-  durationRef.current = duration;
-
   const seekToRef = useRef(seekTo);
-  seekToRef.current = seekTo;
-
   const volumeRef = useRef(volume);
-  volumeRef.current = volume;
-
   const setVolumeRef = useRef(setVolume);
-  setVolumeRef.current = setVolume;
-
   const toggleShuffleRef = useRef(toggleShuffle);
-  toggleShuffleRef.current = toggleShuffle;
-
   const toggleRepeatRef = useRef(toggleRepeat);
-  toggleRepeatRef.current = toggleRepeat;
-
   const currentTrackRef = useRef(currentTrack);
-  currentTrackRef.current = currentTrack;
-
   const queueRef = useRef(queue);
-  queueRef.current = queue;
-
   const onToggleShortcutsModalRef = useRef(onToggleShortcutsModal);
-  onToggleShortcutsModalRef.current = onToggleShortcutsModal;
-
   const prevVolumeRef = useRef<number>(volume > 0 ? volume : 0.8);
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+    togglePlayRef.current = togglePlay;
+    playNextRef.current = playNext;
+    playPreviousRef.current = playPrevious;
+    currentTimeRef.current = currentTime;
+    durationRef.current = duration;
+    seekToRef.current = seekTo;
+    volumeRef.current = volume;
+    setVolumeRef.current = setVolume;
+    toggleShuffleRef.current = toggleShuffle;
+    toggleRepeatRef.current = toggleRepeat;
+    currentTrackRef.current = currentTrack;
+    queueRef.current = queue;
+    onToggleShortcutsModalRef.current = onToggleShortcutsModal;
+  });
 
   useEffect(() => {
     if (!enabled) return;

@@ -11,6 +11,8 @@ import '../../services/error_handler.dart';
 import '../../services/settings_manager.dart';
 import '../theme/app_theme.dart';
 
+import 'package:paatu_padava_mobile/services/app_logger.dart';
+
 class OnboardingArtistsScreen extends StatefulWidget {
   final VoidCallback? onCompleted;
   final bool isStandalone;
@@ -256,7 +258,9 @@ class _OnboardingArtistsScreenState extends State<OnboardingArtistsScreen> with 
           _displayedArtists.addAll(dynamicArtists);
         });
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('OnboardingArtistsScreen', 'Handled exception: $e');
+    }
   }
 
   Future<void> _loadExistingFavorites() async {
@@ -356,7 +360,9 @@ class _OnboardingArtistsScreenState extends State<OnboardingArtistsScreen> with 
                   })
               .toList();
         }
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('OnboardingArtistsScreen', 'Handled exception: $e');
+    }
     }
 
     if (candidates.isEmpty) return;

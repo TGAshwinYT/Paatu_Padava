@@ -14,10 +14,21 @@ const Profile = () => {
     const [isSearching, setIsSearching] = useState(false);
     const navigate = useNavigate();
 
+    const fetchFollowed = async () => {
+        const data = await getFollowedArtists();
+        setFollowedArtists(data);
+    };
+
     useEffect(() => {
+        let ignore = false;
         if (user) {
-            fetchFollowed();
+            getFollowedArtists().then(data => {
+                if (!ignore) setFollowedArtists(data);
+            });
         }
+        return () => {
+            ignore = true;
+        };
     }, [user]);
 
     // Handle scroll to artists when navigated via profile menu
@@ -29,11 +40,6 @@ const Profile = () => {
             }, 100);
         }
     }, [followedArtists]);
-
-    const fetchFollowed = async () => {
-        const data = await getFollowedArtists();
-        setFollowedArtists(data);
-    };
 
     // Debounced artist search
     useEffect(() => {

@@ -7,7 +7,15 @@ import useDebounce from '../hooks/useDebounce';
 
 const TopSearchBar: React.FC = () => {
     const [searchParams] = useSearchParams();
-    const [query, setQuery] = useState(searchParams.get('q') || '');
+    const urlQuery = searchParams.get('q') || '';
+    const [query, setQuery] = useState(urlQuery);
+    const [prevUrlQuery, setPrevUrlQuery] = useState(urlQuery);
+
+    // Sync input with route params during render (official React pattern)
+    if (urlQuery !== prevUrlQuery) {
+        setPrevUrlQuery(urlQuery);
+        setQuery(urlQuery);
+    }
     
     // Autocomplete states
     const [suggestions, setSuggestions] = useState<any>({ songs: [], artists: [], albums: [] });
@@ -17,11 +25,6 @@ const TopSearchBar: React.FC = () => {
 
     const { playFromSearch } = useAudio();
     const navigate = useNavigate();
-
-    // Sync input with route params
-    useEffect(() => {
-        setQuery(searchParams.get('q') || '');
-    }, [searchParams]);
 
     // Click Outside Listener
     useEffect(() => {

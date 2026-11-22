@@ -9,6 +9,8 @@ import '../../logic/stream_resolver.dart';
 import '../../data/repositories/song_repository.dart';
 import '../theme/app_theme.dart';
 
+import 'package:paatu_padava_mobile/services/app_logger.dart';
+
 class AlbumScreen extends StatefulWidget {
   final String albumId;
   final String albumTitle;
@@ -70,7 +72,9 @@ class _AlbumScreenState extends State<AlbumScreen> {
           return;
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('AlbumScreen', 'Handled exception: $e');
+    }
 
     if (mounted) {
       setState(() => _isLoading = false);

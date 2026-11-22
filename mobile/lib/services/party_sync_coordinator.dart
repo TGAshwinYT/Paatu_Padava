@@ -776,9 +776,9 @@ class PartySyncCoordinator {
       final barrierTimeoutMs = isLan ? 1200 : 3500;
       try {
         await _peerReadyCompleter!.future.timeout(Duration(milliseconds: barrierTimeoutMs));
-      } catch (_) {
-        // Timeout expired: proceed with start
-      }
+      } catch (e) {
+      AppLogger.debug('PartySyncCoordinator', 'Handled exception: $e');
+    }
       _peerReadyCompleter = null;
     }
 
@@ -1318,7 +1318,9 @@ class PartySyncCoordinator {
       if (upcoming.isNotEmpty) {
         DefaultStreamResolver.prewarmSongs(upcoming);
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('PartySyncCoordinator', 'Handled exception: $e');
+    }
   }
 
   /// Joiner: Analyzes drift on heartbeat and performs micro-rate adjustments or hard-seek

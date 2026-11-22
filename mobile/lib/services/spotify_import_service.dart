@@ -543,7 +543,9 @@ class SpotifyImportService {
               return token;
             }
           }
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('SpotifyImportService', 'Handled exception: $e');
+    }
       }
     } catch (e) {
       AppLogger.log('SpotifyImportService', 'Backend token proxy notice: $e');
@@ -1058,7 +1060,9 @@ class SpotifyImportService {
           return CoverArtResolver.upgradeSpotifyCover(thumb);
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('SpotifyImportService', 'Handled exception: $e');
+    }
     return null;
   }
 
@@ -1103,7 +1107,9 @@ class SpotifyImportService {
           return matched;
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('SpotifyImportService', 'Handled exception: $e');
+    }
 
     // ── Tier 1: Search JioSaavn across all languages for pristine 320kbps Stream ──
     try {
@@ -1195,7 +1201,9 @@ class SpotifyImportService {
             if (resolved.isNotEmpty && !CoverArtResolver.isPlaylistCover(resolved)) {
               cand = cand.copyWith(coverUrl: resolved);
             }
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('SpotifyImportService', 'Handled exception: $e');
+    }
         }
         return cand;
       }
@@ -1237,7 +1245,9 @@ class SpotifyImportService {
             if (resolved.isNotEmpty && !CoverArtResolver.isPlaylistCover(resolved)) {
               bestYt = bestYt.copyWith(coverUrl: resolved);
             }
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('SpotifyImportService', 'Handled exception: $e');
+    }
         }
         return bestYt;
       }

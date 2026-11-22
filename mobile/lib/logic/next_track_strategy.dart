@@ -132,15 +132,21 @@ List<Song> getLocalFallbackTracks(
 
   try {
     pool.addAll(DownloadManager.getDownloadedSongs());
-  } catch (_) {}
+  } catch (e) {
+      AppLogger.debug('NextTrackStrategy', 'Handled exception: $e');
+    }
 
   try {
     pool.addAll(FavoritesManager.getFavorites());
-  } catch (_) {}
+  } catch (e) {
+      AppLogger.debug('NextTrackStrategy', 'Handled exception: $e');
+    }
 
   try {
     pool.addAll(HistoryManager.getHistory());
-  } catch (_) {}
+  } catch (e) {
+      AppLogger.debug('NextTrackStrategy', 'Handled exception: $e');
+    }
 
   final targetLanguage = targetLang ??
       seedSong.language?.toLowerCase() ??
@@ -438,12 +444,16 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
           if (anchorSong.primaryArtist != seedSong.primaryArtist) {
             supplement.addAll(await CatalogDatabase.getSongsByArtist(anchorSong.primaryArtist));
           }
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('NextTrackStrategy', 'Handled exception: $e');
+    }
         if (supplement.length < targetBatch - shapedTracks.length) {
           try {
             final sRes = await SaavnClient.search('${seedSong.primaryArtist} $targetLang', limit: 12, language: targetLang);
             supplement.addAll(sRes);
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('NextTrackStrategy', 'Handled exception: $e');
+    }
         }
 
         final filteredSupplement = RadioEngine.applyHardFiltering(
@@ -640,7 +650,9 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
           try {
             final catSongs = await CatalogDatabase.getSongsByArtist(walkNode.primaryArtist);
             candidatePool.addAll(catSongs);
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('NextTrackStrategy', 'Handled exception: $e');
+    }
         }
       } catch (e) {
         AppLogger.log('YtMusicStyleStrategy', 'Radio graph walk notice: $e');
@@ -651,7 +663,9 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
         try {
           final supplemental = await RadioEngine.buildSongRadio(seedSong, limit: targetBatch);
           candidatePool.addAll(supplemental);
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('NextTrackStrategy', 'Handled exception: $e');
+    }
       }
 
       // 3. Audio-First Master Filtering & Deduplication via RadioEngine.applyHardFiltering
@@ -959,12 +973,16 @@ class UnifiedSmartRadioStrategy implements NextTrackStrategy {
           if (anchorSong.primaryArtist != seedSong.primaryArtist) {
             supplement.addAll(await CatalogDatabase.getSongsByArtist(anchorSong.primaryArtist));
           }
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('NextTrackStrategy', 'Handled exception: $e');
+    }
         if (supplement.length < targetBatch - shapedTracks.length) {
           try {
             final sRes = await SaavnClient.search('${seedSong.primaryArtist} $targetLang', limit: 12, language: targetLang);
             supplement.addAll(sRes);
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('NextTrackStrategy', 'Handled exception: $e');
+    }
         }
 
         final filteredSupplement = RadioEngine.applyHardFiltering(

@@ -356,14 +356,18 @@ class SupabaseService {
             'artists': artistNames,
           });
         }
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('SupabaseService', 'Handled exception: $e');
+    }
       return;
     }
     try {
       if (Hive.isBoxOpen('auth_box')) {
         await Hive.box('auth_box').delete('pending_user_taste');
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('SupabaseService', 'Handled exception: $e');
+    }
   }
 
   static Future<void> syncPendingUserTaste() async {
@@ -382,7 +386,9 @@ class SupabaseService {
           );
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('SupabaseService', 'Handled exception: $e');
+    }
   }
 
 

@@ -301,31 +301,6 @@ export default function AudioPlayer({
     }, [seekToTime, playbackEngine, getActiveAudio]);
 
     // ── 6. CROSSFADE ENGINE ─────────────────────────────────────────────────
-    // Detect approaching end-of-track and trigger crossfade
-    const handleCrossfadeCheck = useCallback((currentTime: number, duration: number) => {
-        if (
-            crossfadeDuration <= 0 ||
-            playbackEngine !== 'native' ||
-            isCrossfadingRef.current ||
-            !duration ||
-            duration <= crossfadeDuration + 1 // Track too short for crossfade
-        ) {
-            return;
-        }
-
-        const trackId = currentTrackIdRef.current;
-        if (crossfadeTriggeredForTrackRef.current === trackId) return; // Already triggered
-
-        const timeLeft = duration - currentTime;
-        if (timeLeft <= crossfadeDuration && timeLeft > 0) {
-            crossfadeTriggeredForTrackRef.current = trackId;
-            // Signal the parent to advance to next track — the crossfade ramp will handle audio
-            isCrossfadingRef.current = true;
-            startCrossfadeRamp(crossfadeDuration);
-            onEnd(); // This triggers playNext in AudioContext
-        }
-    }, [crossfadeDuration, playbackEngine, onEnd]);
-
     const startCrossfadeRamp = useCallback((durationSec: number) => {
         const outgoing = getActiveAudio();
         const incoming = getStandbyAudio();
@@ -385,6 +360,31 @@ export default function AudioPlayer({
 
         crossfadeRafRef.current = requestAnimationFrame(ramp);
     }, [getActiveAudio, getStandbyAudio, volume, connectEqToActive]);
+
+    // Detect approaching end-of-track and trigger crossfade
+    const handleCrossfadeCheck = useCallback((currentTime: number, duration: number) => {
+        if (
+            crossfadeDuration <= 0 ||
+            playbackEngine !== 'native' ||
+            isCrossfadingRef.current ||
+            !duration ||
+            duration <= crossfadeDuration + 1 // Track too short for crossfade
+        ) {
+            return;
+        }
+
+        const trackId = currentTrackIdRef.current;
+        if (crossfadeTriggeredForTrackRef.current === trackId) return; // Already triggered
+
+        const timeLeft = duration - currentTime;
+        if (timeLeft <= crossfadeDuration && timeLeft > 0) {
+            crossfadeTriggeredForTrackRef.current = trackId;
+            // Signal the parent to advance to next track — the crossfade ramp will handle audio
+            isCrossfadingRef.current = true;
+            startCrossfadeRamp(crossfadeDuration);
+            onEnd(); // This triggers playNext in AudioContext
+        }
+    }, [crossfadeDuration, playbackEngine, onEnd, startCrossfadeRamp]);
 
     // ── 7. YOUTUBE ENGINE: react-youtube opts ────────────────────────────────
     const ytOpts = {
@@ -588,7 +588,6 @@ export default function AudioPlayer({
             {/* NATIVE ENGINE SLOT A */}
             <audio
                 ref={audioRefA}
-                src={playbackEngine === 'native' && activeSlotRef.current === 'A' ? (nativeAudioUrl || undefined) : undefined}
                 onTimeUpdate={handleTimeUpdate('A')}
                 onLoadedMetadata={handleLoadedMetadata('A')}
                 onDurationChange={handleLoadedMetadata('A')}

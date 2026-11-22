@@ -5,6 +5,8 @@ import '../core/app_config.dart';
 import '../logic/stream_resolver.dart';
 import 'youtube_client.dart';
 
+import 'package:paatu_padava_mobile/services/app_logger.dart';
+
 /// Connection reachability monitor.
 /// Surfaces live online/offline states to ensure graceful offline degradation
 /// and automatic recovery when network transitions occur.
@@ -75,7 +77,9 @@ class ConnectivityService {
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('ConnectivityService', 'Handled exception: $e');
+    }
     return 'unknown';
   }
 
@@ -133,9 +137,9 @@ class ConnectivityService {
           if (lookup.isNotEmpty && lookup.first.rawAddress.isNotEmpty) {
             reachable = true;
           }
-        } catch (_) {
-          // Backend unreachable or DNS error, fallback to public resolvers
-        }
+        } catch (e) {
+      AppLogger.debug('ConnectivityService', 'Handled exception: $e');
+    }
       }
 
       // 2. Secondary fallback: Cloudflare & Google DNS
@@ -148,7 +152,9 @@ class ConnectivityService {
               reachable = true;
               break;
             }
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('ConnectivityService', 'Handled exception: $e');
+    }
         }
       }
 

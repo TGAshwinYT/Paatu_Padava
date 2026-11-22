@@ -203,7 +203,9 @@ class DynamicScraperConfigService {
           'timestamp': DateTime.now().toIso8601String(),
         }),
       ).timeout(const Duration(seconds: 3));
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('DynamicScraperConfigService', 'Handled exception: $e');
+    }
   }
 
   /// Instant local cold boot: hydrates configuration from Hive disk cache in < 2ms
@@ -268,7 +270,9 @@ class DynamicScraperConfigService {
         final parsed = jsonDecode(res.body);
         if (parsed is Map<String, dynamic>) return parsed;
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('DynamicScraperConfigService', 'Handled exception: $e');
+    }
     return null;
   }
 
@@ -281,7 +285,9 @@ class DynamicScraperConfigService {
           return Map<String, dynamic>.from(row['config'] as Map);
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('DynamicScraperConfigService', 'Handled exception: $e');
+    }
     return null;
   }
 
@@ -292,7 +298,9 @@ class DynamicScraperConfigService {
         final parsed = jsonDecode(res.body);
         if (parsed is Map<String, dynamic>) return parsed;
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('DynamicScraperConfigService', 'Handled exception: $e');
+    }
     return null;
   }
 
@@ -304,8 +312,8 @@ class DynamicScraperConfigService {
         _applyConfigMap(parsed);
         AppLogger.log('DynamicScraperConfigService', 'Loaded default scraper config from bundled asset');
       }
-    } catch (_) {
-      // Keep in-memory defaults
+    } catch (e) {
+      AppLogger.debug('DynamicScraperConfigService', 'Handled exception: $e');
     }
   }
 
@@ -320,7 +328,9 @@ class DynamicScraperConfigService {
         box = await Hive.openBox(hiveBoxName);
       }
       await box.put(hiveConfigKey, jsonEncode(config));
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('DynamicScraperConfigService', 'Handled exception: $e');
+    }
   }
 
   static void _applyConfigMap(Map<String, dynamic> map) {

@@ -112,7 +112,9 @@ class BatteryOptimizationService {
         'progress': progress,
         'max': max,
       });
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('BatteryOptimizationService', 'Handled exception: $e');
+    }
   }
 
   /// Stops the background data sync notification and releases the WakeLock

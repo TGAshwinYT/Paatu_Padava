@@ -268,7 +268,9 @@ class MoodPlaylistGenerator {
           }
           if (finalTracks.length >= targetCount) break;
         }
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('MoodPlaylistGenerator', 'Handled exception: $e');
+    }
     }
 
     // Supplement with remaining candidates if still below targetCount

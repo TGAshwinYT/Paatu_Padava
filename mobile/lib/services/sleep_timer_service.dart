@@ -167,7 +167,9 @@ class SleepTimerService extends ChangeNotifier {
     if (_preFadeVolume != null && isAudioHandlerInitialized) {
       try {
         audioHandler.player.setVolume(_preFadeVolume!);
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('SleepTimerService', 'Handled exception: $e');
+    }
     }
 
     _syncNotificationRemaining();
@@ -183,7 +185,9 @@ class SleepTimerService extends ChangeNotifier {
     if (_isFadingOut && _preFadeVolume != null && isAudioHandlerInitialized) {
       try {
         audioHandler.player.setVolume(_preFadeVolume!);
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('SleepTimerService', 'Handled exception: $e');
+    }
     }
 
     _isActive = false;
@@ -220,7 +224,9 @@ class SleepTimerService extends ChangeNotifier {
         final vol = startVol * (1.0 - (i / steps));
         try {
           await player.setVolume(vol.clamp(0.0, 1.0));
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('SleepTimerService', 'Handled exception: $e');
+    }
         await Future.delayed(stepDuration);
       }
     } catch (e) {
@@ -240,11 +246,15 @@ class SleepTimerService extends ChangeNotifier {
         // Fully stop the audio source so wake locks and audio focus are safely surrendered
         try {
           await audioHandler.player.pause();
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('SleepTimerService', 'Handled exception: $e');
+    }
         if (restoreVol != null) {
           try {
             await audioHandler.player.setVolume(restoreVol);
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('SleepTimerService', 'Handled exception: $e');
+    }
         }
       }
     } catch (e) {

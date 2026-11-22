@@ -6,6 +6,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import 'package:paatu_padava_mobile/services/app_logger.dart';
+
 /// High-performance fluid mesh gradient that renders animated luminous radial blobs.
 /// Optimized for 60/120fps with zero full-screen BackdropFilter GPU blurs,
 /// isolated in a RepaintBoundary with reusable Paint caches and 32x32 palette decoding.
@@ -176,8 +178,8 @@ class _FluidMeshGradientState extends State<FluidMeshGradient>
           });
         }
       }
-    } catch (_) {
-      // Fallback to default vibrant palette
+    } catch (e) {
+      AppLogger.debug('FluidMeshGradient', 'Handled exception: $e');
     }
   }
 

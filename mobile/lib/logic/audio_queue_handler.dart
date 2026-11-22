@@ -263,7 +263,9 @@ class AudioQueueHandler {
     final effective = getEffectiveVolumeForSong(currentSong);
     try {
       await player.setVolume(effective);
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('AudioQueueHandler', 'Handled exception: $e');
+    }
   }
 
   /// Calculates target normalized volume (0.0 to 1.0)
@@ -298,23 +300,31 @@ class AudioQueueHandler {
         bool isReady = false;
         try {
           isReady = player.processingState == ProcessingState.ready;
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('AudioQueueHandler', 'Handled exception: $e');
+    }
 
         if (isReady) {
           try {
             await player.setVolume(targetNorm);
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('AudioQueueHandler', 'Handled exception: $e');
+    }
           timer.cancel();
         } else {
           double vol = 1.0;
           try {
             vol = player.volume;
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('AudioQueueHandler', 'Handled exception: $e');
+    }
           if (vol < 0.1 && targetNorm >= 0.2) {
             AppLogger.log('AudioQueueHandler', 'Volume watchdog: Restoring stuck volume ($vol -> $targetNorm)');
             try {
               await player.setVolume(targetNorm);
-            } catch (_) {}
+            } catch (e) {
+      AppLogger.debug('AudioQueueHandler', 'Handled exception: $e');
+    }
           }
         }
       }
@@ -328,7 +338,9 @@ class AudioQueueHandler {
     if ((startVolume - targetVolume).abs() < 0.02) {
       try {
         await player.setVolume(targetVolume);
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('AudioQueueHandler', 'Handled exception: $e');
+    }
       return;
     }
 
@@ -339,13 +351,17 @@ class AudioQueueHandler {
       final v = startVolume + (targetVolume - startVolume) * (i / steps);
       try {
         await player.setVolume(v.clamp(0.0, 1.0));
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('AudioQueueHandler', 'Handled exception: $e');
+    }
       await Future.delayed(Duration(milliseconds: stepMs));
     }
     if (!_isDisposed && myToken == _fadeToken) {
       try {
         await player.setVolume(targetVolume);
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('AudioQueueHandler', 'Handled exception: $e');
+    }
     }
   }
 
@@ -416,7 +432,9 @@ class AudioQueueHandler {
 
     try {
       if (_currentTrack == null) await BatteryOptimizationService.detachForeground();
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('AudioQueueHandler', 'Handled exception: $e');
+    }
 
     onIdleRelease?.call();
   }
@@ -476,7 +494,9 @@ class AudioQueueHandler {
           final targetNorm = getEffectiveVolumeForSong(currentSong);
           try {
             player.setVolume(targetNorm);
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('AudioQueueHandler', 'Handled exception: $e');
+    }
         }
       }
 
@@ -528,7 +548,9 @@ class AudioQueueHandler {
           await handlePlaybackError(e, st, context: 'playbackEventStream');
         },
       );
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('AudioQueueHandler', 'Handled exception: $e');
+    }
 
     _playerStateSub = player.playerStateStream.listen((state) {
       onPlayStateChanged?.call(state.playing);
@@ -543,7 +565,9 @@ class AudioQueueHandler {
           final targetNorm = getEffectiveVolumeForSong(currentSong);
           try {
             player.setVolume(targetNorm);
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('AudioQueueHandler', 'Handled exception: $e');
+    }
         }
       } else if (state.processingState != ProcessingState.loading &&
           state.processingState != ProcessingState.buffering &&
@@ -981,7 +1005,9 @@ class AudioQueueHandler {
       // If stalled by network, HOLD position rather than auto-skipping and tripping circuit breaker
       if (_wasStalledByNetwork) {
         AppLogger.log('AudioQueueHandler', 'Holding playback on network-stalled track "${current.title}". Awaiting connection recovery...');
-        try { player.pause(); } catch (_) {}
+        try { player.pause(); } catch (e) {
+      AppLogger.debug('AudioQueueHandler', 'Handled exception: $e');
+    }
         return;
       }
 
@@ -1109,7 +1135,9 @@ class AudioQueueHandler {
 
       try {
         await player.stop();
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('AudioQueueHandler', 'Handled exception: $e');
+    }
 
       if (token != _sessionToken) return;
 
@@ -1221,7 +1249,9 @@ class AudioQueueHandler {
       final targetNorm = getEffectiveVolumeForSong(activeSong);
       try {
         await player.setVolume(targetNorm);
-      } catch (_) {}
+      } catch (e) {
+      AppLogger.debug('AudioQueueHandler', 'Handled exception: $e');
+    }
 
       try {
         await player.setAudioSource(
@@ -1239,7 +1269,9 @@ class AudioQueueHandler {
           });
           try {
             await player.setVolume(targetNorm);
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('AudioQueueHandler', 'Handled exception: $e');
+    }
           _startVolumeWatchdog(activeSong);
         } else {
           // autoPlay: false path (used for PartySync prepare/barrier)
@@ -1812,7 +1844,9 @@ class AudioQueueHandler {
       } else {
         try {
           player.setVolume(targetNorm);
-        } catch (_) {}
+        } catch (e) {
+      AppLogger.debug('AudioQueueHandler', 'Handled exception: $e');
+    }
       }
       _startVolumeWatchdog(song);
       preloadUpcomingTracks();
@@ -2096,7 +2130,9 @@ class AudioQueueHandler {
               _updateTrackStreamUrl(secondUpcoming.id, url2);
               AppLogger.log('AudioQueueHandler', 'Pre-resolved 2nd upcoming track: "${secondUpcoming.title}" [id=${secondUpcoming.id}]');
             }
-          } catch (_) {}
+          } catch (e) {
+      AppLogger.debug('AudioQueueHandler', 'Handled exception: $e');
+    }
         }());
       }
     }
@@ -2367,7 +2403,9 @@ class AudioQueueHandler {
     _sessionToken++;
     try {
       await player.stop();
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('AudioQueueHandler', 'Handled exception: $e');
+    }
 
     _contextQueue.clear();
     _contextShuffleIndices.clear();
@@ -2383,7 +2421,9 @@ class AudioQueueHandler {
 
     try {
       await _playlistSource.clear();
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('AudioQueueHandler', 'Handled exception: $e');
+    }
 
     currentSongNotifier.value = null;
     onQueueProgress?.call(-1, 0);

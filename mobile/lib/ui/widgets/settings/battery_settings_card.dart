@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../../../services/battery_optimization_service.dart';
 import '../../../services/settings_manager.dart';
 
+import 'package:paatu_padava_mobile/services/app_logger.dart';
+
 class BatterySettingsCard extends StatefulWidget {
   const BatterySettingsCard({super.key});
 
@@ -32,7 +34,9 @@ class _BatterySettingsCardState extends State<BatterySettingsCard> {
           _isAggressiveOEM = isAggressive;
         });
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('BatterySettingsCard', 'Handled exception: $e');
+    }
   }
 
   @override

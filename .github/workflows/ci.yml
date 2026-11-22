@@ -57,6 +57,10 @@ jobs:
         working-directory: frontend-react
         run: npm ci
 
+      - name: Run ESLint
+        working-directory: frontend-react
+        run: npm run lint
+
       - name: Build React Application
         working-directory: frontend-react
         run: npm run build

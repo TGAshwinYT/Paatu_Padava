@@ -73,6 +73,8 @@ class SmartGaplessPrecacher {
         _precacheDir!.deleteSync(recursive: true);
         _precacheDir!.createSync(recursive: true);
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.debug('SmartGaplessPrecacher', 'Handled exception: $e');
+    }
   }
 }

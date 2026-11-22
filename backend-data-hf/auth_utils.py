@@ -34,10 +34,12 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 1 week
 
 _hasher = PasswordHasher()
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
+def verify_password(plain_password: Optional[str], hashed_password: Optional[str]) -> bool:
+    if not hashed_password or not plain_password:
+        return False
     try:
         return _hasher.verify(hashed_password, plain_password)
-    except (VerifyMismatchError, VerificationError, InvalidHashError):
+    except (VerifyMismatchError, VerificationError, InvalidHashError, TypeError, ValueError):
         return False
 
 def get_password_hash(password: str) -> str:

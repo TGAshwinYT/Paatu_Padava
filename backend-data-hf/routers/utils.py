@@ -1,7 +1,15 @@
-from fastapi import APIRouter, Request, Response
-from typing import Dict, Any, Optional
+import ipaddress
+import logging
 import os
+from typing import Any, Dict, Optional
+
+from fastapi import APIRouter, Depends, Request, Response
 import httpx
+
+from auth_utils import get_current_user
+from models import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["utils"])
 
@@ -147,38 +155,45 @@ async def get_scraper_config(response: Response):
     return DEFAULT_SCRAPER_CONFIG
 
 @router.post("/config/scraper/report-failure")
-async def report_scraper_failure(report: Dict[str, Any]):
+async def report_scraper_failure(
+    report: Dict[str, Any],
+    user: User = Depends(get_current_user)
+):
     """
-    Receives failure telemetry from mobile clients when an InnerTube client or decryption key fails.
+    Receives failure telemetry from authenticated clients when an InnerTube client or decryption key fails.
     Enables fast proactive monitoring of upstream provider blocks.
     """
-    client_name = report.get("client_name", "UNKNOWN")
-    reason = report.get("reason", "unspecified")
-    print(f"[ScraperTelemetry] Client '{client_name}' failure reported: {reason}")
+    client_name = str(report.get("client_name", "UNKNOWN"))[:50]
+    reason = str(report.get("reason", "unspecified"))[:200]
+    logger.warning("[ScraperTelemetry] User %s reported failure for client '%s': %s", user.id, client_name, reason)
     return {"status": "recorded", "client": client_name}
 
 @router.get("/test-location")
-async def get_test_location(request: Request):
+async def get_test_location(
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     """
-    Fetches the user's IP geolocation data using ip-api.com.
-    Handles Hugging Face proxy by checking X-Forwarded-For.
-    Accessible at /api/test-location
+    Authenticated debug endpoint: fetches user's IP geolocation data using ip-api.com.
+    Strictly validates client IP via ipaddress to prevent SSRF and parameter injection into outbound requests.
     """
-    # 1. Extract real IP from Hugging Face proxy headers
+    target_ip = ""
     forwarded_for = request.headers.get("x-forwarded-for")
     if forwarded_for:
-        user_ip = forwarded_for.split(",")[0].strip()
-    else:
-        user_ip = request.client.host
+        raw_ip = forwarded_for.split(",")[0].strip()
+        try:
+            parsed = ipaddress.ip_address(raw_ip)
+            # Only allow global public IP addresses; reject private, loopback, link-local, multicast, etc.
+            if parsed.is_global and not (parsed.is_private or parsed.is_loopback or parsed.is_reserved or parsed.is_link_local):
+                target_ip = str(parsed)
+        except ValueError:
+            target_ip = ""
 
-    # 2. Localhost check for ip-api.com auto-detection
-    if user_ip == "127.0.0.1":
-        user_ip = ""
-
-    # 3. Fetch geolocation data
+    # Fetch geolocation data safely
     try:
+        url = f"http://ip-api.com/json/{target_ip}" if target_ip else "http://ip-api.com/json/"
         async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(f"http://ip-api.com/json/{user_ip}")
+            response = await client.get(url)
             data = response.json()
         
         return {
@@ -188,7 +203,8 @@ async def get_test_location(request: Request):
             "region": data.get("regionName"),
             "city": data.get("city"),
             "internet_provider": data.get("isp"),
-            "note": "Endpoint moved to /api/test-location for accessibility"
+            "note": "Debug endpoint restricted to authenticated users"
         }
     except Exception as e:
-        return {"error": str(e)}
+        logger.error("Test location fetch error: %s", e)
+        return {"error": "Failed to determine location"}

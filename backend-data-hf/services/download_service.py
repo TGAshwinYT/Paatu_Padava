@@ -95,10 +95,17 @@ async def create_download_streaming_response(
     Creates an asynchronous chunked StreamingResponse for downloading audio,
     following authorized redirects and enforcing stream bounds.
     """
-    clean_title = re.sub(r'[^\w\s-]', '', title or 'Track').strip() or 'Track'
-    clean_artist = re.sub(r'[^\w\s-]', '', artist or 'Paatu Padava').strip() or 'Paatu Padava'
-    filename = f"{clean_title} - {clean_artist}.mp3"
-    quoted_filename = urllib.parse.quote(filename)
+    # Pure ASCII fallback for legacy HTTP clients and Latin-1 header compliance
+    ascii_title = re.sub(r'[^a-zA-Z0-9\s-]', '', title or '').strip() or 'Track'
+    ascii_artist = re.sub(r'[^a-zA-Z0-9\s-]', '', artist or '').strip() or 'Paatu Padava'
+    ascii_filename = f"{ascii_title} - {ascii_artist}.mp3"
+
+    # Full Unicode filename preserved for modern clients via RFC 5987 / RFC 6266 filename*=
+    # Strips only filesystem reserved chars (\\/*?:"<>|) and control chars, preserving all Unicode scripts and combining vowel marks
+    unicode_title = re.sub(r'[\x00-\x1f\\/*?:"<>|]', '', title or 'Track').strip() or 'Track'
+    unicode_artist = re.sub(r'[\x00-\x1f\\/*?:"<>|]', '', artist or 'Paatu Padava').strip() or 'Paatu Padava'
+    unicode_filename = f"{unicode_title} - {unicode_artist}.mp3"
+    quoted_filename = urllib.parse.quote(unicode_filename)
 
     client = httpx.AsyncClient(follow_redirects=False, timeout=60.0)
     try:
@@ -140,7 +147,7 @@ async def create_download_streaming_response(
                 await client.aclose()
 
         headers = {
-            "Content-Disposition": f'attachment; filename="{filename}"; filename*=UTF-8\'\'{quoted_filename}',
+            "Content-Disposition": f'attachment; filename="{ascii_filename}"; filename*=UTF-8\'\'{quoted_filename}',
             "Content-Type": "audio/mpeg",
             "Accept-Ranges": "bytes",
             "Access-Control-Expose-Headers": "Content-Disposition, Content-Length"

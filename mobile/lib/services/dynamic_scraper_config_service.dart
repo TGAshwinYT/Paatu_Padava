@@ -6,6 +6,7 @@ import 'package:hive/hive.dart';
 import 'package:http/http.dart' as http;
 import '../core/app_config.dart';
 import 'app_logger.dart';
+import 'auth_manager.dart';
 import 'supabase_service.dart';
 
 /// Over-The-Air (OTA) Dynamic Scraper & Decryption Configuration Service.
@@ -194,9 +195,14 @@ class DynamicScraperConfigService {
       final base = AppConfig.backendUrl.replaceAll(RegExp(r'/+$'), '');
       if (base.isEmpty) return;
       final uri = Uri.parse('$base/api/config/scraper/report-failure');
+      final headers = {'Content-Type': 'application/json'};
+      final token = AuthManager.token;
+      if (token != null && token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+      }
       await http.post(
         uri,
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
         body: jsonEncode({
           'client_name': clientName,
           'reason': reason,

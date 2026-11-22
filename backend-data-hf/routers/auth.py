@@ -371,7 +371,7 @@ async def register(
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Registration failed: {str(e)}"
+            detail="Registration failed. Please check your information and try again."
         )
 
 
@@ -393,8 +393,8 @@ async def login(
     result = await db.execute(select(User).where(User.email == user_data.email.lower().strip()))
     user = result.scalars().first()
 
-    # 2. Verify
-    if not user or not verify_password(user_data.password, user.hashed_password):
+    # 2. Verify (handles Google-only users where hashed_password is None gracefully without 500)
+    if not user or not user.hashed_password or not verify_password(user_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",

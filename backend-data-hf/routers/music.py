@@ -460,13 +460,15 @@ async def unlike_song(
 
 @router.get("/liked")
 async def get_liked_songs(
-    limit: int = 20,
-    offset: int = 0,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     user: models.User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     try:
-        return await UserRepository.get_liked_songs(db, user.id, limit=limit, offset=offset)
+        safe_limit = max(1, min(limit, 100))
+        safe_offset = max(0, offset)
+        return await UserRepository.get_liked_songs(db, user.id, limit=safe_limit, offset=safe_offset)
     except Exception as e:
         logger.error("Fetch Liked Error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to fetch liked songs")

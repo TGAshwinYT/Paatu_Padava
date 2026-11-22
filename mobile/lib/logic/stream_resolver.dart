@@ -6,6 +6,8 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import '../models/song.dart';
 import '../domain/models/track_entity.dart';
+import '../domain/models/app_error.dart';
+import '../services/error_handler.dart';
 import '../services/app_logger.dart';
 import '../services/youtube_client.dart';
 import '../services/saavn_client.dart';
@@ -36,6 +38,7 @@ abstract class StreamResolver {
 
   Future<String?> resolve(dynamic track, {bool forceSaavnFallback = false, bool forceYouTubeFallback = false});
   Future<String?> resolveStreamUrl(Song song, {bool forceSaavnFallback = false, bool forceYouTubeFallback = false});
+  AppError? get lastResolutionError;
   bool verifyAudioMatch(Song candidate, Song target);
   void invalidate(String songId);
   bool isExpired(String songId);
@@ -55,6 +58,10 @@ class DefaultStreamResolver implements StreamResolver {
   static final YoutubeClient sharedYoutubeClient = YoutubeClient();
 
   final YoutubeClient _youtubeClient;
+  AppError? _lastResolutionError;
+
+  @override
+  AppError? get lastResolutionError => _lastResolutionError;
 
   DefaultStreamResolver({
     YoutubeClient? youtubeClient,
@@ -316,6 +323,7 @@ class DefaultStreamResolver implements StreamResolver {
         ).timeout(_overallTimeout);
         sw.stop();
         if (url != null && url.isNotEmpty) {
+          _lastResolutionError = null;
           if (url.contains('saavncdn.com')) {
             song.source = 'saavn';
           }
@@ -323,15 +331,18 @@ class DefaultStreamResolver implements StreamResolver {
           song.streamUrl = url;
           AppLogger.log('StreamResolver', 'Resolved and cached stream for "${song.title}" in ${sw.elapsedMilliseconds}ms');
         } else {
+          _lastResolutionError = AppError.songUnavailable(song.title);
           AppLogger.log('StreamResolver', 'Stream resolution returned empty for "${song.title}" after ${sw.elapsedMilliseconds}ms');
         }
         return url;
       } on TimeoutException {
         sw.stop();
+        _lastResolutionError = AppError.timeout(debugDetails: 'Stream resolution timed out for "${song.title}"');
         AppLogger.log('StreamResolver', 'Stream resolution timed out for "${song.title}" after ${sw.elapsedMilliseconds}ms');
         return null;
       } catch (e, stack) {
         sw.stop();
+        _lastResolutionError = ErrorHandler.resolve(e, stackTrace: stack, context: 'StreamResolver.resolveStreamUrl for "${song.title}"');
         AppLogger.recordError(e, stack, context: 'StreamResolver.resolveStreamUrl for "${song.title}" (${sw.elapsedMilliseconds}ms)');
         return null;
       }

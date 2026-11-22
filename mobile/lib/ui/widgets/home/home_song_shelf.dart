@@ -183,6 +183,7 @@ class HomeSongShelf extends StatelessWidget {
             itemBuilder: (context, index) {
               final song = songs[index];
               return RepaintBoundary(
+                key: ValueKey(song.id),
                 child: HomeSongCard(
                   song: song,
                   width: cardWidth,

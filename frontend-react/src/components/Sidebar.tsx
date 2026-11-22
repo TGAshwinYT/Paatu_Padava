@@ -12,10 +12,7 @@ interface Playlist {
   cover_url?: string;
 }
 
-interface SidebarProps {
-}
-
-const Sidebar: React.FC<SidebarProps> = () => {
+const Sidebar: React.FC = () => {
   const { user, openLibraryAuthModal } = useAuth();
   const { userPlaylists, refreshPlaylists } = useAudio();
   const navigate = useNavigate();

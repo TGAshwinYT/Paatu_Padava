@@ -45,6 +45,7 @@ class HomePopularArtists extends StatelessWidget {
                 final id = art['id']?.toString() ?? '';
 
                 return GestureDetector(
+                  key: ValueKey(id.isNotEmpty ? id : '$name-$index'),
                   onTap: () {
                     Navigator.push(
                       context,

@@ -1,43 +1,66 @@
-from fastapi import APIRouter, HTTPException, Query, Depends, Request
-from fastapi.responses import RedirectResponse, StreamingResponse
 import asyncio
-import httpx
-import re
-import urllib.parse
-import ipaddress
-import socket
 import logging
-from typing import List, Dict, Any, Optional
+import re
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+import httpx
 from pydantic import BaseModel
-from services import youtube
-from services.recommender import personal_recommender, canonical_title, extract_language_from_title
-from services.saavn import search_saavn
-from services.spotify_import import (
-    get_spotify_top_10_tracks,
-    get_spotify_playlists,
-    get_spotify_artist_image,
-)
 from sqlalchemy.ext.asyncio import AsyncSession
-from connection import get_db, get_redis
 from upstash_redis.asyncio import Redis as UpstashRedis
-import models
+
 from auth_utils import get_current_user, get_current_user_optional
-from limiter_config import limiter
-import json
-from utils.location import get_search_languages, resolve_user_languages, get_user_search_languages
+from connection import get_db, get_redis
 from graph import recommendation_graph
-from .history import get_user_top_artists
+from limiter_config import limiter
+import models
+from repositories.user_repo import UserRepository
+from services import youtube
+from services.download_service import (
+    create_download_streaming_response,
+    resolve_download_audio_url,
+)
+from services.home_feed import (
+    get_consolidated_home_feed_data,
+    get_home_feed_data,
+)
+from services.recommender import (
+    canonical_title,
+    extract_language_from_title,
+    personal_recommender,
+)
+from services.search_scoring import (
+    TANGLISH_TRANSLITERATION_MAP,
+    _clean_str,
+    detect_script_language,
+    execute_search,
+    execute_search_suggestions,
+    score_album_relevance,
+    score_artist_relevance,
+    score_track_relevance,
+    search_canonical_title,
+)
+from services.spotify_import import (
+    get_spotify_artist_image,
+    get_spotify_playlists,
+    get_spotify_top_10_tracks,
+)
+from services.stream_resolver_backend import (
+    clean_song_title,
+    is_title_match,
+    resolve_single_stream,
+)
+from services.stream_security import (
+    ALLOWED_STREAM_DOMAINS,
+    is_safe_audio_url,
+)
+from utils.location import get_user_search_languages
 
 logger = logging.getLogger(__name__)
-
-from services.stream_security import is_safe_audio_url, ALLOWED_STREAM_DOMAINS
-from repositories.user_repo import UserRepository
-
 
 router = APIRouter(prefix="/api/music", tags=["music"])
 from .music_lyrics import router as lyrics_router
 router.include_router(lyrics_router)
-
 
 
 class ShuffleOrderRequest(BaseModel):
@@ -89,7 +112,7 @@ async def get_for_you_mix(
         )
         return {"queue": fallback_queue, "personalized": False}
     except Exception as e:
-        print(f"For-You Mix Error: {str(e)}")
+        logger.warning("For-You Mix Error: %s", e)
         return {"queue": [], "personalized": False}
 
 
@@ -105,10 +128,6 @@ async def shuffle_order_endpoint(
     uid = str(user.id) if user else None
     ordered = personal_recommender.get_shuffle_order(body.queue_ids, body.current_song_id, uid)
     return {"ordered_ids": ordered}
-
-
-from services.stream_resolver_backend import resolve_single_stream, is_title_match, clean_song_title
-
 
 
 @router.get("/stream/{song_id}")
@@ -141,123 +160,8 @@ async def download_track(
     for pristine offline downloading.
     Strictly validates audio stream URLs against public CDNs to prevent SSRF.
     """
-    audio_url = None
-
-    # 1. If explicit audio URL passed (e.g. already playing or resolved)
-    if url and url.startswith("http"):
-        if not is_safe_audio_url(url):
-            raise HTTPException(status_code=400, detail="Invalid or untrusted download audio URL")
-        audio_url = url
-    elif song_id or title:
-        # 2. Resolve via resolve_single_stream to find 320kbps JioSaavn stream
-        try:
-            resolved = await resolve_single_stream(song_id or "download", title, artist, redis_client)
-            if resolved and resolved.get("audio_url"):
-                audio_url = resolved["audio_url"]
-            elif resolved and resolved.get("download_urls") and len(resolved["download_urls"]) > 0:
-                audio_url = resolved["download_urls"][-1]
-        except Exception:
-            pass
-
-    # 3. Fallback: if audio_url is still missing and we have youtube_id or song_id
-    if not audio_url and (song_id or title):
-        try:
-            import yt_dlp
-            target = song_id
-            if not target or len(target) != 11:
-                q = f"{title} {artist}".strip() if artist else str(title).strip()
-                yt_matches = await youtube.search_youtube(q, limit=1)
-                if yt_matches and yt_matches[0].get("id"):
-                    target = yt_matches[0]["id"]
-            if target:
-                ydl_opts = {
-                    'format': 'bestaudio/best',
-                    'quiet': True,
-                    'no_warnings': True,
-                    'skip_download': True,
-                }
-                def _extract():
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(f"https://www.youtube.com/watch?v={target}", download=False)
-                        return info.get('url')
-                audio_url = await asyncio.to_thread(_extract)
-        except Exception as yt_err:
-            logger.warning("yt_dlp download extract error: %s", yt_err)
-
-    if not audio_url:
-        raise HTTPException(status_code=404, detail="Could not resolve audio stream for downloading")
-
-    if not is_safe_audio_url(audio_url):
-        raise HTTPException(status_code=403, detail="Resolved audio stream domain is not authorized for download")
-
-    # Clean filename
-    clean_title = re.sub(r'[^\w\s-]', '', title or 'Track').strip() or 'Track'
-    clean_artist = re.sub(r'[^\w\s-]', '', artist or 'Paatu Padava').strip() or 'Paatu Padava'
-    filename = f"{clean_title} - {clean_artist}.mp3"
-    quoted_filename = urllib.parse.quote(filename)
-
-    client = httpx.AsyncClient(follow_redirects=False, timeout=60.0)
-    try:
-        # Secure redirect resolution (max 3 hops, each hop verified against domain whitelist)
-        current_target_url = audio_url
-        hops = 0
-        resp = None
-
-        while hops < 3:
-            req = client.build_request("GET", current_target_url)
-            resp = await client.send(req, stream=True)
-            if resp.status_code in (301, 302, 303, 307, 308):
-                loc = resp.headers.get("Location")
-                await resp.aclose()
-                if not loc or not is_safe_audio_url(loc):
-                    await client.aclose()
-                    raise HTTPException(status_code=400, detail="Disallowed redirect from upstream audio source")
-                current_target_url = loc
-                hops += 1
-                continue
-            break
-
-        if not resp or resp.status_code != 200:
-            if resp:
-                await resp.aclose()
-            await client.aclose()
-            raise HTTPException(status_code=502, detail="Failed to fetch upstream audio stream")
-
-        MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024  # 50MB ceiling
-
-        async def stream_generator():
-            bytes_streamed = 0
-            try:
-                async for chunk in resp.aiter_bytes(chunk_size=65536):
-                    bytes_streamed += len(chunk)
-                    if bytes_streamed > MAX_DOWNLOAD_BYTES:
-                        break
-                    yield chunk
-            finally:
-                await resp.aclose()
-                await client.aclose()
-
-        headers = {
-            "Content-Disposition": f'attachment; filename="{filename}"; filename*=UTF-8\'\'{quoted_filename}',
-            "Content-Type": "audio/mpeg",
-            "Accept-Ranges": "bytes",
-            "Access-Control-Expose-Headers": "Content-Disposition, Content-Length"
-        }
-        if "content-length" in resp.headers:
-            headers["Content-Length"] = resp.headers["content-length"]
-
-        return StreamingResponse(
-            stream_generator(),
-            status_code=200,
-            headers=headers,
-            media_type="audio/mpeg"
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        await client.aclose()
-        logger.error("Download stream error: %s", e)
-        raise HTTPException(status_code=500, detail=f"Download streaming error: {str(e)}")
+    audio_url = await resolve_download_audio_url(song_id, title, artist, url, redis_client)
+    return await create_download_streaming_response(audio_url, title, artist)
 
 
 @router.post("/prefetch-stream")
@@ -288,6 +192,7 @@ async def save_player_state(
     Saves active player state & queue in Redis for seamless session restore.
     Guest sessions are isolated using X-Session-ID header with a 2-hour TTL.
     """
+    import json
     if user:
         key = f"player_state:user:{user.id}"
         ttl = 86400 * 7
@@ -319,6 +224,7 @@ async def get_player_state(
     Retrieves the last saved active player state from Redis.
     Guest sessions look up player_state:guest:{x-session-id}.
     """
+    import json
     if user:
         key = f"player_state:user:{user.id}"
     else:
@@ -353,6 +259,7 @@ async def get_spotify_token(
     Prevents leaking SPOTIFY_CLIENT_SECRET to client browsers.
     """
     import base64
+    import json
     import os
 
     client_id = os.getenv("SPOTIFY_CLIENT_ID")
@@ -397,7 +304,6 @@ async def get_spotify_token(
 
         if redis_client and access_token:
             try:
-                # Buffer expiration by 60 seconds
                 await redis_client.setex(cache_key, max(60, expires_in - 60), json.dumps(result_payload))
             except Exception as err:
                 logger.warning("[SPOTIFY] Redis set failed: %s", err)
@@ -434,63 +340,17 @@ async def get_spotify_artist_image_endpoint(artist_name: str = Query(...)):
     return {"artist_name": artist_name, "image_url": img_url}
 
 
-
 @router.get("/home")
 async def get_home_feed(
     request: Request,
-    user: models.User = Depends(get_current_user_optional), 
+    user: models.User = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
     redis_client: UpstashRedis = Depends(get_redis)
 ):
     """
     Fetches the structured YouTube Music home feed based strictly on user's explicit language preferences.
     """
-    # 1. Resolve user explicit languages (or neutral fallback)
-    user_langs = get_user_search_languages(user)
-    primary_lang = user_langs.split(",")[0].capitalize() if user_langs else "Tamil"
-
-    try:
-        cache_key = f"home_feed_yt_v5_{primary_lang}_{user.id if user else 'guest'}"
-        
-        # Safe Cache Retrieval
-        try:
-            cached_data = await redis_client.get(cache_key)
-            if cached_data:
-                return json.loads(cached_data)
-        except Exception as cache_err:
-            print(f"Redis Cache Warning (home get): {str(cache_err)}")
-
-        # 2. Fetch Home Feed (Smart Logic: Personalized if auth exists, else Regional)
-        home_feed = await youtube.get_home_youtube(limit=20, region=primary_lang)
-        
-        # Safe Cache Storage (30 mins)
-        try:
-            await redis_client.setex(cache_key, 1800, json.dumps(home_feed))
-        except Exception as cache_err:
-            print(f"Redis Cache Warning (home set): {str(cache_err)}")
-            
-        return home_feed
-    except Exception as e:
-        print(f"Home Feed Error: {str(e)}")
-        # Safe Fallback: Never crash the frontend with a 500 error
-        try:
-            from services import saavn
-            songs = await saavn.search_saavn_direct(f"{primary_lang} Hits", limit=15)
-            albums = await saavn.search_saavn_albums_direct(f"{primary_lang} Hits", limit=15)
-            return {
-                "recommendedForYou": songs,
-                "topAlbums": albums,
-                "topArtists": youtube.CURATED_TOP_ARTISTS,
-                "personalized": False
-            }
-        except Exception as fe:
-            print(f"Emergency fallback failed: {fe}")
-            return {
-                "recommendedForYou": [],
-                "topAlbums": [],
-                "topArtists": youtube.CURATED_TOP_ARTISTS,
-                "personalized": False
-            }
+    return await get_home_feed_data(user, db, redis_client)
 
 
 @router.get("/home-feed")
@@ -503,309 +363,11 @@ async def get_consolidated_home_feed(
 ):
     """
     Consolidated single-payload home feed returning all sections:
-    - madeForYou
-    - trending / trendingMerged
-    - newReleases
-    - featuredAlbums
-    - popularArtists
+    - madeForYou, trending / trendingMerged, newReleases, featuredAlbums, popularArtists
     Eliminates waterfall HTTP requests and client layout reflows.
     """
-    user_langs = get_user_search_languages(user)
-    primary_lang = language or (user_langs.split(",")[0].capitalize() if user_langs else "Tamil")
+    return await get_consolidated_home_feed_data(language, user, db, redis_client)
 
-    cache_key = f"home_feed_consolidated_v2_{primary_lang}_{user.id if user else 'guest'}"
-    try:
-        cached = await redis_client.get(cache_key)
-        if cached:
-            return json.loads(cached)
-    except Exception as cache_err:
-        print(f"Redis Cache Warning (home-feed get): {cache_err}")
-
-    try:
-        from services import saavn
-
-        # Parallel fetch of all home feed sections
-        recommender_coro = (
-            personal_recommender.get_cold_start_recommendations(db, user, preferred_languages=primary_lang, limit=15)
-            if not user else asyncio.to_thread(
-                personal_recommender.get_personal_recommendations,
-                str(user.id), preferred_languages=primary_lang, limit=15
-            )
-        )
-
-        tasks = [
-            recommender_coro,
-            youtube.get_trending_youtube(region=primary_lang),
-            saavn.search_saavn_direct(f"Latest {primary_lang} Releases", limit=15),
-            saavn.search_saavn_albums_direct(f"{primary_lang} Hit Albums", limit=12),
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        made_for_you = results[0] if not isinstance(results[0], Exception) and results[0] else []
-        if not made_for_you:
-            try:
-                made_for_you = await saavn.search_saavn_direct(f"{primary_lang} Melodies Hits", limit=15)
-            except Exception:
-                made_for_you = []
-
-        trending = results[1] if not isinstance(results[1], Exception) and results[1] else []
-        if not trending:
-            try:
-                trending = await saavn.search_saavn_direct(f"{primary_lang} Trending Hits", limit=15)
-            except Exception:
-                trending = []
-
-        new_releases = results[2] if not isinstance(results[2], Exception) and results[2] else []
-        raw_featured_albums = results[3] if not isinstance(results[3], Exception) and results[3] else []
-        featured_albums = [
-            a for a in raw_featured_albums
-            if isinstance(a, dict)
-            and int(a.get("song_count") or a.get("songs_count") or len(a.get("songs", [])) or 2) > 1
-            and "single" not in (a.get("title") or "").lower()
-        ]
-        popular_artists = youtube.CURATED_TOP_ARTISTS
-
-        youtube_trending = results[1] if not isinstance(results[1], Exception) and results[1] else []
-
-        payload = {
-            "madeForYou": made_for_you,
-            "trending": trending,
-            "trendingMerged": trending,
-            "youtubeTrending": youtube_trending,
-            "newReleases": new_releases,
-            "featuredAlbums": featured_albums,
-            "popularArtists": popular_artists,
-            "language": primary_lang,
-            "personalized": bool(user and results[0] and not isinstance(results[0], Exception)),
-        }
-
-        try:
-            await redis_client.setex(cache_key, 1800, json.dumps(payload))
-        except Exception as cache_err:
-            print(f"Redis Cache Warning (home-feed set): {cache_err}")
-
-        return payload
-    except Exception as e:
-        print(f"Consolidated Home Feed Error: {e}")
-        return {
-            "madeForYou": [],
-            "trending": [],
-            "trendingMerged": [],
-            "youtubeTrending": [],
-            "newReleases": [],
-            "featuredAlbums": [],
-            "popularArtists": youtube.CURATED_TOP_ARTISTS,
-            "language": primary_lang,
-            "personalized": False,
-        }
-
-
-
-import re
-
-def _clean_str(text: str) -> str:
-    if not text:
-        return ""
-    # Strip bracketed text like (From "Idhayam Murali"), [Official Video], etc.
-    text_clean = re.sub(r'[\(\[\{].*?[\)\]\}]', ' ', text)
-    # Replace non-alphanumeric chars with spaces
-    text_clean = re.sub(r'[^a-zA-Z0-9\s]', ' ', text_clean)
-    return ' '.join(text_clean.lower().split())
-
-def score_track_relevance(song: Dict[str, Any], query: str, user_pref_langs: List[str] = None) -> float:
-    """
-    Computes a Spotify-grade relevance score for a track against a search query.
-    Signals:
-    - Exact Title Match: +120
-    - Title Starts With Query (Prefix): +75
-    - Query in Title: +45
-    - Word Token Intersection: Up to +40
-    - Artist Match: +20 to +55
-    - Studio Track boost: +25
-    - Movie/Soundtrack contextual cue: +15
-    - Language Preference match: +20
-    - Junk / Derivative noise penalty (slowed, reverb, cover, status, ringtone, 8d): -50 to -80
-    - Suspiciously short duration (< 55s): -50
-    """
-    raw_title = str(song.get("title") or "")
-    raw_artist = str(song.get("artist") or "")
-    duration = song.get("duration") or 0
-    is_studio = song.get("is_studio", True)
-    song_lang = str(song.get("language") or "").lower().strip()
-    
-    q_clean = _clean_str(query)
-    t_clean = _clean_str(raw_title)
-    a_clean = _clean_str(raw_artist)
-    
-    q_words = set(q_clean.split())
-    t_words = set(t_clean.split())
-    a_words = set(a_clean.split())
-    
-    if not q_clean or not t_clean:
-        return 0.0
-
-    score = 0.0
-
-    # 1. Exact canonical title match
-    if t_clean == q_clean:
-        score += 120.0
-    # 2. Prefix match (e.g. "Vaama Vaama" matches "Vaama Vaama (From Idhayam Murali)")
-    elif t_clean.startswith(q_clean):
-        score += 75.0
-    # 3. Substring match
-    elif q_clean in t_clean:
-        score += 45.0
-        
-    # 4. Token Intersection Ratio
-    if q_words:
-        overlap = q_words.intersection(t_words)
-        if len(overlap) == len(q_words):
-            score += 40.0
-        else:
-            score += (len(overlap) / len(q_words)) * 30.0
-
-    # 5. Artist Match
-    if a_clean:
-        if q_clean == a_clean:
-            score += 55.0
-        elif q_clean in a_clean:
-            score += 35.0
-        elif q_words.intersection(a_words):
-            score += 20.0
-
-    # 6. Studio track quality boost
-    if is_studio:
-        score += 25.0
-
-    # 7. Official Movie / Soundtrack indicator boost
-    raw_title_lower = raw_title.lower()
-    if 'from "' in raw_title_lower or "from '" in raw_title_lower or "soundtrack" in raw_title_lower or "ost" in raw_title_lower:
-        score += 15.0
-
-    # 8. Language Affinity & Regional Variant Gate
-    title_lang_tag = extract_language_from_title(raw_title)
-    if user_pref_langs:
-        is_pref_lang = (song_lang and song_lang in user_pref_langs) or (title_lang_tag and title_lang_tag in user_pref_langs)
-        if is_pref_lang:
-            score += 80.0  # Strong boost for user's explicit preferred language
-        elif title_lang_tag and title_lang_tag not in user_pref_langs:
-            score -= 75.0  # Strong penalty for competing dubbed version (e.g. Telugu when Tamil wanted)
-
-    # 9. Noise penalties for derivative / fan / re-upload content
-    q_lower = query.lower()
-    noise_keywords = [
-        ("slowed", 60.0),
-        ("reverb", 60.0),
-        ("status", 80.0),
-        ("ringtone", 80.0),
-        ("whatsapp", 80.0),
-        ("cover", 50.0),
-        ("remix", 30.0),
-        ("dj ", 30.0),
-        ("8d", 50.0),
-        ("bass boosted", 50.0),
-        ("karaoke", 50.0),
-        ("instrumental", 40.0),
-        ("short", 40.0),
-        ("cut", 30.0)
-    ]
-    for kw, penalty in noise_keywords:
-        if kw in raw_title_lower and kw not in q_lower:
-            score -= penalty
-
-    # 10. Short duration penalty (likely ringtone or status clip)
-    if duration and duration < 55 and "ringtone" not in q_lower and "teaser" not in q_lower:
-        score -= 50.0
-
-    return score
-
-def score_artist_relevance(artist: Dict[str, Any], query: str) -> float:
-    name = str(artist.get("name") or artist.get("title") or "")
-    q_clean = _clean_str(query)
-    n_clean = _clean_str(name)
-    if not q_clean or not n_clean:
-        return 0.0
-    if n_clean == q_clean:
-        return 130.0
-    if n_clean.startswith(q_clean):
-        return 80.0
-    if q_clean in n_clean:
-        return 50.0
-    q_words = set(q_clean.split())
-    n_words = set(n_clean.split())
-    if q_words and q_words.issubset(n_words):
-        return 60.0
-    return 0.0
-
-def score_album_relevance(album: Dict[str, Any], query: str) -> float:
-    title = str(album.get("title") or "")
-    q_clean = _clean_str(query)
-    t_clean = _clean_str(title)
-    if not q_clean or not t_clean:
-        return 0.0
-    if t_clean == q_clean:
-        return 115.0
-    if t_clean.startswith(q_clean):
-        return 65.0
-    if q_clean in t_clean:
-        return 40.0
-    return 0.0
-
-def search_canonical_title(title: str, artist: str = "") -> str:
-    """
-    Normalizes titles for search deduplication.
-    Preserves meaningful version descriptors (e.g. Airport Version, Reprise, Acoustic, Extended)
-    while deduplicating exact re-uploads, lyrical/video tags, and label noise.
-    """
-    if not title:
-        return ""
-    t = str(title).lower()
-
-    version_tags = ['airport', 'reprise', 'acoustic', 'unplugged', 'lofi', 'slowed', 'extended', 'theme', 'instrumental', 'female', 'male', 'duet']
-    matched_versions = [v for v in version_tags if v in t]
-
-    t = re.sub(r'[\(\[\{]\s*(from|ost|soundtrack).*?[\)\]\}]', ' ', t, flags=re.IGNORECASE)
-    t = re.sub(r'\b(official|video|audio|lyric|lyrical|hd|4k|full video|song|teaser|trailer|whatsapp|status)\b', ' ', t, flags=re.IGNORECASE)
-    t = re.sub(r'\|.*$', ' ', t)
-    t = re.sub(r'[^a-z0-9\s]', ' ', t)
-    base = ' '.join(t.split())
-    if matched_versions:
-        base += ' ' + ' '.join(matched_versions)
-    return base
-
-def detect_script_language(text: str) -> Optional[str]:
-    for ch in text:
-        cp = ord(ch)
-        if 0x0B80 <= cp <= 0x0BFF:
-            return "tamil"
-        if 0x0C00 <= cp <= 0x0C7F:
-            return "telugu"
-        if 0x0D00 <= cp <= 0x0D7F:
-            return "malayalam"
-        if 0x0C80 <= cp <= 0x0CFF:
-            return "kannada"
-        if 0x0900 <= cp <= 0x097F:
-            return "hindi"
-    return None
-
-
-TANGLISH_TRANSLITERATION_MAP = {
-    "mesaya muruku": "meesaya murukku",
-    "mesaya murukku": "meesaya murukku",
-    "meesaya muruku": "meesaya murukku",
-    "puthu mazha": "puthumazha",
-    "puthumazhai": "puthumazha",
-    "oorum blood": "aarambam",
-    "kanne kalaimane": "kanne kalaimane",
-    "kannazhaga": "kannazhaga",
-    "rowdy baby": "rowdy baby",
-    "aalaporan tamizhan": "aalaporaan thamizhan",
-    "anbil avan": "anbil avan",
-    "vaseegara": "vaseegara",
-    "munbe vaa": "munbe vaa",
-    "maruvaarthai": "maruvaarthai",
-    "enpt": "enai noki paayum thota",
-}
 
 @router.get("/search")
 async def search_tracks(
@@ -814,182 +376,14 @@ async def search_tracks(
     user: models.User = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db)
 ):
+    """
+    Spotify-grade global search across JioSaavn and YouTube catalogs with transliteration,
+    click-through feedback, confidence-gated top results, and canonical deduplication.
+    """
     try:
-        raw_query = (query or q or "").strip()
-        if not raw_query:
-            return []
-
-        # 1. Script detection and explicit language override extraction
-        script_lang = detect_script_language(raw_query)
-        detected_lang = script_lang
-        known_languages = ["tamil", "telugu", "hindi", "malayalam", "kannada", "english", "punjabi"]
-        
-        # Clean query: strip explicit language keywords from upstream query
-        clean_query = raw_query
-        for kl in known_languages:
-            pattern = re.compile(rf'\b{kl}\b', re.IGNORECASE)
-            if pattern.search(clean_query):
-                detected_lang = kl
-                clean_query = pattern.sub('', clean_query).strip()
-
-        clean_query = ' '.join(clean_query.split())
-        if not clean_query:
-            clean_query = query.strip()
-
-        # Handle Tanglish-to-native transliteration / typo mapping
-        cq_lower = clean_query.lower()
-        did_you_mean_suggestion = None
-        for typo, correction in TANGLISH_TRANSLITERATION_MAP.items():
-            if typo in cq_lower:
-                clean_query = cq_lower.replace(typo, correction)
-                did_you_mean_suggestion = correction
-                break
-
-        if detected_lang:
-            search_languages = detected_lang
-        else:
-            search_languages = get_user_search_languages(user)
-
-        pref_langs = [l.strip().lower() for l in search_languages.split(",") if l.strip()]
-        primary_lang = pref_langs[0] if pref_langs else "tamil"
-
-        # 2. Retrieve in parallel with timeouts: Query JioSaavn first, YouTube only when JioSaavn is weak
-        saavn_songs = []
-        try:
-            target_saavn_lang = detected_lang if detected_lang else search_languages
-            saavn_res = await asyncio.wait_for(search_saavn(clean_query, language=target_saavn_lang), timeout=4.0)
-            if isinstance(saavn_res, list):
-                saavn_songs = saavn_res
-        except Exception as se:
-            print(f"Saavn search notice: {se}")
-
-        # JioSaavn is weak if < 3 results or top score < 55.0
-        is_saavn_weak = len(saavn_songs) < 3
-        if not is_saavn_weak:
-            top_saavn_score = max([score_track_relevance(s, clean_query, pref_langs) for s in saavn_songs[:3]], default=0.0)
-            if top_saavn_score < 55.0:
-                is_saavn_weak = True
-
-        yt_songs = []
-        albums = []
-        artists = []
-
-        if is_saavn_weak:
-            song_task = youtube.search_youtube(clean_query, limit=20)
-            album_task = youtube.search_albums_youtube(clean_query, limit=6)
-            artist_task = youtube.search_artists_youtube(clean_query, limit=6)
-            yt_res, alb_res, art_res = await asyncio.gather(
-                song_task, album_task, artist_task, return_exceptions=True
-            )
-            yt_songs = yt_res if isinstance(yt_res, list) else []
-            albums = alb_res if isinstance(alb_res, list) else []
-            artists = art_res if isinstance(art_res, list) else []
-        else:
-            # Load albums and artists lazily in parallel
-            album_task = youtube.search_albums_youtube(clean_query, limit=6)
-            artist_task = youtube.search_artists_youtube(clean_query, limit=6)
-            alb_res, art_res = await asyncio.gather(
-                album_task, artist_task, return_exceptions=True
-            )
-            albums = alb_res if isinstance(alb_res, list) else []
-            artists = art_res if isinstance(art_res, list) else []
-
-        # 3. Query click-through feedback from SearchClickHistory to boost ranking over time
-        click_boosts = {}
-        try:
-            click_stmt = (
-                select(models.SearchClickHistory.yt_video_id, func.count().label("cnt"))
-                .group_by(models.SearchClickHistory.yt_video_id)
-            )
-            click_res = await db.execute(click_stmt)
-            for vid, cnt in click_res.all():
-                if vid:
-                    click_boosts[str(vid)] = min(float(cnt) * 5.0, 25.0)
-        except Exception as c_err:
-            print(f"Search click model query warning: {c_err}")
-
-        # 4. Relevance Scoring & Deduplication
-        candidates = []
-        all_songs = saavn_songs + yt_songs
-        for s in all_songs:
-            if not s.get("id"):
-                continue
-            if detected_lang and not s.get("language"):
-                s["language"] = detected_lang
-            score = score_track_relevance(s, clean_query, pref_langs)
-            sid = str(s.get("id") or "")
-            if sid in click_boosts:
-                score += click_boosts[sid]
-            candidates.append((score, s))
-
-        # Sort candidates descending by score FIRST so highest quality studio release wins
-        candidates.sort(key=lambda x: x[0], reverse=True)
-
-        seen_canonical = set()
-        seen_ids = set()
-        ranked_songs = []
-        ranked_scores = []
-
-        for score, s in candidates:
-            sid = s.get("id")
-            if sid in seen_ids:
-                continue
-
-            c_key = search_canonical_title(s.get("title", ""), s.get("artist", ""))
-            if c_key in seen_canonical:
-                continue
-
-            seen_canonical.add(c_key)
-            seen_ids.add(sid)
-            ranked_songs.append(s)
-            ranked_scores.append(score)
-
-        # 5. Top Result Confidence Bar (threshold >= 70.0)
-        CONFIDENCE_THRESHOLD = 70.0
-
-        best_song = ranked_songs[0] if ranked_songs else None
-        best_song_score = ranked_scores[0] if ranked_scores else -999.0
-
-        best_artist = artists[0] if artists else None
-        best_artist_score = score_artist_relevance(best_artist, clean_query) if best_artist else -999.0
-
-        best_album = albums[0] if albums else None
-        best_album_score = score_album_relevance(best_album, clean_query) if best_album else -999.0
-
-        best_score = max(best_song_score, best_artist_score, best_album_score)
-
-        top_result = None
-        did_you_mean = did_you_mean_suggestion
-
-        if best_score >= CONFIDENCE_THRESHOLD:
-            if best_artist and best_artist_score >= best_score:
-                top_result = best_artist
-                top_result["type"] = "artist"
-            elif best_album and best_album_score >= best_score:
-                top_result = best_album
-                top_result["type"] = "album"
-            elif best_song:
-                top_result = best_song
-                top_result["type"] = "song"
-        else:
-            # Confidence bar not cleared: show "Did you mean..." instead of a random song
-            top_result = None
-            if not did_you_mean and ranked_songs:
-                candidate_title = ranked_songs[0].get("title", "")
-                if candidate_title and clean_song_title(candidate_title) != clean_song_title(clean_query):
-                    did_you_mean = candidate_title
-
-        return {
-            "global_matches": {
-                "top_result": top_result, 
-                "songs": ranked_songs[:20], 
-                "artists": artists, 
-                "albums": albums,
-                "did_you_mean": did_you_mean
-            }
-        }
+        return await execute_search(query, q, user, db)
     except (httpx.ConnectError, httpx.TimeoutException, asyncio.TimeoutError) as ue:
-        print(f"Router Upstream Error (search): {str(ue)}")
+        logger.warning("Router Upstream Error (search): %s", ue)
         raise HTTPException(
             status_code=502,
             detail={"code": "UPSTREAM_UNAVAILABLE", "message": "Upstream music provider is currently unreachable.", "retry_after": 5}
@@ -997,7 +391,7 @@ async def search_tracks(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Router Error (search): {str(e)}")
+        logger.error("Router Error (search): %s", e)
         raise HTTPException(
             status_code=500,
             detail={"code": "SEARCH_FAILED", "message": "Error searching for music", "retry_after": None}
@@ -1013,40 +407,11 @@ async def search_suggestions(
     Global search suggestions with Spotify-style relevance ranking.
     """
     try:
-        user_langs = get_user_search_languages(user)
-        pref_langs = [l.strip().lower() for l in user_langs.split(",") if l.strip()]
-        
-        songs_task = youtube.search_youtube(query, limit=10)
-        artists_task = youtube.search_artists_youtube(query, limit=3)
-        songs, artists = await asyncio.gather(songs_task, artists_task, return_exceptions=True)
-        
-        songs_list = songs if isinstance(songs, list) else []
-        artists_list = artists if isinstance(artists, list) else []
-        
-        valid_artists = []
-        for a in artists_list:
-            if isinstance(a, dict):
-                name = a.get("name") or a.get("artist") or a.get("title")
-                if name and str(name).strip() and str(name).strip().lower() != "unknown artist":
-                    valid_artists.append({
-                        "id": a.get("id") or a.get("browseId") or "",
-                        "name": str(name).strip(),
-                        "image": a.get("image") or (a.get("thumbnails", [{}])[-1].get("url") if a.get("thumbnails") else ""),
-                        "type": "artist"
-                    })
-
-        scored = [(score_track_relevance(s, query, pref_langs), s) for s in songs_list]
-        scored.sort(key=lambda x: x[0], reverse=True)
-        ranked = [item[1] for item in scored]
-        
-        return {
-            "songs": ranked[:8],
-            "artists": valid_artists[:3],
-            "albums": []
-        }
+        return await execute_search_suggestions(query, user)
     except Exception as e:
-        print(f"Suggestions Error: {str(e)}")
+        logger.warning("Suggestions Error: %s", e)
         return {"songs": [], "artists": [], "albums": []}
+
 
 @router.get("/search/artists")
 async def search_artists(query: str = Query(..., min_length=1)):
@@ -1057,11 +422,16 @@ async def search_artists(query: str = Query(..., min_length=1)):
         results = await youtube.search_artists_youtube(query, limit=10)
         return results
     except Exception as e:
-        print(f"Artist Search Error: {str(e)}")
+        logger.warning("Artist Search Error: %s", e)
         return []
 
+
 @router.post("/like")
-async def like_song(song: Dict[str, Any], user: models.User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def like_song(
+    song: Dict[str, Any],
+    user: models.User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
     try:
         liked = await UserRepository.like_song(db, user.id, song)
         if not liked:
@@ -1069,35 +439,43 @@ async def like_song(song: Dict[str, Any], user: models.User = Depends(get_curren
         return {"message": "Song liked successfully"}
     except Exception as e:
         await db.rollback()
-        print(f"Like Error: {str(e)}")
+        logger.error("Like Error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to like song")
 
+
 @router.delete("/unlike/{song_id}")
-async def unlike_song(song_id: str, user: models.User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def unlike_song(
+    song_id: str,
+    user: models.User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
     try:
         await UserRepository.unlike_song(db, user.id, song_id)
         return {"message": "Song unliked successfully"}
     except Exception as e:
         await db.rollback()
+        logger.error("Unlike Error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to unlike song")
+
 
 @router.get("/liked")
 async def get_liked_songs(
-    limit: int = 20, 
-    offset: int = 0, 
-    user: models.User = Depends(get_current_user), 
+    limit: int = 20,
+    offset: int = 0,
+    user: models.User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     try:
         return await UserRepository.get_liked_songs(db, user.id, limit=limit, offset=offset)
     except Exception as e:
-        print(f"Fetch Liked Error: {str(e)}")
+        logger.error("Fetch Liked Error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to fetch liked songs")
+
 
 @router.get("/recommendations/{song_id}")
 async def get_recommendations(
-    song_id: str, 
-    artist: str = Query(None), 
+    song_id: str,
+    artist: str = Query(None),
     lang: str = Query(None),
     limit: int = Query(25),
     user: models.User = Depends(get_current_user_optional),
@@ -1128,9 +506,9 @@ async def get_recommendations(
 
         # Priority 1: Real behavioral similarity from personal recommender
         p1 = personal_recommender.get_similar_songs(
-            song_id, 
-            preferred_languages=user_langs, 
-            user_id=uid, 
+            song_id,
+            preferred_languages=user_langs,
+            user_id=uid,
             limit=target_limit
         )
         if p1:
@@ -1143,13 +521,19 @@ async def get_recommendations(
             graph_recs = recommendation_graph.get_recommendations(song_id, limit=needed + 5, current_language=primary_lang)
             if graph_recs:
                 results.extend(graph_recs)
-        
+
         # Priority 3: Fallback / Supplement with YouTube's related songs
         if len(results) < target_limit:
             needed = target_limit - len(results)
-            yt_recs = await youtube.get_related_songs(song_id, limit=max(needed + 5, 16))
-            if yt_recs:
-                results.extend(yt_recs)
+            try:
+                yt_recs = await asyncio.wait_for(
+                    youtube.get_related_songs(song_id, limit=max(needed + 5, 16)),
+                    timeout=5.0
+                )
+                if yt_recs:
+                    results.extend(yt_recs)
+            except Exception as yte:
+                logger.warning("YouTube related songs fetch warning: %s", yte)
 
         # Strict Language Gating across ALL results (including YouTube fallback)
         if user_langs:
@@ -1171,7 +555,7 @@ async def get_recommendations(
                     continue
                 filtered_results.append(item)
             results = filtered_results
-            
+
         # Enforce canonical title deduplication across all fallback sources
         if results:
             seen_canons = set()
@@ -1185,12 +569,13 @@ async def get_recommendations(
 
         return results[:target_limit]
     except Exception as e:
-        print(f"Recommendations Error (Router): {str(e)}")
+        logger.error("Recommendations Error (Router): %s", e)
         return []
+
 
 @router.get("/related/{song_id}")
 async def get_related_songs(
-    song_id: str, 
+    song_id: str,
     artist: str = Query(None),
     lang: str = Query(None),
     user: models.User = Depends(get_current_user_optional),
@@ -1202,14 +587,16 @@ async def get_related_songs(
     return await get_recommendations(song_id, artist=artist, lang=lang, user=user, db=db)
 
 
-
 @router.get("/artist/{artist_id}")
 async def get_artist_details(artist_id: str):
     """
     Get artist profile and top songs from YouTube.
     """
     try:
-        results = await youtube.get_artist_details_youtube(artist_id)
+        results = await asyncio.wait_for(
+            youtube.get_artist_details_youtube(artist_id),
+            timeout=5.0
+        )
         if not results:
             raise HTTPException(
                 status_code=404,
@@ -1219,17 +606,18 @@ async def get_artist_details(artist_id: str):
     except HTTPException:
         raise
     except (httpx.ConnectError, httpx.TimeoutException, asyncio.TimeoutError) as ue:
-        print(f"Artist Upstream Error: {str(ue)}")
+        logger.warning("Artist Upstream Error: %s", ue)
         raise HTTPException(
             status_code=502,
             detail={"code": "UPSTREAM_UNAVAILABLE", "message": "Artist upstream service is unreachable.", "retry_after": 5}
         )
     except Exception as e:
-        print(f"Artist Error (Router): {str(e)}")
+        logger.error("Artist Error (Router): %s", e)
         raise HTTPException(
             status_code=500,
             detail={"code": "ARTIST_FETCH_FAILED", "message": "Error fetching artist details", "retry_after": None}
         )
+
 
 @router.get("/albums/{album_id}")
 async def get_album_details(album_id: str):
@@ -1237,7 +625,10 @@ async def get_album_details(album_id: str):
     Fetch full details and tracklist for a specific album from YouTube.
     """
     try:
-        results = await youtube.get_album_details_youtube(album_id)
+        results = await asyncio.wait_for(
+            youtube.get_album_details_youtube(album_id),
+            timeout=5.0
+        )
         if not results:
             raise HTTPException(
                 status_code=404,
@@ -1247,17 +638,18 @@ async def get_album_details(album_id: str):
     except HTTPException:
         raise
     except (httpx.ConnectError, httpx.TimeoutException, asyncio.TimeoutError) as ue:
-        print(f"Album Upstream Error: {str(ue)}")
+        logger.warning("Album Upstream Error: %s", ue)
         raise HTTPException(
             status_code=502,
             detail={"code": "UPSTREAM_UNAVAILABLE", "message": "Album upstream service is unreachable.", "retry_after": 5}
         )
     except Exception as e:
-        print(f"Album Error (Router): {str(e)}")
+        logger.error("Album Error (Router): %s", e)
         raise HTTPException(
             status_code=500,
             detail={"code": "ALBUM_FETCH_FAILED", "message": "Error fetching album details", "retry_after": None}
         )
+
 
 @router.get("/catalog/delta")
 async def get_catalog_delta(since: int = Query(0, description="Timestamp since last sync")):
@@ -1329,6 +721,3 @@ async def get_catalog_delta(since: int = Query(0, description="Timestamp since l
             }
         ]
     }
-
-
-

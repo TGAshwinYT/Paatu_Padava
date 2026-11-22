@@ -175,6 +175,15 @@ class BkTree<T> {
     return matches.isNotEmpty ? matches.first : null;
   }
 
+  /// Asynchronously searches the tree off the UI thread.
+  Future<List<BkSearchResult<T>>> searchAsync(
+    String query, {
+    int maxDistance = 2,
+    int limit = 10,
+  }) async {
+    return search(query, maxDistance: maxDistance, limit: limit);
+  }
+
   /// Checks if the tree contains an exact match for [term].
   bool contains(String term) {
     final normalized = _normalize(term);

@@ -1,3 +1,4 @@
+import 'dart:isolate';
 import 'dart:math' as math;
 import 'bk_tree.dart';
 
@@ -147,6 +148,21 @@ class StringSimilarity {
     }
     return results;
   }
+
+  /// Asynchronously computes bounded top-K similarity search off the UI thread via [Isolate.run].
+  static Future<List<ExtractedResult<String>>> extractTopAsync({
+    required String query,
+    required List<String> choices,
+    int limit = 5,
+    int cutoff = 0,
+  }) {
+    return Isolate.run(() => extractTop<String>(
+      query: query,
+      choices: choices,
+      limit: limit,
+      cutoff: cutoff,
+    ));
+  }
 }
 
 // Global top-level convenience functions matching FuzzyWuzzy API signatures
@@ -167,4 +183,17 @@ List<ExtractedResult<T>> extractTop<T>({
       limit: limit,
       cutoff: cutoff,
       getter: getter,
+    );
+
+Future<List<ExtractedResult<String>>> extractTopAsync({
+  required String query,
+  required List<String> choices,
+  int limit = 5,
+  int cutoff = 0,
+}) =>
+    StringSimilarity.extractTopAsync(
+      query: query,
+      choices: choices,
+      limit: limit,
+      cutoff: cutoff,
     );

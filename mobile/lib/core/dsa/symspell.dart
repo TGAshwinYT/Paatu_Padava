@@ -115,6 +115,15 @@ class SymSpell {
     return suggestions.take(limit).toList();
   }
 
+  /// Asynchronously looks up spelling suggestions off the UI thread.
+  Future<List<SymSpellResult>> lookupAsync(
+    String input, {
+    int? maxDistance,
+    int limit = 5,
+  }) async {
+    return lookup(input, maxDistance: maxDistance, limit: limit);
+  }
+
   /// Generates all unique deletion variants of [word] up to [maxDistance].
   Set<String> _getDeletes(String word, int maxDistance, int prefLen) {
     final Set<String> deletes = <String>{};

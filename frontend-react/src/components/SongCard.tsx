@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Play, Plus, Heart, ListMusic, PlusCircle, Download, Radio, Loader2, Check } from 'lucide-react';
 import type { Song } from '../types';
-import { useAudio } from '../context/AudioContext';
+import { useAudioActions } from '../context/AudioContext';
 import { usePlaylistModal } from '../context/PlaylistModalContext';
 import { getValidImage } from '../utils/imageUtils';
 import { useAuth } from '../context/AuthContext';
@@ -19,7 +19,7 @@ interface SongCardProps {
 const SongCard: React.FC<SongCardProps> = ({ song, isInitiallyLiked = false, onPlay, context }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { playContext, addToQueue, startSongRadio } = useAudio();
+  const { playContext, addToQueue, startSongRadio } = useAudioActions();
   const { openModal } = usePlaylistModal();
   const { user } = useAuth();
   const [isLiked, setIsLiked] = useState(isInitiallyLiked);
@@ -166,4 +166,4 @@ const SongCard: React.FC<SongCardProps> = ({ song, isInitiallyLiked = false, onP
   );
 };
 
-export default SongCard;
+export default React.memo(SongCard);

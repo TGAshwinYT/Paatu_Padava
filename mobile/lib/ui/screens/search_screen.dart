@@ -50,6 +50,7 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void initState() {
     super.initState();
+    FuzzySearchService.ensureInitializedAsync();
     _initTrie();
     SearchHistoryManager.historyNotifier.addListener(_onHistoryQueryAdded);
     for (final l in [SearchHistoryManager.recentSongsNotifier, FavoritesManager.favoritesNotifier, DownloadManager.downloadedSongsNotifier]) { l.addListener(_scheduleLibrarySync); }

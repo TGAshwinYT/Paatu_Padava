@@ -1,6 +1,7 @@
 import asyncio
 import difflib
 import json
+import logging
 import re
 from typing import Any, Dict, Optional
 from fastapi import HTTPException
@@ -8,6 +9,8 @@ from upstash_redis.asyncio import Redis as UpstashRedis
 
 from services import youtube
 from services.saavn import search_saavn
+
+logger = logging.getLogger(__name__)
 
 
 def clean_song_title(t: str) -> str:
@@ -87,7 +90,7 @@ async def resolve_single_stream(
                     data["cached"] = True
                     return data
         except Exception as e:
-            print(f"Redis get stream warning: {e}")
+            logger.warning("Redis get stream warning: %s", e)
 
     # 2. If title provided, attempt high quality JioSaavn 320kbps resolution with strict title matching
     audio_url = None
@@ -119,7 +122,7 @@ async def resolve_single_stream(
                 download_urls = candidate.get("download_urls", [audio_url])
                 matched_title = candidate.get("title")
         except Exception as e:
-            print(f"JioSaavn stream resolution warning: {e}")
+            logger.warning("JioSaavn stream resolution warning: %s", e)
 
     # 3. Formulate Payload
     if audio_url:
@@ -138,11 +141,11 @@ async def resolve_single_stream(
         if len(song_id) != 11 and title:
             try:
                 yt_query = f"{title} {artist}".strip() if artist else title.strip()
-                yt_matches = await youtube.search_youtube(yt_query, limit=1)
+                yt_matches = await asyncio.wait_for(youtube.search_youtube(yt_query, limit=1), timeout=4.0)
                 if yt_matches and yt_matches[0].get("id"):
                     yt_id = yt_matches[0]["id"]
-            except Exception:
-                pass
+            except Exception as se:
+                logger.debug("YouTube stream search fallback notice: %s", se)
 
         yt_audio_url = None
         if yt_id and len(yt_id) == 11:
@@ -150,7 +153,7 @@ async def resolve_single_stream(
                 from services import youtube as yt_service
                 yt_audio_url = await asyncio.wait_for(yt_service.get_audio_stream_url(yt_id), timeout=7.0)
             except Exception as yt_err:
-                print(f"Backend yt_dlp stream resolution notice: {yt_err}")
+                logger.warning("Backend yt_dlp stream resolution notice: %s", yt_err)
 
         if not yt_audio_url:
             # Resolution failed across both JioSaavn and YouTube
@@ -177,6 +180,6 @@ async def resolve_single_stream(
             ttl = 86400 if payload.get("source") == "saavn" else 43200
             await asyncio.wait_for(redis_client.setex(cache_key, ttl, json.dumps(payload)), timeout=1.5)
         except Exception as e:
-            print(f"Redis set stream warning: {e}")
+            logger.warning("Redis set stream warning: %s", e)
 
     return payload

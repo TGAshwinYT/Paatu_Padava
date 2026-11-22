@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
@@ -1366,12 +1367,10 @@ class AudioQueueHandler {
 
     if (enable) {
       _isShuffleEnabled = true;
-      int activeRawIdx = 0;
-      if (_currentTrack != null) {
+      int activeRawIdx = _contextIndex.clamp(0, math.max(0, _contextQueue.length - 1));
+      if (_currentTrack != null && !_currentTrackIsFromUserQueue) {
         final match = _contextQueue.indexWhere((t) => t.id == _currentTrack!.id);
         if (match != -1) activeRawIdx = match;
-      } else if (_contextIndex >= 0 && _contextIndex < _contextQueue.length) {
-        activeRawIdx = _contextIndex;
       }
 
       _contextShuffleIndices.clear();
@@ -1389,10 +1388,17 @@ class AudioQueueHandler {
     } else {
       _isShuffleEnabled = false;
 
-      int restoredRawIdx = 0;
-      if (_currentTrack != null) {
+      int restoredRawIdx = _contextIndex.clamp(0, math.max(0, _contextQueue.length - 1));
+      if (_currentTrack != null && !_currentTrackIsFromUserQueue) {
         final match = _contextQueue.indexWhere((t) => t.id == _currentTrack!.id);
-        if (match != -1) restoredRawIdx = match;
+        if (match != -1) {
+          restoredRawIdx = match;
+        } else {
+          restoredRawIdx = _shufflePermutator.restoreRawIndex(
+            permutationTable: _contextShuffleIndices,
+            currentPermutedIndex: _contextIndex,
+          );
+        }
       } else {
         restoredRawIdx = _shufflePermutator.restoreRawIndex(
           permutationTable: _contextShuffleIndices,
@@ -1909,6 +1915,13 @@ class AudioQueueHandler {
               skipToNext(isUserInitiated: false);
             }
           });
+        } else {
+          final err = streamResolver.lastResolutionError ?? AppError.songUnavailable(song.title);
+          errorNotifier.value = err;
+          onError?.call(err);
+          if (isAudioHandlerInitialized) {
+            audioHandler.playbackErrorNotifier.value = err;
+          }
         }
         return;
       }
@@ -2541,6 +2554,8 @@ class AudioQueueHandler {
     _playbackEventSub?.cancel();
     _positionSub?.cancel();
     _volumeWatchdogTimer?.cancel();
+    _preloadDebounceTimer?.cancel();
+    _crossfadeEngine.dispose();
     cancelIdleTimer();
     _cancelBufferStallWatchdog();
     _sequenceStateSub?.cancel();

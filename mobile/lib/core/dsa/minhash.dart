@@ -1,3 +1,4 @@
+import 'dart:isolate';
 import 'dart:math' as math;
 
 /// Represents a compact 64-dimensional MinHash sketch signature.
@@ -148,5 +149,18 @@ class MinHash {
     }
 
     return computeFromTokens(tokens);
+  }
+
+  /// Asynchronously computes a unified track signature off the UI thread via [Isolate.run].
+  static Future<MinHashSignature> computeTrackSignatureAsync({
+    required String title,
+    required String artist,
+    String? album,
+  }) {
+    return Isolate.run(() => instance.computeTrackSignature(
+      title: title,
+      artist: artist,
+      album: album,
+    ));
   }
 }

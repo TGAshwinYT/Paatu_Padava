@@ -163,6 +163,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   StreamSubscription? _playbackEventSub;
   StreamSubscription<Duration?>? _durationSub;
   StreamSubscription<Duration>? _positionHubSub;
+  int _playSongRequestId = 0;
   StreamController<Duration>? _throttledPositionController;
   StreamController<Duration>? _lyricsPositionController;
   int _lastThrottledEmitMs = 0;
@@ -986,12 +987,14 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
         type: context.type,
       );
     }
+    final reqId = ++_playSongRequestId;
     try {
       final session = await AudioSession.instance;
       await session.setActive(true);
     } catch (e) {
       AppLogger.debug('PaatuAudioHandler', 'AudioSession setActive(true) error on playSong: $e');
     }
+    if (reqId != _playSongRequestId) return;
     _isForegroundDowngraded = false;
     _queueHandler.cancelIdleTimer();
 
@@ -999,10 +1002,12 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     final hasValidStream = song.streamUrl != null && song.streamUrl!.isNotEmpty;
     if (!hasValidStream || _streamResolver.isExpired(song.id)) {
       final resolved = await _streamResolver.resolveStreamUrl(song);
+      if (reqId != _playSongRequestId) return;
       if (resolved != null && resolved.isNotEmpty) {
         song.streamUrl = resolved;
       }
     }
+    if (reqId != _playSongRequestId) return;
 
     final isNewSingleQueue = queue == null || (queue.length == 1 && queue.first.id == song.id);
     final initialIndex = queue != null ? queue.indexWhere((s) => s.id == song.id) : 0;
@@ -1295,6 +1300,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     _positionHubSub?.cancel();
     _throttledPositionController?.close();
     _lyricsPositionController?.close();
+    _smartShuffleController.dispose();
     _queueHandler.dispose();
   }
 

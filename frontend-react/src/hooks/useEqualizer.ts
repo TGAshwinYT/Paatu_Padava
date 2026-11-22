@@ -37,6 +37,7 @@ export function useEqualizer() {
   const filtersRef = useRef<BiquadFilterNode[]>([]);
   const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
   const connectedElementRef = useRef<HTMLAudioElement | null>(null);
+  const sourceMapRef = useRef(new WeakMap<HTMLAudioElement, MediaElementAudioSourceNode>());
 
   // State
   const [bands, setBands] = useState<EqBand[]>(() => {
@@ -101,7 +102,7 @@ export function useEqualizer() {
   const connectSource = useCallback((audioElement: HTMLAudioElement | null) => {
     if (!audioElement) return;
 
-    // Don't reconnect the same element
+    // Don't reconnect the same element if already active
     if (connectedElementRef.current === audioElement && sourceNodeRef.current) {
       return;
     }
@@ -113,7 +114,7 @@ export function useEqualizer() {
       ctx.resume().catch(() => {});
     }
 
-    // Disconnect previous source if different element
+    // Disconnect previous active source node
     if (sourceNodeRef.current && connectedElementRef.current !== audioElement) {
       try {
         sourceNodeRef.current.disconnect();
@@ -121,22 +122,32 @@ export function useEqualizer() {
       sourceNodeRef.current = null;
     }
 
+    // Reuse existing MediaElementAudioSourceNode if one was already created for this element
+    let source = sourceMapRef.current.get(audioElement);
+    if (!source) {
+      try {
+        source = ctx.createMediaElementSource(audioElement);
+        sourceMapRef.current.set(audioElement, source);
+      } catch (e: any) {
+        console.warn('[useEqualizer] Failed to create MediaElementSourceNode (CORS or duplicate):', e);
+        return;
+      }
+    }
+
     try {
-      const source = ctx.createMediaElementSource(audioElement);
-      source.connect(filtersRef.current[0]);
+      source.disconnect();
+    } catch {}
+
+    try {
+      if (filtersRef.current.length > 0) {
+        source.connect(filtersRef.current[0]);
+      } else {
+        source.connect(ctx.destination);
+      }
       sourceNodeRef.current = source;
       connectedElementRef.current = audioElement;
-    } catch (e: any) {
-      // If the element already has a source node, reconnect
-      if (e.name === 'InvalidStateError' && sourceNodeRef.current) {
-        try {
-          sourceNodeRef.current.disconnect();
-          sourceNodeRef.current.connect(filtersRef.current[0]);
-          connectedElementRef.current = audioElement;
-        } catch {}
-      } else {
-        console.warn('[useEqualizer] Failed to connect audio source:', e);
-      }
+    } catch (e) {
+      console.warn('[useEqualizer] Failed to connect source to EQ filter chain:', e);
     }
   }, [ensureAudioContext]);
 
@@ -148,6 +159,17 @@ export function useEqualizer() {
       } catch {}
       sourceNodeRef.current = null;
       connectedElementRef.current = null;
+    }
+  }, []);
+
+  // ── Resume AudioContext on User Gesture ───────────────────────────────────
+  const resumeContext = useCallback(async () => {
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+      try {
+        await audioContextRef.current.resume();
+      } catch (e) {
+        console.warn('[useEqualizer] Could not resume audio context:', e);
+      }
     }
   }, []);
 
@@ -191,6 +213,7 @@ export function useEqualizer() {
     applyPreset,
     connectSource,
     disconnectSource,
+    resumeContext,
     setEqEnabled,
   };
 }

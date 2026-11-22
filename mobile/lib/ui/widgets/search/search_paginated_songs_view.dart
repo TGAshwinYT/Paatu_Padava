@@ -152,6 +152,7 @@ class _SearchPaginatedSongsViewState extends State<SearchPaginatedSongsView> {
         if (index < _songs.length) {
           final song = _songs[index];
           return SearchSongTile(
+            key: ValueKey(song.id),
             song: song,
             onTap: () {
               widget.onRecordClick(song);

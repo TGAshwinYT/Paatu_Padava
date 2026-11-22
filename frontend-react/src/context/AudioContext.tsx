@@ -33,12 +33,7 @@ const shuffleArray = (array: any[]) => {
   return shuffled;
 };
 
-export interface AudioContextType {
-  currentTrack: Song | null;
-  isPlaying: boolean;
-  volume: number;
-  isShuffle: boolean;
-  repeatMode: 'none' | 'all' | 'one';
+export interface AudioActionsContextType {
   playContext: (track: Song, tracks?: Song[]) => void;
   togglePlay: () => void;
   seekTo: (value: number) => void;
@@ -48,10 +43,6 @@ export interface AudioContextType {
   playNext: () => void;
   playPrevious: () => void;
   setSleepTimer: (minutes: number | 'end' | null) => void;
-  remainingSleepTime: number | null;
-  queue: Song[]; 
-  history: Song[];
-  userPlaylists: any[];
   addToQueue: (track: Song) => void;
   removeFromQueue: (trackId: string) => void;
   reorderQueue: (startIndex: number, endIndex: number) => void;
@@ -60,31 +51,50 @@ export interface AudioContextType {
   setQueue: React.Dispatch<React.SetStateAction<Song[]>>;
   clearHistory: () => void;
   playFromSearch: (track: Song) => void;
-  isBuffering: boolean;
-  onEnded: () => void;
-  // ─── Silent Bridge additions ────────────────────────────────────────────────
-  playbackEngine: PlaybackEngine;
-  nativeAudioUrl: string | null;
-  youtubeVideoId: string | null;
   playHybridTrack: (spotifyTrack: SpotifyTrack) => Promise<void>;
-  isResolvingStream: boolean;
-  // ─── Crossfade & Equalizer ────────────────────────────────────────────────
-  crossfadeDuration: number;
   setCrossfadeDuration: (seconds: number) => void;
-  eqBands: EqBand[];
-  eqPreset: EqPreset;
-  isEqAvailable: boolean;
   setEqBandGain: (bandIndex: number, gain: number) => void;
   applyEqPreset: (preset: EqPreset) => void;
-  // ─── Autoplay & Song Radio ────────────────────────────────────────────────
-  isAutoplay: boolean;
   toggleAutoplay: () => void;
   setIsAutoplay: (enabled: boolean) => void;
   startSongRadio: (seedSong: Song) => Promise<void>;
   downloadCurrentTrack: () => Promise<void>;
 }
 
+export interface AudioContextType extends AudioActionsContextType {
+  currentTrack: Song | null;
+  isPlaying: boolean;
+  volume: number;
+  isShuffle: boolean;
+  repeatMode: 'none' | 'all' | 'one';
+  remainingSleepTime: number | null;
+  queue: Song[]; 
+  history: Song[];
+  userPlaylists: any[];
+  isBuffering: boolean;
+  onEnded: () => void;
+  // ─── Silent Bridge additions ────────────────────────────────────────────────
+  playbackEngine: PlaybackEngine;
+  nativeAudioUrl: string | null;
+  youtubeVideoId: string | null;
+  isResolvingStream: boolean;
+  // ─── Crossfade & Equalizer ────────────────────────────────────────────────
+  crossfadeDuration: number;
+  eqBands: EqBand[];
+  eqPreset: EqPreset;
+  isEqAvailable: boolean;
+  // ─── Autoplay & Song Radio ────────────────────────────────────────────────
+  isAutoplay: boolean;
+}
+
+const AudioActionsContext = createContext<AudioActionsContextType | undefined>(undefined);
 const AudioContext = createContext<AudioContextType | undefined>(undefined);
+
+export const useAudioActions = (): AudioActionsContextType => {
+  const context = useContext(AudioActionsContext);
+  if (context === undefined) throw new Error('useAudioActions must be used within an AudioProvider');
+  return context;
+};
 
 export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
@@ -1253,62 +1263,135 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     await downloadSongFile(currentTrack);
   }, [currentTrack]);
 
-  const audioContextValue = useMemo(() => ({
-    currentTrack, isPlaying, volume, isShuffle, repeatMode,
-    remainingSleepTime, queue, history, userPlaylists,
-    togglePlay, seekTo, setVolume, toggleRepeat,
+  const audioActionsValue = useMemo<AudioActionsContextType>(() => ({
+    playContext,
+    playFromSearch,
+    playHybridTrack,
+    togglePlay,
+    seekTo,
+    setVolume,
+    toggleRepeat,
     toggleShuffle,
-    playNext, playPrevious,
-    setSleepTimer, addToQueue, removeFromQueue, reorderQueue, handleOnDragEnd, refreshPlaylists, setQueue, clearHistory, playContext, playFromSearch,
-    onEnded, isBuffering,
-    // Silent Bridge
-    playbackEngine, nativeAudioUrl, youtubeVideoId, playHybridTrack, isResolvingStream,
-    // Crossfade & Equalizer
-    crossfadeDuration, setCrossfadeDuration,
-    eqBands, eqPreset, isEqAvailable, setEqBandGain, applyEqPreset,
-    // Autoplay & Song Radio
-    isAutoplay, toggleAutoplay, setIsAutoplay, startSongRadio, downloadCurrentTrack,
+    playNext,
+    playPrevious,
+    setSleepTimer,
+    addToQueue,
+    removeFromQueue,
+    reorderQueue,
+    handleOnDragEnd,
+    refreshPlaylists,
+    setQueue,
+    clearHistory,
+    setCrossfadeDuration,
+    setEqBandGain,
+    applyEqPreset,
+    toggleAutoplay,
+    setIsAutoplay,
+    startSongRadio,
+    downloadCurrentTrack,
   }), [
-    currentTrack, isPlaying, volume, isShuffle, repeatMode,
-    remainingSleepTime, queue, history, userPlaylists,
-    togglePlay, seekTo, setVolume, toggleRepeat,
+    playContext,
+    playFromSearch,
+    playHybridTrack,
+    togglePlay,
+    seekTo,
+    setVolume,
+    toggleRepeat,
     toggleShuffle,
-    playNext, playPrevious,
-    setSleepTimer, addToQueue, removeFromQueue, reorderQueue, handleOnDragEnd, refreshPlaylists, setQueue, clearHistory, playContext, playFromSearch,
-    onEnded, isBuffering,
-    playbackEngine, nativeAudioUrl, youtubeVideoId, playHybridTrack, isResolvingStream,
-    crossfadeDuration, setCrossfadeDuration,
-    eqBands, eqPreset, isEqAvailable, setEqBandGain, applyEqPreset,
-    isAutoplay, toggleAutoplay, setIsAutoplay, startSongRadio, downloadCurrentTrack,
+    playNext,
+    playPrevious,
+    setSleepTimer,
+    addToQueue,
+    removeFromQueue,
+    reorderQueue,
+    handleOnDragEnd,
+    refreshPlaylists,
+    setQueue,
+    clearHistory,
+    setCrossfadeDuration,
+    setEqBandGain,
+    applyEqPreset,
+    toggleAutoplay,
+    setIsAutoplay,
+    startSongRadio,
+    downloadCurrentTrack,
+  ]);
+
+  const audioContextValue = useMemo<AudioContextType>(() => ({
+    ...audioActionsValue,
+    currentTrack,
+    isPlaying,
+    volume,
+    isShuffle,
+    repeatMode,
+    remainingSleepTime,
+    queue,
+    history,
+    userPlaylists,
+    isBuffering,
+    onEnded,
+    playbackEngine,
+    nativeAudioUrl,
+    youtubeVideoId,
+    isResolvingStream,
+    crossfadeDuration,
+    eqBands,
+    eqPreset,
+    isEqAvailable,
+    isAutoplay,
+  }), [
+    audioActionsValue,
+    currentTrack,
+    isPlaying,
+    volume,
+    isShuffle,
+    repeatMode,
+    remainingSleepTime,
+    queue,
+    history,
+    userPlaylists,
+    isBuffering,
+    onEnded,
+    playbackEngine,
+    nativeAudioUrl,
+    youtubeVideoId,
+    isResolvingStream,
+    crossfadeDuration,
+    eqBands,
+    eqPreset,
+    isEqAvailable,
+    isAutoplay,
   ]);
 
   return (
-    <AudioContext.Provider value={audioContextValue}>
-      <QueueProvider initialQueue={queue}>
-        <PlaybackProgressProvider youtubePlayerRef={youtubePlayer}>
-          {children}
-          <AudioPlayerBridge
-            currentTrack={currentTrack}
-            isPlaying={isPlaying}
-            volume={volume}
-            playbackEngine={playbackEngine}
-            nativeAudioUrl={nativeAudioUrl}
-            youtubeVideoId={youtubeVideoId}
-            crossfadeDuration={crossfadeDuration}
-            connectEqualizer={connectEqSource}
-            onReady={(player) => {
-              youtubePlayer.current = player;
-            }}
-            onEnd={onEnded}
-            playNext={playNext}
-            playPrevious={playPrevious}
-            setIsPlaying={setIsPlaying}
-            setIsBuffering={setIsBuffering}
-            currentTimeRef={currentTimeRef}
-          />
-        </PlaybackProgressProvider>
-      </QueueProvider>
-    </AudioContext.Provider>
+    <AudioActionsContext.Provider value={audioActionsValue}>
+      <AudioContext.Provider value={audioContextValue}>
+        <QueueProvider initialQueue={queue}>
+          <PlaybackProgressProvider youtubePlayerRef={youtubePlayer}>
+            {children}
+            <AudioPlayerBridge
+              currentTrack={currentTrack}
+              isPlaying={isPlaying}
+              volume={volume}
+              playbackEngine={playbackEngine}
+              nativeAudioUrl={nativeAudioUrl}
+              youtubeVideoId={youtubeVideoId}
+              crossfadeDuration={crossfadeDuration}
+              connectEqualizer={connectEqSource}
+              onReady={(player) => {
+                youtubePlayer.current = player;
+              }}
+              onEnd={onEnded}
+              playNext={playNext}
+              playPrevious={playPrevious}
+              setIsPlaying={setIsPlaying}
+              setIsBuffering={setIsBuffering}
+              currentTimeRef={currentTimeRef}
+            />
+          </PlaybackProgressProvider>
+        </QueueProvider>
+      </AudioContext.Provider>
+    </AudioActionsContext.Provider>
   );
 };
 

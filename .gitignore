@@ -24,6 +24,8 @@ local.properties
 # Python cache
 **/__pycache__/
 *.pyc
+.pytest_cache/
+**/.pytest_cache/
 
 # Node & Vite bundler cache
 node_modules/

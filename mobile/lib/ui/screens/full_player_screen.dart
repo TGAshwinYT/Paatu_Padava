@@ -195,11 +195,19 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
             body: Stack(
               fit: StackFit.expand,
               children: [
-                // 1. Background Mesh: Isolated in RepaintBoundary so controls/ticks don't re-render it
-                RepaintBoundary(
-                  child: FluidMeshGradient(
-                    imageUrl: song.coverUrl,
-                  ),
+                // 1. Background Mesh: Isolated in RepaintBoundary and paused when playback stops
+                StreamBuilder<bool>(
+                  stream: audioHandler.player.playingStream,
+                  initialData: audioHandler.player.playing,
+                  builder: (context, snapshot) {
+                    final isPlaying = snapshot.data ?? false;
+                    return RepaintBoundary(
+                      child: FluidMeshGradient(
+                        imageUrl: song.coverUrl,
+                        animate: isPlaying,
+                      ),
+                    );
+                  },
                 ),
 
                 // 2. Main Foreground UI

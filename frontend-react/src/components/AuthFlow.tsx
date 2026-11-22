@@ -193,7 +193,11 @@ const AuthFlow: React.FC<AuthFlowProps> = ({ onComplete, onClose }) => {
     } finally {
       setIsSaving(false);
     }
-    onComplete ? onComplete() : navigate('/');
+    if (onComplete) {
+      onComplete();
+    } else {
+      navigate('/');
+    }
   };
 
   // ─── Wide card on steps 2 & 3 ──────────────────────────────────────────────

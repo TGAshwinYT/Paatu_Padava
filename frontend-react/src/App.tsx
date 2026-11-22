@@ -1,21 +1,29 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import axios from 'axios';
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import Home from './pages/Home';
-import Search from './pages/Search';
-import LikedSongs from './pages/LikedSongs';
-import RecentlyListened from './pages/RecentlyListened';
-import Login from './pages/Login';
-import Signup from './pages/Signup';
-import Onboarding from './pages/Onboarding';
-import Settings from './pages/Settings';
-import ForgotPassword from './pages/ForgotPassword';
-import PlaylistDetail from './pages/PlaylistDetail';
-import ArtistView from './pages/ArtistView';
-import Profile from './pages/Profile';
-import AlbumView from './pages/AlbumView';
-import LocalArtists from './pages/LocalArtists';
-import DownloadedSongs from './pages/DownloadedSongs';
+
+const Search = lazy(() => import('./pages/Search'));
+const LikedSongs = lazy(() => import('./pages/LikedSongs'));
+const RecentlyListened = lazy(() => import('./pages/RecentlyListened'));
+const Login = lazy(() => import('./pages/Login'));
+const Signup = lazy(() => import('./pages/Signup'));
+const Onboarding = lazy(() => import('./pages/Onboarding'));
+const Settings = lazy(() => import('./pages/Settings'));
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
+const PlaylistDetail = lazy(() => import('./pages/PlaylistDetail'));
+const ArtistView = lazy(() => import('./pages/ArtistView'));
+const Profile = lazy(() => import('./pages/Profile'));
+const AlbumView = lazy(() => import('./pages/AlbumView'));
+const LocalArtists = lazy(() => import('./pages/LocalArtists'));
+const DownloadedSongs = lazy(() => import('./pages/DownloadedSongs'));
+
+const PageLoadingFallback = () => (
+  <div className="flex-1 flex items-center justify-center min-h-[50vh]">
+    <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+  </div>
+);
+
 import LibraryAuthModal from './components/modals/LibraryAuthModal';
 import ProtectedRoute from './components/ProtectedRoute';
 import Sidebar from './components/Sidebar';
@@ -83,11 +91,13 @@ const AppContent = () => {
   // Full-screen auth pages (no sidebar, no player, no top bar)
   if (isAuthPage) {
     return (
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/signup" element={<Signup />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-      </Routes>
+      <Suspense fallback={<PageLoadingFallback />}>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+        </Routes>
+      </Suspense>
     );
   }
 
@@ -132,44 +142,46 @@ const AppContent = () => {
 
           <div className="absolute top-0 inset-x-0 bg-gradient-to-b from-neutral-800/50 to-transparent pointer-events-none h-64" />
           <div className="relative z-10 p-6">
-            <Routes>
-              <Route path="/" element={<Home isLoggedIn={!!user} />} />
-              <Route path="/search" element={<Search />} />
-              <Route path="/library" element={
-                <ProtectedRoute>
-                  <LikedSongs />
-                </ProtectedRoute>
-              } />
-              <Route path="/playlist/:id" element={
-                <ProtectedRoute>
-                  <PlaylistDetail />
-                </ProtectedRoute>
-              } />
-              <Route path="/history" element={
-                <ProtectedRoute>
-                  <RecentlyListened />
-                </ProtectedRoute>
-              } />
-              <Route path="/artist/:artistId" element={<ArtistView />} />
-              <Route path="/onboarding" element={
-                <ProtectedRoute>
-                  <Onboarding />
-                </ProtectedRoute>
-              } />
-              <Route path="/settings" element={
-                <ProtectedRoute>
-                  <Settings />
-                </ProtectedRoute>
-              } />
-              <Route path="/profile" element={
-                <ProtectedRoute>
-                  <Profile />
-                </ProtectedRoute>
-              } />
-              <Route path="/album/:id" element={<AlbumView />} />
-              <Route path="/local-artists" element={<LocalArtists />} />
-              <Route path="/downloaded" element={<DownloadedSongs />} />
-            </Routes>
+            <Suspense fallback={<PageLoadingFallback />}>
+              <Routes>
+                <Route path="/" element={<Home isLoggedIn={!!user} />} />
+                <Route path="/search" element={<Search />} />
+                <Route path="/library" element={
+                  <ProtectedRoute>
+                    <LikedSongs />
+                  </ProtectedRoute>
+                } />
+                <Route path="/playlist/:id" element={
+                  <ProtectedRoute>
+                    <PlaylistDetail />
+                  </ProtectedRoute>
+                } />
+                <Route path="/history" element={
+                  <ProtectedRoute>
+                    <RecentlyListened />
+                  </ProtectedRoute>
+                } />
+                <Route path="/artist/:artistId" element={<ArtistView />} />
+                <Route path="/onboarding" element={
+                  <ProtectedRoute>
+                    <Onboarding />
+                  </ProtectedRoute>
+                } />
+                <Route path="/settings" element={
+                  <ProtectedRoute>
+                    <Settings />
+                  </ProtectedRoute>
+                } />
+                <Route path="/profile" element={
+                  <ProtectedRoute>
+                    <Profile />
+                  </ProtectedRoute>
+                } />
+                <Route path="/album/:id" element={<AlbumView />} />
+                <Route path="/local-artists" element={<LocalArtists />} />
+                <Route path="/downloaded" element={<DownloadedSongs />} />
+              </Routes>
+            </Suspense>
           </div>
         </main>
       </div>
@@ -196,7 +208,7 @@ const App = () => {
         if (response.status === 200 && isMounted) {
           setIsServerReady(true);
         }
-      } catch (err) {
+      } catch {
         console.log("Backend cold starting... retrying in 3s");
         if (isMounted) setTimeout(checkHealth, 3000);
       }

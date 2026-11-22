@@ -171,10 +171,13 @@ async def search_youtube(query, filter="songs", limit=20):
                 _record_yt_error(e)
                 return []
 
-        songs_raw, videos_raw = await asyncio.gather(
-            loop.run_in_executor(None, _fetch_songs),
-            loop.run_in_executor(None, _fetch_videos),
-            return_exceptions=True
+        songs_raw, videos_raw = await asyncio.wait_for(
+            asyncio.gather(
+                loop.run_in_executor(None, _fetch_songs),
+                loop.run_in_executor(None, _fetch_videos),
+                return_exceptions=True
+            ),
+            timeout=6.0
         )
 
         songs_list = songs_raw if isinstance(songs_raw, list) else []
@@ -235,9 +238,12 @@ async def search_albums_youtube(query, limit=10):
     
     loop = asyncio.get_event_loop()
     try:
-        results = await loop.run_in_executor(
-            None, 
-            functools.partial(ytmusic.search, query, filter="albums", limit=limit)
+        results = await asyncio.wait_for(
+            loop.run_in_executor(
+                None, 
+                functools.partial(ytmusic.search, query, filter="albums", limit=limit)
+            ),
+            timeout=5.0
         )
         
         mapped_albums = []
@@ -271,9 +277,12 @@ async def search_artists_youtube(query, limit=10):
     
     loop = asyncio.get_event_loop()
     try:
-        results = await loop.run_in_executor(
-            None, 
-            functools.partial(ytmusic.search, query, filter="artists", limit=limit)
+        results = await asyncio.wait_for(
+            loop.run_in_executor(
+                None, 
+                functools.partial(ytmusic.search, query, filter="artists", limit=limit)
+            ),
+            timeout=5.0
         )
         
         mapped_artists = []
@@ -606,9 +615,12 @@ async def get_related_songs(video_id, limit=10):
     
     loop = asyncio.get_event_loop()
     try:
-        results = await loop.run_in_executor(
-            None, 
-            functools.partial(ytmusic.get_watch_playlist, videoId=video_id, limit=limit)
+        results = await asyncio.wait_for(
+            loop.run_in_executor(
+                None, 
+                functools.partial(ytmusic.get_watch_playlist, videoId=video_id, limit=limit)
+            ),
+            timeout=5.0
         )
         
         tracks = safe_get(results, 'tracks', [])

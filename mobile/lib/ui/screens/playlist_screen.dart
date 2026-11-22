@@ -692,6 +692,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                         (context, index) {
                           final song = tracks[index];
                           return SongTile(
+                            key: ValueKey(song.id),
                             song: song,
                             queue: tracks,
                             index: index,

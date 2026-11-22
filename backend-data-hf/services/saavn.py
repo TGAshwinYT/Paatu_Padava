@@ -13,6 +13,7 @@ from typing import List, Dict, Any, Optional
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from fastapi_cache.decorator import cache
+from graph import recommendation_graph
 
 # Ensure FastAPICache has at least a fallback in-memory backend if uninitialized
 try:
@@ -327,7 +328,7 @@ async def map_saavn_song(item: Dict[str, Any], lenient: bool = False) -> Dict[st
             "download_urls": [d.get("url") for d in downloads] if isinstance(downloads, list) else []
         }
     except Exception as e:
-        print(f"⚠️ Mapping failed for item: {str(e)}")
+        logger.warning("Mapping failed for item: %s", e)
         return {}
 
 async def search_saavn_direct(query: str, limit: int = 15, language: str = None) -> List[Dict[str, Any]]:
@@ -539,11 +540,6 @@ async def get_trending(languages: str = None) -> Dict[str, List[Dict[str, Any]]]
     try:
         # 1. Fetch from modules (Default Home Feed) with language context and Cookie header
         response = await fetch_from_saavn("modules", {"language": effective_languages}, language=primary_lang)
-        
-        logger.error("============= RAW JIOSAAVN DATA START =============")
-        logger.error(response)
-        logger.error("============= RAW JIOSAAVN DATA END =============")
-        
         data = response.get("data", {})
         
         if data:
@@ -565,11 +561,11 @@ async def get_trending(languages: str = None) -> Dict[str, List[Dict[str, Any]]]
                 if potential and (potential[0].get("type") == "artist" or "artist" in potential[0]):
                     artists_raw = potential
     except Exception as e:
-        print(f"Primary modules endpoint failed: {str(e)}")
+        logger.warning("Primary modules endpoint failed: %s", e)
 
     # 2. Robust Fallback: If modules are thin, search for fresh content using primary language
     if len(songs_raw) < 5 or len(albums_raw) < 5:
-        print(f"Home feed thin for {primary_lang}, triggering search-based population...")
+        logger.info("Home feed thin for %s, triggering search-based population...", primary_lang)
         
         # We fetch RAW data from saavn to avoid double mapping
         if not songs_raw:
@@ -581,21 +577,23 @@ async def get_trending(languages: str = None) -> Dict[str, List[Dict[str, Any]]]
             albums_raw = albums_resp.get("data", {}).get("results", [])
             
         if not artists_raw:
-            print(f"[LOCALIZATION] Fetching VIP regional artists for {primary_lang}...")
-            import asyncio
+            logger.info("[LOCALIZATION] Fetching VIP regional artists for %s...", primary_lang)
             
             vip_names = REGIONAL_VIP_ARTISTS.get(primary_lang, REGIONAL_VIP_ARTISTS.get("default", []))
             
             async def fetch_vip_artist(name):
-                resp = await fetch_from_saavn("search/artists", {"query": name}, language=primary_lang)
-                results = resp.get("data", {}).get("results", [])
-                return results[0] if results else None
+                try:
+                    resp = await fetch_from_saavn("search/artists", {"query": name}, language=primary_lang)
+                    results = resp.get("data", {}).get("results", [])
+                    return results[0] if results else None
+                except Exception:
+                    return None
 
             tasks = [fetch_vip_artist(name) for name in vip_names]
-            vip_results = await asyncio.gather(*tasks)
-            artists_raw = [artist for artist in vip_results if artist]
+            vip_results = await asyncio.gather(*tasks, return_exceptions=True)
+            artists_raw = [artist for artist in vip_results if isinstance(artist, dict) and artist]
             
-            print(f"DEBUG: Found {len(artists_raw)} VIP artists for {primary_lang}")
+            logger.info("Found %d VIP artists for %s", len(artists_raw), primary_lang)
 
             if not artists_raw:
                 artists_resp = await fetch_from_saavn("search/artists", {"query": f"Top {primary_lang.capitalize()} Artists"}, language=primary_lang)
@@ -667,7 +665,7 @@ async def get_trending(languages: str = None) -> Dict[str, List[Dict[str, Any]]]
                 for j in range(i + 1, len(song_ids)):
                     recommendation_graph.add_connection(song_ids[i], song_ids[j])
     except Exception as e:
-        print(f"[GRAPH WARNING] Trending injection failed: {e}")
+        logger.warning("[GRAPH WARNING] Trending injection failed: %s", e)
 
     return {
         "recommendedForYou": recommended_for_you,
@@ -704,7 +702,7 @@ async def get_related_songs(song_id: str, target_language: str = None, artist: s
     import random
     import asyncio
     try:
-        print(f"[FETCHING RADIO MIX] Bypassing broken suggestions for {song_id}...")
+        logger.info("[FETCHING RADIO MIX] Bypassing broken suggestions for %s...", song_id)
         
         # Step 0: Fetch current song metadata to extract identifiers
         current_resp = await fetch_from_saavn("songs", {"ids": song_id})
@@ -721,7 +719,7 @@ async def get_related_songs(song_id: str, target_language: str = None, artist: s
         # Normalization gate preparation
         target_lang = str(target_language).lower().strip() if target_language else str(current_song.get("language")).lower().strip()
 
-        print(f"[RECORDS FOUND] Artist: {primary_artist}, Historical Favorites: {historical_artists}, Lang: {target_lang}")
+        logger.info("[RECORDS FOUND] Artist: %s, Historical Favorites: %s, Lang: %s", primary_artist, historical_artists, target_lang)
 
         # Step 1: Broad Search Batch (Current Artist + Historical Favorites)
         search_targets = [primary_artist] if primary_artist and primary_artist != "Unknown" else []
@@ -732,7 +730,7 @@ async def get_related_songs(song_id: str, target_language: str = None, artist: s
                     search_targets.append(ha)
         
         # Parallel search for all target artists to ensure zero-latency impact
-        print(f"[RECORDS BATCH] Triggering {len(search_targets)} searches for blended Radio Mix...")
+        logger.info("[RECORDS BATCH] Triggering %d searches for blended Radio Mix...", len(search_targets))
         search_tasks = [search_saavn(target) for target in search_targets]
         search_results_batch = await asyncio.gather(*search_tasks, return_exceptions=True)
         
@@ -776,12 +774,12 @@ async def get_related_songs(song_id: str, target_language: str = None, artist: s
         # Step 3: The DJ Shuffle
         random.shuffle(filtered_songs)
         
-        print(f"[RADIO MIX COMPLETE] Generated {len(filtered_songs)} blended & shuffled results for {song_id}")
+        logger.info("[RADIO MIX COMPLETE] Generated %d blended & shuffled results for %s", len(filtered_songs), song_id)
         # Return top 10/12 songs from this shuffled pool
         return filtered_songs[:12]
 
     except Exception as e:
-        print(f"[CRITICAL ERROR] Radio Mix fetch failed: {str(e)}")
+        logger.error("[CRITICAL ERROR] Radio Mix fetch failed: %s", e)
         return []
 
 # Alias for backward compatibility
@@ -904,7 +902,7 @@ async def get_personalized_feed(artist_names: List[str]) -> List[Dict[str, Any]]
                         unique_tracks.append(song)
                         seen_ids.add(song['id'])
         except Exception as e:
-            print(f"[WARNING] Error fetching tracks for {artist}: {str(e)}")
+            logger.warning("[WARNING] Error fetching tracks for %s: %s", artist, e)
             continue
             
     # Shuffle for freshness
@@ -946,7 +944,7 @@ async def get_album_details(album_id: str) -> Dict[str, Any]:
                 for j in range(i + 1, len(song_ids)):
                     recommendation_graph.add_connection(song_ids[i], song_ids[j])
     except Exception as e:
-        print(f"[GRAPH WARNING] Album injection failed: {e}")
+        logger.warning("[GRAPH WARNING] Album injection failed: %s", e)
 
     return {
         "id": data.get("id"),

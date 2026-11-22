@@ -362,41 +362,20 @@ class NumberedChartView extends StatelessWidget {
       );
     }
 
-    if (item.rankChange > 0) {
+    if (item.rankChange != 0) {
+      final isUp = item.rankChange > 0;
+      final color = isUp ? const Color(0xFF10B981) : const Color(0xFFEF4444);
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.arrow_drop_up_rounded, color: Color(0xFF10B981), size: 14),
+          Icon(isUp ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded, color: color, size: 14),
           Text(
-            '+${item.rankChange}',
-            style: GoogleFonts.outfit(
-              color: const Color(0xFF10B981),
-              fontSize: 9,
-              fontWeight: FontWeight.w800,
-            ),
+            isUp ? '+${item.rankChange}' : '${item.rankChange}',
+            style: GoogleFonts.outfit(color: color, fontSize: 9, fontWeight: FontWeight.w800),
           ),
         ],
-      );
-    } else if (item.rankChange < 0) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.arrow_drop_down_rounded, color: Color(0xFFEF4444), size: 14),
-          Text(
-            '${item.rankChange}',
-            style: GoogleFonts.outfit(
-              color: const Color(0xFFEF4444),
-              fontSize: 9,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      );
-    } else {
-      return const Text(
-        '—',
-        style: TextStyle(color: Color(0xFF64748B), fontSize: 10, fontWeight: FontWeight.bold),
       );
     }
+    return const Text('—', style: TextStyle(color: Color(0xFF64748B), fontSize: 10, fontWeight: FontWeight.bold));
   }
 }

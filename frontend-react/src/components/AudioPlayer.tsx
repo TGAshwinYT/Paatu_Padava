@@ -147,6 +147,31 @@ export default function AudioPlayer({
         onReady(bridge);
     }, [playbackEngine, nativeAudioUrl, youtubeVideoId, onReady, getActiveAudio, getStandbyAudio]);
 
+    // ── Unmount / Cleanup Guard: Prevent audio leaks and cancel in-flight animations
+    useEffect(() => {
+        return () => {
+            if (crossfadeRafRef.current) {
+                cancelAnimationFrame(crossfadeRafRef.current);
+                crossfadeRafRef.current = null;
+            }
+            [audioRefA.current, audioRefB.current, keepaliveAudioRef.current].forEach(el => {
+                if (el) {
+                    try {
+                        el.pause();
+                        el.removeAttribute('src');
+                        el.load();
+                    } catch {}
+                }
+            });
+            if (ytPlayerRef.current) {
+                try {
+                    ytPlayerRef.current.stopVideo?.();
+                    ytPlayerRef.current.destroy?.();
+                } catch {}
+            }
+        };
+    }, []);
+
     // ── Track Switch & Stale Audio Prevention Guard ─────────────────────────
     const currentTrackIdRef = useRef<string | null>(null);
     useEffect(() => {

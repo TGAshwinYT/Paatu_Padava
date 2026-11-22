@@ -276,6 +276,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     final item = _filterOptions[index];
                     final isSelected = _activeFilter == item['id'];
                     return FilterChip(
+                      key: ValueKey(item['id']),
                       selected: isSelected,
                       label: Text(
                         item['label']!,
@@ -505,6 +506,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget _buildPlaylistTile(UserPlaylist playlist) {
     final trackCount = playlist.tracks.length;
     return Container(
+      key: ValueKey(playlist.id),
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
       decoration: BoxDecoration(
         color: AppColors.surfaceElevated.withValues(alpha: 0.6),
@@ -617,6 +619,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
               (context, index) {
                 final song = favs[index];
                 return SongTile(
+                  key: ValueKey(song.id),
                   song: song,
                   queue: favs,
                   index: index,
@@ -659,6 +662,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
               (context, index) {
                 final song = downloads[index];
                 return SongTile(
+                  key: ValueKey(song.id),
                   song: song,
                   queue: downloads,
                   index: index,
@@ -702,6 +706,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
               (context, index) {
                 final song = songs[index];
                 return SongTile(
+                  key: ValueKey(song.id),
                   song: song,
                   queue: songs,
                   index: index,

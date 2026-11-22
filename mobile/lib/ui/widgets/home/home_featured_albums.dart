@@ -47,6 +47,7 @@ class HomeFeaturedAlbums extends StatelessWidget {
               final artist = Song.sanitize(album['artist']?.toString() ?? '');
 
               return GestureDetector(
+                key: ValueKey(id.isNotEmpty ? id : '$title-$index'),
                 onTap: () {
                   Navigator.push(
                     context,

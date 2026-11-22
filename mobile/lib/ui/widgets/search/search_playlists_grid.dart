@@ -57,6 +57,7 @@ class SearchPlaylistsGrid extends StatelessWidget {
         final isAutoAlbum = source == 'auto_album';
 
         return GestureDetector(
+          key: ValueKey(id.isNotEmpty ? id : '$title-$index'),
           onTap: () {
             onRecordClick();
             if (onPlaylistTap != null) {

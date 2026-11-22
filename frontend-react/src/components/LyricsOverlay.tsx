@@ -83,7 +83,7 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
 
   // Handle active index based on currentTime
   useEffect(() => {
-    if (!lyricsLines.length) return;
+    if (!isOpen || !lyricsLines.length) return;
     
     // Efficiently find current index
     const index = lyricsLines.findIndex((line, i) => {
@@ -95,7 +95,7 @@ const LyricsOverlay: React.FC<LyricsOverlayProps> = ({ song, isOpen, onClose }) 
     if (index !== -1 && index !== activeIndex) {
       setActiveIndex(index);
     }
-  }, [currentTime, lyricsLines.length, activeIndex]);
+  }, [isOpen, currentTime, lyricsLines.length, activeIndex]);
 
   // Handle auto-scroll based on activeIndex
   useEffect(() => {

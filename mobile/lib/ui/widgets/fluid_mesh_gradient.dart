@@ -58,7 +58,9 @@ class _FluidMeshGradientState extends State<FluidMeshGradient>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
       if (_controller.isAnimating) _controller.stop();
     } else if (state == AppLifecycleState.resumed && widget.animate) {
       if (!_controller.isAnimating) _controller.repeat();

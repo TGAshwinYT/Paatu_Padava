@@ -97,7 +97,8 @@ class DailyMixesShelf extends StatelessWidget {
               itemCount: mixes.length,
               separatorBuilder: (_, __) => const SizedBox(width: 4),
               itemBuilder: (context, index) {
-                return DailyMixCard(mix: mixes[index], width: cardWidth);
+                final mix = mixes[index];
+                return DailyMixCard(key: ValueKey('daily_mix_${mix.index}'), mix: mix, width: cardWidth);
               },
             ),
           );

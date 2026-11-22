@@ -73,7 +73,8 @@ class DecadesMixesShelf extends StatelessWidget {
               itemCount: mixes.length,
               separatorBuilder: (_, __) => const SizedBox(width: 4),
               itemBuilder: (context, index) {
-                return DecadesMixCard(mix: mixes[index], width: cardWidth);
+                final mix = mixes[index];
+                return DecadesMixCard(key: ValueKey('decade_mix_${mix.decade}'), mix: mix, width: cardWidth);
               },
             ),
           );

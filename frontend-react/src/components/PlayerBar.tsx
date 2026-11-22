@@ -23,7 +23,7 @@ import {
   Check
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useAudio, usePlaybackProgress } from '../context/AudioContext';
+import { useAudio } from '../context/AudioContext';
 import { usePlaylistModal } from '../context/PlaylistModalContext';
 import { useAuth } from '../context/AuthContext';
 import { likeSong, unlikeSong } from '../services/api';
@@ -31,6 +31,7 @@ import LyricsOverlay from './LyricsOverlay';
 import SleepTimerModal from './SleepTimerModal';
 import QueuePanel from './QueuePanel';
 import EqualizerPanel from './EqualizerPanel';
+import PlayerProgressBar from './PlayerProgressBar';
 import { getValidImage } from '../utils/imageUtils';
 import { isOfflineTrack } from '../utils/offlineStorage';
 
@@ -60,14 +61,6 @@ const PlayerBar = () => {
     startSongRadio,
     downloadCurrentTrack,
   } = useAudio();
-
-  const {
-    currentTime,
-    setCurrentTime,
-    duration,
-    setIsSeeking,
-    seekTo,
-  } = usePlaybackProgress();
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -168,17 +161,6 @@ const PlayerBar = () => {
     };
   }, []);
 
-  const handleSeekChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setIsSeeking(true);
-    setCurrentTime(Number(e.target.value));
-  };
-
-  const handleSeekRelease = (e: React.ChangeEvent<HTMLInputElement> | React.MouseEvent | React.TouchEvent | React.KeyboardEvent) => {
-    setIsSeeking(false);
-    const target = e.target as HTMLInputElement;
-    seekTo(Number(target.value));
-  };
-
   const handleLikeToggle = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!currentTrack) return;
@@ -200,13 +182,6 @@ const PlayerBar = () => {
   useEffect(() => {
     setIsLiked(false); // We could check library here if we had a central library cache
   }, [currentTrack?.id]);
-
-  const formatTime = (seconds: number) => {
-    if (isNaN(seconds)) return '0:00';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
 
   if (!currentTrack) return null;
 
@@ -240,11 +215,8 @@ const PlayerBar = () => {
           {/* Center: Compact controls */}
           <div className="flex items-center gap-4">
             <button 
-              onClick={() => {
-                if (history.length === 0 && currentTime < 3) return;
-                playPrevious();
-              }}
-              disabled={history.length === 0 && currentTime < 3}
+              onClick={playPrevious}
+              disabled={history.length === 0}
               className="text-neutral-400 hover:text-white disabled:opacity-40 disabled:hover:text-neutral-400 transition-colors p-1"
               title="Previous"
             >
@@ -273,23 +245,7 @@ const PlayerBar = () => {
             </button>
             
             {/* Scrubber preview on medium screens */}
-            <div className="hidden md:flex items-center gap-2 text-[10px] text-neutral-400 font-mono ml-2">
-              <span>{formatTime(currentTime)}</span>
-              <div 
-                className="w-28 h-1 bg-neutral-800 rounded-full overflow-hidden cursor-pointer"
-                onClick={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const pos = (e.clientX - rect.left) / rect.width;
-                  seekTo(pos * (duration || 0));
-                }}
-              >
-                <div 
-                  className="h-full bg-brand rounded-full transition-all"
-                  style={{ width: `${((currentTime / (duration || 1)) * 100).toFixed(1)}%` }}
-                />
-              </div>
-              <span>{formatTime(duration)}</span>
-            </div>
+            <PlayerProgressBar compact />
           </div>
 
           {/* Right: Expand Button */}
@@ -333,7 +289,7 @@ const PlayerBar = () => {
           </div>
         </footer>
 
-        {currentTrack && (
+        {showLyrics && currentTrack && (
           <LyricsOverlay 
             song={currentTrack} 
             isOpen={showLyrics} 
@@ -459,12 +415,12 @@ const PlayerBar = () => {
             <SkipBack 
               size={24} 
               className={`transition ${
-                history.length === 0 && currentTime < 3 
+                history.length === 0 
                 ? 'text-neutral-600 cursor-not-allowed opacity-50' 
                 : 'text-muted hover:text-white cursor-pointer hover:scale-105 active:scale-95'
             }`} 
             onClick={() => {
-              if (history.length === 0 && currentTime < 3) return;
+              if (history.length === 0) return;
                 playPrevious();
               }}
             />
@@ -509,23 +465,7 @@ const PlayerBar = () => {
           </div>
 
           {/* Progress Bar & Timestamps */}
-          <div className="flex items-center gap-3 w-full text-xs text-muted font-mono">
-            <span>{formatTime(currentTime)}</span>
-            <input 
-              type="range"
-              min={0}
-              max={duration || 100}
-              value={currentTime}
-              onChange={handleSeekChange}
-              onMouseUp={handleSeekRelease}
-              onTouchEnd={handleSeekRelease}
-              className="w-full h-1 bg-neutral-600 rounded-full appearance-none cursor-pointer accent-white hover:accent-brand"
-              style={{
-                backgroundImage: `linear-gradient(to right, var(--color-brand) ${(currentTime / (duration || 1)) * 100}%, #4d4d4d 0%)`
-              }}
-            />
-            <span>{formatTime(duration)}</span>
-          </div>
+          <PlayerProgressBar />
         </div>
 
         {/* Right: Actions & Volume & Collapse Button */}
@@ -653,7 +593,7 @@ const PlayerBar = () => {
       </footer>
 
 
-      {currentTrack && (
+      {showLyrics && currentTrack && (
         <LyricsOverlay 
           song={currentTrack} 
           isOpen={showLyrics} 

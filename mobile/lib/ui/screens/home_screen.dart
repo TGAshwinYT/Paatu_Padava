@@ -411,6 +411,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                         itemBuilder: (context, index) {
                                           final song = activeMix.songs[index];
                                           return RepaintBoundary(
+                                            key: ValueKey(song.id),
                                             child: HomeSongCard(
                                               song: song,
                                               width: cardWidth,
@@ -479,6 +480,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   itemBuilder: (context, index) {
                                     final mix = feedState.feelingMixes[index];
                                     return RepaintBoundary(
+                                      key: ValueKey(mix.feelingId),
                                       child: MoodStationCard(mix: mix),
                                     );
                                   },

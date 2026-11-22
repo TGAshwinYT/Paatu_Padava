@@ -1,0 +1,196 @@
+import 'package:flutter/material.dart';
+import '../../../services/battery_optimization_service.dart';
+import '../../../services/settings_manager.dart';
+
+/// Modal bottom sheet for inspecting OEM battery settings and persistent background playback
+class BatteryOptimizationModal {
+  static void show(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0F172A),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          return FutureBuilder<Map<String, dynamic>>(
+            future: Future.wait([
+              BatteryOptimizationService.getDeviceManufacturer(),
+              BatteryOptimizationService.isIgnoringBatteryOptimizations(),
+              BatteryOptimizationService.isAggressiveBatteryOEM(),
+            ]).then((res) => {
+              'mfg': res[0] as String,
+              'isIgnoring': res[1] as bool,
+              'isAggressive': res[2] as bool,
+            }),
+            builder: (context, snapshot) {
+              final mfg = snapshot.data?['mfg'] as String? ?? '';
+              final isIgnoring = snapshot.data?['isIgnoring'] as bool? ?? true;
+              final isAggressive = snapshot.data?['isAggressive'] as bool? ?? false;
+              final isRestricted = !isIgnoring;
+
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Battery & Background Playback',
+                          style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                          onPressed: () => Navigator.pop(ctx),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E293B),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: (isAggressive && isRestricted)
+                              ? Colors.amberAccent.withValues(alpha: 0.4)
+                              : Colors.white.withValues(alpha: 0.06),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: isRestricted
+                                      ? Colors.amberAccent.withValues(alpha: 0.12)
+                                      : const Color(0xFF10B981).withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Icon(
+                                  isRestricted ? Icons.battery_alert_rounded : Icons.battery_charging_full_rounded,
+                                  color: isRestricted ? Colors.amberAccent : const Color(0xFF10B981),
+                                  size: 22,
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      mfg.isNotEmpty ? '$mfg Battery Status' : 'Battery Optimization',
+                                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      isRestricted
+                                          ? 'Optimized (Background playback may be stopped)'
+                                          : 'Unrestricted (Continuous playback active)',
+                                      style: TextStyle(
+                                        color: isRestricted ? Colors.amberAccent : const Color(0xFF94A3B8),
+                                        fontSize: 12,
+                                        fontWeight: isRestricted ? FontWeight.w600 : FontWeight.normal,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (isAggressive && isRestricted) ...[
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.amberAccent.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.amberAccent.withValues(alpha: 0.2)),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.info_outline_rounded, color: Colors.amberAccent, size: 16),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      '${mfg.isNotEmpty ? mfg : "The device"} restricts background apps by default. Tap below to set Battery to "Unrestricted" so music keeps playing when locked.',
+                                      style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 11, height: 1.4),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 14),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                await BatteryOptimizationService.openBatteryOptimizationSettings();
+                                await Future.delayed(const Duration(seconds: 1));
+                                setModalState(() {});
+                              },
+                              icon: const Icon(Icons.settings_outlined, size: 16),
+                              label: const Text('Manage Battery Optimization'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF818CF8),
+                                side: const BorderSide(color: Color(0xFF6366F1), width: 1),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                              ),
+                            ),
+                          ),
+                          const Divider(color: Colors.white10, height: 28),
+                          ValueListenableBuilder<bool>(
+                            valueListenable: SettingsManager.persistentBackgroundPlaybackNotifier,
+                            builder: (context, isPersistent, _) {
+                              return Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: const [
+                                        Text(
+                                          'Keep Playing When App Is Closed',
+                                          style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                                        ),
+                                        SizedBox(height: 3),
+                                        Text(
+                                          'Continue playing and queuing next songs when clearing from Recent Apps (RAM). Tapping Pause will close the app completely.',
+                                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11, height: 1.3),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Switch(
+                                    value: isPersistent,
+                                    activeColor: const Color(0xFF10B981),
+                                    onChanged: (val) {
+                                      SettingsManager.setPersistentBackgroundPlayback(val);
+                                      setModalState(() {});
+                                    },
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}

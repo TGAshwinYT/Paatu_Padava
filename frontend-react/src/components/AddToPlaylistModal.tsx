@@ -21,12 +21,6 @@ const AddToPlaylistModal: React.FC<AddToPlaylistModalProps> = ({ song, isOpen, o
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
 
-  useEffect(() => {
-    if (isOpen && user) {
-      fetchPlaylists();
-    }
-  }, [isOpen, user]);
-
   const fetchPlaylists = async () => {
     try {
       const response = await api.get('/api/playlists/');
@@ -35,6 +29,12 @@ const AddToPlaylistModal: React.FC<AddToPlaylistModalProps> = ({ song, isOpen, o
       console.error("Error fetching playlists:", error);
     }
   };
+
+  useEffect(() => {
+    if (isOpen && user) {
+      fetchPlaylists();
+    }
+  }, [isOpen, user]);
 
   const handleAddToPlaylist = async (playlistId: string) => {
     if (!song) return;
@@ -80,7 +80,7 @@ const AddToPlaylistModal: React.FC<AddToPlaylistModalProps> = ({ song, isOpen, o
         onClose();
         setStatus('idle');
       }, 1500);
-    } catch (error) {
+    } catch {
       setStatus('error');
       setErrorMsg("Creation failed.");
       setTimeout(() => setStatus('idle'), 3000);

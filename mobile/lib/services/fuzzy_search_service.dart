@@ -84,7 +84,7 @@ class FuzzySearchService {
   /// Asynchronously builds dictionaries without UI hitch
   static Future<void> ensureInitializedAsync() async {
     if (_bkTreeInitialized) return;
-    _ensureInitialized();
+    await Future.microtask(() => _ensureInitialized());
   }
 
   /// High-performance O(1) membership check against the candidate dictionary
@@ -104,41 +104,25 @@ class FuzzySearchService {
   static bool matchesSong(Song song, String query) {
     final lower = query.trim().toLowerCase();
     if (lower.isEmpty) return false;
-
     final tLower = song.title.toLowerCase();
     final aLower = song.artist.toLowerCase();
     final albLower = song.album.toLowerCase();
 
     bool matchesWordStart(String text, String prefix) {
       if (text.startsWith(prefix)) return true;
-      final tokens = text.split(_wordSplitRegex);
-      for (final t in tokens) {
+      for (final t in text.split(_wordSplitRegex)) {
         if (t.startsWith(prefix)) return true;
       }
       return false;
     }
 
-    // 1. Single-character query (e.g. "t", "a"): require song title or primary artist prefix
-    if (lower.length == 1) {
-      return tLower.startsWith(lower) || aLower.startsWith(lower);
-    }
+    if (lower.length == 1) return tLower.startsWith(lower) || aLower.startsWith(lower);
+    if (lower.length < 3) return matchesWordStart(tLower, lower) || matchesWordStart(aLower, lower);
+    if (tLower.contains(lower) || aLower.contains(lower) || albLower.contains(lower)) return true;
 
-    // 2. Short queries (2 chars, e.g. "hi", "va"): require word-start prefix match on title or artist
-    if (lower.length < 3) {
-      return matchesWordStart(tLower, lower) || matchesWordStart(aLower, lower);
-    }
-
-    // 2. Full substring containment (for queries >= 3 chars)
-    if (tLower.contains(lower) || aLower.contains(lower) || albLower.contains(lower)) {
-      return true;
-    }
-
-    // 2. Tokenized & typo-tolerant matching (Levenshtein <= 1)
     final queryWords = lower.split(_whitespaceSplitRegex).where((w) => w.isNotEmpty).toList();
     if (queryWords.isEmpty) return false;
-
-    final fullText = '$tLower $aLower $albLower';
-    final songTokens = fullText.split(_wordSplitRegex).where((t) => t.isNotEmpty).toList();
+    final songTokens = '$tLower $aLower $albLower'.split(_wordSplitRegex).where((t) => t.isNotEmpty).toList();
 
     return queryWords.every((qw) {
       if (songTokens.any((t) => t.contains(qw))) return true;
@@ -359,7 +343,7 @@ class FuzzySearchService {
     return result;
   }
 
-  /// Asynchronous, non-blocking typo correction evaluated directly (< 0.2ms)
+  /// Asynchronous, non-blocking typo correction evaluated off the UI thread
   static Future<FuzzyCorrectionResult?> findCorrectionAsync(String query) async {
     final clean = Song.sanitize(query).trim();
     if (clean.length <= 3) return null;
@@ -370,9 +354,50 @@ class FuzzySearchService {
       _correctionCache.put(lower, null);
       return null;
     }
-    final res = findCorrection(query);
-    _correctionCache.put(lower, res);
-    return res;
+    if (_genericDiscoveryRegex.hasMatch(clean)) {
+      _correctionCache.put(lower, null);
+      return null;
+    }
+
+    // 1. Fast O(1) SymSpell & O(log N) BK-Tree check (< 1ms)
+    final fastResult = findCorrection(query);
+    if (fastResult != null) {
+      _correctionCache.put(lower, fastResult);
+      return fastResult;
+    }
+
+    // 2. Heavy multi-word token permutations fallback offloaded to Isolate
+    if (clean.contains(' ')) {
+      final matches = await extractTopAsync(
+        query: clean,
+        choices: _candidateDictionary.toList(growable: false),
+        limit: 3,
+        cutoff: 70,
+      );
+      if (matches.isNotEmpty) {
+        final best = matches.first;
+        final tokenScore = tokenSetRatio(clean, best.choice);
+        final weightScore = weightedRatio(clean, best.choice);
+        final combinedScore = (best.score + tokenScore + weightScore) ~/ 3;
+
+        final queryTokens = lower.split(_whitespaceSplitRegex).where((t) => t.length > 2).toSet();
+        final choiceTokens = best.choice.toLowerCase().split(_whitespaceSplitRegex).where((t) => t.length > 2).toSet();
+        final extraTokens = choiceTokens.difference(queryTokens);
+
+        if (combinedScore >= 70 && best.choice.toLowerCase() != lower && extraTokens.length <= 1) {
+          final res = FuzzyCorrectionResult(
+            original: clean,
+            corrected: Song.sanitize(best.choice),
+            score: combinedScore,
+          );
+          _correctionCache.put(lower, res);
+          return res;
+        }
+      }
+    }
+
+    _correctionCache.put(lower, null);
+    return null;
   }
 
   /// Execute fallback search using fuzzy corrected query if primary search produced 0 results

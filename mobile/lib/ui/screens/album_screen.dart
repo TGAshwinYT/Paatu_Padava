@@ -220,6 +220,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
                         coverUrl: _currentImageUrl,
                       );
                       return SongTile(
+                        key: ValueKey(effectiveSong.id),
                         song: effectiveSong,
                         queue: _songs,
                         index: index,

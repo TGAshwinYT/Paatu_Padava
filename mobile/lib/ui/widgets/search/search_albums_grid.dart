@@ -51,6 +51,7 @@ class SearchAlbumsGrid extends StatelessWidget {
         final cacheSize = AppDimensions.memCachePhysical(context, 200);
 
         return GestureDetector(
+          key: ValueKey(id.isNotEmpty ? id : '$title-$index'),
           onTap: () {
             onRecordClick();
             Navigator.push(

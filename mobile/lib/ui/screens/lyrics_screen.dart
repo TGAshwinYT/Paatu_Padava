@@ -390,12 +390,21 @@ class _LyricsScreenState extends State<LyricsScreen> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        // 1. Apple Music Full-Screen Fluid Mesh Gradient
-        FluidMeshGradient(
-          imageUrl: song.coverUrl,
-          blurSigma: 70.0,
-          opacity: 0.70,
-          animate: isDynamic,
+        // 1. Apple Music Full-Screen Fluid Mesh Gradient (paused during playback pause or backgrounding)
+        StreamBuilder<bool>(
+          stream: audioHandler.player.playingStream,
+          initialData: audioHandler.player.playing,
+          builder: (context, snapshot) {
+            final isPlaying = snapshot.data ?? false;
+            return RepaintBoundary(
+              child: FluidMeshGradient(
+                imageUrl: song.coverUrl,
+                blurSigma: 70.0,
+                opacity: 0.70,
+                animate: isDynamic && isPlaying,
+              ),
+            );
+          },
         ),
 
         // 2. Translucent dark wash for contrast

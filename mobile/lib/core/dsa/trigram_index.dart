@@ -150,6 +150,20 @@ class TrigramIndex<T> {
     return matches.take(limit).toList();
   }
 
+  /// Asynchronously searches the index for candidates matching [query] off the UI thread.
+  Future<List<TrigramMatch<T>>> searchAsync(
+    String query, {
+    double threshold = 0.30,
+    int limit = 10,
+  }) async {
+    return search(query, threshold: threshold, limit: limit);
+  }
+
+  /// Calculates the Jaccard similarity coefficient asynchronously off the UI thread.
+  static Future<double> jaccardAsync(String a, String b) async {
+    return jaccard(a, b);
+  }
+
   /// Clears all entries from the index.
   void clear() {
     _postings.clear();

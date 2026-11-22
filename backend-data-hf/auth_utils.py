@@ -13,24 +13,12 @@ load_dotenv()
 # Secret key to sign JWT tokens (Must be configured via JWT_SECRET)
 SECRET_KEY = os.getenv("JWT_SECRET")
 if not SECRET_KEY:
-    # If running inside unit tests / CI runner without a local .env, supply a safe testing secret
-    is_test = (
-        "pytest" in sys.modules
-        or "unittest" in sys.modules
-        or any("test" in arg.lower() for arg in sys.argv)
-        or bool(os.getenv("PYTEST_CURRENT_TEST"))
-        or bool(os.getenv("CI"))
+    raise RuntimeError(
+        "FATAL SECURITY ERROR: 'JWT_SECRET' environment variable is not set. "
+        "Refusing to start with an insecure fallback secret."
     )
-    if is_test:
-        SECRET_KEY = "test_jwt_secret_for_testing_purposes_only_minimum_32_chars"
-        os.environ["JWT_SECRET"] = SECRET_KEY
-    else:
-        raise RuntimeError(
-            "FATAL SECURITY ERROR: 'JWT_SECRET' environment variable is not set. "
-            "Refusing to start with an insecure fallback secret."
-        )
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 1 week
+ACCESS_TOKEN_EXPIRE_MINUTES = 30  # 30 minutes short-lived access token
 
 _hasher = PasswordHasher()
 
@@ -92,11 +80,14 @@ async def _resolve_user_from_token(
     is_supabase = False
     email_confirmed = False
 
+    token_version = None
+
     # 1. Attempt verification with application SECRET_KEY
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email = payload.get("sub") or payload.get("email")
         sub = payload.get("id") or (payload.get("sub") if "@" not in str(payload.get("sub", "")) else None)
+        token_version = payload.get("tv")
         email_confirmed = True
     except JWTError:
         # 2. Attempt cryptographic verification with SUPABASE_JWT_SECRET
@@ -124,6 +115,17 @@ async def _resolve_user_from_token(
         if user:
             return user
 
+    def _is_token_version_valid(target_user: User) -> bool:
+        if is_supabase:
+            return True
+        user_tv = getattr(target_user, "token_version", 1)
+        if not isinstance(user_tv, int):
+            user_tv = 1
+        if token_version is not None:
+            return token_version == user_tv
+        # If token does not contain 'tv' (legacy token), it is valid only if user version has not been bumped
+        return user_tv <= 1
+
     # 4. Lookup user by verified UUID / sub
     if sub:
         try:
@@ -131,6 +133,8 @@ async def _resolve_user_from_token(
             result = await db.execute(select(User).where(User.id == u_uuid))
             user = result.scalars().first()
             if user:
+                if not _is_token_version_valid(user):
+                    return None
                 return user
         except Exception:
             pass
@@ -140,6 +144,8 @@ async def _resolve_user_from_token(
         result = await db.execute(select(User).where(User.email == email))
         user = result.scalars().first()
         if user:
+            if not _is_token_version_valid(user):
+                return None
             # If Supabase login, only link account if Supabase email is confirmed
             if is_supabase:
                 if not email_confirmed:

@@ -477,9 +477,8 @@ class SpotifyImportService {
 
   /// Retrieves a valid Spotify Access Token.
   /// Tier 1: In-memory cached token (refreshed 5 min before expiry).
-  /// Tier 2: Official Spotify OAuth2 Client Credentials flow via direct Accounts API.
-  /// Tier 3: Paatu Padava FastAPI backend token proxy (/api/music/spotify-token).
-  /// Tier 4: Anonymous Spotify Web Player token.
+  /// Tier 1: Paatu Padava FastAPI backend token proxy (/api/music/spotify/token).
+  /// Tier 2: Anonymous Spotify Web Player token.
   static Future<String?> getSpotifyAccessToken() async {
     // Return cached token if still valid (with 5 minute safety buffer)
     if (_cachedAccessToken != null &&
@@ -488,41 +487,7 @@ class SpotifyImportService {
       return _cachedAccessToken;
     }
 
-    // ── Tier 1: Direct Client Credentials (POST https://accounts.spotify.com/api/token with grant_type=client_credentials) ──
-    final clientId = AppConfig.spotifyClientId.trim();
-    final clientSecret = AppConfig.spotifyClientSecret.trim();
-
-    if (clientId.isNotEmpty && clientSecret.isNotEmpty) {
-      try {
-        final basicAuth = base64Encode(utf8.encode('$clientId:$clientSecret'));
-        final response = await http.post(
-          Uri.parse('https://accounts.spotify.com/api/token'),
-          headers: {
-            'Authorization': 'Basic $basicAuth',
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: {'grant_type': 'client_credentials'},
-        ).timeout(const Duration(seconds: 8));
-
-        if (response.statusCode == 200) {
-          final data = json.decode(response.body) as Map<String, dynamic>;
-          final token = data['access_token']?.toString();
-          final int expiresIn = data['expires_in'] is int ? data['expires_in'] as int : 3600;
-
-          if (token != null && token.isNotEmpty) {
-            _cachedAccessToken = token;
-            final validSeconds = (expiresIn - 300).clamp(60, 3600);
-            _tokenExpiresAt = DateTime.now().add(Duration(seconds: validSeconds));
-            AppLogger.log('SpotifyImportService', 'Acquired Spotify token via Client Credentials');
-            return token;
-          }
-        }
-      } catch (e) {
-        AppLogger.log('SpotifyImportService', 'Direct token exchange failed: $e');
-      }
-    }
-
-    // ── Tier 2: Secure Backend Token Proxy Fallback ──
+    // ── Tier 1: Secure Backend Token Proxy (Primary) ──
     try {
       final uris = [
         Uri.parse('${AppConfig.backendUrl}/api/music/spotify/token'),
@@ -543,12 +508,10 @@ class SpotifyImportService {
               return token;
             }
           }
-        } catch (e) {
-      AppLogger.debug('SpotifyImportService', 'Handled exception: $e');
-    }
+        } catch (_) {}
       }
     } catch (e) {
-      AppLogger.log('SpotifyImportService', 'Backend token proxy notice: $e');
+      AppLogger.log('SpotifyImportService', 'Backend token proxy failed: $e');
     }
 
     // ── Tier 3: Anonymous Web Player Fallback ──

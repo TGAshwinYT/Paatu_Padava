@@ -46,6 +46,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initAuth();
   }, [token]);
 
+  useEffect(() => {
+    const handleAuthExpired = () => {
+      setToken(null);
+      setUser(null);
+      localStorage.removeItem('token');
+    };
+    window.addEventListener('auth-expired', handleAuthExpired);
+    return () => window.removeEventListener('auth-expired', handleAuthExpired);
+  }, []);
+
   const login = async (email: string, pass: string) => {
     setIsLoading(true);
     try {
@@ -62,9 +72,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const register = async (email: string, pass: string, username: string) => {
     setIsLoading(true);
     try {
-      await api.post('/api/auth/register', { email, password: pass, username });
-      // After register, auto-login
-      await login(email, pass);
+      const regResponse = await api.post('/api/auth/register', { email, password: pass, username });
+      // Attempt auto-login if account does not require immediate manual email confirmation
+      try {
+        await login(email, pass);
+      } catch (loginErr: any) {
+        if (loginErr?.response?.status === 403) {
+          throw new Error(regResponse.data?.message || 'Registration successful. Please verify your email before logging in.');
+        }
+        throw loginErr;
+      }
     } finally {
       setIsLoading(false);
     }

@@ -83,14 +83,12 @@ jobs:
           CLEAN_URL=$(printf '%s' "${{ secrets.SUPABASE_URL }}" | tr -d '\r\n "' | sed "s/'//g" | sed 's:/*$::')
           CLEAN_KEY=$(printf '%s' "${{ secrets.SUPABASE_ANON_KEY }}" | tr -d '\r\n "' | sed "s/'//g")
           SPOTIFY_ID=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_ID }}" | tr -d '\r\n "' | sed "s/'//g")
-          SPOTIFY_SECRET=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_SECRET }}" | tr -d '\r\n "' | sed "s/'//g")
 
           echo "Building iOS release bundle without codesign..."
           flutter build ios --release --no-codesign -t lib/main.dart \
             "--dart-define=SUPABASE_URL=$CLEAN_URL" \
             "--dart-define=SUPABASE_ANON_KEY=$CLEAN_KEY" \
             "--dart-define=SPOTIFY_CLIENT_ID=$SPOTIFY_ID" \
-            "--dart-define=SPOTIFY_CLIENT_SECRET=$SPOTIFY_SECRET" \
             "--dart-define=GIT_COMMIT=$SHORT_SHA" \
             "--dart-define=BUILD_TIME=$BUILD_TIME"
 
@@ -120,14 +118,12 @@ jobs:
           CLEAN_URL=$(printf '%s' "${{ secrets.SUPABASE_URL }}" | tr -d '\r\n "' | sed "s/'//g" | sed 's:/*$::')
           CLEAN_KEY=$(printf '%s' "${{ secrets.SUPABASE_ANON_KEY }}" | tr -d '\r\n "' | sed "s/'//g")
           SPOTIFY_ID=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_ID }}" | tr -d '\r\n "' | sed "s/'//g")
-          SPOTIFY_SECRET=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_SECRET }}" | tr -d '\r\n "' | sed "s/'//g")
 
           echo "Building iOS Simulator bundle for Appetize.io..."
           flutter build ios --simulator --debug -t lib/main.dart \
             "--dart-define=SUPABASE_URL=$CLEAN_URL" \
             "--dart-define=SUPABASE_ANON_KEY=$CLEAN_KEY" \
             "--dart-define=SPOTIFY_CLIENT_ID=$SPOTIFY_ID" \
-            "--dart-define=SPOTIFY_CLIENT_SECRET=$SPOTIFY_SECRET" \
             "--dart-define=GIT_COMMIT=$SHORT_SHA" \
             "--dart-define=BUILD_TIME=$BUILD_TIME"
 

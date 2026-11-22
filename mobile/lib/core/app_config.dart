@@ -24,10 +24,4 @@ class AppConfig {
     'SPOTIFY_CLIENT_ID',
     defaultValue: '',
   );
-
-  /// Optional build-time override for Spotify Client Secret (empty by default for security)
-  static const String spotifyClientSecret = String.fromEnvironment(
-    'SPOTIFY_CLIENT_SECRET',
-    defaultValue: '',
-  );
 }

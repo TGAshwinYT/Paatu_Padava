@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from connection import get_db, get_redis
 from models import User
-from auth_utils import get_password_hash, verify_password, create_access_token, get_current_user
+from auth_utils import get_password_hash, verify_password, create_access_token, get_current_user, get_current_user_optional
 from email_utils import send_verification_email
 from utils.email import send_password_reset_email
 from limiter_config import limiter
@@ -21,12 +21,72 @@ logger = logging.getLogger(__name__)
 
 # Fallback store for OTPs if Redis is unavailable
 OTP_STORE: Dict[str, Dict[str, Any]] = {}
+OTP_FAIL_STORE: Dict[str, int] = {}
+OTP_LOCKOUT_STORE: Dict[str, float] = {}
 MAX_OTP_ATTEMPTS = 5
 OTP_TTL_SECONDS = 900  # 15 minutes
+LOCKOUT_DURATION_SECONDS = 900  # 15 minutes
 
 def generate_otp() -> str:
     """Generates a cryptographically secure random 6-digit OTP."""
     return f"{secrets.randbelow(1000000):06d}"
+
+async def is_email_locked_out(clean_email: str, redis_client) -> bool:
+    lockout_key = f"otp_lockout:{clean_email}"
+    try:
+        val = await redis_client.get(lockout_key)
+        if val:
+            return True
+    except Exception:
+        pass
+    locked_until = OTP_LOCKOUT_STORE.get(clean_email)
+    if locked_until:
+        if time.time() < locked_until:
+            return True
+        else:
+            OTP_LOCKOUT_STORE.pop(clean_email, None)
+    return False
+
+async def get_email_otp_fails(clean_email: str, redis_client) -> int:
+    fails_key = f"otp_fails:{clean_email}"
+    try:
+        val = await redis_client.get(fails_key)
+        if val is not None:
+            return int(val)
+    except Exception:
+        pass
+    return OTP_FAIL_STORE.get(clean_email, 0)
+
+async def increment_email_otp_fails(clean_email: str, redis_client) -> int:
+    fails_key = f"otp_fails:{clean_email}"
+    try:
+        new_fails = await redis_client.incr(fails_key)
+        await redis_client.expire(fails_key, LOCKOUT_DURATION_SECONDS)
+        return int(new_fails)
+    except Exception:
+        pass
+    fails = OTP_FAIL_STORE.get(clean_email, 0) + 1
+    OTP_FAIL_STORE[clean_email] = fails
+    return fails
+
+async def set_email_lockout(clean_email: str, redis_client):
+    lockout_key = f"otp_lockout:{clean_email}"
+    try:
+        await redis_client.setex(lockout_key, LOCKOUT_DURATION_SECONDS, "1")
+    except Exception:
+        pass
+    OTP_LOCKOUT_STORE[clean_email] = time.time() + LOCKOUT_DURATION_SECONDS
+
+async def clear_email_otp_state(clean_email: str, redis_client):
+    try:
+        await redis_client.delete(f"otp:{clean_email}")
+        await redis_client.delete(f"otp_fails:{clean_email}")
+        await redis_client.delete(f"otp_lockout:{clean_email}")
+    except Exception:
+        pass
+    OTP_STORE.pop(clean_email, None)
+    OTP_FAIL_STORE.pop(clean_email, None)
+    OTP_LOCKOUT_STORE.pop(clean_email, None)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -148,13 +208,18 @@ async def google_login(request: GoogleLoginRequest, db: AsyncSession = Depends(g
             
         # If user exists but logs in with Google, link account
         elif not user.google_id:
+            # Prevent account pre-hijacking: if account was unverified, clear the attacker's password
+            if not user.is_verified:
+                user.hashed_password = None
+                user.verification_token = None
             user.google_id = user_info.get("sub")
             user.avatar_url = user.avatar_url or user_info.get("picture", "")
             user.is_verified = True
             await db.commit()
             
-        # Create token
-        access_token = create_access_token(data={"sub": user.email})
+        # Create token with token_version
+        user_tv = getattr(user, "token_version", 1) or 1
+        access_token = create_access_token(data={"sub": user.email, "tv": user_tv})
         return {
             "access_token": access_token, 
             "token_type": "bearer",
@@ -184,6 +249,11 @@ async def forgot_password(
     """
     clean_email = body.email.lower().strip()
 
+    # 0. Check account lockout (per-email lockout to prevent brute-forcing)
+    if await is_email_locked_out(clean_email, redis_client):
+        logger.info("[AUTH] Password reset requested for locked-out account %s (suppressed)", clean_email)
+        return {"message": "If an account exists, an OTP has been sent to your email."}
+
     # 1. Check if user actually exists in the database
     result = await db.execute(select(User).where(User.email == clean_email))
     user = result.scalars().first()
@@ -192,7 +262,6 @@ async def forgot_password(
         otp = generate_otp()
         otp_data = {
             "otp": otp,
-            "attempts": 0,
             "expires": time.time() + OTP_TTL_SECONDS
         }
         key = f"otp:{clean_email}"
@@ -222,9 +291,17 @@ async def reset_password(
     """
     Updates user password using a valid 6-digit OTP.
     Enforces Redis-backed storage, rate limiting, constant-time comparison,
-    and a 5-attempt lockout to prevent brute-forcing.
+    and a 5-attempt per-email lockout to prevent brute-forcing across OTP regenerations.
     """
     clean_email = body.email.lower().strip()
+
+    # 0. Check account lockout (per-email lockout)
+    if await is_email_locked_out(clean_email, redis_client):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Account is temporarily locked out due to too many failed OTP attempts. Please try again in 15 minutes."
+        )
+
     key = f"otp:{clean_email}"
 
     otp_data = None
@@ -256,33 +333,14 @@ async def reset_password(
             detail="OTP has expired. Please request a new one."
         )
 
-    # Check attempt lockout (max 5 failed attempts)
-    attempts = otp_data.get("attempts", 0)
-    if attempts >= MAX_OTP_ATTEMPTS:
-        try:
-            await redis_client.delete(key)
-        except Exception:
-            pass
-        OTP_STORE.pop(clean_email, None)
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many failed attempts. This OTP has been invalidated for your security. Please request a new one."
-        )
-
     # Constant-time comparison to prevent timing attacks
     expected_otp = str(otp_data.get("otp", ""))
     provided_otp = str(body.otp).strip()
     if not secrets.compare_digest(expected_otp, provided_otp):
-        otp_data["attempts"] = attempts + 1
-        remaining_ttl = max(1, int(otp_data.get("expires", time.time() + OTP_TTL_SECONDS) - time.time()))
-        try:
-            await redis_client.setex(key, remaining_ttl, json.dumps(otp_data))
-        except Exception:
-            pass
-        OTP_STORE[clean_email] = otp_data
-
-        remaining_attempts = MAX_OTP_ATTEMPTS - otp_data["attempts"]
-        if remaining_attempts <= 0:
+        # Track failed attempts per email across all OTP cycles
+        fails = await increment_email_otp_fails(clean_email, redis_client)
+        if fails >= MAX_OTP_ATTEMPTS:
+            await set_email_lockout(clean_email, redis_client)
             try:
                 await redis_client.delete(key)
             except Exception:
@@ -290,11 +348,12 @@ async def reset_password(
             OTP_STORE.pop(clean_email, None)
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Maximum attempts exceeded. This OTP has been invalidated. Please request a new one."
+                detail="Too many failed attempts. Account is locked out for 15 minutes."
             )
+        remaining = MAX_OTP_ATTEMPTS - fails
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid OTP. {remaining_attempts} attempt(s) remaining."
+            detail=f"Invalid OTP. {remaining} attempt(s) remaining."
         )
 
     # Valid OTP verified - update user password
@@ -311,14 +370,12 @@ async def reset_password(
         )
 
     user.hashed_password = get_password_hash(body.new_password)
+    # Session revocation: increment token_version so all active tokens are immediately invalidated
+    user.token_version = (user.token_version or 1) + 1
     await db.commit()
 
-    # Invalidate OTP on successful password reset
-    try:
-        await redis_client.delete(key)
-    except Exception:
-        pass
-    OTP_STORE.pop(clean_email, None)
+    # Clear OTP and failure count state upon successful password reset
+    await clear_email_otp_state(clean_email, redis_client)
 
     return {"message": "Password updated successfully. You can now log in with your new password."}
 
@@ -401,8 +458,16 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # 3. Create token
-    access_token = create_access_token(data={"sub": user.email})
+    # 3. Enforce email verification
+    if not user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email is not verified. Please verify your email before logging in."
+        )
+
+    # 4. Create token with token_version for session tracking
+    user_tv = getattr(user, "token_version", 1) or 1
+    access_token = create_access_token(data={"sub": user.email, "tv": user_tv})
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -505,10 +570,21 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
     return {"message": "Email verified successfully! You can now log in."}
 
 @router.post("/logout")
-async def logout():
+async def logout(
+    user: Optional[User] = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db)
+):
     """
-    Stateless logout. The client should clear the token from localStorage.
+    Server-side session revocation: increments user.token_version so all active
+    JWTs signed with older versions are immediately invalidated.
     """
+    if user:
+        user.token_version = (user.token_version or 1) + 1
+        try:
+            await db.commit()
+        except Exception as e:
+            logger.warning("[AUTH] Error committing token_version on logout: %s", e)
+            await db.rollback()
     return {"message": "Successfully logged out"}
 
 class RefreshTokenRequest(BaseModel):
@@ -523,7 +599,8 @@ async def refresh_token(
     """
     Stateless silent token refresh:
     Extracts expired/current JWT token from Authorization header or body,
-    verifies identity, and issues a fresh JWT without interrupting user session.
+    verifies identity, checks token_version against revocation,
+    and issues a fresh JWT without interrupting user session.
     """
     from auth_utils import jwt, JWTError, SECRET_KEY, ALGORITHM, create_access_token
 
@@ -566,7 +643,14 @@ async def refresh_token(
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account not found")
 
-    new_token = create_access_token(data={"sub": user.email})
+    user_tv = getattr(user, "token_version", 1) or 1
+    token_tv = payload.get("tv")
+    if token_tv is not None and token_tv != user_tv:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked. Please log in again.")
+    if token_tv is None and user_tv > 1:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked. Please log in again.")
+
+    new_token = create_access_token(data={"sub": user.email, "tv": user_tv})
     return {
         "access_token": new_token,
         "token_type": "bearer",

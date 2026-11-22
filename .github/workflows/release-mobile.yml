@@ -94,7 +94,8 @@ jobs:
               "$STORE_PASSWORD" "$KEY_PASSWORD" "$KEY_ALIAS" > mobile/android/key.properties
             echo "✅ Configured release keystore."
           else
-            echo "⚠️ KEYSTORE_BASE64 is not configured; using debug signing fallback."
+            echo "::error::KEYSTORE_BASE64 is not configured in repository secrets! Refusing to build release APK with debug signing."
+            exit 1
           fi
 
       - name: Build Split-per-ABI & Universal Release APKs
@@ -107,7 +108,6 @@ jobs:
           CLEAN_URL=$(printf '%s' "${{ secrets.SUPABASE_URL }}" | tr -d '\r\n "' | sed "s/'//g" | sed 's:/*$::')
           CLEAN_KEY=$(printf '%s' "${{ secrets.SUPABASE_ANON_KEY }}" | tr -d '\r\n "' | sed "s/'//g")
           SPOTIFY_ID=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_ID }}" | tr -d '\r\n "' | sed "s/'//g")
-          SPOTIFY_SECRET=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_SECRET }}" | tr -d '\r\n "' | sed "s/'//g")
 
           echo "1. Building ABI-split release APKs..."
           flutter build apk --release -t lib/main.dart --android-skip-build-dependency-validation \
@@ -117,7 +117,6 @@ jobs:
             --dart-define=SUPABASE_URL="$CLEAN_URL" \
             --dart-define=SUPABASE_ANON_KEY="$CLEAN_KEY" \
             --dart-define=SPOTIFY_CLIENT_ID="$SPOTIFY_ID" \
-            --dart-define=SPOTIFY_CLIENT_SECRET="$SPOTIFY_SECRET" \
             --dart-define=GIT_COMMIT="$SHORT_SHA" \
             --dart-define=BUILD_TIME="$BUILD_TIME"
 
@@ -128,7 +127,6 @@ jobs:
             --dart-define=SUPABASE_URL="$CLEAN_URL" \
             --dart-define=SUPABASE_ANON_KEY="$CLEAN_KEY" \
             --dart-define=SPOTIFY_CLIENT_ID="$SPOTIFY_ID" \
-            --dart-define=SPOTIFY_CLIENT_SECRET="$SPOTIFY_SECRET" \
             --dart-define=GIT_COMMIT="$SHORT_SHA" \
             --dart-define=BUILD_TIME="$BUILD_TIME"
 

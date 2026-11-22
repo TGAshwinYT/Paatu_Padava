@@ -110,6 +110,7 @@ class TestAuthEndpointsIntegration(unittest.TestCase):
             username="regular_user",
             hashed_password=hashed,
             is_verified=True,
+            token_version=1,
         )
 
         mock_session = AsyncMock()
@@ -142,6 +143,7 @@ class TestAuthEndpointsIntegration(unittest.TestCase):
             username="regular_user",
             hashed_password=hashed,
             is_verified=True,
+            token_version=1,
         )
 
         mock_session = AsyncMock()
@@ -170,6 +172,7 @@ class TestAuthEndpointsIntegration(unittest.TestCase):
             username="refresh_user",
             hashed_password="hashed_placeholder",
             is_verified=True,
+            token_version=1,
         )
 
         mock_session = AsyncMock()
@@ -370,6 +373,147 @@ class TestSecurityAndUtilsEndpoints(unittest.TestCase):
         # Verify that the malicious URL string was NOT appended
         called_url = mock_get.call_args[0][0]
         self.assertEqual(called_url, "http://ip-api.com/json/")
+
+    def test_login_unverified_user_returns_403(self):
+        """User who has not completed email verification must receive 403 Forbidden on password login."""
+        raw_password = "ValidPassword123!"
+        hashed = get_password_hash(raw_password)
+        mock_user = User(
+            email="unverified_user@example.com",
+            username="unverified_user",
+            hashed_password=hashed,
+            is_verified=False,
+            token_version=1,
+        )
+
+        mock_session = AsyncMock()
+        mock_scalars = MagicMock()
+        mock_scalars.first.return_value = mock_user
+        mock_result = MagicMock()
+        mock_result.scalars.return_value = mock_scalars
+        mock_session.execute.return_value = mock_result
+
+        async def override_get_db():
+            yield mock_session
+
+        app.dependency_overrides[get_db] = override_get_db
+
+        response = self.client.post(
+            "/api/auth/login",
+            json={"email": "unverified_user@example.com", "password": raw_password},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("Email is not verified", response.json().get("detail", ""))
+
+    def test_token_version_revocation_rejects_stale_jwt(self):
+        """When user token_version is incremented (e.g. on logout/password reset), old JWTs must fail authentication."""
+        mock_user = User(
+            email="revoked_session@example.com",
+            username="revoked_session",
+            is_verified=True,
+            token_version=2,  # User has token_version=2 after logout
+        )
+
+        mock_session = AsyncMock()
+        mock_scalars = MagicMock()
+        mock_scalars.first.return_value = mock_user
+        mock_result = MagicMock()
+        mock_result.scalars.return_value = mock_scalars
+        mock_session.execute.return_value = mock_result
+
+        async def override_get_db():
+            yield mock_session
+
+        app.dependency_overrides[get_db] = override_get_db
+
+        # Token created with older token_version=1
+        stale_token = create_access_token(data={"sub": "revoked_session@example.com", "tv": 1})
+
+        response = self.client.get(
+            "/api/auth/me",
+            headers={"Authorization": f"Bearer {stale_token}"},
+        )
+        self.assertEqual(response.status_code, 401)
+
+    def test_limiter_trusted_proxy_hop_takes_rightmost_ip(self):
+        """SlowAPI limiter key func must select the right-most IP in X-Forwarded-For appended by the trusted proxy."""
+        from limiter_config import get_client_ip
+        mock_req = MagicMock()
+        mock_req.headers = {"x-forwarded-for": "198.51.100.1, 203.0.113.195"}
+        mock_req.client = None
+        client_ip = get_client_ip(mock_req)
+        self.assertEqual(client_ip, "203.0.113.195")
+
+    def test_otp_lockout_per_email_enforced(self):
+        """5 failed OTP attempts on an email trigger 429 lockout across attempts."""
+        import time
+        from routers.auth import OTP_STORE, OTP_FAIL_STORE, OTP_LOCKOUT_STORE
+
+        email = "victim@example.com"
+        OTP_STORE[email] = {"otp": "123456", "expires": time.time() + 900}
+        OTP_FAIL_STORE[email] = 4
+
+        mock_session = AsyncMock()
+        async def override_get_db():
+            yield mock_session
+        app.dependency_overrides[get_db] = override_get_db
+
+        # 5th failed attempt triggers 429 and locks out email
+        resp = self.client.post(
+            "/api/auth/reset-password",
+            json={"email": email, "otp": "000000", "new_password": "NewValidPassword123!"},
+        )
+        self.assertEqual(resp.status_code, 429)
+        self.assertIn("locked out", resp.json().get("detail", "").lower())
+
+        # Clean up
+        OTP_STORE.pop(email, None)
+        OTP_FAIL_STORE.pop(email, None)
+        OTP_LOCKOUT_STORE.pop(email, None)
+
+    @patch("httpx.AsyncClient.get")
+    def test_google_login_clears_password_on_unverified_pre_hijack(self, mock_get):
+        """When linking Google OAuth to an unverified account, hashed_password must be cleared."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "sub": "google_sub_999",
+            "email": "victim_prehijack@example.com",
+            "email_verified": True,
+            "name": "Victim",
+            "picture": "https://example.com/pic.jpg",
+        }
+        mock_get.return_value = mock_resp
+
+        mock_user = User(
+            email="victim_prehijack@example.com",
+            username="victim_prehijack",
+            hashed_password="attacker_password_hash",
+            is_verified=False,
+            google_id=None,
+            token_version=1,
+        )
+
+        mock_session = AsyncMock()
+        mock_scalars = MagicMock()
+        mock_scalars.first.return_value = mock_user
+        mock_result = MagicMock()
+        mock_result.scalars.return_value = mock_scalars
+        mock_session.execute.return_value = mock_result
+
+        async def override_get_db():
+            yield mock_session
+
+        app.dependency_overrides[get_db] = override_get_db
+
+        response = self.client.post(
+            "/api/auth/google",
+            json={"credential": "mock_valid_google_token"},
+        )
+        self.assertEqual(response.status_code, 200)
+        # Verify that user's password was cleared and is_verified set to True
+        self.assertIsNone(mock_user.hashed_password)
+        self.assertTrue(mock_user.is_verified)
 
 
 if __name__ == "__main__":

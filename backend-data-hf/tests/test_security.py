@@ -111,14 +111,14 @@ class TestSecurityAudits(unittest.TestCase):
         self.assertFalse(is_safe_audio_url(None))
 
     def test_client_ip_forwarded_header(self):
-        """Test that get_client_ip properly extracts leftmost client IP from X-Forwarded-For."""
+        """Test that get_client_ip properly extracts trusted rightmost client IP from X-Forwarded-For."""
         from limiter_config import get_client_ip
         from unittest.mock import MagicMock
 
-        # Proxy with X-Forwarded-For
+        # Proxy with X-Forwarded-For: attacker injected spoofed IP, proxy appended true client IP at the end
         req_proxied = MagicMock()
         req_proxied.headers = {"x-forwarded-for": "203.0.113.195, 70.41.3.18, 150.172.238.178"}
-        self.assertEqual(get_client_ip(req_proxied), "203.0.113.195")
+        self.assertEqual(get_client_ip(req_proxied), "150.172.238.178")
 
         # Direct connection with X-Real-IP
         req_real = MagicMock()

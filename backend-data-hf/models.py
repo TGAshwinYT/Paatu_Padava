@@ -26,6 +26,7 @@ class User(Base):
     avatar_url = Column(String, nullable=True)
     is_verified = Column(Boolean, default=False)
     verification_token = Column(String, nullable=True)
+    token_version = Column(Integer, default=1, nullable=False, server_default="1")
     favorite_artists = Column(String, default="[]") # JSON string of artist names
     preferred_languages = Column(String, default="[]") # JSON string of language names
     created_at = Column(DateTime(timezone=True), server_default=func.now())

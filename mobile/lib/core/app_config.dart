@@ -10,7 +10,7 @@ class AppConfig {
   /// App Version String
   static const String appVersion = String.fromEnvironment(
     'APP_VERSION',
-    defaultValue: '2.2.0',
+    defaultValue: '2.5.0',
   );
 
   /// Enable Google Sign In

@@ -1,9 +1,10 @@
 import React, { lazy, Suspense } from 'react';
 import { Routes, Route } from 'react-router-dom';
-import MobileHome from '../pages/mobile/MobileHome';
 import ProtectedRoute from '../components/ProtectedRoute';
 import MobileBottomNavbar from '../components/mobile/MobileBottomNavbar';
 import MobilePlayerOverlay from '../components/mobile/MobilePlayerOverlay';
+
+const MobileHome = lazy(() => import('../pages/mobile/MobileHome'));
 
 const MobileSearch = lazy(() => import('../pages/mobile/MobileSearch'));
 const MobileLibrary = lazy(() => import('../pages/mobile/MobileLibrary'));

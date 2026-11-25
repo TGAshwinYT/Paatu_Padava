@@ -1,8 +1,8 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import axios from 'axios';
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
-import Home from './pages/Home';
 
+const Home = lazy(() => import('./pages/Home'));
 const Search = lazy(() => import('./pages/Search'));
 const LikedSongs = lazy(() => import('./pages/LikedSongs'));
 const RecentlyListened = lazy(() => import('./pages/RecentlyListened'));
@@ -24,22 +24,22 @@ const PageLoadingFallback = () => (
   </div>
 );
 
-import LibraryAuthModal from './components/modals/LibraryAuthModal';
+const LibraryAuthModal = lazy(() => import('./components/modals/LibraryAuthModal'));
 import ProtectedRoute from './components/ProtectedRoute';
 import Sidebar from './components/Sidebar';
 import PlayerBar from './components/PlayerBar';
-import AuthModal from './components/AuthModal';
-import AddToPlaylistModal from './components/AddToPlaylistModal';
+const AuthModal = lazy(() => import('./components/AuthModal'));
+const AddToPlaylistModal = lazy(() => import('./components/AddToPlaylistModal'));
 import { AudioProvider } from './context/AudioContext';
 import { PlaylistModalProvider, usePlaylistModal } from './context/PlaylistModalContext';
 import { useAuth } from './context/AuthContext';
 
 import { useMobile } from './hooks/useMobile';
-import MobileLayout from './layouts/MobileLayout';
+const MobileLayout = lazy(() => import('./layouts/MobileLayout'));
 import UserDropdown from './components/UserDropdown';
 import TopSearchBar from './components/TopSearchBar';
 import useKeyboardShortcuts from './hooks/useKeyboardShortcuts';
-import KeyboardShortcutsModal from './components/KeyboardShortcutsModal';
+const KeyboardShortcutsModal = lazy(() => import('./components/KeyboardShortcutsModal'));
 
 const AppContent = () => {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -80,11 +80,15 @@ const AppContent = () => {
 
   if (isMobile) {
     return (
-      <>
+      <Suspense fallback={<PageLoadingFallback />}>
         <MobileLayout />
-        <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
-        <AddToPlaylistModal isOpen={isPlaylistModalOpen} song={song} onClose={closeModal} />
-      </>
+        {isAuthModalOpen && (
+          <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
+        )}
+        {isPlaylistModalOpen && (
+          <AddToPlaylistModal isOpen={isPlaylistModalOpen} song={song} onClose={closeModal} />
+        )}
+      </Suspense>
     );
   }
 
@@ -108,7 +112,11 @@ const AppContent = () => {
         <Sidebar />
         
         <main className="flex-1 overflow-y-auto bg-neutral-900 rounded-xl relative pb-12">
-          <LibraryAuthModal isOpen={isLibraryAuthModalOpen} onClose={closeLibraryAuthModal} />
+          {isLibraryAuthModalOpen && (
+            <Suspense fallback={null}>
+              <LibraryAuthModal isOpen={isLibraryAuthModalOpen} onClose={closeLibraryAuthModal} />
+            </Suspense>
+          )}
           
           {/* Top Header Area */}
           <div className="sticky top-0 z-50 flex items-center justify-between w-full p-4 px-6 bg-neutral-900/80 backdrop-blur-md border-b border-white/5">
@@ -189,9 +197,17 @@ const AppContent = () => {
       {/* Bottom Desktop Player Bar */}
       <PlayerBar />
       
-      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
-      <AddToPlaylistModal isOpen={isPlaylistModalOpen} song={song} onClose={closeModal} />
-      <KeyboardShortcutsModal isOpen={isShortcutsModalOpen} onClose={() => setIsShortcutsModalOpen(false)} />
+      <Suspense fallback={null}>
+        {isAuthModalOpen && (
+          <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
+        )}
+        {isPlaylistModalOpen && (
+          <AddToPlaylistModal isOpen={isPlaylistModalOpen} song={song} onClose={closeModal} />
+        )}
+        {isShortcutsModalOpen && (
+          <KeyboardShortcutsModal isOpen={isShortcutsModalOpen} onClose={() => setIsShortcutsModalOpen(false)} />
+        )}
+      </Suspense>
     </div>
   );
 };

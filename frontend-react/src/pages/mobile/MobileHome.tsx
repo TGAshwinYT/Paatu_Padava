@@ -6,6 +6,7 @@ import { Settings, Clock, Sparkles, Play } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { Song } from '../../types';
 import { getRecentCollections } from '../../utils/historyUtils';
+import HomeSkeleton from '../../components/HomeSkeleton';
 
 const MobileHome: React.FC = () => {
   const { user } = useAuth();
@@ -42,19 +43,46 @@ const MobileHome: React.FC = () => {
   }, [recommended.length]);
 
   useEffect(() => {
+    const cacheKey = `paatu_mobile_home_cache_${user?.id ? 'auth' : 'guest'}_v1`;
+    let hasCached = false;
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      if (raw) {
+        const cached = JSON.parse(raw);
+        if (cached && typeof cached === 'object') {
+          setRecentlyPlayed(cached.recentlyPlayed || []);
+          setRecommended(cached.recommended || []);
+          setTopAlbums(cached.topAlbums || []);
+          setTopArtists(cached.topArtists || []);
+          setArtistMixes(cached.artistMixes || []);
+          setIsPersonalized(Boolean(cached.isPersonalized));
+          setIsLoading(false);
+          hasCached = true;
+        }
+      }
+    } catch {
+      // Ignore corrupt cache
+    }
+
     const fetchData = async () => {
-      setIsLoading(true);
+      if (!hasCached) setIsLoading(true);
       try {
         const [feed, history] = await Promise.all([
           getHomeFeed(),
           user ? getListenHistory() : Promise.resolve([])
         ]);
 
-        setRecentlyPlayed(history.slice(0, 8));
-        setRecommended(feed.recommendedForYou || []);
-        setTopAlbums(feed.topAlbums || []);
-        setTopArtists(feed.topArtists || []);
-        setIsPersonalized(feed.personalized);
+        const nextRecent = history.slice(0, 8);
+        const nextRec = feed.recommendedForYou || [];
+        const nextAlbums = feed.topAlbums || [];
+        const nextArtists = feed.topArtists || [];
+        const nextPersonalized = feed.personalized;
+
+        setRecentlyPlayed(nextRecent);
+        setRecommended(nextRec);
+        setTopAlbums(nextAlbums);
+        setTopArtists(nextArtists);
+        setIsPersonalized(nextPersonalized);
 
         // Mix Logic
         const favs = user ? JSON.parse(user.favorite_artists || '[]') : [];
@@ -68,6 +96,22 @@ const MobileHome: React.FC = () => {
           { id: 3, name: 'Illayaraja Mix', imageUrl: 'https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=300&h=300&fit=crop' }
         ];
         setArtistMixes(mockMixes);
+
+        try {
+          localStorage.setItem(
+            cacheKey,
+            JSON.stringify({
+              recentlyPlayed: nextRecent,
+              recommended: nextRec,
+              topAlbums: nextAlbums,
+              topArtists: nextArtists,
+              artistMixes: mockMixes,
+              isPersonalized: nextPersonalized,
+            })
+          );
+        } catch {
+          // Ignore quota errors
+        }
       } catch (err) {
         console.error("Mobile Home Fetch Error:", err);
       } finally {
@@ -98,8 +142,8 @@ const MobileHome: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center h-[100dvh] bg-surface-base">
-        <div className="w-12 h-12 border-4 border-brand border-t-transparent rounded-full animate-spin"></div>
+      <div className="h-[100dvh] overflow-y-auto no-scrollbar bg-surface-base px-4 pt-6 pb-32">
+        <HomeSkeleton />
       </div>
     );
   }

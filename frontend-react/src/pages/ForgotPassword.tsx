@@ -57,7 +57,7 @@ const ForgotPassword = () => {
           <div className="p-2 bg-brand rounded-lg">
             <Music size={32} className="text-black" />
           </div>
-          <h1 className="text-3xl font-bold">Paatu Paaduva</h1>
+          <h1 className="text-3xl font-bold">Paatu Padava</h1>
         </div>
 
         {step === 1 && (

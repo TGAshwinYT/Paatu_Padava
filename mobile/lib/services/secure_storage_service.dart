@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'app_logger.dart';
 
 /// Encrypted key-value storage wrapper backed by Android Keystore / EncryptedSharedPreferences
 /// and iOS Keychain, with an in-memory fallback for headless unit tests.
@@ -42,12 +43,12 @@ class SecureStorageService {
     _fallbackStore.remove(key);
     try {
       await _storage.delete(key: key);
-    } on MissingPluginException {
-      // No-op in headless test environments
-    } on PlatformException {
-      // No-op in headless test environments
-    } catch (_) {
-      // No-op in headless test environments
+    } on MissingPluginException catch (e) {
+      AppLogger.debug('SecureStorageService', 'MissingPluginException on delete($key): $e');
+    } on PlatformException catch (e) {
+      AppLogger.debug('SecureStorageService', 'PlatformException on delete($key): $e');
+    } catch (e) {
+      AppLogger.debug('SecureStorageService', 'Fallback delete($key) notice: $e');
     }
   }
 

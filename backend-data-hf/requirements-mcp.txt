@@ -1,0 +1,2 @@
+# Optional MCP server dependencies (not installed in production API container)
+mcp>=2.2.0

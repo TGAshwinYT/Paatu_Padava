@@ -508,7 +508,9 @@ class SpotifyImportService {
               return token;
             }
           }
-        } catch (_) {}
+        } catch (e) {
+          AppLogger.debug('SpotifyImportService', 'Backend token payload parse skipped: $e');
+        }
       }
     } catch (e) {
       AppLogger.log('SpotifyImportService', 'Backend token proxy failed: $e');

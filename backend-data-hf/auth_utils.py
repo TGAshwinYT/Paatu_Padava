@@ -1,5 +1,7 @@
+import asyncio
 import jwt
-from jwt.exceptions import PyJWTError as JWTError
+from jwt import PyJWKClient
+from jwt.exceptions import PyJWTError as JWTError, PyJWKClientError
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, VerificationError, InvalidHashError
 from datetime import datetime, timedelta, timezone
@@ -59,8 +61,49 @@ from models import User
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
-# Distinct Supabase JWT Secret for mobile token verification (never conflate with SECRET_KEY)
+# Distinct Supabase JWT Secret & JWKS URL for mobile token verification
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+_supabase_jwk_client: Optional[PyJWKClient] = (
+    PyJWKClient(f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json", cache_keys=True)
+    if SUPABASE_URL
+    else None
+)
+
+async def _decode_supabase_token(token: str) -> Optional[dict]:
+    """Verifies Supabase JWTs signed with asymmetric JWKS (RS256/ES256) or legacy HS256."""
+    try:
+        header = jwt.get_unverified_header(token)
+        alg = str(header.get("alg") or "").upper()
+    except JWTError:
+        alg = ""
+
+    if alg.startswith(("RS", "ES")) and _supabase_jwk_client is not None:
+        try:
+            signing_key = await asyncio.to_thread(
+                _supabase_jwk_client.get_signing_key_from_jwt, token
+            )
+            return jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=["RS256", "ES256"],
+                options={"verify_aud": False},
+            )
+        except (JWTError, PyJWKClientError, OSError, ValueError):
+            return None
+
+    if SUPABASE_JWT_SECRET:
+        try:
+            return jwt.decode(
+                token,
+                SUPABASE_JWT_SECRET,
+                algorithms=["HS256"],
+                options={"verify_aud": False},
+            )
+        except JWTError:
+            return None
+
+    return None
 
 async def _resolve_user_from_token(
     token: Optional[str],
@@ -69,7 +112,7 @@ async def _resolve_user_from_token(
     """
     Unified cryptographic user resolution supporting:
     1. Local custom JWT (FastAPI web client signed with JWT_SECRET)
-    2. Supabase Auth JWT (Mobile client token verified via SUPABASE_JWT_SECRET / HS256)
+    2. Supabase Auth JWT (Mobile client token verified via JWKS RS256/ES256 or HS256)
     Untrusted client headers (X-User-ID / X-User-Email) are strictly dropped.
     """
     if not token:
@@ -90,23 +133,14 @@ async def _resolve_user_from_token(
         token_version = payload.get("tv")
         email_confirmed = True
     except JWTError:
-        # 2. Attempt cryptographic verification with SUPABASE_JWT_SECRET
-        if SUPABASE_JWT_SECRET:
-            try:
-                payload = jwt.decode(
-                    token, 
-                    SUPABASE_JWT_SECRET, 
-                    algorithms=["HS256"], 
-                    options={"verify_aud": False}
-                )
-                email = payload.get("email")
-                sub = payload.get("sub")
-                is_supabase = True
-                email_confirmed = bool(payload.get("email_confirmed_at"))
-            except JWTError:
-                return None
-        else:
+        # 2. Attempt cryptographic verification with Supabase (JWKS RS256/ES256 or HS256)
+        payload = await _decode_supabase_token(token)
+        if not payload:
             return None
+        email = payload.get("email")
+        sub = payload.get("sub")
+        is_supabase = True
+        email_confirmed = bool(payload.get("email_confirmed_at"))
 
     # 3. If Supabase token, check matching by supabase_uid first
     if is_supabase and sub:

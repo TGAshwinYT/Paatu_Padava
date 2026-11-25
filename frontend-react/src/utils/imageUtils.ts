@@ -1,7 +1,7 @@
 export const getValidImage = (song: any) => {
     if (!song) return '/logo.png'; // Use actual default image path
 
-    let img = song.image || song.images || song.thumbnail || song.thumbnails || song.cover_url || song.coverUrl;
+    const img = song.image || song.images || song.thumbnail || song.thumbnails || song.cover_url || song.coverUrl;
 
     if (img && typeof img === 'string') {
         if (img.includes('placeholder.com')) return '/logo.png';

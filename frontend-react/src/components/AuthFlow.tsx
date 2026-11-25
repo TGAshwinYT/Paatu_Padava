@@ -244,9 +244,9 @@ const AuthFlow: React.FC<AuthFlowProps> = ({ onComplete, onClose }) => {
         {/* Logo */}
         <div className="pp-logo">
           <div className="pp-logo-icon">
-            <img src="/logo.png" alt="Paatu Paaduva" onError={e => { e.currentTarget.style.display = 'none'; }} />
+            <img src="/logo.png" alt="Paatu Padava" onError={e => { e.currentTarget.style.display = 'none'; }} />
           </div>
-          <span className="pp-logo-name">Paatu Paaduva</span>
+          <span className="pp-logo-name">Paatu Padava</span>
         </div>
 
         {/* Progress dots */}
@@ -281,7 +281,7 @@ const AuthFlow: React.FC<AuthFlowProps> = ({ onComplete, onClose }) => {
               </div>
 
               <h2 className="pp-heading">
-                {authMode === 'login' ? 'Welcome back 👋' : 'Join Paatu Paaduva'}
+                {authMode === 'login' ? 'Welcome back 👋' : 'Join Paatu Padava'}
               </h2>
               <p className="pp-sub">
                 {authMode === 'login'

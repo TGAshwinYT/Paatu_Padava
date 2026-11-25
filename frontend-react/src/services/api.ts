@@ -312,7 +312,7 @@ export const getRecommendations = async (
       }
     });
     return (response.data || []).map(mapHistoryToSong);
-  } catch (error) {
+  } catch {
     return [];
   }
 };
@@ -326,7 +326,7 @@ export const getRelatedSongs = async (songId: string, artist?: string, language?
       }
     });
     return (response.data || []).map(mapHistoryToSong);
-  } catch (error) {
+  } catch {
     return [];
   }
 };

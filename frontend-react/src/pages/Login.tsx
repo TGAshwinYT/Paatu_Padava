@@ -78,7 +78,7 @@ const Login: React.FC = () => {
               <img src="/logo.png" alt="Paatu Padava Logo" className="w-full h-full object-cover rounded-xl" />
             </div>
             <span className="text-2xl font-black tracking-tight text-white group-hover:text-brand transition-colors">
-              Paatu Paaduva
+              Paatu Padava
             </span>
           </Link>
           <h1 className="text-3xl font-black tracking-tight text-white text-center mt-2">
@@ -191,7 +191,7 @@ const Login: React.FC = () => {
         <p className="text-center text-sm text-neutral-400 mt-8">
           Don't have an account?{' '}
           <Link to="/signup" className="text-white hover:text-brand font-bold transition-colors underline-offset-4 hover:underline">
-            Sign up for Paatu Paaduva
+            Sign up for Paatu Padava
           </Link>
         </p>
       </div>

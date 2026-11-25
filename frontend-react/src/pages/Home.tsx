@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import { getHomeFeed, getListenHistory, getFollowedArtists } from '../services/api';
 import { useAudio } from '../context/AudioContext';
 import { getRecentCollections } from '../utils/historyUtils';
+import HomeSkeleton from '../components/HomeSkeleton';
 
 interface HomeProps {
   isLoggedIn: boolean;
@@ -75,8 +76,28 @@ const Home = ({ isLoggedIn }: HomeProps) => {
   }, [recommended.length, recentlyPlayed.length]);
 
   useEffect(() => {
+    const cacheKey = `paatu_home_feed_cache_${isLoggedIn ? 'auth' : 'guest'}_v1`;
+    let hasCached = false;
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      if (raw) {
+        const cached = JSON.parse(raw);
+        if (cached && typeof cached === 'object') {
+          setRecentlyPlayed(cached.recentlyPlayed || []);
+          setRecommended(cached.recommended || []);
+          setIsPersonalized(Boolean(cached.isPersonalized));
+          setTopArtists(cached.topArtists || []);
+          setTopAlbums(cached.topAlbums || []);
+          setIsLoading(false);
+          hasCached = true;
+        }
+      }
+    } catch {
+      // Ignore corrupt cache
+    }
+
     const fetchFeed = async () => {
-      setIsLoading(true);
+      if (!hasCached) setIsLoading(true);
       try {
         const [feedData, historyData, artistsData] = await Promise.all([
           getHomeFeed(),
@@ -85,11 +106,14 @@ const Home = ({ isLoggedIn }: HomeProps) => {
         ]);
         
         const data = feedData;
-        setRecentlyPlayed((historyData || []).slice(0, 12));
-        setRecommended(data.recommendedForYou || []);
-        setIsPersonalized(data.personalized);
+        const nextRecentlyPlayed = (historyData || []).slice(0, 12);
+        const nextRecommended = data.recommendedForYou || [];
+        const nextIsPersonalized = data.personalized;
+        setRecentlyPlayed(nextRecentlyPlayed);
+        setRecommended(nextRecommended);
+        setIsPersonalized(nextIsPersonalized);
         
-        let normalizedArtists = (artistsData || []).map((a: any) => ({
+        const normalizedArtists = (artistsData || []).map((a: any) => ({
           id: a.id || a.artist_id || '',
           name: a.name || a.artist_name || a.artist || 'Unknown Artist',
           image: [{ url: a.image_url || a.image || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop' }]
@@ -111,8 +135,24 @@ const Home = ({ isLoggedIn }: HomeProps) => {
           }
         }
 
+        const nextTopAlbums = data.topAlbums || [];
         setTopArtists(mergedArtists);
-        setTopAlbums(data.topAlbums || []);
+        setTopAlbums(nextTopAlbums);
+
+        try {
+          localStorage.setItem(
+            cacheKey,
+            JSON.stringify({
+              recentlyPlayed: nextRecentlyPlayed,
+              recommended: nextRecommended,
+              isPersonalized: nextIsPersonalized,
+              topArtists: mergedArtists,
+              topAlbums: nextTopAlbums,
+            })
+          );
+        } catch {
+          // Ignore quota errors
+        }
       } catch (error) {
         console.error("Error fetching home feed:", error);
       } finally {
@@ -124,12 +164,7 @@ const Home = ({ isLoggedIn }: HomeProps) => {
 
 
   if (isLoading) {
-    return (
-      <div className="flex flex-col gap-8 pb-24 items-center justify-center min-h-[50vh]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
-        <p className="text-neutral-400 mt-4">Loading your feed...</p>
-      </div>
-    );
+    return <HomeSkeleton />;
   }
 
   return (

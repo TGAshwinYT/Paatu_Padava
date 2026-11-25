@@ -1,5 +1,11 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import api from '../services/api';
+import GuestPlaylistImportModal from '../components/GuestPlaylistImportModal';
+import {
+  clearAccountPlaylists,
+  getUnhandledGuestPlaylists,
+  markGuestImportHandled,
+} from '../utils/offlineStorage';
 
 interface AuthContextType {
   user: any;
@@ -21,6 +27,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
   const [isLoading, setIsLoading] = useState(false);
   const [isLibraryAuthModalOpen, setIsLibraryAuthModalOpen] = useState(false);
+  const [pendingGuestCount, setPendingGuestCount] = useState(0);
+  const [isImportingGuest, setIsImportingGuest] = useState(false);
+
+  const checkGuestImportPrompt = (userId?: string) => {
+    if (!userId) {
+      setPendingGuestCount(0);
+      return;
+    }
+    const unhandled = getUnhandledGuestPlaylists(userId);
+    setPendingGuestCount(unhandled.length);
+  };
 
   const openLibraryAuthModal = () => setIsLibraryAuthModalOpen(true);
   const closeLibraryAuthModal = () => setIsLibraryAuthModalOpen(false);
@@ -33,8 +50,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const response = await api.get('/api/auth/me');
           setUser(response.data);
           localStorage.setItem('token', token);
+          checkGuestImportPrompt(response.data?.id);
         } catch (error) {
           console.error("Session restoration failed:", error);
+          clearAccountPlaylists(user?.id);
           setToken(null);
           setUser(null);
           localStorage.removeItem('token');
@@ -48,13 +67,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const handleAuthExpired = () => {
+      clearAccountPlaylists(user?.id);
       setToken(null);
       setUser(null);
+      setPendingGuestCount(0);
       localStorage.removeItem('token');
+      window.dispatchEvent(new Event('playlists-updated'));
     };
     window.addEventListener('auth-expired', handleAuthExpired);
     return () => window.removeEventListener('auth-expired', handleAuthExpired);
-  }, []);
+  }, [user?.id]);
 
   const login = async (email: string, pass: string) => {
     setIsLoading(true);
@@ -64,6 +86,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setToken(access_token);
       setUser(user);
       localStorage.setItem('token', access_token);
+      checkGuestImportPrompt(user?.id);
     } finally {
       setIsLoading(false);
     }
@@ -95,20 +118,63 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setToken(access_token);
       setUser(user);
       localStorage.setItem('token', access_token);
+      checkGuestImportPrompt(user?.id);
     } finally {
       setIsLoading(false);
     }
   };
 
   const logout = async () => {
+    const prevUserId = user?.id;
     try {
       await api.post('/api/auth/logout');
     } catch (err) {
       console.error("Logout error:", err);
     } finally {
+      clearAccountPlaylists(prevUserId);
       setToken(null);
       setUser(null);
+      setPendingGuestCount(0);
       localStorage.removeItem('token');
+      window.dispatchEvent(new Event('playlists-updated'));
+    }
+  };
+
+  const handleDeclineGuestImport = () => {
+    if (!user?.id) return;
+    const unhandled = getUnhandledGuestPlaylists(user.id);
+    markGuestImportHandled(user.id, unhandled.map((p) => p.id));
+    setPendingGuestCount(0);
+  };
+
+  const handleApproveGuestImport = async () => {
+    if (!user?.id) return;
+    setIsImportingGuest(true);
+    try {
+      const unhandled = getUnhandledGuestPlaylists(user.id);
+      for (const pl of unhandled) {
+        const created = await api.post('/api/playlists/', {
+          title: pl.title,
+          is_public: false,
+        });
+        const newId = created.data?.id;
+        if (newId && Array.isArray(pl.tracks)) {
+          for (const track of pl.tracks) {
+            try {
+              await api.post(`/api/playlists/${newId}/tracks`, track);
+            } catch (trackErr) {
+              console.error('Failed to import track into playlist:', trackErr);
+            }
+          }
+        }
+      }
+      markGuestImportHandled(user.id, unhandled.map((p) => p.id));
+      setPendingGuestCount(0);
+      window.dispatchEvent(new Event('playlists-updated'));
+    } catch (err) {
+      console.error('Failed to import guest playlists:', err);
+    } finally {
+      setIsImportingGuest(false);
     }
   };
 
@@ -126,6 +192,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       closeLibraryAuthModal
     }}>
       {children}
+      <GuestPlaylistImportModal
+        isOpen={Boolean(user && pendingGuestCount > 0)}
+        count={pendingGuestCount}
+        isBusy={isImportingGuest}
+        onApprove={handleApproveGuestImport}
+        onDecline={handleDeclineGuestImport}
+      />
     </AuthContext.Provider>
   );
 };

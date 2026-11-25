@@ -10,6 +10,7 @@ import '../services/youtube_client.dart';
 import '../services/queue_cooldown_manager.dart';
 import '../services/radio_engine.dart';
 import '../services/catalog_database.dart';
+import '../services/sleep_timer_service.dart';
 import 'audio_queue_handler.dart';
 import 'next_track_strategy.dart';
 
@@ -44,6 +45,15 @@ class SmartShuffleController {
     // Listen to queue changes & index updates to trigger Smart recommendation ingestion
     queueHandler?.currentIndexNotifier.addListener(_onQueueProgress);
     queueHandler?.queueNotifier.addListener(_onQueueProgress);
+    SleepTimerService.instance.isActiveNotifier.addListener(_onSleepTimerStateChanged);
+  }
+
+  void _onSleepTimerStateChanged() {
+    if (!SleepTimerService.instance.isActive &&
+        isSmartActive &&
+        (queueHandler?.player.playing ?? false)) {
+      _onQueueProgress();
+    }
   }
 
   /// O(1) LRU insertion and maintenance of recently played session tracks
@@ -122,10 +132,11 @@ class SmartShuffleController {
   /// when currentIndexNotifier and queueNotifier fire within the same frame
   void _onQueueProgress() {
     if (queueHandler == null || _isIngesting || _isProgressScheduled) return;
+    if (SleepTimerService.instance.isActive) return;
     _isProgressScheduled = true;
     scheduleMicrotask(() {
       _isProgressScheduled = false;
-      if (queueHandler == null || _isIngesting) return;
+      if (queueHandler == null || _isIngesting || SleepTimerService.instance.isActive) return;
       if (isSmartActive && queueHandler!.upcomingCount < 3) {
         ingestSmartRecommendations();
       }
@@ -197,7 +208,7 @@ class SmartShuffleController {
   /// artist hits, regional trending), deduplicates at the canonical-song level, applies
   /// artist diversity caps (at most 1 per 5 tracks), and interleaves suggestions.
   Future<void> ingestSmartRecommendations() async {
-    if (queueHandler == null || _isIngesting || !isSmartActive) return;
+    if (queueHandler == null || _isIngesting || !isSmartActive || SleepTimerService.instance.isActive) return;
     if (queueHandler!.upcomingCount >= 4) return;
 
     final currentSong = queueHandler!.currentSong;

@@ -505,6 +505,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Widget _buildPlaylistTile(UserPlaylist playlist) {
     final trackCount = playlist.tracks.length;
+    final isGuestLocal = PlaylistManager.isGuestPlaylist(playlist.id);
     return Container(
       key: ValueKey(playlist.id),
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
@@ -520,7 +521,28 @@ class _LibraryScreenState extends State<LibraryScreen> {
           borderRadius: BorderRadius.circular(10),
           child: SizedBox(width: 48, height: 48, child: _buildCover(playlist)),
         ),
-        title: Text(playlist.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(playlist.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
+            ),
+            if (isGuestLocal && AuthManager.isLoggedIn) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                ),
+                child: Text(
+                  'Guest / Local',
+                  style: GoogleFonts.outfit(color: Colors.amberAccent, fontSize: 10, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ],
+        ),
         subtitle: Row(
           children: [
             if (playlist.isBlend) ...[

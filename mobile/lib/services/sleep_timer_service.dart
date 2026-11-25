@@ -18,6 +18,7 @@ class SleepTimerService extends ChangeNotifier {
   Duration _remainingTime = Duration.zero;
   Duration _initialDuration = Duration.zero;
   bool _isActive = false;
+  final ValueNotifier<bool> isActiveNotifier = ValueNotifier<bool>(false);
   bool _stopAtEndOfTrack = false;
   bool _stopAtEndOfQueue = false;
   bool _isFadingOut = false;
@@ -67,6 +68,13 @@ class SleepTimerService extends ChangeNotifier {
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
+  void _setActive(bool active) {
+    _isActive = active;
+    if (isActiveNotifier.value != active) {
+      isActiveNotifier.value = active;
+    }
+  }
+
   /// Sets sleep timer with custom duration or sets "Stop at end of track/queue"
   void setTimer(Duration duration, {bool stopAtEnd = false, bool stopAtEndOfQueue = false}) {
     cancel();
@@ -74,7 +82,7 @@ class SleepTimerService extends ChangeNotifier {
     if (stopAtEndOfQueue) {
       _stopAtEndOfQueue = true;
       _stopAtEndOfTrack = false;
-      _isActive = true;
+      _setActive(true);
       _targetEndTime = null;
       _initialDuration = Duration.zero;
       _remainingTime = Duration.zero;
@@ -87,7 +95,7 @@ class SleepTimerService extends ChangeNotifier {
     if (stopAtEnd) {
       _stopAtEndOfTrack = true;
       _stopAtEndOfQueue = false;
-      _isActive = true;
+      _setActive(true);
       _targetEndTime = null;
       _initialDuration = Duration.zero;
       _remainingTime = Duration.zero;
@@ -101,7 +109,7 @@ class SleepTimerService extends ChangeNotifier {
 
     _stopAtEndOfTrack = false;
     _stopAtEndOfQueue = false;
-    _isActive = true;
+    _setActive(true);
     _initialDuration = duration;
     _remainingTime = duration;
     _targetEndTime = DateTime.now().add(duration);
@@ -190,7 +198,7 @@ class SleepTimerService extends ChangeNotifier {
     }
     }
 
-    _isActive = false;
+    _setActive(false);
     _stopAtEndOfTrack = false;
     _stopAtEndOfQueue = false;
     _isFadingOut = false;

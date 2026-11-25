@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../../services/auth_manager.dart';
 import '../../services/playlist_manager.dart';
 import '../../services/player_handler.dart';
 import '../widgets/join_playlist_dialog.dart';
@@ -364,15 +365,36 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
                                           : _buildPlaylistIcon()),
                                 ),
                               ),
-                              title: Text(
-                                playlist.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: GoogleFonts.outfit(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 15,
-                                ),
+                              title: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      playlist.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.outfit(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 15,
+                                      ),
+                                    ),
+                                  ),
+                                  if (PlaylistManager.isGuestPlaylist(playlist.id) && AuthManager.isLoggedIn) ...[
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.amber.withValues(alpha: 0.16),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                                      ),
+                                      child: Text(
+                                        'Guest / Local',
+                                        style: GoogleFonts.outfit(color: Colors.amberAccent, fontSize: 10, fontWeight: FontWeight.w600),
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
                               subtitle: Row(
                                 children: [

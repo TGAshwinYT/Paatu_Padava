@@ -17,11 +17,12 @@ class HistoryRepository:
         Cleans up listening history older than specified days using an independent session.
         """
         try:
+            safe_days = max(1, min(int(days), 3650))
             async with AsyncSessionLocal() as db:
                 cleanup_query = text(
-                    f"DELETE FROM listening_history WHERE user_id = :uid AND played_at < NOW() - INTERVAL '{days} days'"
+                    "DELETE FROM listening_history WHERE user_id = :uid AND played_at < NOW() - make_interval(days => :days)"
                 )
-                await db.execute(cleanup_query, {"uid": user_id})
+                await db.execute(cleanup_query, {"uid": user_id, "days": safe_days})
                 await db.commit()
         except Exception as e:
             print(f"Background cleanup failed for user {user_id}: {e}")
@@ -204,8 +205,13 @@ class HistoryRepository:
 
     @staticmethod
     async def delete_search_click_item(db: AsyncSession, user_id: Any, history_id: str) -> bool:
+        try:
+            item_uuid = uuid.UUID(str(history_id))
+        except ValueError:
+            return False
+
         query = select(SearchClickHistory).where(
-            SearchClickHistory.id == history_id,
+            SearchClickHistory.id == item_uuid,
             SearchClickHistory.user_id == user_id,
         )
         result = await db.execute(query)

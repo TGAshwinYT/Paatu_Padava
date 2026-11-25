@@ -536,13 +536,82 @@ export const unfollowArtist = async (artistId: string) => {
 
 export interface StreamResolution {
   song_id: string;
+  title?: string;
   audio_url: string | null;
+  url?: string;
   download_urls?: string[];
   youtube_id?: string;
   engine: 'native' | 'youtube';
   source: string;
   cached?: boolean;
+  download_token?: string;
 }
+
+const GUEST_SID_STORAGE_KEY = 'pp_guest_sid';
+let inMemoryGuestSid: string | null = null;
+const mediaTokenCache = new Map<string, { token: string; sid: string; expiresAt: number }>();
+
+export const getOrCreateGuestSessionId = (): string => {
+  if (inMemoryGuestSid) return inMemoryGuestSid;
+  try {
+    const existing = localStorage.getItem(GUEST_SID_STORAGE_KEY);
+    if (existing && /^[a-zA-Z0-9_-]{8,64}$/.test(existing)) {
+      inMemoryGuestSid = existing;
+      return existing;
+    }
+    const generated =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `guest_${Math.random().toString(36).slice(2)}_${Date.now()}`;
+    localStorage.setItem(GUEST_SID_STORAGE_KEY, generated);
+    inMemoryGuestSid = generated;
+    return generated;
+  } catch {
+    inMemoryGuestSid = `guest_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    return inMemoryGuestSid;
+  }
+};
+
+export const fetchSignedMediaToken = async (opts: {
+  purpose: 'stream' | 'download' | 'prefetch';
+  songId?: string;
+  songIds?: string[];
+  url?: string;
+}): Promise<{ token: string; sid: string } | null> => {
+  const sid = getOrCreateGuestSessionId();
+  const subjectKey =
+    opts.purpose === 'prefetch'
+      ? [...(opts.songIds ?? [])].map((s) => s.trim()).filter(Boolean).sort().join(',')
+      : opts.url || opts.songId || '';
+
+  if (!subjectKey) return null;
+  const cacheKey = `${opts.purpose}:${sid}:${subjectKey}`;
+  const cached = mediaTokenCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt - 30_000) {
+    return { token: cached.token, sid: cached.sid };
+  }
+
+  try {
+    const response = await api.post<{ token: string; expires_in?: number }>(
+      '/api/music/stream-token',
+      {
+        purpose: opts.purpose,
+        ...(opts.songId ? { song_id: opts.songId } : {}),
+        ...(opts.songIds ? { song_ids: opts.songIds.slice(0, 4) } : {}),
+        ...(opts.url ? { url: opts.url } : {}),
+      },
+      { headers: { 'X-Session-ID': sid } }
+    );
+    const token = response.data?.token;
+    if (!token) return null;
+    const ttlMs = (response.data?.expires_in || 900) * 1000;
+    mediaTokenCache.set(cacheKey, { token, sid, expiresAt: Date.now() + ttlMs });
+    return { token, sid };
+  } catch (error) {
+    console.debug('[API] fetchSignedMediaToken error:', error);
+    return null;
+  }
+};
 
 export const resolveStreamUrl = async (
   songId: string, 
@@ -554,6 +623,13 @@ export const resolveStreamUrl = async (
     const params: Record<string, string> = {};
     if (title) params.title = title;
     if (artist) params.artist = artist;
+    if (!localStorage.getItem('token')) {
+      const signed = await fetchSignedMediaToken({ purpose: 'stream', songId });
+      if (signed) {
+        params.st = signed.token;
+        params.sid = signed.sid;
+      }
+    }
     const response = await api.get(`/api/music/stream/${encodeURIComponent(songId)}`, { params });
     return response.data;
   } catch (error) {
@@ -566,10 +642,24 @@ export const prefetchStreamUrls = async (
   tracks: { id: string; title?: string; artist?: string }[]
 ): Promise<StreamResolution[]> => {
   if (!tracks || tracks.length === 0) return [];
+  const batch = tracks.slice(0, 4);
   try {
-    const response = await api.post('/api/music/prefetch-stream', {
-      tracks: tracks.map(t => ({ id: t.id, title: t.title, artist: t.artist }))
-    });
+    const headers: Record<string, string> = {};
+    if (!localStorage.getItem('token')) {
+      const signed = await fetchSignedMediaToken({
+        purpose: 'prefetch',
+        songIds: batch.map((t) => t.id),
+      });
+      if (signed) {
+        headers['X-Stream-Token'] = signed.token;
+        headers['X-Session-ID'] = signed.sid;
+      }
+    }
+    const response = await api.post(
+      '/api/music/prefetch-stream',
+      { tracks: batch.map((t) => ({ id: t.id, title: t.title, artist: t.artist })) },
+      { headers }
+    );
     return response.data?.streams || [];
   } catch (error) {
     console.debug('[API] prefetchStreamUrls error:', error);
@@ -640,13 +730,45 @@ export const getDownloadTrackUrl = (song: Song): string => {
   return `${baseURL}/api/music/download?${params.toString()}`;
 };
 
+export const getSignedDownloadTrackUrl = async (
+  song: Song,
+  preFetched?: { token: string; sid: string } | null
+): Promise<string> => {
+  const baseURL = api.defaults.baseURL || '';
+  const params = new URLSearchParams();
+  if (song.id) params.append('song_id', song.id);
+  if (song.title) params.append('title', song.title);
+  if (song.artist) params.append('artist', song.artist);
+  const hasHttpUrl = Boolean(song.audioUrl && song.audioUrl.startsWith('http'));
+  if (hasHttpUrl && song.audioUrl) {
+    params.append('url', song.audioUrl);
+  }
+
+  const signed =
+    preFetched ??
+    (await fetchSignedMediaToken({
+      purpose: 'download',
+      ...(hasHttpUrl && song.audioUrl ? { url: song.audioUrl } : { songId: song.id }),
+    }));
+  if (signed) {
+    params.append('token', signed.token);
+    params.append('sid', signed.sid);
+  }
+  return `${baseURL}/api/music/download?${params.toString()}`;
+};
+
 export const downloadSongFile = async (
   song: Song,
   onProgress?: (percent: number) => void
 ): Promise<void> => {
   if (!song) return;
 
-  const downloadUrl = getDownloadTrackUrl(song);
+  const hasHttpUrl = Boolean(song.audioUrl && song.audioUrl.startsWith('http'));
+  const signed = await fetchSignedMediaToken({
+    purpose: 'download',
+    ...(hasHttpUrl && song.audioUrl ? { url: song.audioUrl } : { songId: song.id }),
+  });
+  const downloadUrl = await getSignedDownloadTrackUrl(song, signed);
 
   try {
     const response = await api.get('/api/music/download', {
@@ -654,8 +776,10 @@ export const downloadSongFile = async (
         ...(song.id ? { song_id: song.id } : {}),
         ...(song.title ? { title: song.title } : {}),
         ...(song.artist ? { artist: song.artist } : {}),
-        ...(song.audioUrl && song.audioUrl.startsWith('http') ? { url: song.audioUrl } : {})
+        ...(hasHttpUrl && song.audioUrl ? { url: song.audioUrl } : {}),
+        ...(signed ? { token: signed.token, sid: signed.sid } : {}),
       },
+      headers: signed ? { 'X-Session-ID': signed.sid } : undefined,
       responseType: 'blob',
       onDownloadProgress: (progressEvent) => {
         if (progressEvent.total && onProgress) {

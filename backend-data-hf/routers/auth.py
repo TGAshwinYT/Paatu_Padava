@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from connection import get_db, get_redis
@@ -14,8 +14,8 @@ import time
 import json
 import secrets
 import logging
-from typing import Dict, Any, List, Optional
-from pydantic import BaseModel, EmailStr
+from typing import Annotated, Dict, Any, List, Optional
+from pydantic import BaseModel, EmailStr, StringConstraints
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,8 @@ class GoogleLoginRequest(BaseModel):
     credential: str
 
 @router.post("/google")
-async def google_login(request: GoogleLoginRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("10/minute")
+async def google_login(request: Request, body: GoogleLoginRequest, db: AsyncSession = Depends(get_db)):
     """
     Verifies a Google ID token or OAuth token with Google's tokeninfo API.
     Validates audience (aud) and email verification before authenticating user.
@@ -126,7 +127,8 @@ async def google_login(request: GoogleLoginRequest, db: AsyncSession = Depends(g
         async with httpx.AsyncClient(timeout=10.0) as client:
             # 1. First attempt verification via Google ID token endpoint
             id_resp = await client.get(
-                f"https://oauth2.googleapis.com/tokeninfo?id_token={request.credential}"
+                "https://oauth2.googleapis.com/tokeninfo",
+                params={"id_token": body.credential},
             )
             if id_resp.status_code == 200:
                 user_info = id_resp.json()
@@ -134,13 +136,14 @@ async def google_login(request: GoogleLoginRequest, db: AsyncSession = Depends(g
                 # 2. Fall back to userinfo endpoint with access token
                 userinfo_resp = await client.get(
                     "https://www.googleapis.com/oauth2/v3/userinfo",
-                    headers={"Authorization": f"Bearer {request.credential}"}
+                    headers={"Authorization": f"Bearer {body.credential}"}
                 )
                 if userinfo_resp.status_code == 200:
                     user_info = userinfo_resp.json()
                     # Also query tokeninfo with access token to verify aud/azp
                     access_tokeninfo_resp = await client.get(
-                        f"https://oauth2.googleapis.com/tokeninfo?access_token={request.credential}"
+                        "https://oauth2.googleapis.com/tokeninfo",
+                        params={"access_token": body.credential},
                     )
                     if access_tokeninfo_resp.status_code == 200:
                         ati_data = access_tokeninfo_resp.json()
@@ -153,7 +156,7 @@ async def google_login(request: GoogleLoginRequest, db: AsyncSession = Depends(g
         if google_client_id:
             token_aud = user_info.get("aud") or user_info.get("azp")
             allowed_ids = [cid.strip() for cid in google_client_id.split(",") if cid.strip()]
-            if token_aud and not any(token_aud == cid or token_aud.startswith(cid) for cid in allowed_ids):
+            if not token_aud or not any(token_aud == cid or token_aud.startswith(cid) for cid in allowed_ids):
                 raise HTTPException(status_code=401, detail="Google token was not issued for this application")
 
         # 4. Verify email is verified by Google
@@ -232,7 +235,8 @@ async def google_login(request: GoogleLoginRequest, db: AsyncSession = Depends(g
         }
         
     except httpx.RequestError as e:
-        raise HTTPException(status_code=500, detail=f"Error communicating with Google: {str(e)}")
+        logger.warning("[AUTH] Google token verification network error: %s", e)
+        raise HTTPException(status_code=500, detail="Unable to communicate with Google authentication service")
 
 @router.post("/forgot-password")
 @limiter.limit("3/minute")
@@ -547,13 +551,12 @@ async def get_user_artists_details(user: User = Depends(get_current_user), db: A
         return [a for a in artist_details if a]
         
     except Exception as e:
-        print("\n" + "!" * 60)
-        print(f"CRASH IN ARTISTS-DETAILS: {str(e)}")
-        print("!" * 60 + "\n")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Failed to fetch artists-details for user %s: %s", user.id, e)
+        raise HTTPException(status_code=500, detail="Failed to fetch artist details")
 
 @router.get("/verify/{token}")
-async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
+@limiter.limit("10/minute")
+async def verify_email(request: Request, token: str, db: AsyncSession = Depends(get_db)):
     """
     Verifies a user's email using the token sent via email.
     """
@@ -570,7 +573,9 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
     return {"message": "Email verified successfully! You can now log in."}
 
 @router.post("/logout")
+@limiter.limit("10/minute")
 async def logout(
+    request: Request,
     user: Optional[User] = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db)
 ):
@@ -591,6 +596,7 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: Optional[str] = None
 
 @router.post("/refresh")
+@limiter.limit("15/minute")
 async def refresh_token(
     request: Request,
     body: Optional[RefreshTokenRequest] = None,
@@ -663,7 +669,11 @@ async def refresh_token(
     }
 
 @router.patch("/preferences")
-async def update_preferences(artists: List[str], user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def update_preferences(
+    artists: Annotated[List[Annotated[str, StringConstraints(max_length=100)]], Body(max_length=100)],
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """
     Updates the user's favorite artists for personalized recommendations.
     """
@@ -681,7 +691,11 @@ async def update_preferences(artists: List[str], user: User = Depends(get_curren
 
 @router.patch("/language-preferences")
 @router.patch("/preferences/languages")
-async def update_language_preferences(languages: List[str], user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def update_language_preferences(
+    languages: Annotated[List[Annotated[str, StringConstraints(max_length=100)]], Body(max_length=100)],
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """
     Updates the user's preferred languages for regional and personalized music.
     Validates against canonical SUPPORTED_LANGUAGES set.

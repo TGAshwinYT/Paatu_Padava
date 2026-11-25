@@ -8,6 +8,8 @@ import '../core/app_config.dart';
 import 'supabase_service.dart';
 import 'sync_manager.dart';
 import 'settings_manager.dart';
+import 'playlist_manager.dart';
+import 'secure_storage_service.dart';
 import 'app_logger.dart';
 
 class AuthUser {
@@ -97,9 +99,11 @@ class AuthUser {
 /// Completely eliminates dual-backend desynchronization and silent sync failures.
 class AuthManager {
   static const String boxName = 'auth_box';
+  static const String _secureTokenKey = 'auth_access_token';
 
   static final ValueNotifier<String?> tokenNotifier = ValueNotifier<String?>(null);
   static final ValueNotifier<AuthUser?> authNotifier = ValueNotifier<AuthUser?>(null);
+  static final ValueNotifier<int> pendingGuestImportCountNotifier = ValueNotifier<int>(0);
 
   static AuthUser? get currentUser => authNotifier.value;
   static AuthUser? get user => currentUser;
@@ -129,13 +133,30 @@ class AuthManager {
       await Hive.openBox(boxName);
     }
 
-    // 1. Initial State from Supabase Client
+    // 1. Initial State from Supabase Client & SecureStorage
     final supaUser = SupabaseService.currentUser;
     if (supaUser != null) {
       final sessionToken = SupabaseService.client?.auth.currentSession?.accessToken;
       tokenNotifier.value = sessionToken;
+      if (sessionToken != null && sessionToken.isNotEmpty) {
+        await SecureStorageService.write(_secureTokenKey, sessionToken);
+      }
+      if (_box.isOpen && _box.containsKey('access_token')) {
+        await _box.delete('access_token');
+      }
       await _loadCachedUserOrSupabase(supaUser);
     } else {
+      if (_box.isOpen && _box.containsKey('access_token')) {
+        final legacyToken = _box.get('access_token')?.toString();
+        if (legacyToken != null && legacyToken.isNotEmpty) {
+          await SecureStorageService.write(_secureTokenKey, legacyToken);
+        }
+        await _box.delete('access_token');
+      }
+      final secureToken = await SecureStorageService.read(_secureTokenKey);
+      if (secureToken != null && secureToken.isNotEmpty) {
+        tokenNotifier.value = secureToken;
+      }
       final savedUser = _box.get('user_profile');
       if (savedUser is Map) {
         authNotifier.value = AuthUser.fromJson(savedUser);
@@ -149,12 +170,17 @@ class AuthManager {
     _authSub = SupabaseService.authStateChanges?.listen((data) async {
       final user = data.session?.user ?? SupabaseService.currentUser;
       if (user != null) {
-        tokenNotifier.value = data.session?.accessToken;
+        final sessionToken = data.session?.accessToken;
+        tokenNotifier.value = sessionToken;
+        if (sessionToken != null && sessionToken.isNotEmpty) {
+          await SecureStorageService.write(_secureTokenKey, sessionToken);
+        }
         await _loadCachedUserOrSupabase(user);
         // Automatically sync cloud library on sign in / session refresh
         SyncManager.syncAll();
       } else if (data.event == supa.AuthChangeEvent.signedOut) {
         tokenNotifier.value = null;
+        await SecureStorageService.delete(_secureTokenKey);
         await loginAsGuest();
       }
     });
@@ -182,6 +208,10 @@ class AuthManager {
     final authUser = AuthUser.fromSupabase(supaUser, languages: langs, artists: artists);
     authNotifier.value = authUser;
     await _box.put('user_profile', authUser.toJson());
+    await PlaylistManager.onUserAuthenticated(supaUser.id);
+    pendingGuestImportCountNotifier.value = PlaylistManager.hasUnhandledGuestPlaylists(supaUser.id)
+        ? PlaylistManager.getGuestPlaylists().length
+        : 0;
     SettingsManager.languagesNotifier.value = List<String>.from(langs);
     try { if (Hive.isBoxOpen(SettingsManager.boxName)) await Hive.box(SettingsManager.boxName).put('languages', langs); } catch (e) {
       AppLogger.debug('AuthManager', 'Handled exception: $e');
@@ -192,7 +222,11 @@ class AuthManager {
   static Future<bool> login(String email, String password) async {
     final res = await SupabaseService.signIn(email: email, password: password);
     if (res?.user != null) {
-      tokenNotifier.value = res?.session?.accessToken;
+      final accessToken = res?.session?.accessToken;
+      tokenNotifier.value = accessToken;
+      if (accessToken != null && accessToken.isNotEmpty) {
+        await SecureStorageService.write(_secureTokenKey, accessToken);
+      }
       await _loadCachedUserOrSupabase(res!.user!);
       SyncManager.syncAll();
       return true;
@@ -207,7 +241,11 @@ class AuthManager {
       username: username,
     );
     if (res?.user != null) {
-      tokenNotifier.value = res?.session?.accessToken;
+      final accessToken = res?.session?.accessToken;
+      tokenNotifier.value = accessToken;
+      if (accessToken != null && accessToken.isNotEmpty) {
+        await SecureStorageService.write(_secureTokenKey, accessToken);
+      }
       await _loadCachedUserOrSupabase(res!.user!);
       SyncManager.syncAll();
       return true;
@@ -218,7 +256,11 @@ class AuthManager {
   static Future<bool> loginWithGoogle([String? idToken]) async {
     final res = await SupabaseService.signInWithGoogle();
     if (res?.user != null) {
-      tokenNotifier.value = res?.session?.accessToken;
+      final accessToken = res?.session?.accessToken;
+      tokenNotifier.value = accessToken;
+      if (accessToken != null && accessToken.isNotEmpty) {
+        await SecureStorageService.write(_secureTokenKey, accessToken);
+      }
       await _loadCachedUserOrSupabase(res!.user!);
       SyncManager.syncAll();
       return true;
@@ -227,24 +269,26 @@ class AuthManager {
   }
 
   static Future<void> loginAsGuest() async {
+    final prevUserId = currentUser?.id;
     final guest = AuthUser.guest();
     authNotifier.value = guest;
     tokenNotifier.value = null;
-    await _box.put('user_profile', guest.toJson());
+    pendingGuestImportCountNotifier.value = 0;
+    await SecureStorageService.delete(_secureTokenKey);
+    if (_box.isOpen) {
+      await _box.delete('access_token');
+      await _box.put('user_profile', guest.toJson());
+    }
+    await PlaylistManager.clearAccountPlaylistsOnLogout(prevUserId);
   }
 
   static Future<void> logout() async {
-    final guest = AuthUser.guest();
-    authNotifier.value = guest;
-    tokenNotifier.value = null;
-    if (_box.isOpen) {
-      await _box.put('user_profile', guest.toJson());
-    }
+    await loginAsGuest();
     await SupabaseService.signOut();
   }
 
   /// Silently refreshes authentication token via Supabase or backend /api/auth/refresh,
-  /// updates secure Hive cache and tokenNotifier, and returns the fresh token.
+  /// updates SecureStorageService and tokenNotifier, and returns the fresh token.
   static Future<String?> silentRefresh() async {
     // 1. Try Supabase session refresh if configured and active
     try {
@@ -253,9 +297,7 @@ class AuthManager {
         final newToken = res.session?.accessToken;
         if (newToken != null && newToken.isNotEmpty) {
           tokenNotifier.value = newToken;
-          if (_box.isOpen) {
-            await _box.put('access_token', newToken);
-          }
+          await SecureStorageService.write(_secureTokenKey, newToken);
           debugPrint('[AuthManager] Silent token refresh succeeded via Supabase');
           return newToken;
         }
@@ -283,9 +325,7 @@ class AuthManager {
           final newToken = data['access_token']?.toString();
           if (newToken != null && newToken.isNotEmpty) {
             tokenNotifier.value = newToken;
-            if (_box.isOpen) {
-              await _box.put('access_token', newToken);
-            }
+            await SecureStorageService.write(_secureTokenKey, newToken);
             debugPrint('[AuthManager] Silent token refresh succeeded via backend /auth/refresh');
             return newToken;
           }

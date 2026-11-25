@@ -130,6 +130,7 @@ jobs:
           CLEAN_URL=$(printf '%s' "${{ secrets.SUPABASE_URL }}" | tr -d '\r\n "' | sed "s/'//g" | sed 's:/*$::')
           CLEAN_KEY=$(printf '%s' "${{ secrets.SUPABASE_ANON_KEY }}" | tr -d '\r\n "' | sed "s/'//g")
           SPOTIFY_ID=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_ID }}" | tr -d '\r\n "' | sed "s/'//g")
+          GOOGLE_CLIENT_ID=$(printf '%s' "${{ secrets.GOOGLE_WEB_CLIENT_ID }}" | tr -d '\r\n "' | sed "s/'//g")
 
           echo "Building APK with Git commit: $SHORT_SHA ($BUILD_TIME, run #${{ github.run_number }})..."
 
@@ -138,10 +139,13 @@ jobs:
             echo "Attempt $i of $MAX_RETRIES: Building release APK..."
             if flutter build apk --release -t lib/main.dart --android-skip-build-dependency-validation \
                 --split-per-abi \
+                --obfuscate \
+                --split-debug-info=build/app/outputs/symbols \
                 --build-number=${{ github.run_number }} \
                 "--dart-define=SUPABASE_URL=$CLEAN_URL" \
                 "--dart-define=SUPABASE_ANON_KEY=$CLEAN_KEY" \
                 "--dart-define=SPOTIFY_CLIENT_ID=$SPOTIFY_ID" \
+                "--dart-define=GOOGLE_WEB_CLIENT_ID=$GOOGLE_CLIENT_ID" \
                 "--dart-define=GIT_COMMIT=$SHORT_SHA" \
                 "--dart-define=BUILD_TIME=$BUILD_TIME"; then
               echo "✅ APK built successfully on attempt $i!"
@@ -163,6 +167,14 @@ jobs:
           name: paatu-padava-release-apks
           path: |
             mobile/build/app/outputs/flutter-apk/*.apk
+          retention-days: 30
+
+      - name: Upload Android Debug Symbols
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paatu-padava-android-symbols
+          path: mobile/build/app/outputs/symbols/
           retention-days: 30
 
   build-ios:
@@ -229,13 +241,17 @@ jobs:
           CLEAN_URL=$(printf '%s' "${{ secrets.SUPABASE_URL }}" | tr -d '\r\n "' | sed "s/'//g" | sed 's:/*$::')
           CLEAN_KEY=$(printf '%s' "${{ secrets.SUPABASE_ANON_KEY }}" | tr -d '\r\n "' | sed "s/'//g")
           SPOTIFY_ID=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_ID }}" | tr -d '\r\n "' | sed "s/'//g")
+          GOOGLE_CLIENT_ID=$(printf '%s' "${{ secrets.GOOGLE_WEB_CLIENT_ID }}" | tr -d '\r\n "' | sed "s/'//g")
 
           echo "== 1. Compiling iOS Release IPA for Physical iPhones =="
           flutter build ios --release --no-codesign -t lib/main.dart \
+            --obfuscate \
+            --split-debug-info=build/ios/symbols \
             --build-number=${{ github.run_number }} \
             "--dart-define=SUPABASE_URL=$CLEAN_URL" \
             "--dart-define=SUPABASE_ANON_KEY=$CLEAN_KEY" \
             "--dart-define=SPOTIFY_CLIENT_ID=$SPOTIFY_ID" \
+            "--dart-define=GOOGLE_WEB_CLIENT_ID=$GOOGLE_CLIENT_ID" \
             "--dart-define=GIT_COMMIT=$SHORT_SHA" \
             "--dart-define=BUILD_TIME=$BUILD_TIME"
 
@@ -252,6 +268,7 @@ jobs:
           CLEAN_URL=$(printf '%s' "${{ secrets.SUPABASE_URL }}" | tr -d '\r\n "' | sed "s/'//g" | sed 's:/*$::')
           CLEAN_KEY=$(printf '%s' "${{ secrets.SUPABASE_ANON_KEY }}" | tr -d '\r\n "' | sed "s/'//g")
           SPOTIFY_ID=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_ID }}" | tr -d '\r\n "' | sed "s/'//g")
+          GOOGLE_CLIENT_ID=$(printf '%s' "${{ secrets.GOOGLE_WEB_CLIENT_ID }}" | tr -d '\r\n "' | sed "s/'//g")
           GIT_SHA="${{ github.sha }}"
           SHORT_SHA="${GIT_SHA:0:7}"
           BUILD_TIME=$(date -u +'%Y-%m-%d_%H:%M_UTC')
@@ -260,6 +277,7 @@ jobs:
             "--dart-define=SUPABASE_URL=$CLEAN_URL" \
             "--dart-define=SUPABASE_ANON_KEY=$CLEAN_KEY" \
             "--dart-define=SPOTIFY_CLIENT_ID=$SPOTIFY_ID" \
+            "--dart-define=GOOGLE_WEB_CLIENT_ID=$GOOGLE_CLIENT_ID" \
             "--dart-define=GIT_COMMIT=$SHORT_SHA" \
             "--dart-define=BUILD_TIME=$BUILD_TIME"
 
@@ -276,6 +294,14 @@ jobs:
         with:
           name: paatu-padava-ios-device-ipa-FOR-PHYSICAL-IPHONES-ONLY
           path: mobile/build/ios/ipa/PaatuPadava-iOS-Device.ipa
+          retention-days: 30
+
+      - name: Upload iOS Debug Symbols
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paatu-padava-ios-symbols
+          path: mobile/build/ios/symbols/
           retention-days: 30
 
       - name: Upload Appetize.io Simulator Artifact

@@ -371,6 +371,7 @@ class AudioQueueHandler {
   }
 
   void _handleCrossfade(Duration pos) {
+    if (_effectiveLoopMode == LoopMode.one) return;
     final crossfadeSec = SettingsManager.crossfadeSeconds;
     final isBeatMatch = SettingsManager.isBeatMatchEnabled;
     if (crossfadeSec <= 0 && !isBeatMatch) return;
@@ -519,7 +520,10 @@ class AudioQueueHandler {
           AppLogger.log('AudioQueueHandler', '25% milestone reached: Candidate generation check (upcoming count: $upcomingCount).');
 
           final remainingUpcoming = upcomingCount;
-          if (remainingUpcoming <= 2 && SettingsManager.isAutoplayEnabled && isAudioHandlerInitialized) {
+          if (remainingUpcoming <= 2 &&
+              SettingsManager.isAutoplayEnabled &&
+              !SleepTimerService.instance.isActive &&
+              isAudioHandlerInitialized) {
             final active = currentSong;
             if (active != null) {
               final seed = _lastCompletedSeedSong ?? active;
@@ -623,8 +627,15 @@ class AudioQueueHandler {
         if (_effectiveLoopMode == LoopMode.one) {
           if (_currentTrack != null) {
             _isAdvancing = false;
-            player.seek(Duration.zero);
-            player.play();
+            _crossfadeEngine.reset();
+            _hasEnforcedInitialVolume = false;
+            _lastCompletedTrackId = null;
+            final targetVol = getEffectiveVolumeForSong(_currentTrack!.toSong());
+            unawaited(() async {
+              await player.setVolume(targetVol);
+              await player.seek(Duration.zero);
+              player.play().catchError((e, st) => AppLogger.recordError(e, st, context: 'loop one replay'));
+            }());
             return;
           }
         }
@@ -651,7 +662,10 @@ class AudioQueueHandler {
           startIdleTimer();
         } else if (_effectiveLoopMode == LoopMode.all && _contextQueue.isNotEmpty) {
           handleRepeatAllLoop();
-        } else if (SettingsManager.isAutoplayEnabled && current != null && isAudioHandlerInitialized) {
+        } else if (SettingsManager.isAutoplayEnabled &&
+            !SleepTimerService.instance.isActive &&
+            current != null &&
+            isAudioHandlerInitialized) {
           _isAdvancing = false;
           audioHandler.handleAutoplayQueueEnd(_lastCompletedSeedSong ?? current).whenComplete(() => _isAdvancing = false);
         } else {
@@ -1488,6 +1502,11 @@ class AudioQueueHandler {
       if (_effectiveLoopMode == LoopMode.one) {
         if (_currentTrack != null) {
           _isAdvancing = false;
+          _crossfadeEngine.reset();
+          _hasEnforcedInitialVolume = false;
+          _lastCompletedTrackId = null;
+          final targetVol = getEffectiveVolumeForSong(_currentTrack!.toSong());
+          await player.setVolume(targetVol);
           await player.seek(Duration.zero);
           player.play().catchError((e, st) => AppLogger.recordError(e, st, context: 'loop one play'));
           return;
@@ -1563,7 +1582,10 @@ class AudioQueueHandler {
       _isAdvancing = false;
 
       // 5. Autoplay replenishment ONLY when at EOF (_contextIndex + 1 >= _contextQueue.length)
-      if (SettingsManager.isAutoplayEnabled && _currentTrack != null && isAudioHandlerInitialized) {
+      if (SettingsManager.isAutoplayEnabled &&
+          !SleepTimerService.instance.isActive &&
+          _currentTrack != null &&
+          isAudioHandlerInitialized) {
         await audioHandler.handleAutoplayQueueEnd(_lastCompletedSeedSong ?? _currentTrack!.toSong());
       }
     } finally {
@@ -1901,10 +1923,20 @@ class AudioQueueHandler {
     _isPreparing = true;
 
     try {
-      final song = entity.toSong();
+      var song = entity.toSong();
 
-      // Ensure stream URL is resolved (JIT)
-      if (song.streamUrl == null || song.streamUrl!.isEmpty || streamResolver.isExpired(song.id)) {
+      // Skip network stream resolution when verified local downloaded file exists
+      final verifiedLocalPath = (song.localFilePath != null && File(song.localFilePath!).existsSync())
+          ? song.localFilePath
+          : DownloadManager.getLocalFilePath(song.id);
+      if (verifiedLocalPath != null && File(verifiedLocalPath).existsSync()) {
+        song = song.copyWith(
+          localFilePath: verifiedLocalPath,
+          localCoverPath: DownloadManager.getLocalCoverPath(song.id) ?? song.localCoverPath,
+          isDownloaded: true,
+          source: 'offline',
+        );
+      } else if (song.streamUrl == null || song.streamUrl!.isEmpty || streamResolver.isExpired(song.id)) {
         final url = await _resolveStreamUrl(song);
         if (currentRequestId != _loadRequestId || token != _sessionToken || activeToken != _activeLoadToken) return;
         if (url != null && url.isNotEmpty) {
@@ -1995,6 +2027,7 @@ class AudioQueueHandler {
         _hasRetriedCurrentTrack = false;
         _hasDownscaledCurrentTrack = false;
         _hasEnforcedInitialVolume = false;
+        _crossfadeEngine.reset();
         _cancelBufferStallWatchdog();
         if (crossfadeSec > 0) {
           _fadeVolumeTo(targetNorm, durationMs: (crossfadeSec * 600).clamp(250, 2000));

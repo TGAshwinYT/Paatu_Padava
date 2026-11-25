@@ -108,27 +108,38 @@ jobs:
           CLEAN_URL=$(printf '%s' "${{ secrets.SUPABASE_URL }}" | tr -d '\r\n "' | sed "s/'//g" | sed 's:/*$::')
           CLEAN_KEY=$(printf '%s' "${{ secrets.SUPABASE_ANON_KEY }}" | tr -d '\r\n "' | sed "s/'//g")
           SPOTIFY_ID=$(printf '%s' "${{ secrets.SPOTIFY_CLIENT_ID }}" | tr -d '\r\n "' | sed "s/'//g")
+          GOOGLE_CLIENT_ID=$(printf '%s' "${{ secrets.GOOGLE_WEB_CLIENT_ID }}" | tr -d '\r\n "' | sed "s/'//g")
 
           echo "1. Building ABI-split release APKs..."
           flutter build apk --release -t lib/main.dart --android-skip-build-dependency-validation \
             --split-per-abi \
             --obfuscate \
-            --split-debug-info=symbols \
+            --split-debug-info=build/app/outputs/symbols \
             --dart-define=SUPABASE_URL="$CLEAN_URL" \
             --dart-define=SUPABASE_ANON_KEY="$CLEAN_KEY" \
             --dart-define=SPOTIFY_CLIENT_ID="$SPOTIFY_ID" \
+            --dart-define=GOOGLE_WEB_CLIENT_ID="$GOOGLE_CLIENT_ID" \
             --dart-define=GIT_COMMIT="$SHORT_SHA" \
             --dart-define=BUILD_TIME="$BUILD_TIME"
 
           echo "2. Building Universal release APK..."
           flutter build apk --release -t lib/main.dart --android-skip-build-dependency-validation \
             --obfuscate \
-            --split-debug-info=symbols \
+            --split-debug-info=build/app/outputs/symbols \
             --dart-define=SUPABASE_URL="$CLEAN_URL" \
             --dart-define=SUPABASE_ANON_KEY="$CLEAN_KEY" \
             --dart-define=SPOTIFY_CLIENT_ID="$SPOTIFY_ID" \
+            --dart-define=GOOGLE_WEB_CLIENT_ID="$GOOGLE_CLIENT_ID" \
             --dart-define=GIT_COMMIT="$SHORT_SHA" \
             --dart-define=BUILD_TIME="$BUILD_TIME"
+
+      - name: Upload Android Debug Symbols
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paatu-padava-release-symbols
+          path: mobile/build/app/outputs/symbols/
+          retention-days: 30
 
       - name: Package & Prepare Release Binaries
         id: package_step

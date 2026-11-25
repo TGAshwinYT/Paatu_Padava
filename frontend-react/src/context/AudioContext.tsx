@@ -15,7 +15,16 @@ import { useAuth } from './AuthContext';
 import AudioPlayer from '../components/AudioPlayer';
 import { useEqualizer } from '../hooks/useEqualizer';
 import type { EqPreset, EqBand } from '../hooks/useEqualizer';
-import { isOfflineTrack, getOfflineTrackObjectUrl } from '../utils/offlineStorage';
+import {
+  isOfflineTrack,
+  getOfflineTrackObjectUrl,
+  getGuestPlaylists,
+  saveGuestPlaylists,
+  getAccountPlaylists,
+  saveAccountPlaylists,
+  clearAccountPlaylists,
+  type LocalPlaylist,
+} from '../utils/offlineStorage';
 import { PlaybackProgressProvider, usePlaybackProgress } from './PlaybackProgressContext';
 import { QueueProvider } from './QueueContext';
 
@@ -48,6 +57,11 @@ export interface AudioActionsContextType {
   reorderQueue: (startIndex: number, endIndex: number) => void;
   handleOnDragEnd: (result: any) => void;
   refreshPlaylists: () => Promise<void>;
+  createGuestPlaylist: (title: string) => LocalPlaylist;
+  renameGuestPlaylist: (id: string, title: string) => void;
+  deleteGuestPlaylist: (id: string) => void;
+  removeSongFromGuestPlaylist: (playlistId: string, songId: string) => void;
+  addSongToGuestPlaylist: (playlistId: string, song: Song) => void;
   setQueue: React.Dispatch<React.SetStateAction<Song[]>>;
   clearHistory: () => void;
   playFromSearch: (track: Song) => void;
@@ -71,6 +85,8 @@ export interface AudioContextType extends AudioActionsContextType {
   queue: Song[]; 
   history: Song[];
   userPlaylists: any[];
+  guestPlaylists: LocalPlaylist[];
+  accountPlaylists: LocalPlaylist[];
   isBuffering: boolean;
   onEnded: () => void;
   // ─── Silent Bridge additions ────────────────────────────────────────────────
@@ -238,7 +254,12 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [history, setHistory] = useState<Song[]>([]);
   const [remainingSleepTime, setRemainingSleepTime] = useState<number | null>(null);
   const [isEndOfTrackTimer, setIsEndOfTrackTimer] = useState(false);
-  const [userPlaylists, setUserPlaylists] = useState<any[]>([]);
+  const [guestPlaylists, setGuestPlaylists] = useState<LocalPlaylist[]>(() => getGuestPlaylists());
+  const [accountPlaylists, setAccountPlaylists] = useState<LocalPlaylist[]>([]);
+  const userPlaylists = useMemo(
+    () => (user ? [...accountPlaylists, ...guestPlaylists] : [...guestPlaylists]),
+    [user, accountPlaylists, guestPlaylists]
+  );
 
   // ─── Silent Bridge & Preloader State ────────────────────────────────────────
   const [playbackEngine, setPlaybackEngine] = useState<PlaybackEngine>('native');
@@ -1142,18 +1163,91 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => clearInterval(timer);
   }, [remainingSleepTime]);
 
-  const refreshPlaylists = async () => {
+  const refreshPlaylists = useCallback(async () => {
+    const guests = getGuestPlaylists();
+    setGuestPlaylists(guests);
+    if (!user?.id) {
+      setAccountPlaylists([]);
+      return;
+    }
     try {
       const response = await api.get('/api/playlists/');
-      setUserPlaylists(response.data || []);
+      const remote: LocalPlaylist[] = (response.data || []).map((p: any) => ({
+        ...p,
+        scope: 'account' as const,
+      }));
+      saveAccountPlaylists(user.id, remote);
+      setAccountPlaylists(remote);
     } catch (error) {
       console.error("Failed to fetch playlists:", error);
+      setAccountPlaylists(getAccountPlaylists(user.id));
     }
-  };
+  }, [user?.id]);
+
+  const createGuestPlaylist = useCallback((title: string): LocalPlaylist => {
+    const cleanTitle = title.trim() || 'My Guest Playlist';
+    const newPl: LocalPlaylist = {
+      id: `guest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      title: cleanTitle,
+      tracks: [],
+      created_at: new Date().toISOString(),
+      scope: 'guest',
+    };
+    const next = [newPl, ...getGuestPlaylists()];
+    saveGuestPlaylists(next);
+    setGuestPlaylists(next);
+    window.dispatchEvent(new Event('playlists-updated'));
+    return newPl;
+  }, []);
+
+  const renameGuestPlaylist = useCallback((id: string, title: string) => {
+    const next = getGuestPlaylists().map((p) => (p.id === id ? { ...p, title } : p));
+    saveGuestPlaylists(next);
+    setGuestPlaylists(next);
+    window.dispatchEvent(new Event('playlists-updated'));
+  }, []);
+
+  const deleteGuestPlaylist = useCallback((id: string) => {
+    const next = getGuestPlaylists().filter((p) => p.id !== id);
+    saveGuestPlaylists(next);
+    setGuestPlaylists(next);
+    window.dispatchEvent(new Event('playlists-updated'));
+  }, []);
+
+  const removeSongFromGuestPlaylist = useCallback((playlistId: string, songId: string) => {
+    const next = getGuestPlaylists().map((p) =>
+      p.id === playlistId
+        ? { ...p, tracks: (p.tracks || []).filter((t: any) => t.id !== songId) }
+        : p
+    );
+    saveGuestPlaylists(next);
+    setGuestPlaylists(next);
+  }, []);
+
+  const addSongToGuestPlaylist = useCallback((playlistId: string, song: Song) => {
+    const next = getGuestPlaylists().map((p) => {
+      if (p.id !== playlistId) return p;
+      const tracks = p.tracks || [];
+      if (tracks.some((t: any) => t.id === song.id)) return p;
+      return {
+        ...p,
+        cover_url: p.cover_url || song.coverUrl,
+        tracks: [...tracks, song],
+      };
+    });
+    saveGuestPlaylists(next);
+    setGuestPlaylists(next);
+  }, []);
 
   useEffect(() => {
-    if (user) refreshPlaylists();
-  }, [user]);
+    if (user) {
+      refreshPlaylists();
+    } else {
+      clearAccountPlaylists();
+      setAccountPlaylists([]);
+      setGuestPlaylists(getGuestPlaylists());
+    }
+  }, [user, refreshPlaylists]);
 
   const clearHistory = () => {
     setHistory([]);
@@ -1280,6 +1374,11 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     reorderQueue,
     handleOnDragEnd,
     refreshPlaylists,
+    createGuestPlaylist,
+    renameGuestPlaylist,
+    deleteGuestPlaylist,
+    removeSongFromGuestPlaylist,
+    addSongToGuestPlaylist,
     setQueue,
     clearHistory,
     setCrossfadeDuration,
@@ -1306,6 +1405,11 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     reorderQueue,
     handleOnDragEnd,
     refreshPlaylists,
+    createGuestPlaylist,
+    renameGuestPlaylist,
+    deleteGuestPlaylist,
+    removeSongFromGuestPlaylist,
+    addSongToGuestPlaylist,
     setQueue,
     clearHistory,
     setCrossfadeDuration,
@@ -1328,6 +1432,8 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     queue,
     history,
     userPlaylists,
+    guestPlaylists,
+    accountPlaylists,
     isBuffering,
     onEnded,
     playbackEngine,
@@ -1350,6 +1456,8 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     queue,
     history,
     userPlaylists,
+    guestPlaylists,
+    accountPlaylists,
     isBuffering,
     onEnded,
     playbackEngine,

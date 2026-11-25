@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 load_dotenv() # Load env vars before importing routers
 from typing import Optional
-from fastapi import FastAPI, Depends, HTTPException, Request, Query
+from fastapi import FastAPI, Depends, HTTPException, Request, Query, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,23 +33,8 @@ import models
 artist_trie = Trie()
 
 # CORS Configuration: Load origins dynamically from env (ALLOWED_ORIGINS / FRONTEND_URL)
-default_origins = [
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:5174"
-]
-env_origins = os.getenv("ALLOWED_ORIGINS", "")
-if env_origins:
-    for o in env_origins.split(","):
-        clean_o = o.strip()
-        if clean_o and clean_o not in default_origins:
-            default_origins.append(clean_o)
-frontend_url = os.getenv("FRONTEND_URL", "").strip()
-if frontend_url and frontend_url not in default_origins:
-    default_origins.append(frontend_url)
-
-allowed_origins = default_origins
+from cors_config import get_allowed_origins
+allowed_origins = get_allowed_origins()
 
 async def populate_artist_trie():
     """Populates artist autocomplete trie from curated regional artists and database history."""
@@ -291,16 +276,31 @@ async def music_spotify_token_alias(
 
 @app.get("/music/stream/{song_id}")
 async def music_stream_alias(
+    request: Request,
     song_id: str,
     title: Optional[str] = Query(None),
     artist: Optional[str] = Query(None),
+    st: Optional[str] = Query(None),
+    sid: Optional[str] = Query(None),
+    x_session_id: Optional[str] = Header(None, alias="X-Session-ID"),
+    user = Depends(get_current_user_optional),
     redis_client = Depends(get_redis)
 ):
     """
-    Direct alias endpoint for /music/stream/{song_id} resolving stream URLs.
+    Direct alias endpoint for /music/stream/{song_id} delegating with full
+    rate-limit and token/session security enforcement to music.get_stream_url.
     """
-    from services.stream_resolver_backend import resolve_single_stream
-    return await resolve_single_stream(song_id, title, artist, redis_client)
+    return await music.get_stream_url(
+        request=request,
+        song_id=song_id,
+        title=title,
+        artist=artist,
+        st=st,
+        sid=sid,
+        x_session_id=x_session_id,
+        user=user,
+        redis_client=redis_client,
+    )
 
 @app.get("/music/search")
 async def music_search_alias(

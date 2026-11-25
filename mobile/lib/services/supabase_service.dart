@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import '../models/song.dart';
 import 'app_logger.dart';
+import 'secure_storage_service.dart';
 import 'package:hive/hive.dart';
 
 class SupabaseService {
@@ -89,6 +90,9 @@ class SupabaseService {
       await Supabase.initialize(
         url: supabaseUrl,
         anonKey: supabaseAnonKey,
+        authOptions: FlutterAuthClientOptions(
+          localStorage: SecureSupabaseLocalStorage(),
+        ),
         debug: kDebugMode,
       );
       _isInitialized = true;
@@ -180,7 +184,7 @@ class SupabaseService {
 
   static const String googleWebClientId = String.fromEnvironment(
     'GOOGLE_WEB_CLIENT_ID',
-    defaultValue: '651588945329-odttbp9ilg38qf0ji42978l8mkto9f5u.apps.googleusercontent.com',
+    defaultValue: '',
   );
 
   /// Native Google Sign-In with Supabase OAuth Token Exchange

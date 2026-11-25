@@ -10,30 +10,17 @@ import ImportSpotifyModal from '../../components/ImportSpotifyModal';
 const MobileLibrary: React.FC = () => {
   const navigate = useNavigate();
   const { user, openLibraryAuthModal } = useAuth();
-  const { userPlaylists, refreshPlaylists } = useAudio();
+  const { userPlaylists, guestPlaylists, accountPlaylists, createGuestPlaylist, refreshPlaylists } = useAudio();
   const [activeTab, setActiveTab] = useState<'all' | 'liked'>('all');
-  const [playlists, setPlaylists] = useState<any[]>([]);
   const [followedArtists, setFollowedArtists] = useState<any[]>([]);
   const [favoriteArtists, setFavoriteArtists] = useState<any[]>([]);
   const [filter, setFilter] = useState<'all' | 'playlists' | 'artists'>('all');
   const [showSpotifyModal, setShowSpotifyModal] = useState(false);
 
-  const fetchPlaylists = async () => {
-    try {
-      const response = await api.get('/api/playlists/');
-      setPlaylists(response.data || []);
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
   useEffect(() => {
     let ignore = false;
     if (user) {
       refreshPlaylists();
-      api.get('/api/playlists/')
-        .then(res => { if (!ignore) setPlaylists(res.data || []); })
-        .catch(err => console.error(err));
       getFollowedArtists()
         .then(data => { if (!ignore) setFollowedArtists(data); })
         .catch(err => console.error(err));
@@ -48,27 +35,23 @@ const MobileLibrary: React.FC = () => {
 
   useEffect(() => {
     const handleSync = () => {
-      if (user) {
-        refreshPlaylists();
-        fetchPlaylists();
-      }
+      refreshPlaylists();
     };
     window.addEventListener('playlists-updated', handleSync);
     return () => window.removeEventListener('playlists-updated', handleSync);
-  }, [user]);
+  }, [refreshPlaylists]);
 
   const handleCreatePlaylist = async () => {
+    const currentCount = userPlaylists.length;
+    const title = window.prompt("Enter Playlist Name", `My Playlist ${currentCount + 1}`);
+    if (!title) return;
     if (!user) {
-      openLibraryAuthModal();
+      createGuestPlaylist(title);
       return;
     }
-    const currentCount = (userPlaylists && userPlaylists.length > 0 ? userPlaylists.length : playlists.length);
-    const title = window.prompt("Enter Playlist Name", `My Playlist ${currentCount + 1}`);
-    if (!title) return; 
     try {
       await api.post('/api/playlists/', { title, is_public: false });
       await refreshPlaylists();
-      fetchPlaylists();
       window.dispatchEvent(new Event('playlists-updated'));
     } catch (error) {
       console.error(error);
@@ -169,10 +152,10 @@ const MobileLibrary: React.FC = () => {
         )}
 
         {/* Playlists List */}
-        {(filter === 'all' || filter === 'playlists') && ((userPlaylists && userPlaylists.length > 0) ? userPlaylists : playlists).length > 0 && (
+        {(filter === 'all' || filter === 'playlists') && [...(user ? accountPlaylists : []), ...guestPlaylists].length > 0 && (
             <div className="flex flex-col gap-3">
               <h2 className="text-lg font-bold">Your Playlists</h2>
-              {((userPlaylists && userPlaylists.length > 0) ? userPlaylists : playlists).map((playlist: any) => (
+              {[...(user ? accountPlaylists : []), ...guestPlaylists].map((playlist: any) => (
                 <Link 
                   key={playlist.id}
                   to={`/playlist/${playlist.id}`}
@@ -185,8 +168,15 @@ const MobileLibrary: React.FC = () => {
                       <Music size={24} className="text-neutral-500" />
                     )}
                   </div>
-                  <div className="flex flex-col min-w-0">
-                     <span className="font-bold text-white truncate text-sm">{playlist.title}</span>
+                  <div className="flex flex-col min-w-0 flex-1">
+                     <div className="flex items-center gap-2">
+                       <span className="font-bold text-white truncate text-sm">{playlist.title}</span>
+                       {playlist.scope === 'guest' && user && (
+                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 flex-shrink-0">
+                           Guest / Local
+                         </span>
+                       )}
+                     </div>
                      <span className="text-xs text-neutral-400">Playlist</span>
                   </div>
                 </Link>

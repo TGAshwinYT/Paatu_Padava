@@ -32,6 +32,9 @@ dependencies:
   path_provider: ^2.1.3
   hive: ^2.2.3
   hive_flutter: ^1.1.0
+  flutter_secure_storage: ^11.2.0
+  shared_preferences: ^2.5.5
+  crypto: ^3.0.7
 
   # DES Decryption for JioSaavn 320kbps media URLs
   dart_des: ^1.0.2

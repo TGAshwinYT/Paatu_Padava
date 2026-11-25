@@ -22,11 +22,13 @@ class PartyModeSheet extends StatefulWidget {
 
 class _PartyModeSheetState extends State<PartyModeSheet> {
   final TextEditingController _codeController = TextEditingController();
+  final TextEditingController _pinController = TextEditingController();
   bool _isJoining = false;
 
   @override
   void dispose() {
     _codeController.dispose();
+    _pinController.dispose();
     super.dispose();
   }
 
@@ -47,10 +49,24 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
 
   Future<void> _handleJoinParty() async {
     final code = _codeController.text.trim();
+    final pin = _pinController.text.trim();
     if (code.isEmpty) return;
 
+    if (pin.isEmpty && !code.contains('#')) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter the 4-digit Room PIN (or CODE#PIN).'),
+          duration: Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Color(0xFFEF4444),
+        ),
+      );
+      return;
+    }
+
     setState(() => _isJoining = true);
-    final success = await PartySyncCoordinator.joinParty(code);
+    final success = await PartySyncCoordinator.joinParty(code, pin: pin.isNotEmpty ? pin : null);
     if (!mounted) return;
     setState(() => _isJoining = false);
 
@@ -58,7 +74,7 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Failed to join party. Check the code and try again.'),
+          content: Text('Failed to join party. Check the code and PIN and try again.'),
           duration: Duration(seconds: 3),
           behavior: SnackBarBehavior.floating,
           backgroundColor: Color(0xFFEF4444),
@@ -236,12 +252,13 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
               Row(
                 children: [
                   Expanded(
+                    flex: 3,
                     child: TextField(
                       controller: _codeController,
                       textCapitalization: TextCapitalization.characters,
-                      style: const TextStyle(color: Colors.white, letterSpacing: 2.0, fontWeight: FontWeight.bold),
+                      style: const TextStyle(color: Colors.white, letterSpacing: 1.5, fontWeight: FontWeight.bold),
                       decoration: InputDecoration(
-                        hintText: 'e.g. SYNC-9K2M',
+                        hintText: 'SYNC-9K2M',
                         hintStyle: const TextStyle(color: Colors.white30, letterSpacing: 1.0),
                         filled: true,
                         fillColor: const Color(0xFF131B2E),
@@ -254,19 +271,44 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF10B981),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  Expanded(
+                    flex: 2,
+                    child: TextField(
+                      controller: _pinController,
+                      keyboardType: TextInputType.number,
+                      maxLength: 4,
+                      style: const TextStyle(color: Colors.white, letterSpacing: 2.0, fontWeight: FontWeight.bold),
+                      decoration: InputDecoration(
+                        hintText: 'PIN',
+                        counterText: '',
+                        hintStyle: const TextStyle(color: Colors.white30, letterSpacing: 1.0),
+                        filled: true,
+                        fillColor: const Color(0xFF131B2E),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
                     ),
-                    onPressed: _isJoining ? null : _handleJoinParty,
-                    child: _isJoining
-                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : const Text('Join', style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
                 ],
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  ),
+                  onPressed: _isJoining ? null : _handleJoinParty,
+                  child: _isJoining
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Join Party', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
               ),
             ],
           ),
@@ -379,19 +421,47 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
           ),
           const SizedBox(height: 14),
 
-          // Code display
+          // Code & Room PIN display
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                code,
-                style: GoogleFonts.outfit(
-                  color: Colors.white,
-                  fontSize: 24,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 3.0,
+              Flexible(
+                child: Wrap(
+                  spacing: 10,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      code,
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 2.5,
+                      ),
+                    ),
+                    if (role == PartyRole.host && PartySyncCoordinator.partyPin != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF6366F1).withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFF818CF8).withValues(alpha: 0.45)),
+                        ),
+                        child: Text(
+                          'PIN ${PartySyncCoordinator.partyPin}',
+                          style: const TextStyle(
+                            color: Color(0xFFA5B4FC),
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
+              const SizedBox(width: 8),
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF6366F1),
@@ -401,11 +471,13 @@ class _PartyModeSheetState extends State<PartyModeSheet> {
                 icon: const Icon(Icons.copy_rounded, size: 16),
                 label: const Text('Copy'),
                 onPressed: () {
-                  Clipboard.setData(ClipboardData(text: code));
+                  final pin = PartySyncCoordinator.partyPin;
+                  final shareText = (pin != null && pin.isNotEmpty) ? '$code#$pin' : code;
+                  Clipboard.setData(ClipboardData(text: shareText));
                   ScaffoldMessenger.of(context).clearSnackBars();
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Party code copied to clipboard!'),
+                      content: Text('Party code & PIN copied to clipboard!'),
                       duration: Duration(seconds: 2),
                       behavior: SnackBarBehavior.floating,
                     ),

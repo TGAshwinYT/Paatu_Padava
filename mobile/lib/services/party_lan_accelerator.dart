@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import '../platform/sync_platform.dart';
 import 'app_logger.dart';
@@ -17,6 +19,7 @@ class LanJoinerPeer {
 /// Direct Local Wi-Fi (LAN) Socket Transport (< 2ms latency) with subnet broadcast & direct unicast.
 class PartyLanAccelerator {
   static const int defaultPort = 45454;
+  static const int maxClockSkewMs = 30000;
   static RawDatagramSocket? _socket;
   static Timer? _hostBeaconTimer;
   static Timer? _joinerProbeTimer;
@@ -25,6 +28,7 @@ class PartyLanAccelerator {
   static int _discoveredHostPort = defaultPort;
   static String? _currentPartyCode;
   static String? _selfClientId;
+  static String? _roomToken;
   static bool _isHost = false;
   static int _lastLanActivityEpochMs = 0;
   static final Set<InternetAddress> _broadcastAddresses = {InternetAddress('255.255.255.255')};
@@ -120,12 +124,13 @@ class PartyLanAccelerator {
   }
 
   /// Starts Host LAN socket on local Wi-Fi network
-  static Future<void> startHost(String partyCode, {String? clientId}) async {
+  static Future<void> startHost(String partyCode, {String? clientId, String? roomToken}) async {
     if (kIsWeb) return;
     await stop();
 
     _currentPartyCode = partyCode;
     _selfClientId = clientId;
+    _roomToken = (roomToken != null && roomToken.isNotEmpty) ? roomToken : null;
     _isHost = true;
     _registeredJoiners.clear();
     await _refreshBroadcastAddresses();
@@ -175,12 +180,13 @@ class PartyLanAccelerator {
   }
 
   /// Starts Joiner LAN listener on local Wi-Fi network
-  static Future<void> startJoiner(String partyCode, {String? clientId}) async {
+  static Future<void> startJoiner(String partyCode, {String? clientId, String? roomToken}) async {
     if (kIsWeb) return;
     await stop();
 
     _currentPartyCode = partyCode;
     _selfClientId = clientId;
+    _roomToken = (roomToken != null && roomToken.isNotEmpty) ? roomToken : null;
     _isHost = false;
     await _refreshBroadcastAddresses();
 
@@ -238,6 +244,91 @@ class PartyLanAccelerator {
     }
   }
 
+  static dynamic _canonicalize(dynamic value) {
+    if (value is Map) {
+      final sorted = SplayTreeMap<String, dynamic>();
+      for (final entry in value.entries) {
+        sorted[entry.key.toString()] = _canonicalize(entry.value);
+      }
+      return sorted;
+    }
+    if (value is List) {
+      return value.map(_canonicalize).toList();
+    }
+    return value;
+  }
+
+  /// Constant-time string comparison to prevent timing side-channels.
+  static bool constantTimeEquals(String? a, String? b) {
+    if (a == null || b == null) return false;
+    final bytesA = utf8.encode(a);
+    final bytesB = utf8.encode(b);
+    if (bytesA.length != bytesB.length || bytesA.isEmpty) return false;
+    int diff = 0;
+    for (int i = 0; i < bytesA.length; i++) {
+      diff |= bytesA[i] ^ bytesB[i];
+    }
+    return diff == 0;
+  }
+
+  /// Computes deterministic HMAC-SHA256 signature over partyCode, event, timestamp, and canonical payload.
+  static String computePacketSignature(
+    String partyCode,
+    String event,
+    int ts,
+    Map<String, dynamic> payload,
+    String roomToken,
+  ) {
+    final canonicalPayload = jsonEncode(_canonicalize(payload));
+    final signingInput = '$partyCode|$event|$ts|$canonicalPayload';
+    final hmac = Hmac(sha256, utf8.encode(roomToken));
+    return hmac.convert(utf8.encode(signingInput)).toString();
+  }
+
+  /// Verifies incoming LAN packet room token signature and replay timestamp window.
+  /// `host_beacon` packets are discovery-only and carry no control state or room secrets.
+  static bool verifyIncomingPacket(
+    Map<String, dynamic> json, {
+    required String expectedCode,
+    required String? expectedRoomToken,
+    int? nowEpochMs,
+  }) {
+    final code = json['partyCode']?.toString();
+    if (code == null || code != expectedCode) return false;
+    if (json['payload'] is! Map) return false;
+
+    final event = json['event']?.toString() ?? '';
+    if (event.isEmpty) return false;
+    if (event == 'host_beacon') return true;
+
+    if (expectedRoomToken == null || expectedRoomToken.isEmpty) return false;
+
+    final ts = (json['ts'] as num?)?.toInt();
+    final sig = json['sig']?.toString();
+    if (ts == null || sig == null || sig.isEmpty) return false;
+
+    final now = nowEpochMs ?? DateTime.now().millisecondsSinceEpoch;
+    if ((now - ts).abs() > maxClockSkewMs) return false;
+
+    final payloadMap = Map<String, dynamic>.from(json['payload'] as Map);
+    final expectedSig = computePacketSignature(code, event, ts, payloadMap, expectedRoomToken);
+    return constantTimeEquals(sig, expectedSig);
+  }
+
+  static String _encodePacket(String event, Map<String, dynamic> payload) {
+    final packet = <String, dynamic>{
+      'partyCode': _currentPartyCode,
+      'event': event,
+      'payload': payload,
+    };
+    if (event != 'host_beacon' && _roomToken != null && _roomToken!.isNotEmpty) {
+      final ts = DateTime.now().millisecondsSinceEpoch;
+      packet['ts'] = ts;
+      packet['sig'] = computePacketSignature(_currentPartyCode!, event, ts, payload, _roomToken!);
+    }
+    return jsonEncode(packet);
+  }
+
   static void _sendJoinerProbe() {
     final payload = {
       'code': _currentPartyCode,
@@ -247,11 +338,7 @@ class PartyLanAccelerator {
     sendBroadcast('joiner_probe', payload);
     // Direct hotspot gateway probe: if joiner is connected to personal hotspot, host is at 192.168.43.1 or 192.168.49.1
     try {
-      final message = jsonEncode({
-        'partyCode': _currentPartyCode,
-        'event': 'joiner_probe',
-        'payload': payload,
-      });
+      final message = _encodePacket('joiner_probe', payload);
       final bytes = utf8.encode(message);
       _socket?.send(bytes, InternetAddress('192.168.43.1'), defaultPort);
       _socket?.send(bytes, InternetAddress('192.168.49.1'), defaultPort);
@@ -283,11 +370,7 @@ class PartyLanAccelerator {
   static void sendBroadcast(String event, Map<String, dynamic> payload) {
     if (_socket == null || _currentPartyCode == null) return;
     try {
-      final message = jsonEncode({
-        'partyCode': _currentPartyCode,
-        'event': event,
-        'payload': payload,
-      });
+      final message = _encodePacket(event, payload);
       final bytes = utf8.encode(message);
       for (final bcast in _broadcastAddresses) {
         try {
@@ -306,11 +389,7 @@ class PartyLanAccelerator {
   static void sendSyncEvent(String event, Map<String, dynamic> payload) {
     if (_socket == null || _currentPartyCode == null) return;
     try {
-      final message = jsonEncode({
-        'partyCode': _currentPartyCode,
-        'event': event,
-        'payload': payload,
-      });
+      final message = _encodePacket(event, payload);
       final bytes = utf8.encode(message);
 
       // 1. Direct unicast to every registered joiner
@@ -347,11 +426,7 @@ class PartyLanAccelerator {
       return;
     }
     try {
-      final message = jsonEncode({
-        'partyCode': _currentPartyCode,
-        'event': event,
-        'payload': payload,
-      });
+      final message = _encodePacket(event, payload);
       final bytes = utf8.encode(message);
       _socket?.send(bytes, dest, destPort);
     } catch (e) {
@@ -388,13 +463,18 @@ class PartyLanAccelerator {
     try {
       final text = utf8.decode(datagram.data);
       final json = jsonDecode(text) as Map<String, dynamic>?;
-      if (json == null) return;
+      if (json == null || _currentPartyCode == null) return;
 
-      final code = json['partyCode']?.toString();
-      if (code == null || code != _currentPartyCode) return;
+      if (!verifyIncomingPacket(
+        json,
+        expectedCode: _currentPartyCode!,
+        expectedRoomToken: _roomToken,
+      )) {
+        return;
+      }
 
       final event = json['event']?.toString() ?? '';
-      final payload = json['payload'] as Map<String, dynamic>? ?? {};
+      final payload = Map<String, dynamic>.from(json['payload'] as Map);
 
       // 1. Host Discovery Beacon (Joiner detects host on local Wi-Fi)
       if (event == 'host_beacon' && !_isHost) {
@@ -494,6 +574,7 @@ class PartyLanAccelerator {
     _discoveredHostAddress = null;
     _currentPartyCode = null;
     _selfClientId = null;
+    _roomToken = null;
     _isHost = false;
     _lastLanActivityEpochMs = 0;
     _registeredJoiners.clear();

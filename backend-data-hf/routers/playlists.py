@@ -1,11 +1,12 @@
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, Request, status, Depends
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 import uuid
 import models
 from connection import get_db
 from auth_utils import get_current_user, get_current_user_optional
+from limiter_config import limiter
 from repositories.playlist_repo import PlaylistRepository
 from services.spotify_import import (
     parse_spotify_playlist_id,
@@ -16,33 +17,33 @@ from services.spotify_import import (
 router = APIRouter(prefix="/api/playlists", tags=["playlists"])
 
 class CreatePlaylistRequest(BaseModel):
-    title: str
-    description: Optional[str] = ""
+    title: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = Field("", max_length=1000)
     is_public: Optional[bool] = False
-    cover_url: Optional[str] = ""
+    cover_url: Optional[str] = Field("", max_length=2048)
 
 class UpdatePlaylistRequest(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
+    title: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = Field(None, max_length=1000)
     is_public: Optional[bool] = None
-    cover_url: Optional[str] = None
+    cover_url: Optional[str] = Field(None, max_length=2048)
 
 class AddSongRequest(BaseModel):
-    id: str
-    title: str
-    artist: str
-    album: Optional[str] = ""
-    coverUrl: Optional[str] = ""
-    streamUrl: Optional[str] = ""
-    source: Optional[str] = "saavn"
-    duration: Optional[int] = 0
+    id: str = Field(..., min_length=1, max_length=100)
+    title: str = Field(..., min_length=1, max_length=255)
+    artist: str = Field(..., min_length=1, max_length=255)
+    album: Optional[str] = Field("", max_length=255)
+    coverUrl: Optional[str] = Field("", max_length=2048)
+    streamUrl: Optional[str] = Field("", max_length=2048)
+    source: Optional[str] = Field("saavn", max_length=50)
+    duration: Optional[int] = Field(0, ge=0, le=86400)
 
 class SpotifyPreviewRequest(BaseModel):
-    url: str
+    url: str = Field(..., min_length=10, max_length=500)
 
 class SpotifyImportRequest(BaseModel):
-    url: str
-    custom_title: Optional[str] = None
+    url: str = Field(..., min_length=10, max_length=500)
+    custom_title: Optional[str] = Field(None, max_length=255)
 
 @router.get("/")
 async def get_user_playlists(
@@ -136,8 +137,11 @@ async def get_playlist_by_id(
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
 
-    if not playlist.is_public and (not user or user.id != playlist.user_id):
-        raise HTTPException(status_code=403, detail="You do not have permission to view this playlist")
+    if not playlist.is_public:
+        if not user:
+            raise HTTPException(status_code=401, detail="Authentication required to view private playlist")
+        if user.id != playlist.user_id:
+            raise HTTPException(status_code=403, detail="You do not have permission to view this playlist")
 
     return {
         "id": str(playlist.id),
@@ -174,10 +178,12 @@ async def update_playlist(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid playlist UUID format")
 
-    playlist = await PlaylistRepository.get_by_id(db, pl_uuid, load_tracks=False, user_id=user.id)
+    playlist = await PlaylistRepository.get_by_id(db, pl_uuid, load_tracks=False)
 
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
+    if playlist.user_id != user.id:
+        raise HTTPException(status_code=403, detail="You do not have permission to modify this playlist")
 
     updated = await PlaylistRepository.update_playlist(
         db=db,
@@ -200,10 +206,12 @@ async def delete_playlist(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid playlist UUID format")
 
-    playlist = await PlaylistRepository.get_by_id(db, pl_uuid, load_tracks=False, user_id=user.id)
+    playlist = await PlaylistRepository.get_by_id(db, pl_uuid, load_tracks=False)
 
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
+    if playlist.user_id != user.id:
+        raise HTTPException(status_code=403, detail="You do not have permission to modify this playlist")
 
     await PlaylistRepository.delete_playlist(db, playlist)
     return {"success": True, "message": "Playlist deleted successfully"}
@@ -220,10 +228,12 @@ async def add_song_to_playlist(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid playlist UUID format")
 
-    playlist = await PlaylistRepository.get_by_id(db, pl_uuid, load_tracks=True, user_id=user.id)
+    playlist = await PlaylistRepository.get_by_id(db, pl_uuid, load_tracks=True)
 
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
+    if playlist.user_id != user.id:
+        raise HTTPException(status_code=403, detail="You do not have permission to modify this playlist")
 
     added = await PlaylistRepository.add_track(
         db=db,
@@ -255,16 +265,19 @@ async def remove_song_from_playlist(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid playlist UUID format")
 
-    playlist = await PlaylistRepository.get_by_id(db, pl_uuid, load_tracks=False, user_id=user.id)
+    playlist = await PlaylistRepository.get_by_id(db, pl_uuid, load_tracks=False)
 
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
+    if playlist.user_id != user.id:
+        raise HTTPException(status_code=403, detail="You do not have permission to modify this playlist")
 
     await PlaylistRepository.remove_track(db, playlist.id, song_id)
     return {"success": True, "message": "Song removed from playlist"}
 
 @router.post("/preview-spotify")
-async def preview_spotify_playlist(data: SpotifyPreviewRequest):
+@limiter.limit("10/minute")
+async def preview_spotify_playlist(request: Request, data: SpotifyPreviewRequest):
     """
     Extracts metadata, cover image, and track count from a Spotify playlist link.
     Works for both logged in users and guests.
@@ -292,10 +305,11 @@ async def preview_spotify_playlist(data: SpotifyPreviewRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch Spotify playlist: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch Spotify playlist")
 
 @router.post("/import-spotify")
-async def import_spotify_playlist(data: SpotifyImportRequest):
+@limiter.limit("5/minute")
+async def import_spotify_playlist(request: Request, data: SpotifyImportRequest):
     """
     Imports a Spotify playlist by resolving tracks to the Paatu Padava catalog (via Saavn/YouTube).
     Returns complete list of resolved playable tracks for immediate client playback and Supabase cloud saving.

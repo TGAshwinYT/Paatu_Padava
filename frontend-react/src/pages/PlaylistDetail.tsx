@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import type { Song } from '../types';
 import { getPlaylistDetail, removeSongFromPlaylist, renamePlaylist, deletePlaylist } from '../services/api';
 import { saveCollectionPlay } from '../utils/historyUtils';
+import { getGuestPlaylists } from '../utils/offlineStorage';
 import { getValidImage } from '../utils/imageUtils';
 import { useAuth } from '../context/AuthContext';
 import { Music, Trash2, Play, MoreVertical, Edit2, ArrowLeft, Clock } from 'lucide-react';
@@ -24,7 +25,17 @@ const PlaylistDetail: React.FC = () => {
   const [playlistDescription, setPlaylistDescription] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { user } = useAuth();
-  const { playContext, currentTrack, isPlaying, togglePlay, refreshPlaylists } = useAudio();
+  const {
+    playContext,
+    currentTrack,
+    isPlaying,
+    togglePlay,
+    refreshPlaylists,
+    removeSongFromGuestPlaylist,
+    renameGuestPlaylist,
+    deleteGuestPlaylist,
+  } = useAudio();
+  const [isGuestPlaylist, setIsGuestPlaylist] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -32,10 +43,25 @@ const PlaylistDetail: React.FC = () => {
 
   useEffect(() => {
     const fetchDetail = async () => {
-      if (!id || !user) {
+      if (!id) {
         setIsLoading(false);
         return;
       }
+      const localGuest = getGuestPlaylists().find((p) => p.id === id);
+      if (localGuest) {
+        setIsGuestPlaylist(true);
+        setPlaylistTitle(localGuest.title || 'Playlist');
+        setPlaylistDescription(localGuest.description || null);
+        setPlaylistCover(localGuest.cover_url || null);
+        setSongs(localGuest.tracks || []);
+        setIsLoading(false);
+        return;
+      }
+      if (!user) {
+        setIsLoading(false);
+        return;
+      }
+      setIsGuestPlaylist(false);
       setIsLoading(true);
       try {
         const { title, description, coverUrl, songs: playlistSongs } = await getPlaylistDetail(id);
@@ -55,6 +81,11 @@ const PlaylistDetail: React.FC = () => {
   const handleRemove = async (songId: string) => {
     if (!id) return;
     try {
+      if (isGuestPlaylist) {
+        removeSongFromGuestPlaylist(id, songId);
+        setSongs(prev => prev.filter(s => s.id !== songId));
+        return;
+      }
       await removeSongFromPlaylist(id, songId);
       setSongs(prev => prev.filter(s => s.id !== songId));
     } catch (err) {
@@ -79,6 +110,12 @@ const PlaylistDetail: React.FC = () => {
   const handleRename = async () => {
     if (!id || !editTitle.trim()) return;
     try {
+      if (isGuestPlaylist) {
+        renameGuestPlaylist(id, editTitle);
+        setPlaylistTitle(editTitle);
+        setShowRenameModal(false);
+        return;
+      }
       await renamePlaylist(id, editTitle);
       setPlaylistTitle(editTitle);
       setShowRenameModal(false);
@@ -92,6 +129,11 @@ const PlaylistDetail: React.FC = () => {
   const handleDelete = async () => {
     if (!id) return;
     try {
+      if (isGuestPlaylist) {
+        deleteGuestPlaylist(id);
+        navigate('/');
+        return;
+      }
       await deletePlaylist(id);
       await refreshPlaylists();
       window.dispatchEvent(new Event('playlists-updated'));
@@ -109,7 +151,7 @@ const PlaylistDetail: React.FC = () => {
     );
   }
 
-  if (!user) {
+  if (!user && !isGuestPlaylist) {
     navigate('/login');
     return null;
   }

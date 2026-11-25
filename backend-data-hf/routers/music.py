@@ -1,16 +1,18 @@
 import asyncio
 import logging
 import re
-from typing import Any, Dict, List, Optional
+import urllib.parse
+from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 import httpx
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from upstash_redis.asyncio import Redis as UpstashRedis
 
 from auth_utils import get_current_user, get_current_user_optional
 from connection import get_db, get_redis
+from cors_config import get_allowed_origins
 from graph import recommendation_graph
 from limiter_config import limiter
 import models
@@ -52,7 +54,9 @@ from services.stream_resolver_backend import (
 )
 from services.stream_security import (
     ALLOWED_STREAM_DOMAINS,
+    create_signed_media_token,
     is_safe_audio_url,
+    verify_signed_media_token,
 )
 from utils.location import get_user_search_languages
 
@@ -130,18 +134,113 @@ async def shuffle_order_endpoint(
     return {"ordered_ids": ordered}
 
 
+class StreamTokenRequest(BaseModel):
+    purpose: Literal["stream", "download", "prefetch"] = "stream"
+    song_id: Optional[str] = Field(None, min_length=1, max_length=128)
+    song_ids: Optional[List[str]] = Field(None, min_length=1, max_length=4)
+    url: Optional[str] = Field(None, max_length=2048)
+
+
+_SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{8,64}$")
+
+
+def _extract_request_origin(request: Request) -> str:
+    origin = (request.headers.get("origin") or "").strip().rstrip("/")
+    if origin:
+        return origin
+    referer = (request.headers.get("referer") or "").strip()
+    if referer:
+        parsed = urllib.parse.urlparse(referer)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+    return ""
+
+
+@router.post("/stream-token")
+@limiter.limit("30/minute")
+async def mint_stream_token(
+    request: Request,
+    body: StreamTokenRequest,
+    user: Optional[models.User] = Depends(get_current_user_optional),
+):
+    """
+    Issues a short-lived HMAC-SHA256 signed token bound to a specific song_id,
+    CDN URL, or prefetch batch so authorized clients and guest sessions can
+    stream/download without exposing the backend as an unauthenticated open proxy.
+    """
+    raw_sid = (request.headers.get("x-session-id") or "").strip()
+    clean_sid = raw_sid if _SESSION_ID_RE.match(raw_sid) else None
+
+    req_origin = _extract_request_origin(request)
+    origin_allowed = bool(req_origin and req_origin in get_allowed_origins())
+
+    if user is None and clean_sid is None and not origin_allowed:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication, valid X-Session-ID, or allowed Origin required",
+        )
+
+    if body.purpose == "prefetch":
+        if not body.song_ids:
+            raise HTTPException(status_code=400, detail="song_ids required for prefetch token")
+        cleaned_ids = sorted(s.strip() for s in body.song_ids if s and s.strip())
+        if not cleaned_ids:
+            raise HTTPException(status_code=400, detail="song_ids must contain at least one non-empty ID")
+        subject = ",".join(cleaned_ids)
+    else:
+        if body.url:
+            if not is_safe_audio_url(body.url):
+                raise HTTPException(status_code=400, detail="Invalid or untrusted media URL")
+            subject = body.url
+        elif body.song_id and body.song_id.strip():
+            subject = body.song_id.strip()
+        else:
+            raise HTTPException(status_code=400, detail="song_id or url is required")
+
+    token_sid = clean_sid or ""
+    token = create_signed_media_token(
+        subject=subject,
+        purpose=body.purpose,
+        ttl_seconds=900,
+        session_id=token_sid,
+    )
+    return {"token": token, "expires_in": 900}
+
+
 @router.get("/stream/{song_id}")
+@limiter.limit("40/minute")
 async def get_stream_url(
+    request: Request,
     song_id: str,
     title: Optional[str] = Query(None),
     artist: Optional[str] = Query(None),
+    st: Optional[str] = Query(None),
+    sid: Optional[str] = Query(None),
+    x_session_id: Optional[str] = Header(None, alias="X-Session-ID"),
+    user: Optional[models.User] = Depends(get_current_user_optional),
     redis_client: UpstashRedis = Depends(get_redis)
 ):
     """
     Resolves the highest quality direct stream URL for a track, backed by Upstash Redis.
-    Allows zero-gap preloading on the frontend.
+    Requires an authenticated session or a valid short-lived signed stream token.
     """
-    return await resolve_single_stream(song_id, title, artist, redis_client)
+    effective_sid = (x_session_id or sid or "").strip() or None
+    if user is None and not verify_signed_media_token(
+        st, subject=song_id, purpose="stream", session_id=effective_sid
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication or valid stream token required",
+        )
+
+    result = await resolve_single_stream(song_id, title, artist, redis_client)
+    download_token = create_signed_media_token(
+        subject=song_id,
+        purpose="download",
+        ttl_seconds=900,
+        session_id=effective_sid or "",
+    )
+    return {**result, "download_token": download_token}
 
 
 @router.get("/download")
@@ -152,26 +251,65 @@ async def download_track(
     title: Optional[str] = Query(None),
     artist: Optional[str] = Query(None),
     url: Optional[str] = Query(None),
+    token: Optional[str] = Query(None),
+    sid: Optional[str] = Query(None),
+    x_session_id: Optional[str] = Header(None, alias="X-Session-ID"),
     user: Optional[models.User] = Depends(get_current_user_optional),
     redis_client: UpstashRedis = Depends(get_redis)
 ):
     """
     Streams the highest quality 320kbps MP3 audio file with Content-Disposition attachment header
     for pristine offline downloading.
-    Strictly validates audio stream URLs against public CDNs to prevent SSRF.
+    Requires an authenticated session or a valid short-lived signed download token,
+    and strictly validates audio stream URLs against public CDNs to prevent SSRF.
     """
+    effective_sid = (x_session_id or sid or "").strip() or None
+    if user is None:
+        expected_subject = url if (url and url.startswith("http")) else (song_id or "")
+        if not expected_subject or not verify_signed_media_token(
+            token, subject=expected_subject, purpose="download", session_id=effective_sid
+        ):
+            raise HTTPException(
+                status_code=401,
+                detail="Authentication or valid download token required",
+            )
+
     audio_url = await resolve_download_audio_url(song_id, title, artist, url, redis_client)
     return await create_download_streaming_response(audio_url, title, artist)
 
 
 @router.post("/prefetch-stream")
+@limiter.limit("20/minute")
 async def prefetch_streams_endpoint(
+    request: Request,
     body: PrefetchStreamRequest,
+    st: Optional[str] = Query(None),
+    x_stream_token: Optional[str] = Header(None, alias="X-Stream-Token"),
+    x_session_id: Optional[str] = Header(None, alias="X-Session-ID"),
+    user: Optional[models.User] = Depends(get_current_user_optional),
     redis_client: UpstashRedis = Depends(get_redis)
 ):
     """
     Pre-resolves and warms Redis cache for upcoming tracks in the player queue.
     """
+    if not body.tracks:
+        return {"streams": []}
+
+    subject = ",".join(sorted(t.id.strip() for t in body.tracks[:4] if t.id and t.id.strip()))
+    if user is None and (
+        not subject
+        or not verify_signed_media_token(
+            st or x_stream_token,
+            subject=subject,
+            purpose="prefetch",
+            session_id=(x_session_id or "").strip() or None,
+        )
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication or valid prefetch token required",
+        )
+
     tasks = [
         resolve_single_stream(t.id, t.title, t.artist, redis_client)
         for t in body.tracks[:4]  # Limit batch to upcoming 4 tracks max to avoid overhead

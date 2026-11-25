@@ -146,3 +146,105 @@ export const getOfflineStorageStats = async (): Promise<{
 
   return { count, totalBytes, formattedSize };
 };
+
+// ─── Two-Bucket Playlist Storage (Guest vs Account) ───────────────────────────
+
+export interface LocalPlaylist {
+  id: string;
+  title: string;
+  description?: string;
+  cover_url?: string;
+  tracks?: any[];
+  created_at?: string;
+  scope?: 'guest' | 'account';
+}
+
+const GUEST_PLAYLISTS_KEY = 'guest_playlists';
+const accountPlaylistsKey = (userId: string) => `account_playlists_${userId}`;
+const handledGuestIdsKey = (userId: string) => `guest_import_handled_${userId}`;
+
+export const getGuestPlaylists = (): LocalPlaylist[] => {
+  try {
+    const raw = localStorage.getItem(GUEST_PLAYLISTS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.map((p) => ({ ...p, scope: 'guest' as const })) : [];
+  } catch {
+    return [];
+  }
+};
+
+export const saveGuestPlaylists = (playlists: LocalPlaylist[]): void => {
+  try {
+    localStorage.setItem(
+      GUEST_PLAYLISTS_KEY,
+      JSON.stringify(playlists.map((p) => ({ ...p, scope: 'guest' })))
+    );
+  } catch (e) {
+    console.error('Failed to save guest playlists:', e);
+  }
+};
+
+export const getAccountPlaylists = (userId: string): LocalPlaylist[] => {
+  if (!userId) return [];
+  try {
+    const raw = localStorage.getItem(accountPlaylistsKey(userId));
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.map((p) => ({ ...p, scope: 'account' as const })) : [];
+  } catch {
+    return [];
+  }
+};
+
+export const saveAccountPlaylists = (userId: string, playlists: LocalPlaylist[]): void => {
+  if (!userId) return;
+  try {
+    localStorage.setItem(
+      accountPlaylistsKey(userId),
+      JSON.stringify(playlists.map((p) => ({ ...p, scope: 'account' })))
+    );
+  } catch (e) {
+    console.error('Failed to save account playlists:', e);
+  }
+};
+
+export const clearAccountPlaylists = (userId?: string | null): void => {
+  try {
+    if (userId) {
+      localStorage.removeItem(accountPlaylistsKey(userId));
+    } else {
+      Object.keys(localStorage)
+        .filter((k) => k.startsWith('account_playlists_'))
+        .forEach((k) => localStorage.removeItem(k));
+    }
+  } catch (e) {
+    console.error('Failed to clear account playlists:', e);
+  }
+};
+
+export const getHandledGuestImportIds = (userId: string): string[] => {
+  if (!userId) return [];
+  try {
+    const raw = localStorage.getItem(handledGuestIdsKey(userId));
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+};
+
+export const markGuestImportHandled = (userId: string, ids: string[]): void => {
+  if (!userId) return;
+  try {
+    const merged = Array.from(new Set([...getHandledGuestImportIds(userId), ...ids]));
+    localStorage.setItem(handledGuestIdsKey(userId), JSON.stringify(merged));
+  } catch (e) {
+    console.error('Failed to mark guest import handled:', e);
+  }
+};
+
+export const getUnhandledGuestPlaylists = (userId: string): LocalPlaylist[] => {
+  const guests = getGuestPlaylists();
+  if (guests.length === 0) return [];
+  const handled = new Set(getHandledGuestImportIds(userId));
+  return guests.filter((g) => !handled.has(g.id));
+};

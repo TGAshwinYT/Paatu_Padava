@@ -6,66 +6,36 @@ import { useAudio } from '../context/AudioContext';
 import api from '../services/api';
 import ImportSpotifyModal from './ImportSpotifyModal';
 
-interface Playlist {
-  id: string; 
-  title: string;
-  cover_url?: string;
-}
-
 const Sidebar: React.FC = () => {
   const { user, openLibraryAuthModal } = useAuth();
-  const { userPlaylists, refreshPlaylists } = useAudio();
+  const { userPlaylists, guestPlaylists, accountPlaylists, createGuestPlaylist, refreshPlaylists } = useAudio();
   const navigate = useNavigate();
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showSpotifyModal, setShowSpotifyModal] = useState(false);
 
-  const fetchPlaylists = async () => {
-    try {
-      const response = await api.get('/api/playlists/');
-      setPlaylists(response.data || []);
-    } catch (error) {
-      console.error("Error fetching playlists:", error);
-    }
-  };
-
   useEffect(() => {
-    let ignore = false;
     if (user) {
       refreshPlaylists();
-      api.get('/api/playlists/')
-        .then(response => {
-          if (!ignore) setPlaylists(response.data || []);
-        })
-        .catch(error => {
-          console.error("Error fetching playlists:", error);
-        });
     }
-    return () => {
-      ignore = true;
-    };
   }, [user, refreshPlaylists]);
 
   useEffect(() => {
     const handleSync = () => {
-      if (user) {
-        refreshPlaylists();
-        fetchPlaylists();
-      }
+      refreshPlaylists();
     };
     window.addEventListener('playlists-updated', handleSync);
     return () => window.removeEventListener('playlists-updated', handleSync);
-  }, [user]);
+  }, [refreshPlaylists]);
 
   const handleCreatePlaylist = async () => {
+    const currentCount = userPlaylists.length;
+    const title = window.prompt("Enter Playlist Name", `My Playlist #${currentCount + 1}`);
+    if (!title) return;
+
     if (!user) {
-      openLibraryAuthModal();
+      createGuestPlaylist(title);
       return;
     }
-
-    const currentCount = (userPlaylists && userPlaylists.length > 0 ? userPlaylists.length : playlists.length);
-    const title = window.prompt("Enter Playlist Name", `My Playlist #${currentCount + 1}`);
-    if (!title) return; 
 
     try {
       await api.post('/api/playlists/', {
@@ -73,7 +43,6 @@ const Sidebar: React.FC = () => {
         is_public: false
       });
       await refreshPlaylists();
-      fetchPlaylists();
       window.dispatchEvent(new Event('playlists-updated'));
     } catch (error) {
       console.error("Error creating playlist:", error);
@@ -178,32 +147,37 @@ const Sidebar: React.FC = () => {
               {!isCollapsed && <span className="truncate text-sm animate-in fade-in slide-in-from-left-2 duration-300">Downloaded Songs</span>}
             </Link>
 
-            {user && (
-              <>
-                {((userPlaylists && userPlaylists.length > 0) ? userPlaylists : playlists).map((playlist) => (
-                  <Link 
-                    key={playlist.id}
-                    to={`/playlist/${playlist.id}`}
-                    title={playlist.title}
-                    className={`flex items-center gap-3 text-muted hover:text-white transition-all font-semibold p-2 rounded-lg hover:bg-surface cursor-pointer truncate ${isCollapsed ? 'justify-center' : ''}`}
-                  >
-                    <div className="w-9 h-9 bg-neutral-800 rounded-md flex-shrink-0 flex items-center justify-center overflow-hidden border border-white/5 shadow-sm">
-                      {playlist.cover_url ? (
-                        <img 
-                          src={playlist.cover_url} 
-                          alt={playlist.title} 
-                          className="w-full h-full object-cover" 
-                          onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-                        />
-                      ) : (
-                        <Music size={18} className="text-neutral-400" />
-                      )}
-                    </div>
-                    {!isCollapsed && <span className="truncate text-sm animate-in fade-in duration-300">{playlist.title}</span>}
-                  </Link>
-                ))}
-              </>
-            )}
+            {[...(user ? accountPlaylists : []), ...guestPlaylists].map((playlist) => (
+              <Link 
+                key={playlist.id}
+                to={`/playlist/${playlist.id}`}
+                title={playlist.title}
+                className={`flex items-center gap-3 text-muted hover:text-white transition-all font-semibold p-2 rounded-lg hover:bg-surface cursor-pointer truncate ${isCollapsed ? 'justify-center' : ''}`}
+              >
+                <div className="w-9 h-9 bg-neutral-800 rounded-md flex-shrink-0 flex items-center justify-center overflow-hidden border border-white/5 shadow-sm">
+                  {playlist.cover_url ? (
+                    <img 
+                      src={playlist.cover_url} 
+                      alt={playlist.title} 
+                      className="w-full h-full object-cover" 
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                    />
+                  ) : (
+                    <Music size={18} className="text-neutral-400" />
+                  )}
+                </div>
+                {!isCollapsed && (
+                  <div className="flex items-center gap-2 min-w-0 flex-1 animate-in fade-in duration-300">
+                    <span className="truncate text-sm">{playlist.title}</span>
+                    {playlist.scope === 'guest' && user && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 flex-shrink-0">
+                        Guest / Local
+                      </span>
+                    )}
+                  </div>
+                )}
+              </Link>
+            ))}
           </div>
         </div>
       </aside>

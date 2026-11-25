@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
@@ -7,6 +10,7 @@ import '../logic/party_sync_engine.dart';
 import '../logic/stream_resolver.dart';
 import '../models/song.dart';
 import '../platform/sync_platform.dart';
+import 'download_manager.dart';
 import 'player_handler.dart';
 import 'settings_manager.dart';
 import 'supabase_service.dart';
@@ -81,6 +85,7 @@ class PartySyncCoordinator {
 
   static final ValueNotifier<PartyRole> roleNotifier = ValueNotifier<PartyRole>(PartyRole.none);
   static final ValueNotifier<String?> partyCodeNotifier = ValueNotifier<String?>(null);
+  static final ValueNotifier<String?> partyPinNotifier = ValueNotifier<String?>(null);
   static final ValueNotifier<int> clockOffsetMsNotifier = ValueNotifier<int>(0);
   static final ValueNotifier<int> measuredRttMsNotifier = ValueNotifier<int>(0);
   static final ValueNotifier<int> currentDriftMsNotifier = ValueNotifier<int>(0);
@@ -94,6 +99,7 @@ class PartySyncCoordinator {
 
   static PartyRole get role => roleNotifier.value;
   static String? get partyCode => partyCodeNotifier.value;
+  static String? get partyPin => partyPinNotifier.value;
   static int get clockOffsetMs => clockOffsetMsNotifier.value;
   static bool get isHost => role == PartyRole.host;
   static bool get isJoiner => role == PartyRole.joiner;
@@ -180,19 +186,34 @@ class PartySyncCoordinator {
     return 'SYNC-$randStr';
   }
 
+  /// Derives a deterministic 64-character SHA-256 room token from partyCode + PIN.
+  static String deriveRoomToken(String code, String pin) {
+    final normalized = '${code.trim().toUpperCase()}:${pin.trim()}';
+    return sha256.convert(utf8.encode(normalized)).toString();
+  }
+
+  static bool _isValidSessionPayload(Map<String, dynamic> payload) {
+    if (_sessionSecret.isEmpty) return false;
+    return PartyLanAccelerator.constantTimeEquals(payload['token']?.toString(), _sessionSecret);
+  }
+
   /// Host: Starts a new Party playback session
-  static Future<String?> startParty() async {
+  static Future<String?> startParty({String? pin}) async {
     final client = SupabaseService.client;
     await leaveParty();
     await SyncPlatform.acquireWifiLocks();
 
     final code = generatePartyCode();
-    _sessionSecret = _uuid.v4();
+    final effectivePin = (pin != null && pin.trim().isNotEmpty)
+        ? pin.trim()
+        : (1000 + _random.nextInt(9000)).toString();
+    _sessionSecret = deriveRoomToken(code, effectivePin);
     _currentHostSeq = 0;
     _lastProcessedSeq = 0;
     _localIps = await PartyLanAccelerator.getLocalIpAddresses();
 
     partyCodeNotifier.value = code;
+    partyPinNotifier.value = effectivePin;
     roleNotifier.value = PartyRole.host;
     clockOffsetMsNotifier.value = 0;
     currentDriftMsNotifier.value = 0;
@@ -218,6 +239,7 @@ class PartySyncCoordinator {
       channel.onBroadcast(
         event: 'ntp_ping',
         callback: (payload) {
+          if (!_isValidSessionPayload(payload)) return;
           final t1 = DateTime.now().millisecondsSinceEpoch;
           final t0 = (payload['t0'] as num?)?.toInt();
           final senderId = payload['senderId']?.toString();
@@ -242,6 +264,7 @@ class PartySyncCoordinator {
       channel.onBroadcast(
         event: 'peer_join',
         callback: (payload) {
+          if (!_isValidSessionPayload(payload)) return;
           final peerId = payload['peerId']?.toString();
           final devName = payload['deviceName']?.toString() ?? 'Guest Phone';
           final peerLanIps = (payload['lanIps'] as List<dynamic>?)?.map((e) => e.toString()).toList();
@@ -270,6 +293,7 @@ class PartySyncCoordinator {
       channel.onBroadcast(
         event: 'peer_presence',
         callback: (payload) {
+          if (!_isValidSessionPayload(payload)) return;
           final peerId = payload['id']?.toString();
           final devName = payload['deviceName']?.toString() ?? 'Guest Phone';
           final rtt = (payload['rttMs'] as num?)?.toInt() ?? 0;
@@ -290,6 +314,7 @@ class PartySyncCoordinator {
       channel.onBroadcast(
         event: 'peer_leave',
         callback: (payload) {
+          if (!_isValidSessionPayload(payload)) return;
           final peerId = payload['id']?.toString();
           if (peerId != null) {
             _knownPeers.remove(peerId);
@@ -302,7 +327,8 @@ class PartySyncCoordinator {
 
       channel.onBroadcast(
         event: 'request_state',
-        callback: (_) {
+        callback: (payload) {
+          if (!_isValidSessionPayload(payload)) return;
           _broadcastCurrentState();
         },
       );
@@ -310,6 +336,7 @@ class PartySyncCoordinator {
       channel.onBroadcast(
         event: 'peer_ready',
         callback: (payload) {
+          if (!_isValidSessionPayload(payload)) return;
           _handlePeerReady(payload);
         },
       );
@@ -340,7 +367,7 @@ class PartySyncCoordinator {
         _broadcastCurrentState();
       }
     };
-    PartyLanAccelerator.startHost(code, clientId: _clientId);
+    PartyLanAccelerator.startHost(code, clientId: _clientId, roomToken: _sessionSecret);
 
     // Start periodic 2-second heartbeat broadcast and ghost peer pruning
     _hostHeartbeatTimer = Timer.periodic(const Duration(seconds: 2), (_) {
@@ -451,23 +478,41 @@ class PartySyncCoordinator {
             'deviceName': localDeviceName,
             'role': 'Speaker',
             'rttMs': sample.rtt,
+            'token': _sessionSecret,
           },
         );
       }
     }
   }
 
-  /// Joiner: Joins an active party using code and performs clock handshake
-  static Future<bool> joinParty(String rawCode) async {
+  /// Joiner: Joins an active party using code and room PIN, then performs clock handshake.
+  static Future<bool> joinParty(String rawCode, {String? pin}) async {
     final client = SupabaseService.client;
-    final cleanCode = rawCode.trim().toUpperCase();
-    if (cleanCode.isEmpty) return false;
+    final trimmedInput = rawCode.trim().toUpperCase();
+    if (trimmedInput.isEmpty) return false;
+
+    String cleanCode = trimmedInput;
+    String? inlinePin;
+    if (trimmedInput.contains('#')) {
+      final parts = trimmedInput.split('#');
+      cleanCode = parts.first.trim();
+      if (parts.length > 1) {
+        inlinePin = parts[1].trim();
+      }
+    }
+    final effectivePin = (pin != null && pin.trim().isNotEmpty) ? pin.trim() : (inlinePin ?? '');
+    if (cleanCode.isEmpty || effectivePin.isEmpty) {
+      return false;
+    }
 
     await leaveParty();
     await SyncPlatform.acquireWifiLocks();
     _localIps = await PartyLanAccelerator.getLocalIpAddresses();
 
+    final roomToken = deriveRoomToken(cleanCode, effectivePin);
+    _sessionSecret = roomToken;
     partyCodeNotifier.value = cleanCode;
+    partyPinNotifier.value = effectivePin;
     roleNotifier.value = PartyRole.joiner;
     clockOffsetMsNotifier.value = 0;
     measuredRttMsNotifier.value = 0;
@@ -521,12 +566,13 @@ class PartySyncCoordinator {
       }
     };
 
-    PartyLanAccelerator.startJoiner(cleanCode, clientId: _clientId);
+    PartyLanAccelerator.startJoiner(cleanCode, clientId: _clientId, roomToken: roomToken);
 
     if (channel != null) {
       channel.onBroadcast(
         event: 'ntp_pong',
         callback: (payload) {
+          if (!_isValidSessionPayload(payload)) return;
           _handleNtpPong(payload, channel, selfPeer);
         },
       );
@@ -534,6 +580,7 @@ class PartySyncCoordinator {
       channel.onBroadcast(
         event: 'sync_prepare',
         callback: (payload) async {
+          if (!_isValidSessionPayload(payload)) return;
           if (!_shouldProcessEvent('sync_prepare', payload)) return;
           await _handleRemotePrepare(payload);
         },
@@ -542,6 +589,7 @@ class PartySyncCoordinator {
       channel.onBroadcast(
         event: 'sync_queue',
         callback: (payload) async {
+          if (!_isValidSessionPayload(payload)) return;
           if (!_shouldProcessEvent('sync_queue', payload)) return;
           await _handleRemoteQueue(payload);
         },
@@ -550,6 +598,7 @@ class PartySyncCoordinator {
       channel.onBroadcast(
         event: 'sync_play',
         callback: (payload) async {
+          if (!_isValidSessionPayload(payload)) return;
           if (!_shouldProcessEvent('sync_play', payload)) return;
           await _handleRemotePlay(payload);
         },
@@ -558,6 +607,7 @@ class PartySyncCoordinator {
       channel.onBroadcast(
         event: 'sync_pause',
         callback: (payload) {
+          if (!_isValidSessionPayload(payload)) return;
           if (!_shouldProcessEvent('sync_pause', payload)) return;
           _handleRemotePause(payload);
         },
@@ -566,6 +616,7 @@ class PartySyncCoordinator {
       channel.onBroadcast(
         event: 'sync_seek',
         callback: (payload) async {
+          if (!_isValidSessionPayload(payload)) return;
           if (!_shouldProcessEvent('sync_seek', payload)) return;
           await _handleRemoteSeek(payload);
         },
@@ -574,6 +625,7 @@ class PartySyncCoordinator {
       channel.onBroadcast(
         event: 'sync_heartbeat',
         callback: (payload) {
+          if (!_isValidSessionPayload(payload)) return;
           if (!_shouldProcessEvent('sync_heartbeat', payload)) return;
           _handleHeartbeatReconciliation(payload);
         },
@@ -581,7 +633,8 @@ class PartySyncCoordinator {
 
       channel.onBroadcast(
         event: 'party_ended',
-        callback: (_) {
+        callback: (payload) {
+          if (!_isValidSessionPayload(payload)) return;
           leaveParty();
           syncStatusDescription.value = 'Host ended party session';
         },
@@ -597,13 +650,14 @@ class PartySyncCoordinator {
               'deviceName': localDeviceName,
               'lanIps': _localIps,
               'lanPort': PartyLanAccelerator.defaultPort,
+              'token': _sessionSecret,
             },
           );
           channel.sendBroadcastMessage(
             event: 'request_state',
-            payload: {'senderId': _clientId},
+            payload: {'senderId': _clientId, 'token': _sessionSecret},
           );
-          PartyLanAccelerator.sendDirect('request_state', {'senderId': _clientId});
+          PartyLanAccelerator.sendDirect('request_state', {'senderId': _clientId, 'token': _sessionSecret});
 
           _startNtpHandshake(channel);
         } else if (status == RealtimeSubscribeStatus.closed || status == RealtimeSubscribeStatus.timedOut) {
@@ -619,7 +673,7 @@ class PartySyncCoordinator {
 
       _partyChannel = channel;
     } else {
-      PartyLanAccelerator.sendDirect('request_state', {'senderId': _clientId});
+      PartyLanAccelerator.sendDirect('request_state', {'senderId': _clientId, 'token': _sessionSecret});
     }
 
     return true;
@@ -644,6 +698,7 @@ class PartySyncCoordinator {
           't0': t0,
           'senderId': _clientId,
           'isRolling': false,
+          'token': _sessionSecret,
         },
       );
       PartyLanAccelerator.sendLanNtpPing(t0, _clientId);
@@ -676,6 +731,7 @@ class PartySyncCoordinator {
             't0': t0,
             'senderId': _clientId,
             'isRolling': true,
+            'token': _sessionSecret,
           },
         );
       }
@@ -1036,6 +1092,47 @@ class PartySyncCoordinator {
   }
 
   /// Joiner: Handles remote track preparation from host (pre-buffers audio stream before Go)
+  /// Checks if the peer already has a verified downloaded copy of [song] on disk
+  /// (by exact ID or canonicalBaseKey) so PartySync can play offline without re-downloading.
+  static Song? resolveLocalDownloadedCopy(
+    Song song, {
+    String? Function(String songId)? pathLookup,
+    String? Function(String songId)? coverLookup,
+    List<Song> Function()? downloadedListLookup,
+  }) {
+    final getPath = pathLookup ?? DownloadManager.getLocalFilePath;
+    final getCover = coverLookup ?? DownloadManager.getLocalCoverPath;
+    final getAll = downloadedListLookup ?? DownloadManager.getDownloadedSongs;
+
+    final directPath = getPath(song.id);
+    if (directPath != null && File(directPath).existsSync()) {
+      return song.copyWith(
+        localFilePath: directPath,
+        localCoverPath: getCover(song.id) ?? song.localCoverPath,
+        isDownloaded: true,
+        source: 'offline',
+      );
+    }
+
+    final targetKey = song.canonicalBaseKey;
+    if (targetKey.isNotEmpty) {
+      for (final downloaded in getAll()) {
+        if (downloaded.canonicalBaseKey == targetKey) {
+          final matchedPath = downloaded.localFilePath ?? getPath(downloaded.id);
+          if (matchedPath != null && File(matchedPath).existsSync()) {
+            return song.copyWith(
+              localFilePath: matchedPath,
+              localCoverPath: getCover(downloaded.id) ?? downloaded.localCoverPath ?? song.localCoverPath,
+              isDownloaded: true,
+              source: 'offline',
+            );
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   static Future<void> _handleRemotePrepare(Map<String, dynamic> payload) async {
     _cancelPendingScheduledOperations();
     try {
@@ -1043,14 +1140,23 @@ class PartySyncCoordinator {
       final songId = payload['songId']?.toString();
       final rawStreamUrl = payload['streamUrl']?.toString() ??
           (songData != null ? songData['streamUrl']?.toString() : null);
-      final directStreamUrl = rawStreamUrl != null ? _optimizeStreamUrlForNetwork(rawStreamUrl) : null;
       Song? song;
       if (songData != null) {
         song = Song.fromMap(Map<String, dynamic>.from(songData));
       }
-      if (song != null && directStreamUrl != null && directStreamUrl.isNotEmpty) {
-        song.streamUrl = directStreamUrl;
-        DefaultStreamResolver.cacheStream(song.id, directStreamUrl);
+      bool hasLocalFile = false;
+      if (song != null) {
+        final localCopy = resolveLocalDownloadedCopy(song);
+        if (localCopy != null) {
+          song = localCopy;
+          hasLocalFile = true;
+        } else {
+          final directStreamUrl = rawStreamUrl != null ? _optimizeStreamUrlForNetwork(rawStreamUrl) : null;
+          if (directStreamUrl != null && directStreamUrl.isNotEmpty) {
+            song.streamUrl = directStreamUrl;
+            DefaultStreamResolver.cacheStream(song.id, directStreamUrl);
+          }
+        }
       }
 
       final positionMs = (payload['positionMs'] as num?)?.toInt() ?? 0;
@@ -1060,7 +1166,9 @@ class PartySyncCoordinator {
 
       if (!isSameSong && song != null) {
         _isSyncLoading = true;
-        syncStatusDescription.value = 'Preparing "${song.title}"...';
+        syncStatusDescription.value = hasLocalFile
+            ? 'Ready (local file): "${song.title}"'
+            : 'Preparing "${song.title}"...';
         try {
           final rawQueue = payload['queue'] as List<dynamic>?;
           List<Song>? queue;
@@ -1074,7 +1182,9 @@ class PartySyncCoordinator {
             isPartySyncInternal: true,
             autoPlay: false,
           );
-          _prewarmUpcomingTracks(rawQueue, currentIndex: (payload['currentIndex'] as num?)?.toInt() ?? 0);
+          if (!hasLocalFile) {
+            _prewarmUpcomingTracks(rawQueue, currentIndex: (payload['currentIndex'] as num?)?.toInt() ?? 0);
+          }
         } finally {
           _isSyncLoading = false;
         }
@@ -1092,13 +1202,15 @@ class PartySyncCoordinator {
         'peerId': _clientId,
         'cmdId': payload['cmdId'],
         'songId': songId ?? song?.id,
+        'hasLocalFile': hasLocalFile,
+        'token': _sessionSecret,
       };
       PartyLanAccelerator.sendDirect('peer_ready', ackPayload);
       _partyChannel?.sendBroadcastMessage(
         event: 'peer_ready',
         payload: ackPayload,
       );
-      syncStatusDescription.value = 'Ready (waiting for host)';
+      syncStatusDescription.value = hasLocalFile ? 'Ready (local file)' : 'Ready (waiting for host)';
     } catch (e) {
       debugPrint('[PartySyncCoordinator] handleRemotePrepare error: $e');
     }
@@ -1374,13 +1486,18 @@ class PartySyncCoordinator {
           final title = payload['title']?.toString() ?? 'host track';
           syncStatusDescription.value = 'Syncing track: $title';
           try {
-            final song = Song.fromMap(Map<String, dynamic>.from(hostSongData));
-            final rawStreamUrl = payload['streamUrl']?.toString() ??
-                hostSongData['streamUrl']?.toString();
-            final directStreamUrl = rawStreamUrl != null ? _optimizeStreamUrlForNetwork(rawStreamUrl) : null;
-            if (directStreamUrl != null && directStreamUrl.isNotEmpty) {
-              song.streamUrl = directStreamUrl;
-              DefaultStreamResolver.cacheStream(song.id, directStreamUrl);
+            var song = Song.fromMap(Map<String, dynamic>.from(hostSongData));
+            final localCopy = resolveLocalDownloadedCopy(song);
+            if (localCopy != null) {
+              song = localCopy;
+            } else {
+              final rawStreamUrl = payload['streamUrl']?.toString() ??
+                  hostSongData['streamUrl']?.toString();
+              final directStreamUrl = rawStreamUrl != null ? _optimizeStreamUrlForNetwork(rawStreamUrl) : null;
+              if (directStreamUrl != null && directStreamUrl.isNotEmpty) {
+                song.streamUrl = directStreamUrl;
+                DefaultStreamResolver.cacheStream(song.id, directStreamUrl);
+              }
             }
             final rawQueue = payload['queue'] as List<dynamic>?;
             List<Song>? queue;
@@ -1534,12 +1651,12 @@ class PartySyncCoordinator {
         if (isHost) {
           _partyChannel?.sendBroadcastMessage(
             event: 'party_ended',
-            payload: {'hostId': _clientId},
+            payload: {'hostId': _clientId, 'token': _sessionSecret},
           );
         } else {
           _partyChannel?.sendBroadcastMessage(
             event: 'peer_leave',
-            payload: {'id': _clientId},
+            payload: {'id': _clientId, 'token': _sessionSecret},
           );
         }
         SupabaseService.client?.removeChannel(_partyChannel!);
@@ -1560,6 +1677,8 @@ class PartySyncCoordinator {
 
     roleNotifier.value = PartyRole.none;
     partyCodeNotifier.value = null;
+    partyPinNotifier.value = null;
+    _sessionSecret = '';
     clockOffsetMsNotifier.value = 0;
     measuredRttMsNotifier.value = 0;
     currentDriftMsNotifier.value = 0;

@@ -1,12 +1,26 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from connection import get_db
 from models import User
 from auth_utils import get_current_user
 import json
+import logging
+from typing import Optional
 from repositories.user_repo import UserRepository
 
+logger = logging.getLogger(__name__)
+MAX_IMPORT_BYTES = 5 * 1024 * 1024  # 5 MB upload ceiling
+
 router = APIRouter(prefix="/api/users", tags=["users"])
+
+
+class FollowArtistRequest(BaseModel):
+    id: str = Field(..., min_length=1, max_length=100)
+    name: str = Field(default="Unknown Artist", min_length=1, max_length=255)
+    image: Optional[str] = Field(None, max_length=2048)
+    imageUrl: Optional[str] = Field(None, max_length=2048)
+    image_url: Optional[str] = Field(None, max_length=2048)
 
 @router.get("/export")
 async def export_data(
@@ -30,8 +44,11 @@ async def import_data(
     """
     Imports Liked Songs and Playlists from a JSON file, merging with existing data.
     """
+    contents = await file.read(MAX_IMPORT_BYTES + 1)
+    if len(contents) > MAX_IMPORT_BYTES:
+        raise HTTPException(status_code=413, detail="Import file exceeds 5 MB limit")
+
     try:
-        contents = await file.read()
         data = json.loads(contents)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON file")
@@ -74,14 +91,12 @@ async def get_followed_artists(
     try:
         return await UserRepository.get_followed_artists(db, user.id)
     except Exception as e:
-        print("\n" + "!" * 60)
-        print(f"CRASH IN FOLLOWED ARTISTS: {str(e)}")
-        print("!" * 60 + "\n")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Failed to fetch followed artists for user %s: %s", user.id, e)
+        raise HTTPException(status_code=500, detail="Failed to fetch followed artists")
 
 @router.post("/follow-artist")
 async def follow_artist(
-    artist_data: dict,
+    artist_data: FollowArtistRequest,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -89,7 +104,9 @@ async def follow_artist(
     Follows an artist. Creates the artist in the DB if they don't exist.
     """
     try:
-        followed, artist_name = await UserRepository.follow_artist(db, user.id, artist_data)
+        followed, artist_name = await UserRepository.follow_artist(
+            db, user.id, artist_data.model_dump()
+        )
         if followed:
             return {"message": f"Now following {artist_name}"}
         return {"message": "Already following this artist"}
@@ -97,7 +114,8 @@ async def follow_artist(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Failed to follow artist for user %s: %s", user.id, e)
+        raise HTTPException(status_code=500, detail="Failed to follow artist")
 
 @router.delete("/unfollow-artist/{artist_id}")
 async def unfollow_artist(
@@ -117,4 +135,5 @@ async def unfollow_artist(
         raise
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Failed to unfollow artist %s for user %s: %s", artist_id, user.id, e)
+        raise HTTPException(status_code=500, detail="Failed to unfollow artist")

@@ -123,6 +123,7 @@ class SyncManager {
 
   /// Concurrently syncs and reconciles playlists and tracks
   static Future<void> _syncPlaylists(SupabaseClient client, User supaUser) async {
+    if (!AuthManager.isLoggedIn) return;
     List<dynamic> remotePlaylists = [];
     try {
       remotePlaylists = await client
@@ -177,11 +178,14 @@ class SyncManager {
       );
     }
 
-    final localPlaylists = PlaylistManager.getPlaylists();
+    final localPlaylists = PlaylistManager.getAccountPlaylists();
     for (final local in localPlaylists) {
       if (!reconciledMap.containsKey(local.id)) {
-        await pushPlaylistToCloud(local, supaUser.id);
-        reconciledMap[local.id] = local;
+        // Only preserve/sync playlists explicitly owned by this account (never guest playlists)
+        if (local.ownerId == supaUser.id) {
+          await pushPlaylistToCloud(local, supaUser.id);
+          reconciledMap[local.id] = local;
+        }
       } else {
         final remotePl = reconciledMap[local.id]!;
         final remoteTrackIds = remotePl.tracks.map((t) => t.id).toSet();
@@ -213,11 +217,16 @@ class SyncManager {
       }
     }
 
-    for (final pl in reconciledMap.values) {
-      await PlaylistManager.savePlaylistDirectly(pl);
-    }
+    await PlaylistManager.replaceAccountPlaylists(reconciledMap.values.toList());
+  }
 
-    PlaylistManager.refreshList();
+  /// Explicitly pushes guest playlists that the user approved for import into their account
+  static Future<void> pushImportedAccountPlaylists(List<UserPlaylist> playlists) async {
+    final supaUser = SupabaseService.currentUser;
+    if (supaUser == null || playlists.isEmpty) return;
+    for (final pl in playlists) {
+      await pushPlaylistToCloud(pl, supaUser.id);
+    }
   }
 
   // ================= Direct User-Scoped Mutations ================= //
@@ -373,8 +382,9 @@ class SyncManager {
     pl.tracks.removeWhere((t) => t.id == songId);
     await PlaylistManager.savePlaylistDirectly(pl);
 
+    final supaUser = SupabaseService.currentUser;
     final client = SupabaseService.client;
-    if (client != null) {
+    if (supaUser != null && client != null) {
       try {
         await client
             .from('playlist_tracks')

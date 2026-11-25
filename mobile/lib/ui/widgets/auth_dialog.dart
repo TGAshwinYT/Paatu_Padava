@@ -4,6 +4,7 @@ import '../../services/auth_manager.dart';
 import '../../services/error_handler.dart';
 import '../../domain/models/app_error.dart';
 import '../screens/onboarding_screen.dart';
+import 'guest_playlist_import_dialog.dart';
 
 class AuthDialog extends StatefulWidget {
   const AuthDialog({super.key});
@@ -79,8 +80,13 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
       setState(() => _isLoading = false);
 
       if (success) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
+        final nav = Navigator.of(context, rootNavigator: true);
+        final messenger = ScaffoldMessenger.of(context);
+        nav.pop();
+        if (AuthManager.pendingGuestImportCountNotifier.value > 0) {
+          await GuestPlaylistImportDialog.showIfNeeded(nav.context);
+        }
+        messenger.showSnackBar(
           SnackBar(
             content: Text('Welcome back, ${AuthManager.currentUser?.username ?? 'Listener'}!'),
             backgroundColor: const Color(0xFF9333EA),
@@ -153,19 +159,24 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
     }
   }
 
-  void _onAuthSuccessNav(BuildContext context) {
+  Future<void> _onAuthSuccessNav(BuildContext context) async {
     final user = AuthManager.currentUser;
     final hasTaste = user != null && user.preferredLanguages.isNotEmpty && user.favoriteArtists.length >= 3;
-    Navigator.pop(context);
+    final nav = Navigator.of(context, rootNavigator: true);
+    final messenger = ScaffoldMessenger.of(context);
+    nav.pop();
+    if (AuthManager.pendingGuestImportCountNotifier.value > 0) {
+      await GuestPlaylistImportDialog.showIfNeeded(nav.context);
+    }
     if (hasTaste) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
           content: Text('Welcome back, ${user.username}!'),
           backgroundColor: const Color(0xFF9333EA),
         ),
       );
     } else {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => const OnboardingScreen()));
+      nav.push(MaterialPageRoute(builder: (_) => const OnboardingScreen()));
     }
   }
 
@@ -181,7 +192,7 @@ class _AuthDialogState extends State<AuthDialog> with SingleTickerProviderStateM
       setState(() => _isLoading = false);
 
       if (success) {
-        _onAuthSuccessNav(context);
+        await _onAuthSuccessNav(context);
       } else {
         setState(() => _errorMessage = 'Google sign in failed.');
       }

@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+import uuid
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from connection import get_db
 from models import User
@@ -58,7 +59,7 @@ async def add_listen_history(
 
 @router.post("/search")
 async def add_search_history(
-    query: str,
+    query: str = Query(..., min_length=1, max_length=255),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -195,6 +196,11 @@ async def delete_search_click_item(
     """
     Removes a specific song from search history.
     """
+    try:
+        uuid.UUID(history_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid history UUID format")
+
     try:
         deleted = await HistoryRepository.delete_search_click_item(db, user.id, history_id)
         if not deleted:

@@ -4,11 +4,14 @@ import 'package:hive/hive.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:uuid/uuid.dart';
 import '../models/song.dart';
 import '../domain/models/track_entity.dart';
 import '../domain/models/app_error.dart';
+import '../services/auth_manager.dart';
 import '../services/error_handler.dart';
 import '../services/app_logger.dart';
+import '../services/settings_manager.dart';
 import '../services/youtube_client.dart';
 import '../services/saavn_client.dart';
 import '../services/artist_sanitizer.dart';
@@ -446,36 +449,145 @@ class DefaultStreamResolver implements StreamResolver {
     return cleaned.isNotEmpty ? cleaned : Song.sanitize(title);
   }
 
+  static String? _ephemeralGuestSessionId;
+
+  static Future<String> _getOrCreateGuestSessionId() async {
+    try {
+      if (Hive.isBoxOpen(SettingsManager.boxName)) {
+        final box = Hive.box(SettingsManager.boxName);
+        final existing = box.get('guest_session_id')?.toString();
+        if (existing != null && existing.length >= 8) {
+          return existing;
+        }
+        final generated = const Uuid().v4();
+        await box.put('guest_session_id', generated);
+        return generated;
+      }
+    } catch (e) {
+      AppLogger.debug('StreamResolver', 'Guest SID box fallback: $e');
+    }
+    return _ephemeralGuestSessionId ??= const Uuid().v4();
+  }
+
+  static Future<String?> _mintGuestStreamToken(String base, String trackId, String sid) async {
+    try {
+      final tokenUri = Uri.parse('$base/api/music/stream-token');
+      final res = await http
+          .post(
+            tokenUri,
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              'X-Session-ID': sid,
+            },
+            body: jsonEncode({'song_id': trackId, 'purpose': 'stream'}),
+          )
+          .timeout(const Duration(seconds: 4));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data is Map && data['token'] != null) {
+          return data['token'].toString();
+        }
+      }
+    } catch (e) {
+      AppLogger.debug('StreamResolver', 'Guest stream-token notice: $e');
+    }
+    return null;
+  }
+
+  static String? _extractStreamUrlFromResponse(http.Response res) {
+    if (res.statusCode != 200) return null;
+    final data = jsonDecode(res.body);
+    if (data is Map) {
+      final u = data['url'] ?? data['audio_url'] ?? data['stream_url'];
+      if (u != null && u.toString().isNotEmpty) {
+        return u.toString();
+      }
+    }
+    return null;
+  }
+
   /// Queries backend stream proxy endpoints if direct extraction fails
   static Future<String?> _queryBackendStreamProxy(String trackId, String cleanTitle, [String? artist]) async {
     try {
       final base = AppConfig.backendUrl.replaceAll(RegExp(r'/+$'), '');
       if (base.isEmpty) return null;
 
-      final titleParam = cleanTitle.isNotEmpty ? 'title=${Uri.encodeComponent(cleanTitle)}' : '';
-      final artistParam = (artist != null && artist.isNotEmpty) ? '&artist=${Uri.encodeComponent(artist)}' : '';
-      final queryParams = titleParam.isNotEmpty ? '?$titleParam$artistParam' : (artistParam.isNotEmpty ? '?$artistParam' : '');
+      final baseQueryParams = <String, String>{
+        if (cleanTitle.isNotEmpty) 'title': cleanTitle,
+        if (artist != null && artist.isNotEmpty) 'artist': artist,
+      };
 
-      final streamUris = [
-        Uri.parse('$base/api/music/stream/$trackId$queryParams'),
-        Uri.parse('$base/music/stream/$trackId$queryParams'),
-      ];
+      List<Uri> buildStreamUris({String? st, String? sid}) {
+        final qp = {
+          ...baseQueryParams,
+          if (st != null && st.isNotEmpty) 'st': st,
+          if (sid != null && sid.isNotEmpty) 'sid': sid,
+        };
+        return [
+          Uri.parse('$base/api/music/stream/$trackId').replace(queryParameters: qp.isEmpty ? null : qp),
+          Uri.parse('$base/music/stream/$trackId').replace(queryParameters: qp.isEmpty ? null : qp),
+        ];
+      }
 
-      for (final streamUri in streamUris) {
-        try {
-          final res = await http.get(streamUri, headers: {'Accept': 'application/json'}).timeout(const Duration(seconds: 4));
-          if (res.statusCode == 200) {
-            final data = jsonDecode(res.body);
-            if (data is Map) {
-              final u = data['url'] ?? data['audio_url'] ?? data['stream_url'];
-              if (u != null && u.toString().isNotEmpty) {
-                return u.toString();
+      // 1. Authenticated Bearer attempt (with single silentRefresh retry on 401)
+      String? bearer = AuthManager.token;
+      bool shouldTryGuestFallback = bearer == null || bearer.isEmpty;
+
+      if (!shouldTryGuestFallback) {
+        bool hit401 = false;
+        for (final streamUri in buildStreamUris()) {
+          try {
+            final res = await http
+                .get(streamUri, headers: {'Accept': 'application/json', 'Authorization': 'Bearer $bearer'})
+                .timeout(const Duration(seconds: 4));
+            final extracted = _extractStreamUrlFromResponse(res);
+            if (extracted != null) return extracted;
+            if (res.statusCode == 401) {
+              hit401 = true;
+              break;
+            }
+          } catch (e) {
+            AppLogger.debug('StreamResolver', 'Handled exception: $e');
+          }
+        }
+
+        if (hit401) {
+          final refreshed = await AuthManager.silentRefresh();
+          if (refreshed != null && refreshed.isNotEmpty) {
+            for (final streamUri in buildStreamUris()) {
+              try {
+                final res = await http
+                    .get(streamUri, headers: {'Accept': 'application/json', 'Authorization': 'Bearer $refreshed'})
+                    .timeout(const Duration(seconds: 4));
+                final extracted = _extractStreamUrlFromResponse(res);
+                if (extracted != null) return extracted;
+              } catch (e) {
+                AppLogger.debug('StreamResolver', 'Handled exception: $e');
               }
             }
           }
-        } catch (e) {
-      AppLogger.debug('StreamResolver', 'Handled exception: $e');
-    }
+          shouldTryGuestFallback = true;
+        }
+      }
+
+      // 2. Guest short-lived signed stream token fallback
+      if (shouldTryGuestFallback) {
+        final sid = await _getOrCreateGuestSessionId();
+        final st = await _mintGuestStreamToken(base, trackId, sid);
+        if (st != null && st.isNotEmpty) {
+          for (final streamUri in buildStreamUris(st: st, sid: sid)) {
+            try {
+              final res = await http
+                  .get(streamUri, headers: {'Accept': 'application/json', 'X-Session-ID': sid})
+                  .timeout(const Duration(seconds: 4));
+              final extracted = _extractStreamUrlFromResponse(res);
+              if (extracted != null) return extracted;
+            } catch (e) {
+              AppLogger.debug('StreamResolver', 'Handled exception: $e');
+            }
+          }
+        }
       }
 
       final searchUris = [

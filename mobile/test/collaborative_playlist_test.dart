@@ -85,7 +85,7 @@ void main() {
       final code2 = CollaborativePlaylistService.generateInviteCode();
 
       expect(code1.startsWith('PP-'), isTrue);
-      expect(code1.length, equals(7)); // PP- + 4 chars
+      expect(code1.length, equals(15)); // PP- + 12 chars
       expect(code1, isNot(equals(code2)));
     });
 

@@ -77,12 +77,15 @@ async def parse_spotify_playlist_id(input_str: str) -> Optional[str]:
         return None
     s = input_str.strip()
 
-    # Expand shortlinks (spotify.link or spotify.app.link)
-    if "spotify.link" in s or "spotify.app.link" in s:
+    # Expand shortlinks (spotify.link or spotify.app.link) with strict SSRF hostname check
+    parsed_input = urllib.parse.urlparse(s)
+    if parsed_input.scheme in ("http", "https") and (parsed_input.hostname or "").lower() in {"spotify.link", "spotify.app.link"}:
         try:
             async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
                 res = await client.head(s)
-                s = str(res.url)
+                final_host = (urllib.parse.urlparse(str(res.url)).hostname or "").lower()
+                if final_host == "open.spotify.com":
+                    s = str(res.url)
         except Exception as e:
             logger.debug(f"[SpotifyImport] Failed to resolve shortlink: {e}")
 

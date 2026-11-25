@@ -179,6 +179,16 @@ class AuthRefreshDownloadTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(resolved_rs)
         self.assertEqual(resolved_rs.supabase_uid, "supa-uid-123")
 
+    def test_production_disables_swagger_docs(self):
+        import importlib
+        import main as main_module
+        with patch.dict(os.environ, {"ENV": "production"}):
+            reloaded = importlib.reload(main_module)
+            prod_client = TestClient(reloaded.app)
+            self.assertEqual(prod_client.get("/docs").status_code, 404)
+            self.assertEqual(prod_client.get("/openapi.json").status_code, 404)
+        importlib.reload(main_module)
+
 
 if __name__ == "__main__":
     unittest.main()

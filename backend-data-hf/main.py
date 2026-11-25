@@ -242,7 +242,14 @@ async def lifespan(app: FastAPI):
     # Shutdown logic
     print("[INIT] Shutting down Paatu Padava Backend...")
 
-app = FastAPI(title="Paatu Padava Backend", lifespan=lifespan)
+_is_prod = os.getenv("ENV", os.getenv("ENVIRONMENT", "")).lower() == "production"
+app = FastAPI(
+    title="Paatu Padava Backend",
+    lifespan=lifespan,
+    docs_url=None if _is_prod else "/docs",
+    redoc_url=None if _is_prod else "/redoc",
+    openapi_url=None if _is_prod else "/openapi.json",
+)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 

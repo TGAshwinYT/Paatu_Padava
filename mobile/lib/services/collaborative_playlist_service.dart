@@ -14,11 +14,11 @@ import 'app_logger.dart';
 class CollaborativePlaylistService {
   static final Random _random = Random.secure();
 
-  /// Generates a human-readable 6-character alphanumeric invite code (e.g. "PP-9K2M")
+  /// Generates a cryptographically random 12-character alphanumeric invite code (e.g. "PP-9K2M7X4P8Q2W")
   static String generateInviteCode() {
     const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'; // excludes ambiguous chars 0, 1, I, O
     final randStr = String.fromCharCodes(
-      Iterable.generate(4, (_) => chars.codeUnitAt(_random.nextInt(chars.length))),
+      Iterable.generate(12, (_) => chars.codeUnitAt(_random.nextInt(chars.length))),
     );
     return 'PP-$randStr';
   }

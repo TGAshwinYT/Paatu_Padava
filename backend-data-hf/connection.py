@@ -14,12 +14,42 @@ REDIS_REST_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
 if not REDIS_REST_URL or not REDIS_REST_TOKEN:
     print("WARNING: UPSTASH_REDIS_REST credentials not found in environment variables!")
 
+
+class DummyRedis:
+    """Safe fallback dummy client when Redis credentials are not configured."""
+    async def get(self, *args, **kwargs):
+        return None
+
+    async def set(self, *args, **kwargs):
+        return False
+
+    async def setex(self, *args, **kwargs):
+        return False
+
+    async def delete(self, *args, **kwargs):
+        return 0
+
+    async def incr(self, *args, **kwargs):
+        raise RuntimeError("Redis not available")
+
+    async def expire(self, *args, **kwargs):
+        return False
+
+    async def ping(self):
+        return False
+
+    async def close(self):
+        pass
+
+
 async def get_redis():
     """
     Connect to Upstash Redis using REST (HTTPS) to bypass port 6379 blocks.
+    Falls back gracefully to DummyRedis if credentials are missing.
     """
-    if not REDIS_REST_URL:
-        raise ValueError("REDIS_REST_URL is missing in the .env file")
+    if not REDIS_REST_URL or not REDIS_REST_TOKEN:
+        yield DummyRedis()
+        return
     
     # Initialize the Upstash HTTP client
     redis_client = UpstashRedis(url=REDIS_REST_URL, token=REDIS_REST_TOKEN)
@@ -32,6 +62,9 @@ async def get_redis():
 
 async def check_redis_connection():
     """Verify Redis connectivity"""
+    if not REDIS_REST_URL or not REDIS_REST_TOKEN:
+        print("[*] Redis: Not configured (UPSTASH_REDIS_REST credentials missing), skipping connection test.")
+        return False
     try:
         # Diagnostic: Log the host to help identify network blocks
         display_url = REDIS_REST_URL

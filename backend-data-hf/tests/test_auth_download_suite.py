@@ -23,6 +23,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 if not os.environ.get("JWT_SECRET"):
     os.environ["JWT_SECRET"] = "test_jwt_secret_for_ci_and_local_testing_minimum_32_chars"
+if not os.environ.get("SUPABASE_JWT_SECRET"):
+    os.environ["SUPABASE_JWT_SECRET"] = "test_supabase_secret_key_minimum_32chars"
 
 import jwt
 from fastapi.testclient import TestClient
@@ -457,6 +459,13 @@ class TestSecurityAndUtilsEndpoints(unittest.TestCase):
         async def override_get_db():
             yield mock_session
         app.dependency_overrides[get_db] = override_get_db
+
+        mock_redis = AsyncMock()
+        mock_redis.get.return_value = None
+        mock_redis.incr.side_effect = Exception("Redis unavailable in test")
+        async def override_get_redis():
+            yield mock_redis
+        app.dependency_overrides[get_redis] = override_get_redis
 
         # 5th failed attempt triggers 429 and locks out email
         resp = self.client.post(

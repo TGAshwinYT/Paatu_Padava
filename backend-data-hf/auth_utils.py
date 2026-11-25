@@ -92,11 +92,12 @@ async def _decode_supabase_token(token: str) -> Optional[dict]:
         except (JWTError, PyJWKClientError, OSError, ValueError):
             return None
 
-    if SUPABASE_JWT_SECRET:
+    supabase_secret = os.getenv("SUPABASE_JWT_SECRET") or SUPABASE_JWT_SECRET
+    if supabase_secret:
         try:
             return jwt.decode(
                 token,
-                SUPABASE_JWT_SECRET,
+                supabase_secret,
                 algorithms=["HS256"],
                 options={"verify_aud": False},
             )

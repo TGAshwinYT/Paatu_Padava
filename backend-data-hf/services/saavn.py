@@ -2,18 +2,18 @@ import httpx
 import json
 import html
 import logging
-import base64
-try:
-    from cryptography.hazmat.decrepit.ciphers.algorithms import TripleDES
-except ImportError:
-    from cryptography.hazmat.primitives.ciphers.algorithms import TripleDES
-from cryptography.hazmat.primitives.ciphers import Cipher, modes
 
 from typing import List, Dict, Any, Optional
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from fastapi_cache.decorator import cache
 from graph import recommendation_graph
+from services.saavn_parser import (
+    extract_artist_name,
+    extract_high_res_image,
+    extract_audio_url,
+    decrypt_saavn_media_url,
+)
 
 # Ensure FastAPICache has at least a fallback in-memory backend if uninitialized
 try:
@@ -38,135 +38,6 @@ REGIONAL_VIP_ARTISTS = {
     "default": ["A.R. Rahman", "Arijit Singh", "Anirudh Ravichander", "Shreya Ghoshal"]
 }
 
-
-def extract_artist_name(artist_data: Any) -> str:
-    """
-    Bulletproof extraction of artist name from various potential keys.
-    Checks name, title, listname, subtitle in prioritized order.
-    """
-    if not artist_data:
-        return "Unknown Artist"
-    
-    if isinstance(artist_data, str):
-        return html.unescape(artist_data)
-        
-    # Priority keys for names/titles
-    keys = ["name", "title", "listname", "subtitle", "artist"]
-    
-    for key in keys:
-        val = artist_data.get(key)
-        if val and isinstance(val, str) and val.strip().lower() not in ["null", "none", "artist", "unknown"]:
-            return html.unescape(val.strip())
-        if val and isinstance(val, list) and len(val) > 0:
-            # Handle lists of strings or dicts
-            item = val[0]
-            if isinstance(item, str):
-                return html.unescape(item)
-            if isinstance(item, dict):
-                inner_name = item.get("name") or item.get("title")
-                if inner_name:
-                    return html.unescape(inner_name)
-                    
-    return "Unknown Artist"
-
-def extract_high_res_image(image_data: Any) -> str:
-    """
-    Robust extraction of highest resolution image from various formats.
-    Handles strings (including comma-separated lists), lists of URLs, or lists of dictionaries.
-    Forces 500x500 for JioSaavn CDN links to ensure premium quality.
-    """
-    default_image = "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&h=500&fit=crop"
-    
-    if not image_data:
-        return default_image
-
-    url = default_image
-
-    # 1. Handle String directly
-    if isinstance(image_data, str):
-        # Handle comma-separated strings (JioSaavn edge case)
-        if ',' in image_data:
-            urls = [url.strip() for url in image_data.split(',')]
-            # Return the highest quality (last item)
-            url = urls[-1] if urls and urls[-1].startswith('http') else default_image
-        elif image_data.startswith('http'):
-            url = image_data
-    
-    # 2. Handle List of URLs or Dictionaries (JioSaavn standard)
-    elif isinstance(image_data, list) and len(image_data) > 0:
-        best_img = image_data[-1]
-        if isinstance(best_img, dict):
-            url = best_img.get('link') or best_img.get('url') or default_image
-        elif isinstance(best_img, str) and best_img.startswith('http'):
-            url = best_img
-            
-    # 3. Handle Dictionary directly (Fallback for some modules)
-    elif isinstance(image_data, dict):
-        url = image_data.get("image") or image_data.get("image_url") or image_data.get("images") or default_image
-        # If the extracted value inside the dict is still a list, recurse once
-        if isinstance(url, list):
-            return extract_high_res_image(url)
-
-    # Final Step: Clean up and Force High Resolution
-    if not isinstance(url, str) or not url.startswith("http"):
-        return default_image
-
-    # Transform 50x50 or 150x150 to 500x500
-    if "jiosaavn.com" in url or "saavncdn.com" in url:
-        url = url.replace("50x50", "500x500").replace("150x150", "500x500")
-        
-    return url
-
-def extract_audio_url(item: Dict[str, Any]) -> str:
-    """
-    Robustly extracts the highest quality audio URL from JioSaavn song data.
-    """
-    if not item or not isinstance(item, dict):
-        return ""
-        
-    # 1. Check downloadUrl list (Standard sumit.co 2026 format)
-    downloads = item.get("downloadUrl", [])
-    if isinstance(downloads, list) and len(downloads) > 0:
-        # Prio: 320kbps (idx 4), then 160kbps (idx 3), etc.
-        if len(downloads) > 4:
-            url = downloads[4].get("url")
-            if url: return url
-        
-        # Fallback to the last (highest available) in the list
-        url = downloads[-1].get("url")
-        if url: return url
-
-    # 2. Check direct link/url fields (Some modules return this)
-    direct_url = item.get("url") or item.get("link") or item.get("download_url")
-    if direct_url and (".mp3" in direct_url or ".m4a" in direct_url or "http" in direct_url):
-        return direct_url
-        
-    return ""
-
-def decrypt_saavn_media_url(encrypted_url: str) -> str:
-    """
-    Directly decrypts JioSaavn's DES-encrypted media URL to pristine CDN audio streams.
-    Replaces 96kbps / 160kbps with 320kbps for maximum fidelity.
-    """
-    if not encrypted_url:
-        return ""
-    try:
-        key = b'38346591' * 3
-        cipher = Cipher(TripleDES(key), modes.ECB())
-        decryptor = cipher.decryptor()
-        raw_data = base64.b64decode(encrypted_url)
-        decrypted = decryptor.update(raw_data) + decryptor.finalize()
-        pad = decrypted[-1]
-        if pad < 8:
-            decrypted = decrypted[:-pad]
-        url = decrypted.decode('utf-8', errors='ignore').strip()
-        if '_96.mp4' in url:
-            return url.replace('_96.mp4', '_320.mp4')
-        if '_160.mp4' in url:
-            return url.replace('_160.mp4', '_320.mp4')
-        return url
-    except Exception:
-        return ""
 
 ALL_INDIAN_LANGUAGES_COOKIE = "hindi%2Cenglish%2Ctamil%2Ctelugu%2Cpunjabi%2Cmarathi%2Cgujarati%2Cbengali%2Ckannada%2Cbhojpuri%2Cmalayalam%2Curdu%2Charyanvi%2Crajasthani%2Codia%2Cassamese"
 

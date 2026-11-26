@@ -22,7 +22,7 @@ from limiter_config import limiter
 from connection import check_redis_connection, check_db_connection, engine, AsyncSessionLocal, get_redis, get_db
 from auth_utils import get_current_user_optional
 from base import Base
-from routers import music, auth, playlists, history, users, utils
+from routers import music, music_discovery, music_catalog, auth, playlists, history, users, utils
 from services.youtube import get_trending_youtube
 from services.recommender import personal_recommender
 from trie import Trie
@@ -264,6 +264,8 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.include_router(music.router)
+app.include_router(music_discovery.router)
+app.include_router(music_catalog.router)
 app.include_router(auth.router)
 app.include_router(playlists.router)
 app.include_router(history.router)

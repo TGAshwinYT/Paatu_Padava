@@ -23,7 +23,6 @@ import 'history_manager.dart';
 import 'queue_cooldown_manager.dart';
 import 'equalizer_service.dart';
 import 'youtube_client.dart';
-import 'radio_engine.dart';
 import 'favorites_manager.dart';
 import 'download_manager.dart';
 import 'playlist_manager.dart';
@@ -36,6 +35,14 @@ import 'smart_cache_service.dart';
 import 'search_service.dart';
 import 'recent_containers_manager.dart';
 import '../data/repositories/song_repository.dart';
+
+part 'player/player_lyrics_ext.dart';
+part 'player/player_recommendations_ext.dart';
+part 'player/player_lifecycle_ext.dart';
+part 'player/player_streams_ext.dart';
+part 'player/player_playback_ext.dart';
+part 'player/player_controls_ext.dart';
+part 'player/player_media_browser_ext.dart';
 
 /// Context describing where audio playback originated from (e.g. Playlist, Album, Mix, Liked Songs).
 class PlaybackContext {
@@ -137,21 +144,8 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
 
   static const MethodChannel _widgetChannel = MethodChannel('com.tamilgaming.paatupadava/widget');
 
-  void _syncWidgetState({Song? song, bool? isPlaying}) {
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-      try {
-        final active = song ?? currentSong;
-        final playing = isPlaying ?? _player.playing;
-        _widgetChannel.invokeMethod('updateWidget', {
-          'title': active?.title ?? 'Paatu Padava',
-          'artist': active?.artist ?? 'Tap to play',
-          'isPlaying': playing,
-        }).catchError((_) {});
-      } catch (e) {
-      AppLogger.debug('PlayerHandler', 'Handled exception: $e');
-    }
-    }
-  }
+  void _syncWidgetState({Song? song, bool? isPlaying}) =>
+      _syncWidgetStateImpl(song: song, isPlaying: isPlaying);
 
   bool _hasRecordedListen = false;
   bool _hasRecordedHistory = false;
@@ -200,19 +194,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    if (state == AppLifecycleState.resumed) {
-      _isAppTaskRemoved = false;
-    }
-    final inBackground = state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached ||
-        state == AppLifecycleState.hidden;
-    if (_isAppInBackground != inBackground) {
-      _isAppInBackground = inBackground;
-      AppLogger.log(
-        'PaatuAudioHandler',
-        'Lifecycle state: $state. Background position stream throttling active: $inBackground',
-      );
-    }
+    _didChangeAppLifecycleStateImpl(state);
   }
 
   /// Centralized position hub: updates every 500ms when in foreground,
@@ -242,46 +224,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   }
 
   /// Single centralized position dispatcher fanning out to metrics and stream listeners
-  void _onPositionTick(Duration pos) {
-    // 1. Telemetry / Scrobble milestone (15s minimum listen, threshold reached)
-    final posSec = pos.inSeconds;
-    if (!_hasRecordedListen && posSec >= 15 && currentSong != null) {
-      _hasRecordedListen = true;
-    }
-
-    if (!_hasRecordedHistory && currentSong != null) {
-      final song = currentSong!;
-      final totalSec = _player.duration?.inSeconds ?? song.duration;
-      final thresholdSec = (totalSec > 0 && totalSec < 60) ? (totalSec * 0.5) : 30.0;
-      if (posSec >= thresholdSec) {
-        _hasRecordedHistory = true;
-        final track = TrackEntity.fromSong(song);
-        HistoryManager.addToHistory(track);
-        QueueCooldownManager.recordPlayed(song);
-        AppLogger.log('PlayerHandler', 'Scrobble milestone reached: Recorded play to HistoryManager and QueueCooldownManager for "${song.title}".');
-      }
-    }
-
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final isPlaying = _player.playing;
-
-    // 2. High-precision lyrics fan-out (~50ms interval / 20 Hz)
-    if (_lyricsPositionController != null && _lyricsPositionController!.hasListener) {
-      if (now - _lastLyricsEmitMs >= 50 || !isPlaying) {
-        _lastLyricsEmitMs = now;
-        _lyricsPositionController!.add(pos);
-      }
-    }
-
-    // 3. Throttled UI position fan-out (100ms foreground / 1500ms background)
-    if (_throttledPositionController != null && _throttledPositionController!.hasListener) {
-      final intervalMs = _isAppInBackground ? 1500 : 100;
-      if (now - _lastThrottledEmitMs >= intervalMs || !isPlaying) {
-        _lastThrottledEmitMs = now;
-        _throttledPositionController!.add(pos);
-      }
-    }
-  }
+  void _onPositionTick(Duration pos) => _onPositionTickImpl(pos);
 
   static final MediaControl _favoriteControlFilled = MediaControl.custom(
     androidIcon: 'drawable/ic_heart_filled',
@@ -406,70 +349,9 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     _initStreams();
   }
 
-  void _updateCachedFav() {
-    final active = currentSong;
-    if (active != null) {
-      _cachedIsFav = FavoritesManager.isFavorite(active.id);
-      _cachedFavSongId = active.id;
-    } else {
-      _cachedIsFav = false;
-      _cachedFavSongId = null;
-    }
-  }
+  void _updateCachedFav() => _updateCachedFavImpl();
 
-  Future<void> _initAudioSession() async {
-    try {
-      final session = await AudioSession.instance;
-      await session.configure(const AudioSessionConfiguration.music());
-      // Handle ACTION_AUDIO_BECOMING_NOISY (immediately pause playback when headphones disconnected or BT unpairs)
-      _becomingNoisySub = session.becomingNoisyEventStream.listen((_) async {
-        AppLogger.log('PlayerHandler', 'ACTION_AUDIO_BECOMING_NOISY (headset/BT unplugged) -> auto-pausing immediately');
-        await pause();
-      });
-
-      // Handle external audio focus interruptions (phone calls, navigation alerts, transient sounds)
-      _interruptionSub = session.interruptionEventStream.listen((event) async {
-        AppLogger.log('PlayerHandler', 'Audio interruption event: begin=${event.begin}, type=${event.type}');
-        if (event.begin) {
-          switch (event.type) {
-            case AudioInterruptionType.duck:
-              // Transient Audio Focus: Duck volume to 20% during transient navigation alerts
-              await _player.setVolume((userVolume * 0.2).clamp(0.0, 1.0));
-              break;
-            case AudioInterruptionType.pause:
-            case AudioInterruptionType.unknown:
-              // Pause cleanly on incoming phone calls; record playing state for auto-resume
-              _resumeOnInterruptionEnd = _player.playing;
-              await pause();
-              break;
-          }
-        } else {
-          switch (event.type) {
-            case AudioInterruptionType.duck:
-              // Restore user master volume with ReplayGain normalization when transient alert finishes
-              await applyVolumeNormalization();
-              break;
-            case AudioInterruptionType.pause:
-            case AudioInterruptionType.unknown:
-              // Automatically resume playback when calls or external interruptions end
-              if (_resumeOnInterruptionEnd) {
-                _resumeOnInterruptionEnd = false;
-                try {
-                  final activeSession = await AudioSession.instance;
-                  await activeSession.setActive(true);
-                } catch (e) {
-                  AppLogger.debug('PaatuAudioHandler', 'Could not reactivate AudioSession after interruption: $e');
-                }
-                await play();
-              }
-              break;
-          }
-        }
-      });
-    } catch (e, stack) {
-      AppLogger.recordError(e, stack, context: 'AudioSession setup');
-    }
-  }
+  Future<void> _initAudioSession() => _initAudioSessionImpl();
 
   void _handleIdleRelease() {
     AppLogger.log('PaatuAudioHandler', 'Idle timeout reached: maintaining paused state');
@@ -535,198 +417,10 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     _broadcastState();
   }
 
-  /// Sets user-selected lyrics language (Default vs English)
-  void setLyricsLanguage(LyricsLanguage lang) {
-    lyricsLanguageNotifier.value = lang;
-    SettingsManager.setLyricsPreferredLanguage(lang == LyricsLanguage.english ? 'english' : 'default');
-    final dual = dualLyricsNotifier.value;
-    if (dual != null) {
-      final selected = dual.getLyricsForLanguage(lang);
-      currentLyricsNotifier.value = selected;
-      lyricsStateNotifier.value = LyricsState.loaded(selected, dualLyrics: dual);
-    }
-  }
-
-  /// Sets custom lyrics directly (from search candidate or paste dialog)
-  void setCustomLyrics(String rawLyrics) {
-    final dual = _buildDualLyrics(rawLyrics);
-    dualLyricsNotifier.value = dual;
-    final selected = dual.getLyricsForLanguage(lyricsLanguageNotifier.value);
-    currentLyricsNotifier.value = selected;
-    lyricsStateNotifier.value = LyricsState.loaded(selected, dualLyrics: dual);
-  }
-
-  /// Adjusts lyrics sync timing offset by a delta in milliseconds (e.g. +500ms or -500ms)
-  /// and persists it for the current song in local storage.
-  Future<void> adjustLyricsOffset(int deltaMs) async {
-    final curSong = currentSong;
-    if (curSong == null) return;
-    final newOffset = lyricsOffsetMsNotifier.value + deltaMs;
-    lyricsOffsetMsNotifier.value = newOffset;
-    await LyricsClient.instance.saveLyricsOffset(curSong.id, newOffset);
-  }
-
-  /// Resets lyrics sync timing offset to 0ms for the current song.
-  Future<void> resetLyricsOffset() async {
-    final curSong = currentSong;
-    if (curSong == null) return;
-    lyricsOffsetMsNotifier.value = 0;
-    await LyricsClient.instance.saveLyricsOffset(curSong.id, 0);
-  }
-
-  /// Toggles Karaoke Sing-Along mode with word-by-word animation and vocal control.
-  void toggleKaraokeMode() {
-    final next = !isKaraokeModeNotifier.value;
-    isKaraokeModeNotifier.value = next;
-    if (next) {
-      final target = vocalAttenuationNotifier.value > 0.0 ? vocalAttenuationNotifier.value : 0.85;
-      vocalAttenuationNotifier.value = target;
-      EqualizerService.setVocalAttenuation(target);
-    } else {
-      EqualizerService.setVocalAttenuation(0.0);
-    }
-  }
-
-  /// Sets the real-time vocal attenuation factor (0.0 = 100% normal vocals, 1.0 = 0% vocals).
-  void setVocalAttenuation(double factor) {
-    final clamped = factor.clamp(0.0, 1.0);
-    vocalAttenuationNotifier.value = clamped;
-    EqualizerService.setVocalAttenuation(clamped);
-  }
-
-  DualLyrics _buildDualLyrics(String rawLyrics) {
-    final isSynced = ApiClient.isSyncedLrc(rawLyrics);
-    final script = IndicRomanizer.detectScript(rawLyrics);
-    if (IndicRomanizer.hasIndicScript(rawLyrics)) {
-      final romanized = IndicRomanizer.romanizeLyrics(rawLyrics);
-      return DualLyrics(
-        defaultLyrics: rawLyrics,
-        englishLyrics: romanized,
-        detectedScript: script,
-        isSynced: isSynced,
-      );
-    } else {
-      return DualLyrics(
-        defaultLyrics: rawLyrics,
-        englishLyrics: rawLyrics,
-        detectedScript: 'latin',
-        isSynced: isSynced,
-      );
-    }
-  }
-
-  /// Reloads lyrics for current or target song with multi-state resolution
-  Future<void> reloadLyrics({Song? targetSong}) async {
-    final song = targetSong ?? currentSong;
-    if (song == null) {
-      lyricsStateNotifier.value = const LyricsState.idle();
-      currentLyricsNotifier.value = null;
-      dualLyricsNotifier.value = null;
-      return;
-    }
-
-    if (song.lyrics != null && song.lyrics!.isNotEmpty) {
-      final dual = _buildDualLyrics(song.lyrics!);
-      dualLyricsNotifier.value = dual;
-      final selected = dual.getLyricsForLanguage(lyricsLanguageNotifier.value);
-      currentLyricsNotifier.value = selected;
-      lyricsStateNotifier.value = LyricsState.loaded(selected, dualLyrics: dual);
-      return;
-    }
-
-    lyricsStateNotifier.value = const LyricsState.loading();
-    try {
-      final state = await SongRepository.getLyricsForSong(song);
-      if (currentSong?.id != song.id) return;
-      lyricsStateNotifier.value = state;
-      if (state.status == LyricsStatus.loaded && state.lyrics != null) {
-        final dual = state.dualLyrics ?? _buildDualLyrics(state.lyrics!);
-        dualLyricsNotifier.value = dual;
-        final selected = dual.getLyricsForLanguage(lyricsLanguageNotifier.value);
-        currentLyricsNotifier.value = selected;
-      } else {
-        currentLyricsNotifier.value = null;
-        dualLyricsNotifier.value = null;
-      }
-    } catch (e, stack) {
-      if (currentSong?.id != song.id) return;
-      final appErr = ErrorHandler.resolve(e, stackTrace: stack, context: 'PaatuAudioHandler.reloadLyrics');
-      lyricsStateNotifier.value = LyricsState.error(appErr);
-    }
-  }
-
   int? _lastReselectedDurationSec;
 
-  void _checkLyricsDurationReselection(Song song, int actualDurationSeconds) {
-    if (actualDurationSeconds <= 0) return;
-    if (_lastReselectedDurationSec == actualDurationSeconds) return;
-    _lastReselectedDurationSec = actualDurationSeconds;
-
-    unawaited(() async {
-      final newState = await LyricsClient.instance.reselectForActualDuration(
-        trackId: song.id,
-        actualDurationSeconds: actualDurationSeconds,
-      );
-      if (newState != null && currentSong?.id == song.id) {
-        lyricsStateNotifier.value = newState;
-        if (newState.lyrics != null) {
-          final dual = newState.dualLyrics ?? _buildDualLyrics(newState.lyrics!);
-          dualLyricsNotifier.value = dual;
-          final selected = dual.getLyricsForLanguage(lyricsLanguageNotifier.value);
-          currentLyricsNotifier.value = selected;
-        }
-      }
-    }());
-  }
-
-  void _broadcastState({bool downgradeNotification = false}) {
-    final playing = _player.playing;
-    final AudioProcessingState processingState;
-    if (downgradeNotification || _isForegroundDowngraded) {
-      processingState = (currentSong != null) ? AudioProcessingState.ready : AudioProcessingState.idle;
-    } else {
-      processingState = const {
-        ProcessingState.idle: AudioProcessingState.idle,
-        ProcessingState.loading: AudioProcessingState.loading,
-        ProcessingState.buffering: AudioProcessingState.buffering,
-        ProcessingState.ready: AudioProcessingState.ready,
-        ProcessingState.completed: AudioProcessingState.completed,
-      }[_player.processingState] ?? AudioProcessingState.idle;
-    }
-
-    final activeSong = currentSong;
-    if (activeSong != null && activeSong.id != _cachedFavSongId) {
-      _cachedFavSongId = activeSong.id;
-      _cachedIsFav = FavoritesManager.isFavorite(activeSong.id);
-    }
-
-    final controls = playing
-        ? (_cachedIsFav ? _controlsPlayingFav : _controlsPlayingUnfav)
-        : (_cachedIsFav ? _controlsPausedFav : _controlsPausedUnfav);
-
-    playbackState.add(playbackState.value.copyWith(
-      controls: controls,
-      systemActions: const {
-        MediaAction.play,
-        MediaAction.pause,
-        MediaAction.stop,
-        MediaAction.skipToNext,
-        MediaAction.skipToPrevious,
-        MediaAction.seek,
-        MediaAction.seekForward,
-        MediaAction.seekBackward,
-        MediaAction.setRating,
-      },
-      androidCompactActionIndices: const [0, 1, 2],
-      processingState: processingState,
-      playing: playing,
-      updatePosition: _player.position,
-      bufferedPosition: _player.bufferedPosition,
-      speed: _player.speed,
-      queueIndex: _queueHandler.currentIndex,
-    ));
-    _syncWidgetState(isPlaying: playing);
-  }
+  void _broadcastState({bool downgradeNotification = false}) =>
+      _broadcastStateImpl(downgradeNotification: downgradeNotification);
 
   @override
   Future<void> setRating(Rating rating, [Map<String, dynamic>? extras]) async {
@@ -758,104 +452,11 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     return super.customAction(name, extras);
   }
 
-  void _initStreams() {
-    _playbackEventSub = _player.playbackEventStream.listen(
-      (event) {
-        if (_player.duration != null && _player.duration!.inMilliseconds > 0) {
-          if (currentSong != null && currentSong!.duration == 0) {
-            currentSong!.duration = _player.duration!.inSeconds;
-          }
-          if (mediaItem.value != null && mediaItem.value?.duration != _player.duration) {
-            mediaItem.add(mediaItem.value!.copyWith(duration: _player.duration));
-          }
-        }
-        _broadcastState();
-      },
-      onError: (Object e, StackTrace stack) {
-        AppLogger.recordError(e, stack, context: 'AudioPlayer.playbackEventStream');
-        final err = ErrorHandler.resolve(e, stackTrace: stack, context: 'AudioPlayer.playbackEventStream');
-        playbackErrorNotifier.value = err;
-        debugPrint('[PlayerHandler] Playback error: ${err.userMessage}');
-      },
-    );
-
-    try {
-      _durationSub = _player.durationStream.listen((dur) {
-        if (dur != null && dur.inMilliseconds > 0) {
-          if (currentSong != null && currentSong!.duration == 0) {
-            currentSong!.duration = dur.inSeconds;
-          }
-          if (mediaItem.value != null && mediaItem.value?.duration != dur) {
-            mediaItem.add(mediaItem.value!.copyWith(duration: dur));
-          }
-          _broadcastState();
-          if (currentSong != null) {
-            _checkLyricsDurationReselection(currentSong!, dur.inSeconds);
-          }
-        }
-      });
-    } catch (e, st) {
-      AppLogger.recordError(e, st, context: 'PaatuAudioHandler duration stream subscription');
-    }
-
-    _playerStateSub = _player.playerStateStream.listen((state) {
-      if (state.playing) {
-        _isForegroundDowngraded = false;
-        if (SleepTimerService.instance.hasExpired) {
-          SleepTimerService.instance.triggerSleepNow();
-          return;
-        }
-      }
-      if (state.processingState == ProcessingState.ready) {
-        EqualizerService.refreshDspStatus();
-      }
-      _broadcastState();
-    });
-
-    // Unified Position Hub: single subscription to player.positionStream fanning out to metrics & UI controllers
-    _positionHubSub = _player.positionStream.listen(
-      _onPositionTick,
-      onError: (e, st) {
-        AppLogger.recordError(e, st, context: 'Position hub stream error');
-        _throttledPositionController?.addError(e, st);
-        _lyricsPositionController?.addError(e, st);
-      },
-    );
-  }
+  void _initStreams() => _initStreamsImpl();
 
   /// Disposes background audio stream listeners and cleans up subscriptions.
   /// Note: PaatuAudioHandler is an app-lifetime singleton.
-  Future<void> disposeAudioHandler() async {
-    try {
-      WidgetsBinding.instance.removeObserver(this);
-    } catch (e) {
-      AppLogger.debug('PaatuAudioHandler', 'Could not remove WidgetsBinding observer: $e');
-    }
-    _becomingNoisySub?.cancel();
-    _becomingNoisySub = null;
-    _playerStateSub?.cancel();
-    _playerStateSub = null;
-    _playbackEventSub?.cancel();
-    _playbackEventSub = null;
-    _durationSub?.cancel();
-    _durationSub = null;
-    _positionHubSub?.cancel();
-    _positionHubSub = null;
-    _throttledPositionController?.close();
-    _throttledPositionController = null;
-    _lyricsPositionController?.close();
-    _lyricsPositionController = null;
-    if (_favListener != null) {
-      FavoritesManager.favoritesNotifier.removeListener(_favListener!);
-      _favListener = null;
-    }
-    if (_smartShuffleListener != null) {
-      _smartShuffleController.modeNotifier.removeListener(_smartShuffleListener!);
-      _smartShuffleListener = null;
-    }
-    _smartShuffleController.dispose();
-    _queueHandler.dispose();
-  }
+  Future<void> disposeAudioHandler() => _disposeAudioHandlerImpl();
 
   /// Master playback volume set by user (0.0 to 1.0)
   double get userVolume => _queueHandler.userVolume;
@@ -888,80 +489,12 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
 
 
   /// Loads and resolves a track with async request-ID race condition protection
-  Future<void> loadTrack(TrackEntity track, {bool autoPlay = true}) async {
-    final currentRequestId = ++_loadRequestId;
-    final token = ++_activeLoadToken;
-    _isPreparing = true;
-
-    try {
-      final song = track.toSong();
-
-      String? url = song.streamUrl;
-      if (url == null || url.isEmpty || _streamResolver.isExpired(track.id)) {
-        url = await _streamResolver.resolveStreamUrl(song);
-      }
-
-      if (url != null && url.isNotEmpty) {
-        final uri = Uri.tryParse(url);
-        final host = uri?.host.toLowerCase() ?? '';
-        final isGoogleVideo = host.contains('googlevideo.com');
-
-        final Map<String, String>? headers = isGoogleVideo
-            ? YouTubeClient.headersForUrl(url)
-            : null;
-        song.streamUrl = url;
-        try {
-          final source = AudioSource.uri(
-            Uri.parse(url),
-            headers: headers,
-            tag: track.toMediaItem(),
-          );
-          await _player.setAudioSource(source);
-          if (currentRequestId != _loadRequestId || token != _activeLoadToken) return;
-          if (_player.duration != null && _player.duration!.inMilliseconds > 0) {
-            track.durationMs = _player.duration!.inMilliseconds;
-            song.duration = _player.duration!.inSeconds;
-            if (mediaItem.value != null) {
-              mediaItem.add(mediaItem.value!.copyWith(duration: _player.duration));
-            }
-            _broadcastState();
-          }
-          if (autoPlay) {
-            await play();
-          }
-        } catch (e, stack) {
-          AppLogger.recordError(e, stack, context: 'PlayerHandler.loadTrack ExoPlayer source error');
-          await _queueHandler.handlePlaybackError(e, stack, context: 'PlayerHandler.loadTrack');
-        }
-      } else {
-        await _queueHandler.handlePlaybackError(
-          Exception('Unable to resolve playable stream for "${song.title}"'),
-          null,
-          context: 'PlayerHandler.loadTrack',
-        );
-      }
-    } finally {
-      if (token == _activeLoadToken) {
-        _isPreparing = false;
-      }
-    }
-  }
+  Future<void> loadTrack(TrackEntity track, {bool autoPlay = true}) =>
+      _loadTrackImpl(track, autoPlay: autoPlay);
 
   /// Launch a standalone track without any surrounding context queue.
   /// Used by History and Search to ensure historical or unplayed tracks never leak into the queue.
-  Future<void> playTrack(TrackEntity track) async {
-    final currentRequestId = ++_loadRequestId;
-    final song = track.toSong();
-    String? url = song.streamUrl;
-    if (url == null || url.isEmpty || _streamResolver.isExpired(track.id)) {
-      url = await _streamResolver.resolveStreamUrl(song);
-    }
-    if (currentRequestId != _loadRequestId) return;
-    if (url != null && url.isNotEmpty) {
-      song.streamUrl = url;
-    }
-    await playSong(song, preserveUserQueue: true);
-  }
+  Future<void> playTrack(TrackEntity track) => _playTrackImpl(track);
 
   /// Load and play a song with gapless ConcatenatingAudioSource preloading
   Future<void> playSong(
@@ -971,60 +504,15 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     PlaybackContext? context,
     bool isPartySyncInternal = false,
     bool autoPlay = true,
-  }) async {
-    if (PartySyncCoordinator.role == PartyRole.joiner && !isPartySyncInternal) {
-      if (PartySyncCoordinator.onJoinerManualPlayAttempted != null) {
-        PartySyncCoordinator.onJoinerManualPlayAttempted!(song);
-        return;
-      }
-      await PartySyncCoordinator.leaveParty();
-    }
-    if (context != null) {
-      currentContextNotifier.value = context;
-      RecentContainersManager.recordContainer(
-        id: context.id,
-        title: context.title,
-        subtitle: context.subtitle ?? context.type.toUpperCase(),
-        coverUrl: context.coverUrl ?? song.coverUrl,
-        type: context.type,
+  }) =>
+      _playSongImpl(
+        song,
+        queue: queue,
+        preserveUserQueue: preserveUserQueue,
+        context: context,
+        isPartySyncInternal: isPartySyncInternal,
+        autoPlay: autoPlay,
       );
-    }
-    final reqId = ++_playSongRequestId;
-    try {
-      final session = await AudioSession.instance;
-      await session.setActive(true);
-    } catch (e) {
-      AppLogger.debug('PaatuAudioHandler', 'AudioSession setActive(true) error on playSong: $e');
-    }
-    if (reqId != _playSongRequestId) return;
-    _isForegroundDowngraded = false;
-    _queueHandler.cancelIdleTimer();
-
-    // Ensure playable stream URL is resolved before loading queue
-    final hasValidStream = song.streamUrl != null && song.streamUrl!.isNotEmpty;
-    if (!hasValidStream || _streamResolver.isExpired(song.id)) {
-      final resolved = await _streamResolver.resolveStreamUrl(song);
-      if (reqId != _playSongRequestId) return;
-      if (resolved != null && resolved.isNotEmpty) {
-        song.streamUrl = resolved;
-      }
-    }
-    if (reqId != _playSongRequestId) return;
-
-    final isNewSingleQueue = queue == null || (queue.length == 1 && queue.first.id == song.id);
-    final initialIndex = queue != null ? queue.indexWhere((s) => s.id == song.id) : 0;
-    final targetIndex = initialIndex != -1 ? initialIndex : 0;
-
-    await _queueHandler.loadQueue(
-      queue ?? [song],
-      initialIndex: targetIndex,
-      autoPlay: autoPlay,
-      isPartyDriven: isPartySyncInternal,
-      preserveUserQueue: isNewSingleQueue || preserveUserQueue,
-    );
-
-    await applyVolumeNormalization(song);
-  }
 
   // ================= Queue Management ================= //
 
@@ -1078,109 +566,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     _smartShuffleController.cycleMode();
   }
 
-  Future<int> addRadioMix({int count = 10}) async {
-    final current = currentSong;
-    if (current == null) return 0;
-    final beforeCount = _queueHandler.queue.length;
-    try {
-      final strategy = NextTrackStrategyFactory.getStrategy(SettingsManager.nextTrackStrategy);
-      final tracks = await strategy.getUpcomingTracks(
-        seedSong: current,
-        queue: _queueHandler.queue,
-        history: HistoryManager.getHistory(),
-        count: count,
-      );
-      if (tracks.isNotEmpty) {
-        await _queueHandler.addAutoSuggestions(tracks);
-      }
-    } catch (e) {
-      debugPrint('[PlayerHandler] addRadioMix error: $e');
-    }
-    return _queueHandler.queue.length - beforeCount;
-  }
-
   bool _isPrefetchingRecommendations = false;
-
-  /// Lookahead pre-fetching: invoked at 80% progress or <= 15s remaining before queue reaches EOF.
-  /// Pre-fetches recommendations and pre-resolves stream URLs so playback never stalls at EOF.
-  Future<void> prefetchNextRecommendations(Song seedSong) async {
-    if (_isPrefetchingRecommendations) return;
-    _isPrefetchingRecommendations = true;
-    try {
-      final strategy = NextTrackStrategyFactory.getStrategy(SettingsManager.nextTrackStrategy);
-      const count = 20;
-      AppLogger.log('PlayerHandler', 'Prefetching next recommendations via ${strategy.displayName} for "${seedSong.title}"');
-      final tracks = await strategy.getUpcomingTracks(
-        seedSong: seedSong,
-        queue: _queueHandler.queue,
-        history: HistoryManager.getHistory(),
-        count: count,
-      );
-      if (tracks.isNotEmpty && !_isForegroundDowngraded) {
-        final toAdd = tracks.take(5).toList();
-        await _queueHandler.addAutoSuggestions(toAdd);
-        // Pre-resolve next 2 audio streams (preloadUpcomingTracks) so track transitions have 0ms latency
-        if (_queueHandler.hasNext) {
-          await _queueHandler.preloadUpcomingTracks(_queueHandler.currentIndex);
-        }
-      }
-    } catch (e) {
-      debugPrint('[PlayerHandler] prefetchNextRecommendations error: $e');
-    } finally {
-      _isPrefetchingRecommendations = false;
-    }
-  }
-
-  /// Handles continuous endless playback when reaching the end of the queue
-  Future<void> handleAutoplayQueueEnd(Song current) async {
-    try {
-      final strategy = NextTrackStrategyFactory.getStrategy(SettingsManager.nextTrackStrategy);
-      final tracks = await strategy.getUpcomingTracks(
-        seedSong: current,
-        queue: _queueHandler.queue,
-        history: HistoryManager.getHistory(),
-        count: 6,
-      );
-      if (tracks.isNotEmpty) {
-        final toAdd = tracks.take(5).toList();
-        await _queueHandler.addAutoSuggestions(toAdd);
-        if (_queueHandler.hasNext) {
-          await _queueHandler.preloadUpcomingTracks(_queueHandler.currentIndex);
-          await _queueHandler.skipToNext(isUserInitiated: false);
-          return;
-        }
-      }
-    } catch (e) {
-      debugPrint('[PlayerHandler] handleAutoplayQueueEnd error: $e');
-    }
-    _queueHandler.startIdleTimer();
-  }
-
-  Future<int> startSongRadio(Song seedSong) async {
-    try {
-      final strategy = NextTrackStrategyFactory.getStrategy(SettingsManager.nextTrackStrategy);
-      strategy.resetSession(initialAnchor: seedSong);
-      final tracks = await strategy.getUpcomingTracks(
-        seedSong: seedSong,
-        queue: [seedSong],
-        history: HistoryManager.historyNotifier.value.map((e) => e.toSong()).toList(),
-        count: 25,
-      );
-      if (tracks.isNotEmpty) {
-        final radioQueue = [seedSong, ...tracks];
-        await playSong(seedSong, queue: radioQueue);
-        return radioQueue.length;
-      }
-    } catch (e, stack) {
-      AppLogger.recordError(e, stack, context: 'startSongRadio with ${SettingsManager.nextTrackStrategy.name}');
-    }
-    final fallbackQueue = await RadioEngine.buildSongRadio(seedSong);
-    if (fallbackQueue.isNotEmpty) {
-      await playSong(seedSong, queue: fallbackQueue);
-      return fallbackQueue.length;
-    }
-    return 0;
-  }
 
   // ================= Sleep Timer ================= //
 
@@ -1195,66 +581,13 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   // ================= Standard Controls ================= //
 
   @override
-  Future<void> play() async {
-    try {
-      final session = await AudioSession.instance;
-      await session.setActive(true);
-    } catch (e) {
-      AppLogger.debug('PaatuAudioHandler', 'AudioSession setActive(true) error on playSong: $e');
-    }
-    _isForegroundDowngraded = false;
-    _queueHandler.cancelIdleTimer();
-    _player.play().catchError((e) {
-      AppLogger.debug('PaatuAudioHandler', 'Player play error: $e');
-    });
-    await applyVolumeNormalization();
-    _broadcastState();
-    if (PartySyncCoordinator.isHost && !_queueHandler.isPartyDrivenLoad) {
-      PartySyncCoordinator.notifyHostResume();
-    }
-  }
+  Future<void> play() => _playImpl();
 
   @override
-  Future<void> pause({bool isPartyDriven = false}) async {
-    await _player.pause();
-    _queueHandler.startIdleTimer();
-    _broadcastState();
-    if (PartySyncCoordinator.isHost && !isPartyDriven) {
-      PartySyncCoordinator.notifyHostPause();
-    }
-    // If the app UI task was closed from Recents/RAM while persistent playback was enabled,
-    // pausing playback terminates the service completely as requested.
-    if (_isAppTaskRemoved && SettingsManager.isPersistentBackgroundPlaybackEnabled) {
-      AppLogger.log('PaatuAudioHandler', 'User paused playback after app task was closed -> stopping service completely');
-      await stop();
-    }
-  }
+  Future<void> pause({bool isPartyDriven = false}) => _pauseImpl(isPartyDriven: isPartyDriven);
 
   @override
-  Future<void> onTaskRemoved() async {
-    _isAppTaskRemoved = true;
-    AppLogger.log(
-      'PaatuAudioHandler',
-      'onTaskRemoved invoked from Android OS. persistentPlayback=${SettingsManager.isPersistentBackgroundPlaybackEnabled}, isPlaying=${_player.playing}',
-    );
-
-    if (!SettingsManager.isPersistentBackgroundPlaybackEnabled) {
-      // Feature is OFF (Default):
-      // Clearing recent apps immediately stops audio playback and removes notification
-      await stop();
-    } else {
-      // Feature is ON:
-      // If audio is actively playing, DO NOT stop! Keep the foreground service alive
-      // and allow the gapless queue to continue playing next songs.
-      if (_player.playing) {
-        _isForegroundDowngraded = false;
-        _broadcastState();
-      } else {
-        // If already paused or idle when cleared from Recents, close the app totally as normal
-        await stop();
-      }
-    }
-  }
+  Future<void> onTaskRemoved() => _onTaskRemovedImpl();
 
   @override
   Future<void> onNotificationDeleted() async {
@@ -1263,306 +596,57 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   }
 
   @override
-  Future<void> seek(Duration position, {bool isPartyDriven = false}) async {
-    await _player.seek(position);
-    _broadcastState();
-    if (PartySyncCoordinator.isHost && !isPartyDriven) {
-      PartySyncCoordinator.notifyHostSeek(position);
-    }
-  }
+  Future<void> seek(Duration position, {bool isPartyDriven = false}) =>
+      _seekImpl(position, isPartyDriven: isPartyDriven);
 
   @override
   Future<void> stop() async {
-    // NOTE: do NOT cancel _becomingNoisySub / _interruptionSub / _playerStateSub here.
-    // They are created once in the constructor; cancelling them on stop() (notification
-    // swipe, idle timeout, sleep timer) permanently disabled headphone-unplug auto-pause,
-    // phone-call interruption handling and state broadcasting until the app restarted.
-    // They are released only in dispose()/disposeAudioHandler().
-    _queueHandler.cancelIdleTimer();
-    YouTubeClient.closeIdleClient();
-    try {
-      final session = await AudioSession.instance;
-      await session.setActive(false);
-    } catch (e) {
-      AppLogger.debug('PaatuAudioHandler', 'AudioSession setActive(false) notice on stop: $e');
-    }
-    await _player.stop();
-    // Do not downgrade foreground so notification remains interactive
-    _broadcastState();
+    await _stopImpl();
     await super.stop();
   }
 
-  Future<void> dispose() async {
-    _lyricsDebounceTimer?.cancel();
-    _becomingNoisySub?.cancel();
-    _interruptionSub?.cancel();
-    _playerStateSub?.cancel();
-    _playbackEventSub?.cancel();
-    _durationSub?.cancel();
-    _positionHubSub?.cancel();
-    _throttledPositionController?.close();
-    _lyricsPositionController?.close();
-    _smartShuffleController.dispose();
-    _queueHandler.dispose();
-  }
+  Future<void> dispose() => _disposeImpl();
 
-  Future<void> toggleLoopMode() async {
-    final current = _player.loopMode;
-    if (current == LoopMode.off) {
-      await _player.setLoopMode(LoopMode.all);
-    } else if (current == LoopMode.all) {
-      await _player.setLoopMode(LoopMode.one);
-    } else {
-      await _player.setLoopMode(LoopMode.off);
-    }
-  }
+  Future<void> toggleLoopMode() => _toggleLoopModeImpl();
 
   @override
-  Future<void> setRepeatMode(AudioServiceRepeatMode repeatMode) async {
-    switch (repeatMode) {
-      case AudioServiceRepeatMode.none:
-        await _player.setLoopMode(LoopMode.off);
-        break;
-      case AudioServiceRepeatMode.one:
-        await _player.setLoopMode(LoopMode.one);
-        break;
-      case AudioServiceRepeatMode.all:
-      case AudioServiceRepeatMode.group:
-        await _player.setLoopMode(LoopMode.all);
-        break;
-    }
-    _broadcastState();
-  }
+  Future<void> setRepeatMode(AudioServiceRepeatMode repeatMode) => _setRepeatModeImpl(repeatMode);
 
   int _lastSkipTimeMs = 0;
   static const int _skipDebounceMs = 300;
 
   @override
-  Future<void> skipToNext() async {
-    if (PartySyncCoordinator.role == PartyRole.joiner) {
-      AppLogger.log('PlayerHandler', 'skipToNext ignored on joiner device in party mode');
-      return;
-    }
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastSkipTimeMs < _skipDebounceMs) {
-      AppLogger.log('PlayerHandler', 'skipToNext ignored due to 300ms debounce lock');
-      return;
-    }
-    _lastSkipTimeMs = now;
-
-    final current = currentSong;
-    if (current != null) {
-      final pos = _player.position;
-      final dur = _player.duration ?? const Duration(seconds: 180);
-      _smartShuffleController.recordPlaybackFeedback(
-        current,
-        listenedSeconds: pos.inSeconds,
-        totalSeconds: dur.inSeconds,
-      );
-    }
-    await _queueHandler.skipToNext();
-  }
+  Future<void> skipToNext() => _skipToNextImpl();
 
   @override
-  Future<void> skipToQueueItem(int index) async {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastSkipTimeMs < _skipDebounceMs) {
-      AppLogger.log('PlayerHandler', 'skipToQueueItem ignored due to 300ms debounce lock');
-      return;
-    }
-    _lastSkipTimeMs = now;
-
-    final current = currentSong;
-    if (current != null) {
-      final pos = _player.position;
-      final dur = _player.duration ?? const Duration(seconds: 180);
-      _smartShuffleController.recordPlaybackFeedback(
-        current,
-        listenedSeconds: pos.inSeconds,
-        totalSeconds: dur.inSeconds,
-      );
-      NextTrackStrategyFactory.recordSkip(current, listenedSeconds: pos.inSeconds);
-    }
-    await _queueHandler.jumpToIndex(index);
-  }
+  Future<void> skipToQueueItem(int index) => _skipToQueueItemImpl(index);
 
   Future<void> skipToQueueTrack(
     TrackEntity targetTrack, {
     bool fromUserQueue = false,
     bool fromPlayedHistory = false,
-  }) async {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastSkipTimeMs < _skipDebounceMs) {
-      AppLogger.log('PlayerHandler', 'skipToQueueTrack ignored due to 300ms debounce lock');
-      return;
-    }
-    _lastSkipTimeMs = now;
-
-    final current = currentSong;
-    if (current != null) {
-      final pos = _player.position;
-      final dur = _player.duration ?? const Duration(seconds: 180);
-      _smartShuffleController.recordPlaybackFeedback(
-        current,
-        listenedSeconds: pos.inSeconds,
-        totalSeconds: dur.inSeconds,
+  }) =>
+      _skipToQueueTrackImpl(
+        targetTrack,
+        fromUserQueue: fromUserQueue,
+        fromPlayedHistory: fromPlayedHistory,
       );
-      NextTrackStrategyFactory.recordSkip(current, listenedSeconds: pos.inSeconds);
-    }
-    await _queueHandler.skipToQueueItem(
-      targetTrack,
-      fromUserQueue: fromUserQueue,
-      fromPlayedHistory: fromPlayedHistory,
-    );
-  }
 
   @override
-  Future<void> skipToPrevious() async {
-    if (PartySyncCoordinator.role == PartyRole.joiner) {
-      AppLogger.log('PlayerHandler', 'skipToPrevious ignored on joiner device in party mode');
-      return;
-    }
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastSkipTimeMs < _skipDebounceMs) {
-      AppLogger.log('PlayerHandler', 'skipToPrevious ignored due to 300ms debounce lock');
-      return;
-    }
-    _lastSkipTimeMs = now;
-
-    await _queueHandler.skipToPrevious();
-  }
+  Future<void> skipToPrevious() => _skipToPreviousImpl();
 
   // ================= Android Auto & MediaBrowserService Hierarchy ================= //
 
   @override
-  Future<List<MediaItem>> getChildren(String parentMediaId, [Map<String, dynamic>? options]) async {
-    // 1. Root Level
-    if (parentMediaId == AudioService.MEDIA_ROOT_ID) {
-      return [
-        const MediaItem(
-          id: 'root_liked',
-          title: 'Liked Songs',
-          playable: false,
-        ),
-        const MediaItem(
-          id: 'root_history',
-          title: 'Recently Played',
-          playable: false,
-        ),
-        const MediaItem(
-          id: 'root_downloads',
-          title: 'Downloaded Songs',
-          playable: false,
-        ),
-        const MediaItem(
-          id: 'root_playlists',
-          title: 'Playlists',
-          playable: false,
-        ),
-      ];
-    }
-
-    // 2. Liked Songs
-    if (parentMediaId == 'root_liked') {
-      final songs = FavoritesManager.getFavorites();
-      return songs.map((s) => s.toMediaItem().copyWith(playable: true)).toList();
-    }
-
-    // 2b. Downloaded Offline Songs
-    if (parentMediaId == 'root_downloads') {
-      final songs = DownloadManager.getDownloadedSongs();
-      return songs.map((s) => s.toMediaItem().copyWith(playable: true)).toList();
-    }
-
-    // 3. Recently Played
-    if (parentMediaId == 'root_history') {
-      final songs = HistoryManager.getHistory();
-      return songs.take(30).map((s) => s.toMediaItem().copyWith(playable: true)).toList();
-    }
-
-    // 4. Playlists list
-    if (parentMediaId == 'root_playlists') {
-      final playlists = PlaylistManager.getPlaylists();
-      return playlists.map<MediaItem>((pl) => MediaItem(
-        id: 'pl_${pl.id}',
-        title: pl.title,
-        playable: false,
-        artUri: pl.coverUrl.isNotEmpty ? Uri.tryParse(pl.coverUrl) : null,
-      )).toList();
-    }
-
-    // 5. Specific Playlist songs
-    if (parentMediaId.startsWith('pl_')) {
-      final plId = parentMediaId.substring(3);
-      final playlist = PlaylistManager.getPlaylist(plId);
-      if (playlist != null) {
-        return playlist.tracks.map((s) => s.toMediaItem().copyWith(playable: true)).toList();
-      }
-    }
-
-    return [];
-  }
+  Future<List<MediaItem>> getChildren(String parentMediaId, [Map<String, dynamic>? options]) =>
+      _getChildrenImpl(parentMediaId, options);
 
   @override
-  Future<MediaItem?> getMediaItem(String mediaId) async {
-    for (final song in playlist) {
-      if (song.id == mediaId) return song.toMediaItem();
-    }
-    final liked = FavoritesManager.getFavorites();
-    for (final song in liked) {
-      if (song.id == mediaId) return song.toMediaItem();
-    }
-    final history = HistoryManager.getHistory();
-    for (final song in history) {
-      if (song.id == mediaId) return song.toMediaItem();
-    }
-    return null;
-  }
+  Future<MediaItem?> getMediaItem(String mediaId) => _getMediaItemImpl(mediaId);
 
   @override
-  Future<void> playFromMediaId(String mediaId, [Map<String, dynamic>? extras]) async {
-    // 1. Current Queue
-    for (int i = 0; i < playlist.length; i++) {
-      if (playlist[i].id == mediaId) {
-        await skipToQueueItem(i);
-        return;
-      }
-    }
-
-    // 2. Favorites
-    final liked = FavoritesManager.getFavorites();
-    final likedIdx = liked.indexWhere((s) => s.id == mediaId);
-    if (likedIdx != -1) {
-      await playSong(liked[likedIdx], queue: liked);
-      return;
-    }
-
-    // 3. History
-    final history = HistoryManager.getHistory();
-    final histIdx = history.indexWhere((s) => s.id == mediaId);
-    if (histIdx != -1) {
-      await playSong(history[histIdx]);
-      return;
-    }
-
-    // 4. Playlists
-    final playlists = PlaylistManager.getPlaylists();
-    for (final pl in playlists) {
-      final idx = pl.tracks.indexWhere((s) => s.id == mediaId);
-      if (idx != -1) {
-        await playSong(pl.tracks[idx], queue: pl.tracks);
-        return;
-      }
-    }
-
-    // 5. Downloaded
-    final downloaded = DownloadManager.getDownloadedSongs();
-    final dlIdx = downloaded.indexWhere((s) => s.id == mediaId);
-    if (dlIdx != -1) {
-      await playSong(downloaded[dlIdx], queue: downloaded);
-      return;
-    }
-  }
+  Future<void> playFromMediaId(String mediaId, [Map<String, dynamic>? extras]) =>
+      _playFromMediaIdImpl(mediaId, extras);
 
   @override
   Future<void> playFromSearch(String query, [Map<String, dynamic>? extras]) async {

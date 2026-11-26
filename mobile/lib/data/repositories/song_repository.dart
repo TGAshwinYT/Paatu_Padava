@@ -20,6 +20,13 @@ import '../../domain/models/lyrics_state.dart';
 import '../../domain/models/home_feed_models.dart';
 import '../../core/dsa/minhash.dart';
 
+part 'song_repo_details_ext.dart';
+part 'song_repo_charts_ext.dart';
+part 'song_repo_feeds_ext.dart';
+part 'song_repo_avatars.dart';
+part 'song_repo_artists_ext.dart';
+part 'song_repo_lyrics_ext.dart';
+
 /// Centralized repository for fetching, merging, and strictly deduplicating music feeds.
 class SongRepository {
   static final HtmlUnescape _unescape = HtmlUnescape();
@@ -31,37 +38,21 @@ class SongRepository {
     required String artist,
     String? album,
     int durationSeconds = 0,
-  }) {
-    return LyricsClient.instance.fetchLyrics(
-      trackId: trackId,
-      title: title,
-      artist: artist,
-      album: album,
-      durationSeconds: durationSeconds,
-    );
-  }
+  }) =>
+      _getLyricsImpl(
+        trackId: trackId,
+        title: title,
+        artist: artist,
+        album: album,
+        durationSeconds: durationSeconds,
+      );
 
   /// Convenience method to retrieve lyrics for a [Song] model.
-  static Future<LyricsState> getLyricsForSong(Song song) {
-    int duration = song.duration;
-    if (duration <= 0) {
-      final currentMediaItem = audioHandler.mediaItem.value;
-      if (currentMediaItem?.id == song.id) {
-        duration = audioHandler.player.duration?.inSeconds ?? 0;
-      }
-    }
-    return getLyrics(
-      trackId: song.id,
-      title: song.title,
-      artist: song.artist,
-      album: song.album,
-      durationSeconds: duration,
-    );
-  }
+  static Future<LyricsState> getLyricsForSong(Song song) => _getLyricsForSongImpl(song);
 
   /// Search LRCLIB candidates for manual correction
   static Future<List<Map<String, dynamic>>> searchLyricsCandidates(String query) =>
-      ApiClient.searchLyricsCandidates(query);
+      _searchLyricsCandidatesImpl(query);
 
   // Pre-compiled regular expressions to eliminate hot-loop recompilation on UI thread
   static final RegExp _handleRegex = RegExp(r'^@[a-zA-Z0-9_.]+\s*[-:|~–—]?\s*');
@@ -150,97 +141,8 @@ class SongRepository {
 
   /// Strict cross-language barrier check to eliminate language contamination
   /// (e.g. Hindi songs leaking into Tamil feeds, search cards, and trending carousels).
-  static bool isLanguageMismatch(Song song, String targetLanguage) {
-    final rawTarget = targetLanguage.toLowerCase().trim();
-    if (rawTarget.isEmpty) return false;
-
-    // Devanagari script family: authentic match for Hindi, Marathi, Bhojpuri, Sanskrit, etc.
-    if (rawTarget == 'devanagari') {
-      if (song.language != null && song.language!.isNotEmpty) {
-        final sLang = song.language!.toLowerCase().trim();
-        if (_devanagariLanguages.contains(sLang) || sLang == 'devanagari') {
-          return false;
-        }
-        // Explicitly labeled under a different non-Devanagari language (e.g. 'tamil')
-        return true;
-      }
-      final combined = '${song.title} ${song.artist} ${song.album}'.toLowerCase();
-      // If it contains foreign non-Devanagari Indic scripts (Tamil, Telugu, Malayalam, Kannada), it's a mismatch
-      if (RegExp(r'[\u0B80-\u0BFF\u0C00-\u0C7F\u0D00-\u0D7F\u0C80-\u0CFF]').hasMatch(combined)) {
-        return true;
-      }
-      // YouTube songs and tracks with Latin titles or Devanagari text are valid candidates
-      return false;
-    }
-
-    final target = rawTarget;
-
-    // 1. Explicit metadata language check from Saavn/API
-    if (song.language != null && song.language!.isNotEmpty) {
-      final sLang = song.language!.toLowerCase().trim();
-      final normSongLang = sLang == 'devanagari' ? 'hindi' : sLang;
-      if (normSongLang != target) {
-        if (target == 'english' && sLang == 'english') return false;
-        // Explicitly labeled under a different language (e.g. 'hindi' when target is 'tamil')
-        return true;
-      }
-    }
-
-    // 2. Text and script analysis on title, artist, and album
-    final combined = '${song.title} ${song.artist} ${song.album}'.toLowerCase();
-
-    if (target == 'tamil') {
-      // Must not contain foreign scripts
-      if (RegExp(r'[\u0900-\u097F\u0C00-\u0C7F\u0D00-\u0D7F\u0C80-\u0CFF]').hasMatch(combined)) {
-        return true;
-      }
-      // Must not contain explicit keywords of other major languages in title or artist
-      final titleAndArtist = '${song.title} ${song.artist}'.toLowerCase();
-      if (RegExp(r'\b(hindi|bollywood|bhojpuri|punjabi|telugu|malayalam|kannada)\b').hasMatch(titleAndArtist)) {
-        if (!titleAndArtist.contains('tamil')) {
-          return true;
-        }
-      }
-      // Purge non-genuine / spam channels masquerading as musicians
-      if (!ArtistSanitizer.isGenuineArtist(song.artist)) {
-        return true;
-      }
-      // Reject explicitly non-Tamil language tracks leaking into Tamil feeds/albums
-      if (song.language == 'english' || song.language == 'hindi') {
-        return true;
-      }
-    } else if (target == 'telugu') {
-      if (RegExp(r'[\u0900-\u097F\u0B80-\u0BFF\u0D00-\u0D7F\u0C80-\u0CFF]').hasMatch(combined)) {
-        return true;
-      }
-      if (RegExp(r'\b(hindi|bollywood|tamil|malayalam|kannada|punjabi)\b').hasMatch(combined) && !combined.contains('telugu')) {
-        return true;
-      }
-    } else if (target == 'malayalam') {
-      if (RegExp(r'[\u0900-\u097F\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF]').hasMatch(combined)) {
-        return true;
-      }
-      if (RegExp(r'\b(hindi|bollywood|tamil|telugu|kannada|punjabi)\b').hasMatch(combined) && !combined.contains('malayalam')) {
-        return true;
-      }
-    } else if (target == 'hindi') {
-      if (RegExp(r'[\u0B80-\u0BFF\u0C00-\u0C7F\u0D00-\u0D7F\u0C80-\u0CFF]').hasMatch(combined)) {
-        return true;
-      }
-      if (RegExp(r'\b(tamil|telugu|malayalam|kannada)\b').hasMatch(combined) && !combined.contains('hindi')) {
-        return true;
-      }
-    } else if (target == 'kannada') {
-      if (RegExp(r'[\u0900-\u097F\u0B80-\u0BFF\u0C00-\u0C7F\u0D00-\u0D7F]').hasMatch(combined)) {
-        return true;
-      }
-      if (RegExp(r'\b(hindi|bollywood|tamil|telugu|malayalam|punjabi)\b').hasMatch(combined) && !combined.contains('kannada')) {
-        return true;
-      }
-    }
-
-    return false;
-  }
+  static bool isLanguageMismatch(Song song, String targetLanguage) =>
+      _isLanguageMismatchImpl(song, targetLanguage);
 
   /// Filters an iterable of songs to strictly exclude cross-language leaks.
   static List<Song> filterByLanguage(Iterable<Song> songs, String targetLanguage) {
@@ -426,204 +328,20 @@ class SongRepository {
   }
 
   /// Fetches User Taste Mix ("Made For You") based on Supabase favorite artists and most frequently played artists in History.
-  static Future<List<Song>> getMadeForYou({required String language}) async {
-    final List<Song> candidates = [];
-    final List<String> topArtists = [];
-    final Set<String> topArtistsSet = <String>{};
+  static Future<List<Song>> getMadeForYou({required String language}) =>
+      _getMadeForYouImpl(language: language);
 
-    // 1. Prioritize user-selected artists from Supabase with O(1) set tracking
-    try {
-      final supaUser = SupabaseService.currentUser;
-      if (supaUser != null) {
-        final favArtists = await SupabaseService.fetchFavoriteArtists(supaUser.id);
-        for (final fa in favArtists) {
-          final faName = fa['artist_name']?.toString() ?? '';
-          final norm = normalizeArtist(faName);
-          if (norm.isNotEmpty && topArtistsSet.add(norm)) {
-            topArtists.add(norm);
-          }
-        }
-      }
-    } catch (e) {
-      AppLogger.log('SongRepository', 'Favorite artists fetch notice: $e');
-    }
+  static List<Song> ensureDistinctCovers(List<Song> songs) =>
+      _ensureDistinctCoversImpl(songs);
 
-    // 2. Supplement with top played artists from local History
-    final history = HistoryManager.getHistory();
-    if (history.isNotEmpty) {
-      final Map<String, int> artistCounts = {};
-      for (final s in history) {
-        final norm = normalizeArtist(s.artist);
-        if (norm.isNotEmpty && norm != 'various artists') {
-          artistCounts[norm] = (artistCounts[norm] ?? 0) + 1;
-        }
-      }
+  static Future<List<Song>> getTrendingMerged({required String language}) =>
+      _getTrendingMergedImpl(language: language);
 
-      final sortedHistoryArtists = artistCounts.keys.toList()
-        ..sort((a, b) => (artistCounts[b] ?? 0).compareTo(artistCounts[a] ?? 0));
+  static Future<List<Song>> getNewReleases({required String language}) =>
+      _getNewReleasesImpl(language: language);
 
-      for (final ha in sortedHistoryArtists) {
-        if (topArtists.length < 5 && topArtistsSet.add(ha)) {
-          topArtists.add(ha);
-        }
-      }
-    }
-
-    // 3. Fetch tracks for top artists in parallel
-    if (topArtists.isNotEmpty) {
-      final artistFutures = topArtists.take(4).map((artistName) {
-        return SaavnClient.search('$artistName $language', limit: 8, language: language);
-      });
-
-      final artistResults = await Future.wait(artistFutures);
-      for (final list in artistResults) {
-        candidates.addAll(list);
-      }
-    }
-
-    // Also fetch recommendations from backend
-    try {
-      final forYou = await ApiClient.fetchForYou();
-      candidates.addAll(forYou);
-    } catch (e) {
-      AppLogger.log('SongRepository', 'ApiClient recommendations fallback: $e');
-    }
-
-    // Fallback if candidates are scarce
-    if (candidates.length < 8) {
-      final fallback = await SaavnClient.search('$language Melodies Hits', limit: 15, language: language);
-      candidates.addAll(fallback);
-    }
-
-    final filteredCandidates = filterByLanguage(candidates, language);
-    final deduplicated = deduplicateSongs(filteredCandidates.isNotEmpty ? filteredCandidates : candidates);
-    return ensureDistinctCovers(deduplicated);
-  }
-
-  /// Ensures all tracks have valid, authentic artwork without stripping genuine album art.
-  /// If a track's artwork is completely empty, falls back to the high-res artist avatar
-  /// or high-res YouTube video thumbnail.
-  static List<Song> ensureDistinctCovers(List<Song> songs) {
-    if (songs.isEmpty) return songs;
-
-    final List<Song> distinct = [];
-
-    for (final song in songs) {
-      String finalCover = song.coverUrl.trim();
-
-      // If cover is empty, check CoverArtResolver cache or default to YouTube thumbnail
-      if (finalCover.isEmpty) {
-        final cached = CoverArtResolver.getCachedCover(song.id);
-        if (cached != null && cached.isNotEmpty) {
-          finalCover = cached;
-        } else if (song.source == 'youtube' || song.id.length == 11) {
-          finalCover = 'https://img.youtube.com/vi/${song.id}/hqdefault.jpg';
-        }
-      }
-
-      // Ensure HTTPS protocol
-      if (finalCover.startsWith('http://')) {
-        finalCover = finalCover.replaceFirst('http://', 'https://');
-      }
-
-      distinct.add(song.copyWith(coverUrl: finalCover));
-    }
-
-    return distinct;
-  }
-
-  /// Fetches and interleaves Trending tracks across JioSaavn (320kbps) & YouTube Music
-  /// while strictly enforcing regional language boundaries to prevent cross-language leaks.
-  static Future<List<Song>> getTrendingMerged({required String language}) async {
-    final results = await Future.wait([
-      SaavnClient.getTrending(language: language),
-      ApiClient.fetchYouTubeTrending(language: language),
-    ]);
-
-    final saavnSongs = filterByLanguage(results[0], language);
-    final ytSongs = filterByLanguage(results[1], language);
-
-    final List<Song> interleaved = [];
-    final maxLen = saavnSongs.length > ytSongs.length ? saavnSongs.length : ytSongs.length;
-
-    for (int i = 0; i < maxLen; i++) {
-      if (i < saavnSongs.length) interleaved.add(saavnSongs[i]);
-      if (i < ytSongs.length) interleaved.add(ytSongs[i]);
-    }
-
-    return deduplicateSongs(interleaved);
-  }
-
-  /// Fetches New Releases for the selected language strictly isolated by language.
-  static Future<List<Song>> getNewReleases({required String language}) async {
-    final songs = await SaavnClient.search('Latest $language Releases', limit: 25, language: language);
-    final filtered = filterByLanguage(songs, language);
-    return deduplicateSongs(filtered.isNotEmpty ? filtered : songs);
-  }
-
-  /// High-resolution verified artist avatars for popular regional artists.
-  static const Map<String, String> verifiedArtistAvatars = {
-    'anirudh ravichander': 'https://c.saavncdn.com/artists/Anirudh_Ravichander_500x500.jpg',
-    'a.r. rahman': 'https://c.saavncdn.com/artists/AR_Rahman_002_20210120084455_500x500.jpg',
-    'harris jayaraj': 'https://c.saavncdn.com/artists/Harris_Jayaraj_500x500.jpg',
-    'yuvan shankar raja': 'https://c.saavncdn.com/artists/Yuvan_Shankar_Raja_500x500.jpg',
-    'sid sriram': 'https://c.saavncdn.com/artists/Sid_Sriram_500x500.jpg',
-    'ilaiyaraaja': 'https://c.saavncdn.com/artists/Ilaiyaraaja_500x500.jpg',
-    'hiphop tamizha': 'https://c.saavncdn.com/artists/Hiphop_Tamizha_500x500.jpg',
-    'santhosh narayanan': 'https://c.saavncdn.com/artists/Santhosh_Narayanan_500x500.jpg',
-    'g.v. prakash': 'https://c.saavncdn.com/artists/G_V__Prakash_Kumar_003_20251113063655_500x500.jpg',
-    'g.v. prakash kumar': 'https://c.saavncdn.com/artists/G_V__Prakash_Kumar_003_20251113063655_500x500.jpg',
-    'pradeep kumar': 'https://c.saavncdn.com/artists/Pradeep_Kumar_002_20250807084559_500x500.jpg',
-    'd. imman': 'https://c.saavncdn.com/artists/D_Imman_003_20180821182708_500x500.webp',
-    'shreya ghoshal': 'https://c.saavncdn.com/artists/Shreya_Ghoshal_500x500.jpg',
-    'jonita gandhi': 'https://c.saavncdn.com/artists/Jonita_Gandhi_500x500.jpg',
-    'dhee': 'https://c.saavncdn.com/artists/Dhee_20180510121326_500x500.jpg',
-    'kaushik krish': 'https://c.saavncdn.com/artists/Kaushik_Krish_20190828063938_500x500.webp',
-    'karthik': 'https://c.saavncdn.com/artists/Karthik_500x500.jpg',
-    'haricharan': 'https://c.saavncdn.com/artists/Haricharan_500x500.jpg',
-    'chinmayi': 'https://c.saavncdn.com/artists/Chinmayi_Sripada_500x500.jpg',
-    'swetha mohan': 'https://c.saavncdn.com/artists/Shweta_Mohan_500x500.jpg',
-    's.p. balasubrahmanyam': 'https://c.saavncdn.com/artists/S_P_Balasubrahmanyam_500x500.jpg',
-    'spb': 'https://c.saavncdn.com/artists/S_P_Balasubrahmanyam_500x500.jpg',
-    'k.s. chithra': 'https://c.saavncdn.com/artists/K_S_Chithra_002_20190906071921_500x500.webp',
-    'chithra': 'https://c.saavncdn.com/artists/K_S_Chithra_002_20190906071921_500x500.webp',
-    'k.j. yesudas': 'https://c.saavncdn.com/artists/KJ_Yesudas_500x500.webp',
-    'yesudas': 'https://c.saavncdn.com/artists/KJ_Yesudas_500x500.webp',
-    'vijay antony': 'https://c.saavncdn.com/artists/Vijay_Antony_500x500.jpg',
-    'deva': 'https://c.saavncdn.com/artists/Deva_20190801133857_500x500.webp',
-    'vidyasagar': 'https://c.saavncdn.com/artists/Vidyasagar_500x500.jpg',
-    'shankar mahadevan': 'https://c.saavncdn.com/artists/Shankar_Mahadevan_500x500.jpg',
-    'sam c.s.': 'https://c.saavncdn.com/artists/Sam_C_S__001_20260904065259_500x500.webp',
-    'sean roldan': 'https://c.saavncdn.com/artists/Sean_Roldan_500x500.jpg',
-    's. janaki': 'https://c.saavncdn.com/artists/S_Janaki_005_20191129094347_500x500.webp',
-    'p. susheela': 'https://c.saavncdn.com/artists/P_Susheela_500x500.webp',
-    'tippu': 'https://c.saavncdn.com/artists/Tippu_20190723074416_500x500.webp',
-    'unnikrishnan': 'https://c.saavncdn.com/artists/P_Unnikrishnan_500x500.webp',
-    'srinivas': 'https://c.saavncdn.com/artists/Srinivas_500x500.jpg',
-    't.m. soundararajan': 'https://c.saavncdn.com/artists/TM_Soundararajan_20190904080450_500x500.webp',
-    'thaman s': 'https://c.saavncdn.com/artists/Thaman_S__007_20231106094011_500x500.webp',
-    'thaman': 'https://c.saavncdn.com/artists/Thaman_S__007_20231106094011_500x500.webp',
-    's. thaman': 'https://c.saavncdn.com/artists/Thaman_S__007_20231106094011_500x500.webp',
-    'sai abhyankkar': 'https://c.saavncdn.com/artists/Sai_Abhyankkar_003_20250707122433_500x500.webp',
-    'sai abhyankar': 'https://c.saavncdn.com/artists/Sai_Abhyankkar_003_20250707122433_500x500.webp',
-    'vishal mishra': 'https://c.saavncdn.com/artists/Vishal_Mishra_005_20251120085316_500x500.webp',
-    'dhanush': 'https://c.saavncdn.com/artists/Dhanush_500x500.jpg',
-    'super subu': 'https://c.saavncdn.com/artists/Super_Subu_000_20230809105700_500x500.jpg',
-    'madduri hemanth': 'https://c.saavncdn.com/artists/Hemanth_Kumar_002_20230914075937_500x500.webp',
-    'hemanth madduri': 'https://c.saavncdn.com/artists/Hemanth_Kumar_002_20230914075937_500x500.webp',
-    'hesham abdul wahab': 'https://c.saavncdn.com/artists/Hesham_Abdul_Wahab_001_20220919094035_500x500.jpg',
-    'hesham': 'https://c.saavncdn.com/artists/Hesham_Abdul_Wahab_001_20220919094035_500x500.jpg',
-    'dhruv vikram': 'https://c.saavncdn.com/498/Adithya-Varma-Tamil-2019-20191127090744-500x500.jpg',
-    'dhruv': 'https://c.saavncdn.com/498/Adithya-Varma-Tamil-2019-20191127090744-500x500.jpg',
-    'shruti haasan': 'https://c.saavncdn.com/artists/Shruti_Haasan_500x500.jpg',
-    'shruti hassan': 'https://c.saavncdn.com/artists/Shruti_Haasan_500x500.jpg',
-    'anurag kulkarni': 'https://c.saavncdn.com/artists/Anurag_Kulkarni_004_20251029091123_500x500.jpg',
-    'shakthisree gopalan': 'https://c.saavncdn.com/artists/Shakthisree_Gopalan_500x500.jpg',
-    'vineeth sreenivasan': 'https://c.saavncdn.com/artists/Vineeth_Sreenivasan_003_20240508103358_500x500.jpg',
-    'bhadra rajin': 'https://c.saavncdn.com/artists/Bhadra_Rajin_000_20240209123141_500x500.jpg',
-  };
-
-  static const Map<String, String> _verifiedArtistAvatars = verifiedArtistAvatars;
+  static const Map<String, String> verifiedArtistAvatars = _verifiedArtistAvatarsMap;
+  static const Map<String, String> _verifiedArtistAvatars = _verifiedArtistAvatarsMap;
   static final Map<String, String> _dynamicArtistAvatarCache = {};
 
   /// Verified core Tamil artist seeds. Guaranteed to never leak Bollywood/Hindi singers in Tamil mode.
@@ -696,648 +414,38 @@ class SongRepository {
   }
 
   /// Fetches Popular Artists with high-res avatars, replacing low-res or generic placeholder icons.
-  static Future<List<Map<String, dynamic>>> getPopularArtists({required String language}) async {
-    final isTamil = language.toLowerCase().trim() == 'tamil';
-
-    try {
-      final rawArtists = await SaavnClient.searchArtists('Top $language Artists', limit: 16, language: language);
-      final List<Map<String, dynamic>> enriched = [];
-
-      for (final artist in rawArtists) {
-        if (!SaavnClient.isGenuineMusicArtist(artist)) continue;
-        final name = Song.sanitize(artist['name']?.toString() ?? 'Artist');
-
-        // Reject artists with mismatched scripts against target language
-        final dummySong = Song(id: '', title: name, artist: name, album: '', coverUrl: '');
-        if (isLanguageMismatch(dummySong, language)) continue;
-
-        String img = artist['image']?.toString() ?? '';
-
-        // Check verified high-res avatar map first
-        final vAvatar = getVerifiedAvatar(name);
-        if (vAvatar.isNotEmpty) {
-          img = vAvatar;
-        } else if (img.contains('50x50') || img.contains('150x150')) {
-          img = img.replaceAll('50x50', '500x500').replaceAll('150x150', '500x500');
-        }
-
-        // Never use a song's cover image as an artist profile image
-        final isSongCover = img.contains('/albums/') ||
-            img.contains('/songs/') ||
-            (img.contains('c.saavncdn.com') && !img.contains('/artists/'));
-        if (isSongCover) {
-          img = vAvatar;
-        }
-
-        // Filter out generic placeholder images with camera or mic icons
-        if (ArtistSanitizer.isPlaceholderImage(img) && !isArtistVerified(name)) {
-          continue;
-        }
-
-        enriched.add({
-          'id': artist['id']?.toString() ?? '',
-          'name': name,
-          'image': img,
-        });
-      }
-
-      // When Tamil is selected, ensure all 7 core Tamil artist seeds are present
-      if (isTamil) {
-        for (final seed in tamilArtistSeeds.reversed) {
-          final existingIdx = enriched.indexWhere((a) =>
-              ArtistSanitizer.areSameOrVariantArtists(a['name']?.toString() ?? '', seed));
-          final seedAvatar = getVerifiedAvatar(seed);
-          if (existingIdx >= 0) {
-            final existing = enriched.removeAt(existingIdx);
-            existing['name'] = seed;
-            if (seedAvatar.isNotEmpty) existing['image'] = seedAvatar;
-            enriched.insert(0, existing);
-          } else {
-            enriched.insert(0, {
-              'id': 'seed_${normalizeArtist(seed)}',
-              'name': seed,
-              'image': seedAvatar,
-            });
-          }
-        }
-      }
-
-      // Prioritize user's favorite artists from Supabase
-      try {
-        final supaUser = SupabaseService.currentUser;
-        if (supaUser != null) {
-          final favArtists = await SupabaseService.fetchFavoriteArtists(supaUser.id);
-          for (final fa in favArtists.reversed) {
-            final faName = fa['artist_name']?.toString() ?? '';
-            final customImg = fa['artist_image']?.toString();
-            final vAvatar = getVerifiedAvatar(faName);
-            final avatar = (customImg != null && customImg.isNotEmpty)
-                ? customImg
-                : (vAvatar.isNotEmpty ? vAvatar : '');
-            if (!enriched.any((a) => ArtistSanitizer.areSameOrVariantArtists(a['name']?.toString() ?? '', faName))) {
-              enriched.insert(0, {
-                'id': 'fav_${normalizeArtist(faName)}',
-                'name': faName,
-                'image': avatar.isNotEmpty ? avatar : (_verifiedArtistAvatars.values.firstOrNull ?? ''),
-              });
-            }
-          }
-        }
-      } catch (e) {
-        AppLogger.log('SongRepository', 'Enriching favorite artists fallback: $e');
-      }
-
-      // Deduplicate canonical variants (e.g. "A.R. Rahman" vs "A. R. Rahman")
-      final List<Map<String, dynamic>> deduped = [];
-      for (final a in enriched) {
-        final name = a['name']?.toString() ?? '';
-        if (name.isEmpty) continue;
-        if (!deduped.any((existing) => ArtistSanitizer.areSameOrVariantArtists(existing['name']?.toString() ?? '', name))) {
-          deduped.add(a);
-        }
-      }
-
-      if (deduped.isNotEmpty) {
-        return deduped;
-      }
-    } catch (e) {
-      AppLogger.log('SongRepository', 'getPopularArtists fallback: $e');
-    }
-
-    // Verified fallback curated list for South Indian / Tamil music
-    if (isTamil) {
-      return tamilArtistSeeds.map((seed) {
-        final norm = normalizeArtist(seed);
-        return {
-          'id': 'seed_$norm',
-          'name': seed,
-          'image': _verifiedArtistAvatars[norm] ?? '',
-        };
-      }).toList();
-    }
-
-    return _verifiedArtistAvatars.entries.map((e) {
-      final titleCaseName = e.key
-          .split(' ')
-          .map((w) => w.isNotEmpty ? '${w[0].toUpperCase()}${w.substring(1)}' : '')
-          .join(' ');
-      return {
-        'id': e.key,
-        'name': titleCaseName,
-        'image': e.value,
-      };
-    }).toList();
-  }
+  static Future<List<Map<String, dynamic>>> getPopularArtists({required String language}) =>
+      _getPopularArtistsImpl(language: language);
 
   /// Generates the Spotify-style Editorial Top Hits Flagship Showcase.
   /// Dynamically computes theme gradients, localized titles, and curates the top 20 tracks.
   static Future<HeroShowcase> getFlagshipShowcase({
     required String language,
     String heroMode = 'smart',
-  }) async {
-    final isTamil = language.toLowerCase().trim() == 'tamil';
-    final now = DateTime.now();
-    final hour = now.hour;
+  }) =>
+      _getFlagshipShowcaseImpl(language: language, heroMode: heroMode);
 
-    // Determine time-of-day contextual soundscape
-    final String timeGreeting;
-    final List<Color> dynamicColors;
-    if (hour >= 5 && hour < 12) {
-      timeGreeting = isTamil ? 'காலை தென்றல் & மெல்லிசை' : 'Morning Acoustic & Melodies';
-      dynamicColors = const [Color(0xFF0D9488), Color(0xFF0284C7)]; // Teal & Sky
-    } else if (hour >= 12 && hour < 17) {
-      timeGreeting = isTamil ? 'மதிய ஓய்வு & இசை அலைகள்' : 'Afternoon Chillout & Flow';
-      dynamicColors = const [Color(0xFF7C3AED), Color(0xFFEC4899)]; // Violet & Pink
-    } else if (hour >= 17 && hour < 22) {
-      timeGreeting = isTamil ? 'மாலை கொண்டாட்டம் & ஹிட்ஸ்' : 'Evening Energy & Chartbusters';
-      dynamicColors = const [Color(0xFF6366F1), Color(0xFF06B6D4)]; // Indigo & Cyan
-    } else {
-      timeGreeting = isTamil ? 'இரவு அமைதி & லோஃபை' : 'Late Night Synth & Lofi Melodies';
-      dynamicColors = const [Color(0xFF1E1B4B), Color(0xFF6B21A8)]; // Deep Midnight Purple
-    }
+  static Future<List<RankedChartSong>> getTop10RankedCharts({required String language}) =>
+      _getTop10RankedChartsImpl(language: language);
 
-    final String title;
-    final String subtitle;
-    final String description;
-    final List<Color> gradientColors;
+  static Future<List<FeelingMix>> getFeelingMixes({required String language}) =>
+      _getFeelingMixesImpl(language: language);
 
-    if (heroMode == 'time_of_day') {
-      title = '$language • $timeGreeting';
-      subtitle = 'Curated soundscape matched to your local hour';
-      description = 'Fresh streaming feed • Zero ads • Studio lossless audio';
-      gradientColors = dynamicColors;
-    } else if (heroMode == 'flagship') {
-      title = isTamil ? "Today's Top Tamil Hits" : 'Top 50 • $language';
-      subtitle = 'The hottest & most streamed tracks across the industry';
-      description = 'Editorial Chart • Updated daily with verified master audio';
-      gradientColors = const [Color(0xFF7C3AED), Color(0xFF06B6D4)];
-    } else {
-      // Smart mode (default)
-      title = isTamil ? "Today's Top Tamil Hits" : 'Top 50 • $language';
-      subtitle = '$timeGreeting • Hottest chartbusters right now';
-      description = 'Editorial Chart • Pure lossless streaming';
-      gradientColors = dynamicColors;
-    }
-
-    List<Song> tracks = [];
-    try {
-      final trending = await getTrendingMerged(language: language);
-      tracks = trending.take(20).toList();
-    } catch (e) {
-      AppLogger.log('SongRepository', 'getFlagshipShowcase fallback: $e');
-    }
-
-    if (tracks.isEmpty) {
-      try {
-        final searchHits = await SaavnClient.search('Top $language Hits', limit: 20, language: language);
-        tracks = deduplicateSongs(filterByLanguage(searchHits, language));
-      } catch (e) {
-      AppLogger.debug('SongRepository', 'Handled exception: $e');
-    }
-    }
-
-    final coverUrl = tracks.isNotEmpty ? tracks.first.coverUrl : '';
-
-    return HeroShowcase(
-      title: title,
-      subtitle: subtitle,
-      description: description,
-      coverUrl: coverUrl,
-      gradientColors: gradientColors,
-      tracks: tracks,
-    );
-  }
-
-  /// Fetches the Spotify & Billboard style Top 10 Ranked Charts with rank movement tracking.
-  static Future<List<RankedChartSong>> getTop10RankedCharts({
-    required String language,
-  }) async {
-    List<Song> rawSongs = [];
-    try {
-      final trending = await getTrendingMerged(language: language);
-      rawSongs = trending;
-    } catch (e) {
-      AppLogger.debug('SongRepository', 'Handled exception: $e');
-    }
-
-    if (rawSongs.length < 10) {
-      try {
-        final searchHits = await SaavnClient.search('Top $language Songs 2025', limit: 15, language: language);
-        rawSongs.addAll(filterByLanguage(searchHits, language));
-      } catch (e) {
-      AppLogger.debug('SongRepository', 'Handled exception: $e');
-    }
-    }
-
-    final distinctSongs = ensureDistinctCovers(deduplicateSongs(filterByLanguage(rawSongs, language))).take(10).toList();
-    final List<RankedChartSong> ranked = [];
-
-    for (int i = 0; i < distinctSongs.length; i++) {
-      final song = distinctSongs[i];
-      final rank = i + 1;
-      // Deterministic realistic chart movement based on song ID hash
-      final hash = song.id.hashCode.abs();
-      final mod = hash % 5;
-      final int change;
-      final bool isNew;
-
-      if (rank == 1) {
-        change = 0; // #1 is anchored at peak
-        isNew = false;
-      } else if (mod == 0) {
-        change = 1; // +1 rank up
-        isNew = false;
-      } else if (mod == 1) {
-        change = -1; // -1 rank down
-        isNew = false;
-      } else if (mod == 2) {
-        change = 2; // +2 surge
-        isNew = false;
-      } else if (mod == 3) {
-        change = 0; // = steady
-        isNew = false;
-      } else {
-        change = 0;
-        isNew = rank >= 7; // New debut in bottom tier
-      }
-
-      ranked.add(RankedChartSong(
-        rank: rank,
-        song: song,
-        rankChange: change,
-        isNew: isNew,
-      ));
-    }
-
-    return ranked;
-  }
-
-  /// Curates YouTube Music & Apple Music style Mood & Activity Mixes strictly filtered by language.
-  static Future<List<FeelingMix>> getFeelingMixes({
-    required String language,
-  }) async {
-    final isTamil = language.toLowerCase().trim() == 'tamil';
-
-    final feelingDefs = [
-      {
-        'id': 'chill',
-        'title': '🌙 Chill & Soul',
-        'subtitle': isTamil ? 'மெல்லிசை & அமைதியான பாடல்கள்' : 'Relaxing acoustic & serene melodies',
-        'icon': '🌙',
-        'gradient': const [Color(0xFF1E1B4B), Color(0xFF4338CA)],
-        'query': '$language Chill Acoustic Soul',
-      },
-      {
-        'id': 'romance',
-        'title': '❤️ Romantic Beats',
-        'subtitle': isTamil ? 'காதல் பாடல்கள் & டூயட்' : 'Heartfelt love tracks & duets',
-        'icon': '❤️',
-        'gradient': const [Color(0xFF831843), Color(0xFFBE185D)],
-        'query': '$language Romantic Love Hits',
-      },
-      {
-        'id': 'kuthu',
-        'title': '⚡ High Energy & Kuthu',
-        'subtitle': isTamil ? 'குத்து பாட்டு & கொண்டாட்டம்' : 'Electrifying beats & workout power',
-        'icon': '⚡',
-        'gradient': const [Color(0xFF7C2D12), Color(0xFFEA580C)],
-        'query': isTamil ? 'Tamil Kuthu Dance Hits' : '$language High Energy Party Hits',
-      },
-      {
-        'id': 'focus',
-        'title': '🎧 Deep Focus & Lofi',
-        'subtitle': isTamil ? 'கவனம் & லோஃபை மெல்லிசை' : 'Calm beats & instrumental flow',
-        'icon': '🎧',
-        'gradient': const [Color(0xFF064E3B), Color(0xFF059669)],
-        'query': '$language Lofi Instrumental Calm',
-      },
-      {
-        'id': 'nostalgia',
-        'title': '📻 90s & 2000s Nostalgia',
-        'subtitle': isTamil ? 'பொற்கால நினைவுகள்' : 'Golden era evergreen classics',
-        'icon': '📻',
-        'gradient': const [Color(0xFF78350F), Color(0xFFD97706)],
-        'query': isTamil ? 'Tamil 90s 2000s Evergreen Hits Ilaiyaraaja Rahman' : '$language 90s Evergreen Hits',
-      },
-      {
-        'id': 'night',
-        'title': '🌃 Late Night Drive',
-        'subtitle': isTamil ? 'இரவு நேர இசை பயணம்' : 'Atmospheric synths & smooth vocals',
-        'icon': '🌃',
-        'gradient': const [Color(0xFF0F172A), Color(0xFF581C87)],
-        'query': '$language Late Night Drive Midnight',
-      },
-    ];
-
-    final futures = feelingDefs.map((def) async {
-      try {
-        final rawSongs = await SaavnClient.search(def['query'] as String, limit: 12, language: language);
-        final filtered = ensureDistinctCovers(deduplicateSongs(filterByLanguage(rawSongs, language)));
-        return FeelingMix(
-          feelingId: def['id'] as String,
-          title: def['title'] as String,
-          subtitle: def['subtitle'] as String,
-          icon: def['icon'] as String,
-          gradient: def['gradient'] as List<Color>,
-          songs: filtered,
-        );
-      } catch (_) {
-        return FeelingMix(
-          feelingId: def['id'] as String,
-          title: def['title'] as String,
-          subtitle: def['subtitle'] as String,
-          icon: def['icon'] as String,
-          gradient: def['gradient'] as List<Color>,
-          songs: const [],
-        );
-      }
-    });
-
-    final results = await Future.wait(futures);
-    return results.where((m) => m.songs.isNotEmpty).toList();
-  }
-
-  /// Curates YouTube Music style "Quick Picks" (12-16 songs organized in 4-row columns).
-  static Future<List<Song>> getQuickPicks({
-    required String language,
-  }) async {
-    final List<Song> picks = [];
-    try {
-      final madeForYou = await getMadeForYou(language: language);
-      picks.addAll(madeForYou);
-    } catch (e) {
-      AppLogger.debug('SongRepository', 'Handled exception: $e');
-    }
-
-    if (picks.length < 16) {
-      try {
-        final trending = await getTrendingMerged(language: language);
-        picks.addAll(trending);
-      } catch (e) {
-      AppLogger.debug('SongRepository', 'Handled exception: $e');
-    }
-    }
-
-    final distinct = ensureDistinctCovers(deduplicateSongs(filterByLanguage(picks, language)));
-    return distinct.take(16).toList();
-  }
+  static Future<List<Song>> getQuickPicks({required String language}) =>
+      _getQuickPicksImpl(language: language);
 
   /// Fetches album details and songs, shielding UI from low-level API clients.
   static Future<Map<String, dynamic>?> getAlbumDetails({
     required String albumId,
     required String albumTitle,
-  }) async {
-    String targetId = albumId.trim();
-    String? imageUrl;
+  }) =>
+      _getAlbumDetailsImpl(albumId: albumId, albumTitle: albumTitle);
 
-    if (targetId.isEmpty || !RegExp(r'^\d+$').hasMatch(targetId)) {
-      try {
-        final searchAlbs = await SaavnClient.searchAlbums(albumTitle, limit: 15);
-        if (searchAlbs.isNotEmpty) {
-          final cleanTitle = albumTitle.toLowerCase().trim();
-          final match = searchAlbs.firstWhere(
-            (a) {
-              final t = (a['title'] ?? a['name'] ?? '').toString().toLowerCase().trim();
-              return t == cleanTitle || t.contains(cleanTitle) || cleanTitle.contains(t);
-            },
-            orElse: () => searchAlbs.first,
-          );
-          targetId = match['id']?.toString() ?? '';
-          final matchImg = match['image']?.toString() ?? '';
-          if (matchImg.isNotEmpty) {
-            imageUrl = matchImg;
-          }
-        }
-      } catch (e) {
-      AppLogger.debug('SongRepository', 'Handled exception: $e');
-    }
-    }
-
-    List<Song> songs = [];
-    Map<String, dynamic>? details;
-
-    // 1. Direct upstream Album Details lookup for numeric album IDs
-    if (targetId.isNotEmpty && RegExp(r'^\d+$').hasMatch(targetId)) {
-      details = await SaavnClient.getAlbumDetails(targetId);
-      if (details != null) {
-        final albImage = details['image']?.toString() ?? '';
-        if (albImage.isNotEmpty) {
-          imageUrl = albImage;
-        }
-        if (details['songs'] is List<Song>) {
-          songs = details['songs'] as List<Song>;
-        }
-      }
-    }
-
-    // 2. Instant local Movie / Album catalog fallback
-    if (songs.isEmpty) {
-      try {
-        final localSongs = await CatalogDatabase.getSongsByMovie(albumTitle);
-        if (localSongs.isNotEmpty) {
-          songs.addAll(localSongs);
-          if (imageUrl == null || imageUrl.isEmpty) {
-            imageUrl = localSongs.first.coverUrl;
-          }
-        }
-      } catch (e) {
-      AppLogger.debug('SongRepository', 'Handled exception: $e');
-    }
-    }
-
-    if (songs.isEmpty) {
-      final searchResults = await SaavnClient.search(albumTitle, limit: 20);
-      final cleanAlbum = albumTitle.toLowerCase().trim();
-      songs = searchResults.where((s) {
-        return s.album.toLowerCase().trim().contains(cleanAlbum) ||
-            cleanAlbum.contains(s.album.toLowerCase().trim());
-      }).toList();
-      if (songs.isEmpty) {
-        songs = searchResults;
-      }
-    }
-
-    // Incomplete single-song / regional dub release expansion (e.g. "Hi Nanna - Tamil", "Kannaadi Kannaadi (From "Hi Nanna")")
-    if (songs.length <= 2) {
-      try {
-        // 1. Extract movie name: check (From "...") or (From '...') in title, album, or child track
-        String cleanMovieName = '';
-        final fromPattern = RegExp(r'(?:from|ost|soundtrack)\s*["\u201C\u2018\x27]?([^"\x27\)\u201D\u2019]+)', caseSensitive: false);
-        final matchInTitle = fromPattern.firstMatch(albumTitle);
-        if (matchInTitle != null) {
-          cleanMovieName = matchInTitle.group(1)?.trim() ?? '';
-        }
-        if (cleanMovieName.isEmpty && songs.isNotEmpty) {
-          final firstAlbum = songs.first.album;
-          final matchInAlbum = fromPattern.firstMatch(firstAlbum);
-          if (matchInAlbum != null) {
-            cleanMovieName = matchInAlbum.group(1)?.trim() ?? '';
-          }
-          if (cleanMovieName.isEmpty) {
-            final matchInSongTitle = fromPattern.firstMatch(songs.first.title);
-            if (matchInSongTitle != null) {
-              cleanMovieName = matchInSongTitle.group(1)?.trim() ?? '';
-            }
-          }
-        }
-        if (cleanMovieName.isEmpty) {
-          cleanMovieName = albumTitle
-              .replaceAll(RegExp(r'\s*-\s*(Tamil|Telugu|Hindi|Malayalam|Kannada).*$', caseSensitive: false), '')
-              .replaceAll(RegExp(r'\s*\((From|OST|Original|Soundtrack).*\)', caseSensitive: false), '')
-              .trim();
-        }
-
-        if (cleanMovieName.isNotEmpty && cleanMovieName.length >= 2) {
-          // 2. Resolve language
-          String detectedLang = (details?['language'] ?? '').toString().toLowerCase().trim();
-          if (detectedLang.isEmpty && songs.isNotEmpty && songs.first.language != null) {
-            detectedLang = songs.first.language!.toLowerCase().trim();
-          }
-          if (detectedLang.isEmpty) {
-            final lowerTitle = albumTitle.toLowerCase();
-            for (final l in ['tamil', 'telugu', 'hindi', 'malayalam', 'kannada']) {
-              if (lowerTitle.contains(l)) {
-                detectedLang = l;
-                break;
-              }
-            }
-          }
-          if (detectedLang.isEmpty) {
-            detectedLang = SettingsManager.preferredLanguages.isNotEmpty
-                ? SettingsManager.preferredLanguages.first.toLowerCase().trim()
-                : 'tamil';
-          }
-
-          final searchQ = '$cleanMovieName $detectedLang'.trim();
-          final extraSongs = await SaavnClient.search(searchQ, limit: 30);
-          final cleanBase = cleanMovieName.toLowerCase();
-          for (final es in extraSongs) {
-            final tLower = es.title.toLowerCase();
-            final aLower = es.album.toLowerCase();
-            final matchesLang = !isLanguageMismatch(es, detectedLang);
-            if (matchesLang && (tLower.contains(cleanBase) || aLower.contains(cleanBase)) && !songs.any((x) => x.id == es.id)) {
-              songs.add(es);
-            }
-          }
-        }
-      } catch (e) {
-      AppLogger.debug('SongRepository', 'Handled exception: $e');
-    }
-    }
-
-
-    imageUrl = (imageUrl != null && imageUrl.isNotEmpty && !imageUrl.contains('default'))
-        ? imageUrl
-        : (CatalogDatabase.getMoviePoster(albumTitle) ?? (songs.isNotEmpty ? songs.first.coverUrl : ''));
-
-    return {
-      'id': targetId,
-      'image': imageUrl,
-      'songs': deduplicateSongs(songs),
-    };
-  }
-
-  /// Fetches artist discography, shielding UI from direct client calls.
   static Future<Map<String, dynamic>> getArtistDiscography({
     required String artistId,
     required String artistName,
-  }) async {
-    String? resolvedImageUrl;
-
-    try {
-      final saavnArtists = await SaavnClient.searchArtists(artistName, limit: 3);
-      for (final a in saavnArtists) {
-        final img = a['image']?.toString();
-        if (img != null && img.isNotEmpty && !img.contains('default')) {
-          resolvedImageUrl = img;
-          break;
-        }
-      }
-    } catch (e) {
-      AppLogger.debug('SongRepository', 'Handled exception: $e');
-    }
-
-    final List<Song> gathered = [];
-
-    // 0. Instant local catalog lookups
-    try {
-      final localSongs = await CatalogDatabase.getSongsByArtist(artistName);
-      gathered.addAll(localSongs);
-    } catch (e) {
-      AppLogger.debug('SongRepository', 'Handled exception: $e');
-    }
-
-    try {
-      final futures = <Future<List<Song>>>[];
-
-      if (artistId.trim().isNotEmpty) {
-        futures.add(
-          SaavnClient.getArtistDetails(artistId.trim())
-              .then((d) => (d?['songs'] as List<Song>?) ?? <Song>[])
-              .catchError((_) => <Song>[]),
-        );
-      }
-
-      futures.add(
-        SaavnClient.search('$artistName Hit Songs', limit: 40)
-            .catchError((_) => <Song>[]),
-      );
-
-      futures.add(
-        SaavnClient.search(artistName, limit: 40)
-            .catchError((_) => <Song>[]),
-      );
-
-      futures.add(
-        YouTubeClient.search('$artistName Songs', limit: 25)
-            .catchError((_) => <Song>[]),
-      );
-
-      final results = await Future.wait(futures);
-      for (final list in results) {
-        gathered.addAll(list);
-      }
-    } catch (e) {
-      AppLogger.log('SongRepository', 'Error loading artist discography: $e');
-    }
-
-    var uniqueSongs = deduplicateSongs(gathered);
-    if (uniqueSongs.isEmpty) {
-      try {
-        final fallback = await SaavnClient.search(artistName, limit: 30);
-        uniqueSongs = deduplicateSongs(fallback);
-      } catch (e) {
-      AppLogger.debug('SongRepository', 'Handled exception: $e');
-    }
-    }
-
-    // Strict artist verification: prevent cross-contamination (e.g. YouTube returning Premam under Anirudh)
-    final cleanTarget = artistName.trim().toLowerCase();
-    final verifiedSongs = uniqueSongs.where((s) {
-      final songArt = s.artist.toLowerCase();
-      final songTitle = s.title.toLowerCase();
-      final songAlb = s.album.toLowerCase();
-      return ArtistSanitizer.areSameOrVariantArtists(s.artist, artistName) ||
-             songArt.contains(cleanTarget) ||
-             songTitle.contains(cleanTarget) ||
-             songAlb.contains(cleanTarget);
-    }).toList();
-    if (verifiedSongs.isNotEmpty) {
-      uniqueSongs = verifiedSongs;
-    }
-
-    if (resolvedImageUrl == null || resolvedImageUrl.isEmpty) {
-      final norm = normalizeArtist(artistName);
-      if (_verifiedArtistAvatars.containsKey(norm)) {
-        resolvedImageUrl = _verifiedArtistAvatars[norm];
-      }
-    }
-
-    return {
-      'image': resolvedImageUrl ?? '',
-      'songs': uniqueSongs,
-    };
-  }
+  }) =>
+      _getArtistDiscographyImpl(artistId: artistId, artistName: artistName);
 
   /// Fetches remote playlist tracks across sources (JioSaavn or YouTube).
   static Future<Map<String, dynamic>> getRemotePlaylistTracks({

@@ -23,6 +23,7 @@ class AudioDspBridge(private val activity: Activity) {
     private var bassBoost: BassBoost? = null
     private var virtualizer: Virtualizer? = null
     private var dynamicsProcessing: DynamicsProcessing? = null
+    private var dpConfig: DynamicsProcessing.Config? = null
     private var currentStereoBalance: Double = 0.0
     private var currentVocalAttenuation: Double = 0.0
 
@@ -176,6 +177,7 @@ class AudioDspBridge(private val activity: Activity) {
                     false, 0,
                     false
                 ).build()
+                dpConfig = config
                 dynamicsProcessing = DynamicsProcessing(0, newSessionId, config).apply {
                     enabled = true
                 }
@@ -191,6 +193,7 @@ class AudioDspBridge(private val activity: Activity) {
         currentStereoBalance = clamped
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return false
         val dp = dynamicsProcessing ?: return false
+        val cfg = dpConfig ?: return false
         return try {
             // Attenuation-only gain (0 dB down to -30 dB) prevents digital clipping.
             // Negative balance favors Left (attenuates Right channel 1).
@@ -198,8 +201,10 @@ class AudioDspBridge(private val activity: Activity) {
             val maxAttenuationDb = 30.0
             val leftDb = if (clamped > 0.0) (-clamped * maxAttenuationDb).toFloat() else 0.0f
             val rightDb = if (clamped < 0.0) (clamped * maxAttenuationDb).toFloat() else 0.0f
-            dp.setInputGainbyChannelIndex(0, leftDb)
-            dp.setInputGainbyChannelIndex(1, rightDb)
+            cfg.setInputGainByChannelIndex(0, leftDb)
+            cfg.setInputGainByChannelIndex(1, rightDb)
+            dp.setChannelTo(0, cfg.getChannelByChannelIndex(0))
+            dp.setChannelTo(1, cfg.getChannelByChannelIndex(1))
             dp.enabled = true
             true
         } catch (_: Exception) {
@@ -219,5 +224,6 @@ class AudioDspBridge(private val activity: Activity) {
         bassBoost = null
         virtualizer = null
         dynamicsProcessing = null
+        dpConfig = null
     }
 }

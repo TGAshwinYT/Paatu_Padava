@@ -141,7 +141,12 @@ async def _resolve_user_from_token(
         email = payload.get("email")
         sub = payload.get("sub")
         is_supabase = True
-        email_confirmed = bool(payload.get("email_confirmed_at"))
+        user_meta = payload.get("user_metadata") or {}
+        email_confirmed = bool(
+            payload.get("email_confirmed_at")
+            or payload.get("email_verified")
+            or (isinstance(user_meta, dict) and user_meta.get("email_verified"))
+        )
 
     # 3. If Supabase token, check matching by supabase_uid first
     if is_supabase and sub:

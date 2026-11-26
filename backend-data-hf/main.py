@@ -272,8 +272,8 @@ app.include_router(history.router)
 app.include_router(users.router)
 app.include_router(utils.router)
 
-@app.get("/music/spotify/token")
-@app.get("/music/spotify-token")
+@app.get("/music/spotify/token", include_in_schema=False)
+@app.get("/music/spotify-token", include_in_schema=False)
 async def music_spotify_token_alias(
     request: Request,
     redis_client = Depends(get_redis)

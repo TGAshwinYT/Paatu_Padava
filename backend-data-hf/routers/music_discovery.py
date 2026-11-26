@@ -27,10 +27,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/music", tags=["music-discovery"])
 
 
-@router.get("/spotify/token")
-@router.get("/spotify-token")
-@router.post("/spotify/token")
-@router.post("/spotify-token")
+@router.get("/spotify/token", operation_id="get_spotify_token_v1")
+@router.get("/spotify-token", include_in_schema=False)
+@router.post("/spotify/token", operation_id="post_spotify_token_v1")
+@router.post("/spotify-token", include_in_schema=False)
 @limiter.limit("20/minute")
 async def get_spotify_token(
     request: Request,

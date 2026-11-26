@@ -156,7 +156,7 @@ async def google_login(request: Request, body: GoogleLoginRequest, db: AsyncSess
         if google_client_id:
             token_aud = user_info.get("aud") or user_info.get("azp")
             allowed_ids = [cid.strip() for cid in google_client_id.split(",") if cid.strip()]
-            if not token_aud or not any(token_aud == cid or token_aud.startswith(cid) for cid in allowed_ids):
+            if not token_aud or token_aud not in allowed_ids:
                 raise HTTPException(status_code=401, detail="Google token was not issued for this application")
 
         # 4. Verify email is verified by Google

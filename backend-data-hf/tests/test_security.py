@@ -361,6 +361,58 @@ class TestAuthAndRateLimitHardening(_SecurityTestBase):
             key = f"{fn.__module__}.{fn.__name__}"
             self.assertIn(key, route_limit_keys, f"Expected limiter on {key}")
 
+    def test_get_client_ip_ignores_cf_connecting_ip(self):
+        from limiter_config import get_client_ip
+        mock_req = MagicMock()
+        mock_req.headers = {
+            "cf-connecting-ip": "1.1.1.1",
+            "x-real-ip": "2.2.2.2",
+            "x-forwarded-for": "9.9.9.9, 203.0.113.77",
+        }
+        mock_req.client = None
+        self.assertEqual(get_client_ip(mock_req), "203.0.113.77")
+
+    @patch("httpx.AsyncClient.get")
+    def test_google_login_rejects_prefix_spoofed_aud(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "sub": "google_sub_2",
+            "email": "user@example.com",
+            "email_verified": True,
+            "aud": "expected-client-id.attacker.com",
+        }
+        mock_get.return_value = mock_resp
+        app.dependency_overrides[get_db] = lambda: AsyncMock()
+
+        with patch.dict(os.environ, {"GOOGLE_CLIENT_ID": "expected-client-id"}, clear=False):
+            resp = self.client.post("/api/auth/google", json={"credential": "tok"})
+            self.assertEqual(resp.status_code, 401)
+
+    def test_supabase_user_metadata_email_verified_accepted(self):
+        import asyncio
+        import jwt as pyjwt
+        import auth_utils
+
+        secret = os.environ["SUPABASE_JWT_SECRET"]
+        token = pyjwt.encode(
+            {
+                "sub": "supa-new-uid",
+                "email": "newmobile@example.com",
+                "user_metadata": {"email_verified": True},
+            },
+            secret,
+            algorithm="HS256",
+        )
+        fake_db = AsyncMock()
+        empty_result = MagicMock()
+        empty_result.scalars.return_value.first.return_value = None
+        fake_db.execute.return_value = empty_result
+
+        user = asyncio.run(auth_utils._resolve_user_from_token(token, fake_db))
+        self.assertIsNotNone(user)
+        self.assertEqual(user.email, "newmobile@example.com")
+
 
 if __name__ == "__main__":
     unittest.main()

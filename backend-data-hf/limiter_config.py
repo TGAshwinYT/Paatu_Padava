@@ -10,10 +10,6 @@ def get_client_ip(request: Request) -> str:
     preventing client-controlled IP spoofing attacks via arbitrary header prefix injection.
     Falls back to request.client.host, get_remote_address, or localhost.
     """
-    cf_ip = request.headers.get("cf-connecting-ip")
-    if cf_ip and cf_ip.strip():
-        return cf_ip.strip()
-
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
         ips = [ip.strip() for ip in forwarded.split(",") if ip.strip()]

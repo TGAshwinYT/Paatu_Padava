@@ -43,6 +43,8 @@ class ConnectedDevice {
   });
 
   bool get isLocal => id == 'local_phone';
+  bool get isRemoteSession => protocol != ConnectionProtocol.local;
+  bool get isExternalLocalRoute => protocol == ConnectionProtocol.local && !isLocal;
 
   ConnectedDevice copyWith({
     String? id,
@@ -318,9 +320,13 @@ class DeviceConnectCoordinator {
     }
   }
 
-  /// Returns to local phone audio output
-  Future<void> disconnect() async {
-    await switchToDevice(ConnectedDevice.localPhone());
+  /// Returns to local phone audio output for remote Cast/DLNA/Party sessions.
+  /// For OS-managed Bluetooth/wired routes, returns false so the UI opens OS output settings.
+  Future<bool> disconnect() async {
+    if (currentDevice.isExternalLocalRoute) {
+      return false;
+    }
+    return switchToDevice(ConnectedDevice.localPhone());
   }
 
   void dispose() {

@@ -31,6 +31,7 @@ class EqualizerService {
   static VoidCallback? _eqBandsListener;
   static VoidCallback? _bassBoostListener;
   static VoidCallback? _virtualizerListener;
+  static VoidCallback? _stereoBalanceListener;
 
   /// Initializes equalizer service and binds to the player's Android Audio Session ID.
   /// Documented as an app-lifetime singleton tied to the active audio player session.
@@ -68,6 +69,13 @@ class EqualizerService {
       };
       SettingsManager.virtualizerNotifier.addListener(_virtualizerListener!);
     }
+
+    if (_stereoBalanceListener == null) {
+      _stereoBalanceListener = () {
+        AudioPlatform.setStereoBalance(SettingsManager.stereoBalance);
+      };
+      SettingsManager.stereoBalanceNotifier.addListener(_stereoBalanceListener!);
+    }
   }
 
   static int? _lastBoundSessionId;
@@ -100,6 +108,10 @@ class EqualizerService {
       if (_isDspAvailable && _vocalAttenuation > 0.0) {
         await AudioPlatform.setVocalCancellation(_vocalAttenuation);
         isDspActiveNotifier.value = true;
+      }
+
+      if (SettingsManager.stereoBalance != 0.0) {
+        await AudioPlatform.setStereoBalance(SettingsManager.stereoBalance);
       }
 
       final isNeutral = SettingsManager.bassBoost == 0.0 &&
@@ -382,6 +394,10 @@ class EqualizerService {
     if (_virtualizerListener != null) {
       SettingsManager.virtualizerNotifier.removeListener(_virtualizerListener!);
       _virtualizerListener = null;
+    }
+    if (_stereoBalanceListener != null) {
+      SettingsManager.stereoBalanceNotifier.removeListener(_stereoBalanceListener!);
+      _stereoBalanceListener = null;
     }
     if (defaultTargetPlatform == TargetPlatform.android) {
       try {

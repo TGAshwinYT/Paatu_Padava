@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../../services/equalizer_service.dart';
 import '../../../services/settings_manager.dart';
 import 'equalizer_curve_canvas.dart';
+import 'stereo_balance_card.dart';
 
 class PlayerEqualizerSheet {
   static void show(BuildContext context) {
@@ -299,6 +300,8 @@ class PlayerEqualizerSheet {
                           ],
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      const StereoBalanceCard(),
                       const SizedBox(height: 12),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,

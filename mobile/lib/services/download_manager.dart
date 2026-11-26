@@ -194,7 +194,8 @@ class DownloadManager {
       );
 
   /// True when [song] is already downloaded under its own ID or an equivalent canonical ID.
-  static bool isSongDownloaded(Song song) => findDownloadedMatch(song) != null;
+  static bool isSongDownloaded(Song song) =>
+      isDownloaded(song.id) || findDownloadedMatch(song) != null;
 
   /// True when [song] (or an equivalent canonical song) is queued or actively downloading.
   static bool isSongQueuedOrDownloading(Song song) {

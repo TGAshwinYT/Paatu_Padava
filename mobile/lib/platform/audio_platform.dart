@@ -50,6 +50,19 @@ class AudioPlatform {
     }
   }
 
+  /// Sets Left/Right stereo channel balance (-1.0 = Left favored, 0.0 = Center, +1.0 = Right favored).
+  static Future<bool> setStereoBalance(double balance) async {
+    if (defaultTargetPlatform != TargetPlatform.android) return false;
+    try {
+      final bool? success = await _channel.invokeMethod<bool>('setStereoBalance', {
+        'balance': balance.clamp(-1.0, 1.0),
+      });
+      return success ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Queries the actual hardware band count supported by the device equalizer.
   static Future<int> getBandCount() async {
     if (defaultTargetPlatform != TargetPlatform.android) return 5;

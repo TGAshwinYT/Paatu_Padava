@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/settings_manager.dart';
 import '../widgets/mini_player.dart';
+import '../widgets/player/stereo_balance_card.dart';
 import '../widgets/settings/equalizer_settings_card.dart';
 
 class EqualizerSettingsScreen extends StatelessWidget {
@@ -34,6 +35,10 @@ class EqualizerSettingsScreen extends StatelessWidget {
               _buildSectionHeader('5-BAND HARDWARE EQUALIZER & DSP', Icons.tune_rounded),
               const SizedBox(height: 10),
               const EqualizerSettingsCard(),
+              const SizedBox(height: 20),
+              _buildSectionHeader('EARBUD STEREO BALANCE', Icons.headphones_rounded),
+              const SizedBox(height: 10),
+              const StereoBalanceCard(),
             ],
           ),
           const Positioned(

@@ -3,6 +3,7 @@ part of '../player_handler.dart';
 extension PlayerControlsExt on PaatuAudioHandler {
   Future<void> _playImpl() async {
     try {
+      await ensureAudioSessionConfigured();
       final session = await AudioSession.instance;
       await session.setActive(true);
     } catch (e) {

@@ -14,9 +14,11 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity: AudioServiceActivity() {
     private val BATTERY_CHANNEL = "com.tamilgaming.paatupadava/battery"
     private val WIDGET_CHANNEL = "com.tamilgaming.paatupadava/widget"
+    private val EQUALIZER_CHANNEL = "com.tamilgaming.paatupadava/equalizer"
     private val SYNC_CHANNEL_ID = "com.paatupaadava.music.channel.sync"
     private val SYNC_NOTIFICATION_ID = 2001
     private var dataSyncWakeLock: PowerManager.WakeLock? = null
+    private lateinit var audioDspBridge: AudioDspBridge
 
     private fun updateSyncNotification(title: String, message: String, progress: Int, max: Int) {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager ?: return
@@ -219,9 +221,18 @@ class MainActivity: AudioServiceActivity() {
             }
         }
 
+        // Native Android DSP & Left/Right Stereo Balance channel
+        audioDspBridge = AudioDspBridge(this)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, EQUALIZER_CHANNEL).setMethodCallHandler { call, result ->
+            audioDspBridge.handleMethodCall(call, result)
+        }
+
     }
 
     override fun onDestroy() {
+        if (::audioDspBridge.isInitialized) {
+            audioDspBridge.release()
+        }
         try {
             if (dataSyncWakeLock?.isHeld == true) {
                 dataSyncWakeLock?.release()

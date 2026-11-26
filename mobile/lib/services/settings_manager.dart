@@ -24,6 +24,7 @@ class SettingsManager {
   static final ValueNotifier<List<double>> eqBandsNotifier = ValueNotifier<List<double>>([0.0, 0.0, 0.0, 0.0, 0.0]);
   static final ValueNotifier<double> bassBoostNotifier = ValueNotifier<double>(0.0);
   static final ValueNotifier<double> virtualizerNotifier = ValueNotifier<double>(0.0);
+  static final ValueNotifier<double> stereoBalanceNotifier = ValueNotifier<double>(0.0);
   static final ValueNotifier<Map<String, List<double>>> customEqPresetsNotifier =
       ValueNotifier<Map<String, List<double>>>({});
   static final ValueNotifier<List<String>> languagesNotifier = ValueNotifier<List<String>>(['Tamil', 'English']);
@@ -68,6 +69,7 @@ class SettingsManager {
   static List<double> get eqBands => eqBandsNotifier.value;
   static double get bassBoost => bassBoostNotifier.value;
   static double get virtualizer => virtualizerNotifier.value;
+  static double get stereoBalance => stereoBalanceNotifier.value;
   static Map<String, List<double>> get customEqPresets => customEqPresetsNotifier.value;
   static NextTrackStrategyMode get nextTrackStrategy => nextTrackStrategyNotifier.value;
   static int get maxCacheSizeMb => maxCacheSizeMbNotifier.value;
@@ -178,6 +180,14 @@ class SettingsManager {
     smartDownloadsCapNotifier.value = _box.get('smart_downloads_cap', defaultValue: 50) as int;
     persistentBackgroundPlaybackNotifier.value =
         _box.get('persistent_background_playback', defaultValue: false) as bool;
+    stereoBalanceNotifier.value =
+        ((_box.get('stereo_balance', defaultValue: 0.0) as num).toDouble()).clamp(-1.0, 1.0);
+  }
+
+  static Future<void> setStereoBalance(double balance) async {
+    final clamped = balance.clamp(-1.0, 1.0);
+    stereoBalanceNotifier.value = clamped;
+    await _box.put('stereo_balance', clamped);
   }
 
   static Future<void> setPersistentBackgroundPlayback(bool enabled) async {

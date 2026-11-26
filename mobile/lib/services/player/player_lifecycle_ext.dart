@@ -78,7 +78,20 @@ extension PlayerLifecycleExt on PaatuAudioHandler {
   Future<void> _initAudioSessionImpl() async {
     try {
       final session = await AudioSession.instance;
-      await session.configure(const AudioSessionConfiguration.music());
+      await session.configure(
+        AudioSessionConfiguration(
+          avAudioSessionCategory: AVAudioSessionCategory.playback,
+          avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.allowBluetoothA2dp |
+              AVAudioSessionCategoryOptions.allowAirPlay,
+          avAudioSessionMode: AVAudioSessionMode.defaultMode,
+          androidAudioAttributes: const AndroidAudioAttributes(
+            contentType: AndroidAudioContentType.music,
+            usage: AndroidAudioUsage.media,
+          ),
+          androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
+          androidWillPauseWhenDucked: true,
+        ),
+      );
       _becomingNoisySub = session.becomingNoisyEventStream.listen((_) async {
         AppLogger.log('PlayerHandler', 'ACTION_AUDIO_BECOMING_NOISY (headset/BT unplugged) -> auto-pausing immediately');
         await pause();

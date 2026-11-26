@@ -268,7 +268,7 @@ class _DeviceConnectSheetState extends State<DeviceConnectSheet> with SingleTick
                                 ],
                               ),
                             ),
-                            if (!currentDevice.isLocal)
+                            if (currentDevice.isRemoteSession)
                               TextButton(
                                 onPressed: () {
                                   HapticFeedback.mediumImpact();
@@ -278,6 +278,29 @@ class _DeviceConnectSheetState extends State<DeviceConnectSheet> with SingleTick
                                   'This Phone',
                                   style: GoogleFonts.outfit(
                                     color: const Color(0xFF818CF8),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              )
+                            else if (currentDevice.isExternalLocalRoute)
+                              TextButton(
+                                onPressed: () async {
+                                  HapticFeedback.mediumImpact();
+                                  final opened = await DeviceConnectCoordinator.instance.openBluetoothSettings();
+                                  if (!opened && context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Use your phone\'s Control Center / Media Output to switch back to phone speaker.'),
+                                        duration: Duration(seconds: 3),
+                                      ),
+                                    );
+                                  }
+                                },
+                                child: Text(
+                                  'Switch Output',
+                                  style: GoogleFonts.outfit(
+                                    color: const Color(0xFF38BDF8),
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
                                   ),

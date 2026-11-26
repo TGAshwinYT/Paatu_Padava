@@ -101,6 +101,7 @@ extension PlayerPlaybackExt on PaatuAudioHandler {
     }
     final reqId = ++_playSongRequestId;
     try {
+      await ensureAudioSessionConfigured();
       final session = await AudioSession.instance;
       await session.setActive(true);
     } catch (e) {

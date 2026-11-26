@@ -3,6 +3,9 @@ part of '../audio_queue_handler.dart';
 extension AudioVolumeAndIdleExt on AudioQueueHandler {
   Future<void> _ensureAudioSessionActive() async {
     try {
+      if (isAudioHandlerInitialized) {
+        await audioHandler.ensureAudioSessionConfigured();
+      }
       final session = await AudioSession.instance;
       await session.setActive(true);
     } catch (e) {

@@ -345,9 +345,14 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     // Initialize Predictive Smart Cache for queue and radio streams
     SmartCacheService.instance.init();
 
-    _initAudioSession();
+    _audioSessionInitFuture = _initAudioSession();
     _initStreams();
   }
+
+  Future<void>? _audioSessionInitFuture;
+
+  Future<void> ensureAudioSessionConfigured() =>
+      _audioSessionInitFuture ??= _initAudioSession();
 
   void _updateCachedFav() => _updateCachedFavImpl();
 

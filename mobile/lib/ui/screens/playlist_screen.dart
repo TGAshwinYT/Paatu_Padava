@@ -10,6 +10,7 @@ import '../../services/playlist_manager.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/batch_download_button.dart';
 import '../widgets/common/song_tile.dart';
+import '../widgets/playlist/playlist_delete_dialog.dart';
 import '../theme/app_theme.dart';
 
 class PlaylistScreen extends StatefulWidget {
@@ -269,40 +270,11 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
     );
   }
 
-  void _confirmDelete(BuildContext context, UserPlaylist playlist) {
-    final isOwner = playlist.isOwner;
-    showDialog(
-      context: context,
-      builder: (dialogCtx) => AlertDialog(
-        backgroundColor: const Color(0xFF131B2E),
-        title: Text(isOwner ? 'Delete Playlist?' : 'Leave Playlist?', style: const TextStyle(color: Colors.white)),
-        content: Text(
-          isOwner
-              ? 'Are you sure you want to delete "${playlist.title}"? This cannot be undone.'
-              : 'Are you sure you want to leave "${playlist.title}"? It will be removed from your library but remain active for other collaborators.',
-          style: const TextStyle(color: Color(0xFF94A3B8)),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogCtx),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-            onPressed: () {
-              if (isOwner) {
-                PlaylistManager.deletePlaylist(playlist.id);
-              } else {
-                PlaylistManager.deletePlaylistDirectly(playlist.id);
-              }
-              Navigator.pop(dialogCtx);
-              Navigator.pop(context);
-            },
-            child: Text(isOwner ? 'Delete' : 'Leave', style: const TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
+  void _confirmDelete(BuildContext context, UserPlaylist playlist) async {
+    final deleted = await showDeletePlaylistDialog(context, playlist);
+    if (deleted && context.mounted) {
+      Navigator.pop(context);
+    }
   }
 
   Widget _buildPlaceholderCover() {

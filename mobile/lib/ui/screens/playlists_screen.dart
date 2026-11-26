@@ -8,6 +8,7 @@ import '../widgets/join_playlist_dialog.dart';
 import '../widgets/spotify_import_dialog.dart';
 import '../widgets/library/create_blend_sheet.dart';
 import '../widgets/mini_player.dart';
+import '../widgets/playlist/playlist_delete_dialog.dart';
 import 'playlist_screen.dart';
 
 class PlaylistsScreen extends StatefulWidget {
@@ -474,10 +475,13 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
                                           ),
                                         );
                                       } else if (val == 'delete') {
-                                        PlaylistManager.deletePlaylist(playlist.id);
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(content: Text('Deleted "${playlist.title}"')),
-                                        );
+                                        showDeletePlaylistDialog(context, playlist).then((deleted) {
+                                          if (deleted && context.mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(content: Text('Deleted "${playlist.title}"')),
+                                            );
+                                          }
+                                        });
                                       }
                                     },
                                     itemBuilder: (context) => [

@@ -9,6 +9,16 @@ Future<Song?> _matchSingleTrackImpl(
   final movieHint = SpotifyImportService.extractMovieFromTitle(track.title);
   final targetAlbum = track.album ?? movieHint;
 
+  // 0. Reuse already-downloaded track on disk so re-importing never creates duplicate files
+  final existingDownload = DownloadManager.findDownloadedMatchByMeta(
+    title: cleanTitle,
+    artist: primaryArtist,
+    durationSeconds: track.durationSeconds,
+  );
+  if (existingDownload != null) {
+    return existingDownload;
+  }
+
   String? effectiveCover = track.coverUrl;
   if (effectiveCover != null && CoverArtResolver.isSpotifyCover(effectiveCover)) {
     effectiveCover = CoverArtResolver.upgradeSpotifyCover(effectiveCover);

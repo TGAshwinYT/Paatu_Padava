@@ -15,6 +15,7 @@ import 'cover_art_resolver.dart';
 import '../core/app_config.dart';
 import 'spotify_track_key.dart';
 import 'battery_optimization_service.dart';
+import 'download_manager.dart';
 
 part 'spotify/spotify_metadata_fetcher.dart';
 part 'spotify/spotify_track_matcher.dart';

@@ -142,11 +142,14 @@ extension QueuePlaybackExt on AudioQueueHandler {
 
       final verifiedLocalPath = (song.localFilePath != null && File(song.localFilePath!).existsSync())
           ? song.localFilePath
-          : DownloadManager.getLocalFilePath(song.id);
+          : (DownloadManager.getLocalFilePath(song.id) ??
+              DownloadManager.findDownloadedMatch(song)?.localFilePath);
       if (verifiedLocalPath != null && File(verifiedLocalPath).existsSync()) {
         song = song.copyWith(
           localFilePath: verifiedLocalPath,
-          localCoverPath: DownloadManager.getLocalCoverPath(song.id) ?? song.localCoverPath,
+          localCoverPath: DownloadManager.getLocalCoverPath(song.id) ??
+              DownloadManager.findDownloadedMatch(song)?.localCoverPath ??
+              song.localCoverPath,
           isDownloaded: true,
           source: 'offline',
         );

@@ -459,6 +459,18 @@ class AudioQueueHandler {
           source: 'offline',
         );
       }
+    } else {
+      final canonicalMatch = DownloadManager.findDownloadedMatch(entity.toSong());
+      if (canonicalMatch != null &&
+          canonicalMatch.localFilePath != null &&
+          File(canonicalMatch.localFilePath!).existsSync()) {
+        return entity.copyWith(
+          isDownloaded: true,
+          localFilePath: canonicalMatch.localFilePath,
+          localCoverPath: canonicalMatch.localCoverPath ?? entity.localCoverPath,
+          source: 'offline',
+        );
+      }
     }
     return entity;
   }

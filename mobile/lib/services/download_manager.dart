@@ -14,10 +14,14 @@ import 'app_logger.dart';
 import 'des_decrypt.dart';
 import 'connectivity_service.dart';
 import 'favorites_manager.dart';
+import 'playlist_manager.dart';
+import 'download_dedup_helper.dart';
 import '../logic/stream_resolver.dart';
 import 'cover_art_resolver.dart';
 import 'catalog_database.dart';
 import 'battery_optimization_service.dart';
+
+part 'download_dedup_ext.dart';
 
 /// Lightweight cancellation token for background stream downloads
 class DownloadCancelToken {
@@ -95,6 +99,7 @@ class DownloadManager {
     }
     _rebuildBloomFilter();
     downloadedSongsNotifier.value = getDownloadedSongs();
+    unawaited(deduplicateExistingDownloads());
     unawaited(backfillMissingCovers());
   }
 
@@ -173,6 +178,44 @@ class DownloadManager {
     return _activeDownloadSongIds.contains(songId) || _downloadQueue.any((s) => s.id == songId);
   }
 
+  /// Finds an already-downloaded song by exact ID or canonical (title, artist, duration).
+  static Song? findDownloadedMatch(Song song) => _findDownloadedMatchImpl(song);
+
+  /// Finds an already-downloaded song matching normalized [title] + [artist] + [durationSeconds].
+  static Song? findDownloadedMatchByMeta({
+    required String title,
+    required String artist,
+    int durationSeconds = 0,
+  }) =>
+      _findDownloadedMatchByMetaImpl(
+        title: title,
+        artist: artist,
+        durationSeconds: durationSeconds,
+      );
+
+  /// True when [song] is already downloaded under its own ID or an equivalent canonical ID.
+  static bool isSongDownloaded(Song song) => findDownloadedMatch(song) != null;
+
+  /// True when [song] (or an equivalent canonical song) is queued or actively downloading.
+  static bool isSongQueuedOrDownloading(Song song) {
+    if (isQueuedOrDownloading(song.id)) return true;
+    return _activeDownloadSongIds.any((id) {
+      final active = downloadedSongsNotifier.value.where((s) => s.id == id).firstOrNull;
+      return active != null && DownloadDedupHelper.isSameSong(active, song);
+    }) || _downloadQueue.any((s) => DownloadDedupHelper.isSameSong(s, song));
+  }
+
+  /// Removes duplicate downloaded songs that share canonical (title, artist, duration).
+  static Future<int> deduplicateExistingDownloads() => _deduplicateExistingDownloadsImpl();
+
+  /// Returns downloaded songs from [playlist] not used in other playlists or Liked Songs.
+  static List<Song> getOrphanedDownloadsForPlaylist(UserPlaylist playlist) =>
+      _getOrphanedDownloadsForPlaylistImpl(playlist);
+
+  /// Deletes multiple downloaded songs by ID.
+  static Future<void> deleteSongsByIds(List<String> songIds) =>
+      _deleteSongsByIdsImpl(songIds);
+
   /// Retrieves verified local file path if song is downloaded and file exists on disk
   static String? getLocalFilePath(String songId) {
     if (!Hive.isBoxOpen(boxName)) return null;
@@ -241,12 +284,12 @@ class DownloadManager {
   /// Checks if all songs in a given collection are downloaded
   static bool areAllDownloaded(List<Song> songs) {
     if (songs.isEmpty) return false;
-    return songs.every((s) => isDownloaded(s.id));
+    return songs.every(isSongDownloaded);
   }
 
   /// Counts how many songs in the list are downloaded
   static int getDownloadedCount(List<Song> songs) {
-    return songs.where((s) => isDownloaded(s.id)).length;
+    return songs.where(isSongDownloaded).length;
   }
 
   /// Calculates aggregate batch progress (0.0 to 1.0)
@@ -258,7 +301,7 @@ class DownloadManager {
     final active = activeDownloads.value;
 
     for (final song in songs) {
-      if (isDownloaded(song.id)) {
+      if (isSongDownloaded(song)) {
         totalContribution += 1.0;
       } else if (active.containsKey(song.id)) {
         totalContribution += active[song.id] ?? 0.0;
@@ -270,13 +313,13 @@ class DownloadManager {
 
   /// Returns true if any song in the given collection is currently downloading or in queue
   static bool isAnyDownloading(List<Song> songs) {
-    return songs.any((s) => isQueuedOrDownloading(s.id));
+    return songs.any(isSongQueuedOrDownloading);
   }
 
   /// Adds a list of songs to the managed download queue (batch download)
   static Future<void> downloadBatch(List<Song> songs) async {
     for (final song in songs) {
-      if (!isDownloaded(song.id) && !isQueuedOrDownloading(song.id)) {
+      if (!isSongDownloaded(song) && !isSongQueuedOrDownloading(song)) {
         _downloadQueue.add(song);
       }
     }
@@ -299,7 +342,7 @@ class DownloadManager {
 
     int queued = 0;
     for (final song in candidates) {
-      if (!isDownloaded(song.id) && !isQueuedOrDownloading(song.id)) {
+      if (!isSongDownloaded(song) && !isSongQueuedOrDownloading(song)) {
         _downloadQueue.add(song);
         queued++;
       }
@@ -374,8 +417,8 @@ class DownloadManager {
 
   /// Direct single-song download entrypoint (adds to queue or downloads immediately)
   static Future<bool> downloadSong(Song song, {Function(double progress)? onProgress}) async {
-    if (isDownloaded(song.id)) return true;
-    if (isQueuedOrDownloading(song.id)) return true;
+    if (isSongDownloaded(song)) return true;
+    if (isSongQueuedOrDownloading(song)) return true;
 
     _downloadQueue.add(song);
     queueLengthNotifier.value = _downloadQueue.length;
@@ -385,7 +428,7 @@ class DownloadManager {
 
   /// Low-level worker that executes the download with CancelToken and bitrate scaling
   static Future<bool> _executeSingleDownload(Song song, {Function(double progress)? onProgress}) async {
-    if (isDownloaded(song.id)) return true;
+    if (isSongDownloaded(song)) return true;
 
     final cancelToken = DownloadCancelToken();
     _cancelTokens[song.id] = cancelToken;
@@ -691,55 +734,7 @@ class DownloadManager {
   }
 
   /// Lazy backfill: silently downloads missing cover art for already-downloaded songs when connected
-  static Future<void> backfillMissingCovers() async {
-    if (!Hive.isBoxOpen(boxName) || _documentsDirPath == null) return;
-    try {
-      final coversDir = Directory('$_documentsDirPath/offline_covers');
-      if (!coversDir.existsSync()) coversDir.createSync(recursive: true);
-
-      for (final key in _box.keys) {
-        final data = _box.get(key);
-        if (data != null && data is Map) {
-          final song = Song.fromMap(data);
-          final existing = getLocalCoverPath(song.id);
-          if (existing == null) {
-            String artUrl = song.coverUrl;
-            if (artUrl.isEmpty || CoverArtResolver.isPlaylistCover(artUrl) || artUrl.startsWith('file://') || artUrl.startsWith('/') || artUrl.contains(':\\')) {
-              try {
-                artUrl = await CoverArtResolver.resolveCover(song);
-              } catch (e) {
-      AppLogger.debug('DownloadManager', 'Handled exception: $e');
-    }
-            }
-            if (artUrl.isEmpty || artUrl.startsWith('file://') || artUrl.startsWith('/') || artUrl.contains(':\\')) {
-              artUrl = CatalogDatabase.getSongCoverArt(song.title, artist: song.artist, album: song.album) ??
-                  CatalogDatabase.getMoviePoster(song.album) ?? '';
-            }
-            if (artUrl.isNotEmpty && (artUrl.startsWith('http://') || artUrl.startsWith('https://'))) {
-              final safeName = song.id.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
-              final targetPath = '${coversDir.path}/$safeName.jpg';
-              final tmp = '$targetPath.tmp';
-              try {
-                await _downloadFile(artUrl, tmp);
-                final tmpF = File(tmp);
-                if (tmpF.existsSync() && tmpF.lengthSync() > 100) {
-                  final targetF = File(targetPath);
-                  if (targetF.existsSync()) targetF.deleteSync();
-                  tmpF.renameSync(targetPath);
-                  final updated = song.copyWith(localCoverPath: targetPath, coverUrl: artUrl);
-                  await _box.put(key, updated.toMap());
-                }
-              } catch (e) {
-      AppLogger.debug('DownloadManager', 'Handled exception: $e');
-    }
-            }
-          }
-        }
-      }
-    } catch (e) {
-      AppLogger.debug('DownloadManager', 'Handled exception: $e');
-    }
-  }
+  static Future<void> backfillMissingCovers() => _backfillMissingCoversImpl();
 
   /// Returns file size in bytes for a specific song
   static int getSongFileSizeBytes(String songId) {

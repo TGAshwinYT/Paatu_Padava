@@ -14,3 +14,4 @@
 7. **Report honestly.** Final message = what changed, which commands you ran and their results, what you could NOT
    verify. If a command could not run, say so.
 8. UI rules live in `.agent/skills/mobile-ui-guidelines/SKILL.md` — follow them for anything in `mobile/lib/ui/`.
+9. **File Size Limits**: Check the byte size of every modified/new file against `.agent/rules/file-size-limits.md` before reporting completion.

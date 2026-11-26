@@ -16,6 +16,7 @@ This document establishes the mandatory architectural laws, data structures & al
   * Files $> 400$ lines count must remain **$\le 55$**. Every new screen/widget must be modularized under `lib/ui/widgets/<feature>/`.
   * GoogleFonts calls must remain **$\le 383$**. Reuse `AppTheme` and `AppColors` tokens; do not scatter ad-hoc font definitions.
   * **Zero Analyzer Errors**: All code must pass `analyze_files` with 0 warnings/errors.
+  * **Strict File Size Limits**: All new and edited files must comply with [.agent/rules/file-size-limits.md](.agent/rules/file-size-limits.md).
 
 ---
 

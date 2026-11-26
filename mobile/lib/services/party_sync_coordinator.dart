@@ -16,6 +16,8 @@ import 'settings_manager.dart';
 import 'supabase_service.dart';
 import 'app_logger.dart';
 
+part 'party/party_remote_handlers.dart';
+
 enum PartyRole { none, host, joiner }
 
 /// Peer device metadata and live telemetry in Party Mode
@@ -1133,236 +1135,17 @@ class PartySyncCoordinator {
     return null;
   }
 
-  static Future<void> _handleRemotePrepare(Map<String, dynamic> payload) async {
-    _cancelPendingScheduledOperations();
-    try {
-      final songData = payload['song'] as Map<dynamic, dynamic>?;
-      final songId = payload['songId']?.toString();
-      final rawStreamUrl = payload['streamUrl']?.toString() ??
-          (songData != null ? songData['streamUrl']?.toString() : null);
-      Song? song;
-      if (songData != null) {
-        song = Song.fromMap(Map<String, dynamic>.from(songData));
-      }
-      bool hasLocalFile = false;
-      if (song != null) {
-        final localCopy = resolveLocalDownloadedCopy(song);
-        if (localCopy != null) {
-          song = localCopy;
-          hasLocalFile = true;
-        } else {
-          final directStreamUrl = rawStreamUrl != null ? _optimizeStreamUrlForNetwork(rawStreamUrl) : null;
-          if (directStreamUrl != null && directStreamUrl.isNotEmpty) {
-            song.streamUrl = directStreamUrl;
-            DefaultStreamResolver.cacheStream(song.id, directStreamUrl);
-          }
-        }
-      }
+  static Future<void> _handleRemotePrepare(Map<String, dynamic> payload) =>
+      _handleRemotePrepareImpl(payload);
 
-      final positionMs = (payload['positionMs'] as num?)?.toInt() ?? 0;
-      final currentSong = audioHandler.currentSong;
-      final bool isSameSong = (song != null && currentSong?.id == song.id) ||
-                              (songId != null && currentSong?.id == songId);
+  static Future<void> _handleRemotePlay(Map<String, dynamic> payload) =>
+      _handleRemotePlayImpl(payload);
 
-      if (!isSameSong && song != null) {
-        _isSyncLoading = true;
-        syncStatusDescription.value = hasLocalFile
-            ? 'Ready (local file): "${song.title}"'
-            : 'Preparing "${song.title}"...';
-        try {
-          final rawQueue = payload['queue'] as List<dynamic>?;
-          List<Song>? queue;
-          if (rawQueue != null && rawQueue.isNotEmpty) {
-            queue = rawQueue.map((item) => Song.fromMap(Map<String, dynamic>.from(item as Map))).toList();
-          }
-          await audioHandler.playSong(
-            song,
-            queue: queue ?? [song],
-            preserveUserQueue: false,
-            isPartySyncInternal: true,
-            autoPlay: false,
-          );
-          if (!hasLocalFile) {
-            _prewarmUpcomingTracks(rawQueue, currentIndex: (payload['currentIndex'] as num?)?.toInt() ?? 0);
-          }
-        } finally {
-          _isSyncLoading = false;
-        }
-      }
+  static void _handleRemotePause(Map<String, dynamic> payload) =>
+      _handleRemotePauseImpl(payload);
 
-      await audioHandler.pause(isPartyDriven: true);
-      if (positionMs > 0) {
-        await audioHandler.seek(Duration(milliseconds: positionMs), isPartyDriven: true);
-      } else {
-        await audioHandler.seek(Duration.zero, isPartyDriven: true);
-      }
-
-      // Send peer_ready ACK to host over LAN and cloud
-      final ackPayload = {
-        'peerId': _clientId,
-        'cmdId': payload['cmdId'],
-        'songId': songId ?? song?.id,
-        'hasLocalFile': hasLocalFile,
-        'token': _sessionSecret,
-      };
-      PartyLanAccelerator.sendDirect('peer_ready', ackPayload);
-      _partyChannel?.sendBroadcastMessage(
-        event: 'peer_ready',
-        payload: ackPayload,
-      );
-      syncStatusDescription.value = hasLocalFile ? 'Ready (local file)' : 'Ready (waiting for host)';
-    } catch (e) {
-      debugPrint('[PartySyncCoordinator] handleRemotePrepare error: $e');
-    }
-  }
-
-  /// Joiner: Handles remote scheduled play from host
-  static Future<void> _handleRemotePlay(Map<String, dynamic> payload) async {
-    _cancelPendingScheduledOperations();
-
-    try {
-      final songData = payload['song'] as Map<dynamic, dynamic>?;
-      final songId = payload['songId']?.toString();
-      final rawStreamUrl = payload['streamUrl']?.toString() ??
-          (songData != null ? songData['streamUrl']?.toString() : null);
-      final directStreamUrl = rawStreamUrl != null ? _optimizeStreamUrlForNetwork(rawStreamUrl) : null;
-      Song? song;
-      if (songData != null) {
-        song = Song.fromMap(Map<String, dynamic>.from(songData));
-      }
-      if (song != null && directStreamUrl != null && directStreamUrl.isNotEmpty) {
-        song.streamUrl = directStreamUrl;
-        DefaultStreamResolver.cacheStream(song.id, directStreamUrl);
-      }
-
-      final positionMs = (payload['positionMs'] as num?)?.toInt() ?? 0;
-      final startAtEpochMs = (payload['startAtEpochMs'] as num?)?.toInt() ?? 0;
-      final refHostEpoch = (payload['referenceHostEpochMs'] as num?)?.toInt() ?? startAtEpochMs;
-      final refHostPos = (payload['referencePositionMs'] as num?)?.toInt() ?? positionMs;
-      final isHostPlaying = payload['isPlaying'] != false;
-
-      final currentSong = audioHandler.currentSong;
-      final bool isSameSong = (song != null && currentSong?.id == song.id) ||
-                              (songId != null && currentSong?.id == songId);
-
-      if (!isSameSong && song != null) {
-        _isSyncLoading = true;
-        syncStatusDescription.value = 'Syncing "${song.title}"...';
-        try {
-          final rawQueue = payload['queue'] as List<dynamic>?;
-          List<Song>? queue;
-          if (rawQueue != null && rawQueue.isNotEmpty) {
-            queue = rawQueue.map((item) => Song.fromMap(Map<String, dynamic>.from(item as Map))).toList();
-          }
-          await audioHandler.playSong(
-            song,
-            queue: queue ?? [song],
-            preserveUserQueue: false,
-            isPartySyncInternal: true,
-            autoPlay: false,
-          );
-          _prewarmUpcomingTracks(rawQueue, currentIndex: (payload['currentIndex'] as num?)?.toInt() ?? 0);
-        } finally {
-          _isSyncLoading = false;
-        }
-      }
-
-      // Accurate Timer Arming: pause and pre-position FIRST
-      await audioHandler.pause(isPartyDriven: true);
-      if (positionMs > 0) {
-        await audioHandler.seek(Duration(milliseconds: positionMs), isPartyDriven: true);
-      } else {
-        await audioHandler.seek(Duration.zero, isPartyDriven: true);
-      }
-
-      final hardwareLatencyMs = SettingsManager.hardwareAudioLatencyMs;
-      final bluetoothDelayMs = _effectiveBluetoothDelayMs;
-      final latencyOffsetMs = bluetoothDelayMs + hardwareLatencyMs;
-
-      final nowLocal = DateTime.now().millisecondsSinceEpoch;
-      final estimatedHostTimeMs = nowLocal + clockOffsetMs;
-      final remainingDelayMs = startAtEpochMs - estimatedHostTimeMs - latencyOffsetMs;
-
-      if (remainingDelayMs > 15) {
-        // Scheduled barrier is genuinely in the future: hold until remainingDelayMs
-        _pendingScheduledPlayTimer?.cancel();
-        _pendingScheduledPlayTimer = Timer(Duration(milliseconds: remainingDelayMs), () {
-          if (role != PartyRole.joiner) return;
-          audioHandler.play().catchError((e) {
-            AppLogger.debug('PartySyncCoordinator', 'Joiner play error: $e');
-          });
-          syncStatusDescription.value = 'In Sync';
-        });
-      } else {
-        // Immediate start anchored to referenceHostEpochMs and referencePositionMs with latency compensation
-        final targetPosMs = ScheduledPlaybackCalculator.calculateExpectedPositionMs(
-          referenceHostEpochMs: refHostEpoch,
-          referenceTrackPositionMs: refHostPos,
-          currentLocalEpochMs: nowLocal,
-          clockOffsetMs: clockOffsetMs,
-          bluetoothDelayMs: bluetoothDelayMs,
-          hardwareLatencyMs: hardwareLatencyMs,
-          isPlaying: isHostPlaying,
-        );
-
-        if (targetPosMs > 0) {
-          await audioHandler.seek(Duration(milliseconds: targetPosMs), isPartyDriven: true);
-        }
-        if (isHostPlaying) {
-          audioHandler.play().catchError((e) {
-            AppLogger.debug('PartySyncCoordinator', 'Joiner immediate play error: $e');
-          });
-        } else {
-          await audioHandler.pause(isPartyDriven: true);
-        }
-        syncStatusDescription.value = 'In Sync';
-      }
-    } catch (e) {
-      debugPrint('[PartySyncCoordinator] handleRemotePlay error: $e');
-    }
-  }
-
-  /// Joiner: Handles remote pause from host
-  static void _handleRemotePause(Map<String, dynamic> payload) {
-    _cancelPendingScheduledOperations();
-    final posMs = (payload['positionMs'] as num?)?.toInt();
-    audioHandler.pause(isPartyDriven: true);
-    if (posMs != null && posMs > 0) {
-      audioHandler.seek(Duration(milliseconds: posMs), isPartyDriven: true);
-    }
-    syncStatusDescription.value = 'Host Paused';
-  }
-
-  /// Joiner: Handles remote seek from host
-  static Future<void> _handleRemoteSeek(Map<String, dynamic> payload) async {
-    _cancelPendingScheduledOperations();
-    final posMs = (payload['positionMs'] as num?)?.toInt() ?? 0;
-    final startAtEpochMs = (payload['startAtEpochMs'] as num?)?.toInt();
-    if (startAtEpochMs != null) {
-      // Accurate Timer Arming: pause and seek FIRST
-      await audioHandler.pause(isPartyDriven: true);
-      await audioHandler.seek(Duration(milliseconds: posMs), isPartyDriven: true);
-
-      final hardwareLatencyMs = SettingsManager.hardwareAudioLatencyMs;
-      final bluetoothDelayMs = _effectiveBluetoothDelayMs;
-      final latencyOffsetMs = bluetoothDelayMs + hardwareLatencyMs;
-
-      final nowLocal = DateTime.now().millisecondsSinceEpoch;
-      final estHostTime = nowLocal + clockOffsetMs;
-      final remainingDelayMs = startAtEpochMs - estHostTime - latencyOffsetMs;
-
-      if (remainingDelayMs > 15) {
-        _pendingSeekTimer = Timer(Duration(milliseconds: remainingDelayMs), () {
-          if (role != PartyRole.joiner) return;
-          audioHandler.play().catchError((_) => null);
-        });
-        return;
-      }
-      audioHandler.play().catchError((_) => null);
-      return;
-    }
-    await audioHandler.seek(Duration(milliseconds: posMs), isPartyDriven: true);
-  }
+  static Future<void> _handleRemoteSeek(Map<String, dynamic> payload) =>
+      _handleRemoteSeekImpl(payload);
 
   /// Joiner: Mirrors host queue in local AudioQueueHandler for gapless consecutive song transitions
   static Future<void> _handleRemoteQueue(Map<String, dynamic> payload) async {

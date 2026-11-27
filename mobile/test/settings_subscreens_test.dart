@@ -66,8 +66,7 @@ void main() {
       expect(find.text('Standard Quality (160 kbps)'), findsOneWidget);
       expect(find.text('High Fidelity (320 kbps)'), findsOneWidget);
       expect(find.text('ReplayGain Loudness Match'), findsOneWidget);
-      expect(find.text('Same-Language Lock'), findsOneWidget);
-      expect(find.text('Unified Smart Radio'), findsOneWidget);
+      expect(find.text('Autoplay Similar Tracks'), findsOneWidget);
 
       // Select 160kbps
       await tester.tap(find.text('Standard Quality (160 kbps)'));

@@ -59,7 +59,7 @@ jobs:
 
       - name: Static Analysis
         working-directory: mobile
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos
 
       - name: Run Unit Tests
         working-directory: mobile

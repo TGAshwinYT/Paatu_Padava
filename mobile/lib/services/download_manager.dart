@@ -541,11 +541,14 @@ class DownloadManager {
             if (total > 0) expectedTotalBytes = total;
             if (total > 0 && !cancelToken.isCancelled) {
               final p = received / total;
-              activeDownloads.value = {
-                ...activeDownloads.value,
-                song.id: p,
-              };
-              onProgress?.call(p);
+              final prev = activeDownloads.value[song.id] ?? -1.0;
+              if (p >= 1.0 || (p - prev).abs() >= 0.02) {
+                activeDownloads.value = {
+                  ...activeDownloads.value,
+                  song.id: p,
+                };
+                onProgress?.call(p);
+              }
             }
           },
         ),

@@ -397,22 +397,8 @@ class PartySyncCoordinator {
   }
 
   /// Pre-resolves audio stream URLs for upcoming tracks to eliminate track skip latency
-  static void _prewarmUpcomingTracks(List<dynamic>? rawQueue, {int currentIndex = 0}) {
-    if (rawQueue == null || rawQueue.isEmpty) return;
-    try {
-      final upcoming = rawQueue
-          .skip(currentIndex + 1)
-          .take(3)
-          .whereType<Map>()
-          .map((m) => Song.fromMap(Map<String, dynamic>.from(m)))
-          .toList();
-      if (upcoming.isNotEmpty) {
-        DefaultStreamResolver.prewarmSongs(upcoming);
-      }
-    } catch (e) {
-      AppLogger.debug('PartySyncCoordinator', 'Handled exception: $e');
-    }
-  }
+  static void _prewarmUpcomingTracks(List<dynamic>? rawQueue, {int currentIndex = 0}) =>
+      _prewarmUpcomingTracksImpl(rawQueue, currentIndex: currentIndex);
 
   /// Joiner: Analyzes drift on heartbeat and performs micro-rate adjustments or hard-seek
   static void _handleHeartbeatReconciliation(Map<String, dynamic> payload) async {
@@ -559,46 +545,8 @@ class PartySyncCoordinator {
     final deadband = DriftReconciler.calculateAdaptiveDeadband(rttMs: rtt, isLan: isLan);
     final microMax = DriftReconciler.calculateAdaptiveMicroAdjustMax(rttMs: rtt, isLan: isLan);
 
-    final action = DriftReconciler.reconcileDrift(
-      currentPositionMs: currentPos,
-      expectedPositionMs: expectedPos,
-      deadbandMs: deadband,
-      microAdjustMaxMs: microMax,
-      wasInSync: syncStatusDescription.value.startsWith('In Sync'),
-    );
-
-    if (action.isHardSeek && action.seekTargetMs != null) {
-      final nowMs = DateTime.now().millisecondsSinceEpoch;
-      if (nowMs - _lastHardSeekEpochMs < 8000) {
-        // Anti-thrashing cooldown: do not hard seek repeatedly within 8 seconds!
-        final speed = action.driftMs > 0 ? 0.96 : 1.04;
-        audioHandler.setSpeed(speed);
-        syncStatusDescription.value = 'Stabilizing buffer (${speed}x)';
-        return;
-      }
-      _lastHardSeekEpochMs = nowMs;
-
-      debugPrint('[PartySyncCoordinator] Macro-drift hard seek of ${drift}ms to ${action.seekTargetMs}ms');
-      final priorVolume = audioHandler.player.volume;
-      // Macro-drift: Mute audio output, execute hard seek, un-mute, and resume
-      audioHandler.player.setVolume(0.0).then((_) async {
-        try {
-          await audioHandler.seek(Duration(milliseconds: action.seekTargetMs!), isPartyDriven: true);
-          audioHandler.setSpeed(1.0);
-          syncStatusDescription.value = 'In Sync';
-        } finally {
-          await audioHandler.player.setVolume(priorVolume);
-        }
-      });
-    } else if (action.isMicroAdjusting) {
-      audioHandler.setSpeed(action.playbackSpeed);
-      final pct = ((action.playbackSpeed - 1.0) * 100).toStringAsFixed(1);
-      syncStatusDescription.value = action.playbackSpeed > 1.0 ? 'Catching up (+$pct%)' : 'Slowing down ($pct%)';
-    } else {
-      audioHandler.setSpeed(1.0);
-      syncStatusDescription.value = 'In Sync (|drift| < ${deadband}ms)';
-    }
-  }
+  static void _handleHeartbeatReconciliation(Map<String, dynamic> payload) =>
+      _handleHeartbeatReconciliationImpl(payload);
 
   /// Leaves or terminates the party session
   static Future<void> leaveParty() => _leavePartyImpl();

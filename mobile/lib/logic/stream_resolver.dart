@@ -140,6 +140,7 @@ class DefaultStreamResolver implements StreamResolver {
 
   /// Caches a resolved stream URL with O(1) LRU insertion and a 3-hour TTL
   static void cacheStream(String songId, String url, {Duration ttl = cacheTtl, String source = 'unknown'}) {
+    _streamTraces[songId] = 'cached:$source';
     _invalidatedSongIds.remove(songId);
     _streamCache.put(
       songId,
@@ -149,6 +150,13 @@ class DefaultStreamResolver implements StreamResolver {
   }
 
   /// Retrieves an unexpired cached stream URL in O(1) time, or null if expired/absent
+  static final Map<String, String> _streamTraces = <String, String>{};
+  static String? getLastTrace(String songId) => _streamTraces[songId];
+  static void recordTrace(String songId, String trace) {
+    _streamTraces[songId] = trace;
+    AppLogger.log('StreamTrace', '[$songId] $trace');
+  }
+
   static String? getCachedStream(String songId) {
     if (_invalidatedSongIds.contains(songId)) return null;
     final entry = _streamCache.get(songId);

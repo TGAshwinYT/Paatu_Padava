@@ -191,6 +191,45 @@ extension QueueLoaderExt on AudioQueueHandler {
         onQueueProgress?.call(currentIndex, queue.length);
         _schedulePreload();
       } catch (e, stack) {
+        final errStr = e.toString();
+        if ((errStr.contains('Connection aborted') || errStr.contains('403')) &&
+            token == _sessionToken) {
+          DefaultStreamResolver.recordTrace(activeSong.id, 'setAudioSource failed ($errStr) -> invalidating & re-resolving');
+          activeSong.streamUrl = null;
+          streamResolver.invalidate(activeSong.id);
+          DefaultStreamResolver.invalidateStream(activeSong.id);
+          YouTubeClient.invalidateStream(activeSong.id);
+          await Future.delayed(const Duration(milliseconds: 250));
+          if (token == _sessionToken) {
+            try {
+              final freshSrc = await _buildAudioSource(activeSong, allowNetworkResolve: true);
+              if (freshSrc != null && token == _sessionToken) {
+                _playlistSource = ConcatenatingAudioSource(
+                  children: [freshSrc],
+                  useLazyPreparation: true,
+                );
+                await player.setAudioSource(
+                  _playlistSource,
+                  initialIndex: 0,
+                  initialPosition: Duration.zero,
+                );
+                if (token == _sessionToken && autoPlay) {
+                  await _ensureAudioSessionActive();
+                  player.play().catchError((err, st) {
+                    AppLogger.recordError(err, st, context: 'player.play retry in loadQueue');
+                  });
+                }
+                return;
+              }
+            } catch (retryErr, retryStack) {
+              DefaultStreamResolver.recordTrace(activeSong.id, 're-resolve retry failed: $retryErr');
+              AppLogger.recordError(retryErr, retryStack, context: 'AudioQueueHandler.loadQueue setAudioSource retry');
+              await handlePlaybackError(retryErr, retryStack, context: 'loadQueue');
+              return;
+            }
+          }
+        }
+        DefaultStreamResolver.recordTrace(activeSong.id, 'setAudioSource fatal: $e');
         AppLogger.recordError(e, stack, context: 'AudioQueueHandler.loadQueue setAudioSource');
         await handlePlaybackError(e, stack, context: 'loadQueue');
       }

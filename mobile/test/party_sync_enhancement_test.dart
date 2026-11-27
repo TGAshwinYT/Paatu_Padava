@@ -4,16 +4,16 @@ import 'package:paatu_padava_mobile/logic/party_sync_engine.dart';
 void main() {
   group('PartySync Adaptive Deadband & Micro-Adjust Calculations', () {
     test('calculateAdaptiveDeadband scales dynamically with RTT on LAN and WAN', () {
-      // 1. LAN mode tests (25ms window for crisp acoustic alignment)
+      // 1. LAN mode tests (40ms window for crisp acoustic alignment)
       final lanFast = DriftReconciler.calculateAdaptiveDeadband(rttMs: 4, isLan: true);
-      expect(lanFast, equals(25));
+      expect(lanFast, equals(40));
 
       final lanHighRtt = DriftReconciler.calculateAdaptiveDeadband(rttMs: 120, isLan: true);
-      expect(lanHighRtt, equals(25));
+      expect(lanHighRtt, equals(40));
 
-      // 2. WAN / Cellular mode tests (35ms floor up to 110ms ceiling based on 40% of RTT)
+      // 2. WAN / Cellular mode tests (60ms floor up to 110ms ceiling based on 40% of RTT)
       final wanFast = DriftReconciler.calculateAdaptiveDeadband(rttMs: 40, isLan: false);
-      expect(wanFast, equals(35)); // 40 * 0.4 = 16 -> floored to 35ms
+      expect(wanFast, equals(60)); // 40 * 0.4 = 16 -> floored to 60ms
 
       final wanMedium = DriftReconciler.calculateAdaptiveDeadband(rttMs: 150, isLan: false);
       expect(wanMedium, equals(60)); // 150 * 0.4 = 60ms

@@ -151,7 +151,7 @@ class PlaybackTransitionsCard extends StatelessWidget {
                             ),
                             selected: isSelected,
                             selectedColor: AppColors.neonViolet,
-                            backgroundColor: AppColors.surfaceDarkElevated,
+                            backgroundColor: AppColors.surfaceElevated,
                             showCheckmark: false,
                             onSelected: (_) => SettingsManager.setTransitionPhraseBeats(b),
                           ),

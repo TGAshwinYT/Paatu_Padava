@@ -4,7 +4,47 @@ Welcome to the comprehensive release notes for **Paatu Padava Mobile**. This doc
 
 ---
 
-## 🚀 v2.5.0 (Latest Release — Build 7)
+## 🚀 v3.0.0 (Latest Release — Build 8)
+
+This major release delivers **Stereo L/R Earbud Balance & Bluetooth Audio Hardening**, fixes **Search Single-Song Autoplay EOF Stalls**, overhauls **PartySync Multi-Song Queue Lockstep & Anti-Jitter Smoothing**, and introduces **Same-Language Lock + Next-Song Mode Selector** (Mix, Composer, Familiar, Discover, and AI Engine picker).
+
+### ✨ Highlights & New Features (v3.0.0+8)
+
+#### 🎧 Stereo L/R Earbud Balance & Bluetooth Audio Hardening
+* **Per-Earbud Stereo L/R Balance**:
+  * Hardware-accelerated left/right channel gain balancing via Android `DynamicsProcessing` (`setInputGainByChannelIndex`) and iOS `AVAudioSession` routing.
+  * Ideal for asymmetric earbuds so both ears stay comfortable at the same master volume.
+* **Cross-Brand Bluetooth Routing & Disconnect Fix**:
+  * Hardened Bluetooth A2DP routing across Samsung, Pixel, Xiaomi/OnePlus, and iOS.
+  * Fixed the in-app Bluetooth disconnect button so disconnecting routes audio cleanly back to the phone speaker.
+
+#### 🔍 Search Autoplay EOF Fix
+* **Zero-Stall End-of-Track Transitions**:
+  * Eliminated the `_isTransitioning` deadlock between `AudioQueueHandler.skipToNext` and `handleAutoplayQueueEnd`.
+  * Added `_inFlightPrefetchFuture` coordination, `RadioEngine.buildSongRadio` seed deduplication, and a resilient `SaavnClient.search` → `YouTubeClient.search` → local fallback cascade.
+
+#### 🎉 PartySync Multi-Song Queue & Anti-Jitter Smoothing
+* **Full-Queue Lockstep Playback**:
+  * Fixed `isPartyDrivenLoad` reset and gated `_playlistSource` to a single active track during PartySync so Host and Joiner advance cleanly through the entire queue.
+  * Added `sync_prepare_next` lookahead pre-warming (`350ms` fast barrier) and non-disruptive `updateContextQueuePreservingCurrent`.
+* **Ultra-Smooth Drift Reconciliation**:
+  * Implemented `PaatuAudioHandler.setSpeed` and `DriftSmoother` (3-sample median + 2-sample gate, `40ms` LAN / `60ms` Cloud deadbands, `+15ms` hysteresis) to eliminate micro-stutter.
+
+#### 🌐 Same-Language Lock & Next-Song Mode Selector
+* **Same-Language Lock (including English)**:
+  * New on-device `LanguageDetector` with Indic script detection, multi-language artist indexing, and Latin-script English inference keeps autoplay and radio in the active song's language.
+* **Persistent Next-Song Preferences**:
+  * New `NextSongPreferencesCard` in **Audio Quality & Streaming** settings for **Same-Language Lock**, **Next Song Mode** (`Mix`, `Composer`, `Familiar`, `Discover`), and **AI Matching Engine** (`Unified Smart Radio`, `Spotify Style`, `YT Music Style`, `Markov-Cosine`).
+
+#### 💾 Offline & Architecture Improvements
+* **Download Deduplication & Cleanup**:
+  * Deduplicates re-imported tracks and adds optional playlist download cleanup.
+* **Modular Codebase**:
+  * Refactored monoliths into focused extensions (`settings_manager_eq_ext.dart`, `player_party_ext.dart`, `party_drift_controller.dart`, `playback_transitions_card.dart`).
+
+---
+
+## v2.5.0 (Build 7)
 
 This milestone release introduces **Search Result Single-Track Isolation**, a major **Queue Management Overhaul** (swipe-to-dismiss & "Save Queue as Playlist"), an **Android Doze-Proof Wall-Clock Sleep Timer Engine**, **Persistent Background Audio Foreground Services**, and **Direct Appetize.io Simulator Support**.
 

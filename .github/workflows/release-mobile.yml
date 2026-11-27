@@ -195,3 +195,48 @@ jobs:
           generate_release_notes: true
           files: |
             release-assets/*
+
+  ios_release:
+    name: Build & Attach iOS Release
+    needs: release
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Determine Version Tag
+        id: version_step
+        run: |
+          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            TAG="${{ github.event.inputs.tag_name }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "VERSION=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Dependencies
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Build Unsigned iOS IPA
+        working-directory: mobile
+        run: |
+          flutter build ios --release --no-codesign \
+            --dart-define=SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
+            --dart-define=SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
+          mkdir -p Payload
+          cp -r build/ios/iphoneos/Runner.app Payload/
+          zip -r "../Paatu-Padava-${{ steps.version_step.outputs.VERSION }}-ios-unsigned.ipa" Payload
+
+      - name: Attach iOS IPA to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version_step.outputs.VERSION }}
+          files: |
+            Paatu-Padava-${{ steps.version_step.outputs.VERSION }}-ios-unsigned.ipa

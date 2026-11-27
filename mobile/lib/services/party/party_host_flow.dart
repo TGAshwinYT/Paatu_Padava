@@ -194,27 +194,7 @@ Future<String?> _startPartyImpl({String? pin}) async {
     }
 
     if (PartySyncCoordinator.role != PartyRole.host) return;
-    final curSong = audioHandler.currentSong;
-    final isPlaying = audioHandler.playbackState.value.playing;
-    final posMs = audioHandler.player.position.inMilliseconds;
-    final nowMs = now.millisecondsSinceEpoch;
-    final seq = ++PartySyncCoordinator._currentHostSeq;
-
-    final heartbeatPayload = {
-      'seq': seq,
-      'token': PartySyncCoordinator._sessionSecret,
-      'songId': curSong?.id,
-      'positionMs': posMs,
-      'referenceHostEpochMs': nowMs,
-      'referencePositionMs': posMs,
-      'isPlaying': isPlaying,
-    };
-
-    PartySyncCoordinator._partyChannel?.sendBroadcastMessage(
-      event: 'sync_heartbeat',
-      payload: heartbeatPayload,
-    );
-    PartyLanAccelerator.sendSyncEvent('sync_heartbeat', heartbeatPayload);
+    PartySyncCoordinator._broadcastCurrentState();
   });
 
   return code;
@@ -289,6 +269,11 @@ Future<void> _leavePartyImpl() async {
   PartySyncCoordinator._pendingPrepareCmdId = null;
   PartySyncCoordinator._lastProcessedSeq = 0;
   PartySyncCoordinator._currentHostSeq = 0;
+  _lookaheadAckedSongIds.clear();
+  _lookaheadPreparedIds.clear();
+  _lastAppliedSpeed = 1.0;
+  _lastScheduledPlayActualEpochMs = 0;
+  _driftSmoother.reset();
 }
 
 String _optimizeStreamUrlForNetworkImpl(String url) {
@@ -309,6 +294,13 @@ void _handlePeerReadyImpl(Map<String, dynamic> payload) {
   if (peerId != null && PartySyncCoordinator._knownPeers.containsKey(peerId)) {
     PartySyncCoordinator._knownPeers[peerId] =
         PartySyncCoordinator._knownPeers[peerId]!.copyWith(lastSeen: DateTime.now());
+  }
+  if (payload['lookahead'] == true) {
+    final lookaheadSongId = payload['songId']?.toString();
+    if (lookaheadSongId != null && lookaheadSongId.isNotEmpty) {
+      _lookaheadAckedSongIds.add(lookaheadSongId);
+    }
+    return;
   }
   if (PartySyncCoordinator._pendingPrepareCmdId != null &&
       cmdId == PartySyncCoordinator._pendingPrepareCmdId) {

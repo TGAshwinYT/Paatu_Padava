@@ -25,6 +25,7 @@ abstract class NextTrackStrategy {
     required List<Song> queue,
     required List<Song> history,
     int count = 20,
+    bool allowLocalFallback = true,
   });
 
   /// Invalidate and branch the recommendation graph when a track is skipped
@@ -273,6 +274,7 @@ class SpotifyStyleStrategy implements NextTrackStrategy {
     required List<Song> queue,
     required List<Song> history,
     int count = 20,
+    bool allowLocalFallback = true,
   }) async {
     try {
       // 1. Session Context Anchoring:
@@ -589,6 +591,7 @@ class YtMusicStyleStrategy implements NextTrackStrategy {
     required List<Song> queue,
     required List<Song> history,
     int count = 20,
+    bool allowLocalFallback = true,
   }) async {
     try {
       if (_sessionAnchorSong == null) {
@@ -805,6 +808,7 @@ class UnifiedSmartRadioStrategy implements NextTrackStrategy {
     required List<Song> queue,
     required List<Song> history,
     int count = 20,
+    bool allowLocalFallback = true,
   }) async {
     try {
       if (_sessionAnchorTrack == null) {
@@ -852,7 +856,7 @@ class UnifiedSmartRadioStrategy implements NextTrackStrategy {
           limit: 10,
           excludedArtists: _skippedArtists.toSet(),
           excludedKeys: _skippedTrackKeys,
-        ).timeout(const Duration(milliseconds: 1500), onTimeout: () => <Song>[]),
+        ).timeout(const Duration(milliseconds: 3500), onTimeout: () => <Song>[]),
       ];
 
       final List<Future<List<Song>>> currentFutures = (seedSong.id != anchorSong.id)
@@ -866,7 +870,7 @@ class UnifiedSmartRadioStrategy implements NextTrackStrategy {
                 limit: 10,
                 excludedArtists: _skippedArtists.toSet(),
                 excludedKeys: _skippedTrackKeys,
-              ).timeout(const Duration(milliseconds: 1500), onTimeout: () => <Song>[]),
+              ).timeout(const Duration(milliseconds: 3500), onTimeout: () => <Song>[]),
             ]
           : [];
 

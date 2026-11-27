@@ -1,5 +1,46 @@
 part of '../party_sync_coordinator.dart';
 
+Future<void> _handleRemotePrepareNextImpl(Map<String, dynamic> payload) async {
+  try {
+    final songData = payload['song'] as Map<dynamic, dynamic>?;
+    final songId = payload['songId']?.toString();
+    if (songData == null && songId == null) return;
+    final song = songData != null
+        ? Song.fromMap(Map<String, dynamic>.from(songData))
+        : null;
+    if (song == null) return;
+
+    final localCopy = PartySyncCoordinator.resolveLocalDownloadedCopy(song);
+    if (localCopy == null) {
+      final rawUrl = payload['streamUrl']?.toString() ?? song.streamUrl;
+      final directUrl = rawUrl != null && rawUrl.isNotEmpty
+          ? PartySyncCoordinator._optimizeStreamUrlForNetwork(rawUrl)
+          : null;
+      if (directUrl != null && directUrl.isNotEmpty) {
+        DefaultStreamResolver.cacheStream(song.id, directUrl);
+      } else {
+        await DefaultStreamResolver.prewarmSongs([song]);
+      }
+    }
+
+    _lookaheadPreparedIds.add(song.id);
+    final ackPayload = {
+      'peerId': PartySyncCoordinator._clientId,
+      'cmdId': payload['cmdId'],
+      'songId': song.id,
+      'lookahead': true,
+      'token': PartySyncCoordinator._sessionSecret,
+    };
+    PartyLanAccelerator.sendDirect('peer_ready', ackPayload);
+    PartySyncCoordinator._partyChannel?.sendBroadcastMessage(
+      event: 'peer_ready',
+      payload: ackPayload,
+    );
+  } catch (e) {
+    debugPrint('[PartySyncCoordinator] handleRemotePrepareNext error: $e');
+  }
+}
+
 Future<void> _handleRemotePrepareImpl(Map<String, dynamic> payload) async {
   PartySyncCoordinator._cancelPendingScheduledOperations();
   try {

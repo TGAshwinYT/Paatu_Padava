@@ -1,5 +1,6 @@
 import 'dart:math';
 import '../core/dsa/bloom_filter.dart';
+import '../logic/language_detector.dart';
 import '../logic/markov_cosine_radio_strategy.dart';
 import '../logic/next_track_strategy.dart';
 import '../logic/track_quality_filter.dart';
@@ -16,6 +17,7 @@ import 'youtube_client.dart';
 import 'catalog_database.dart';
 
 class RadioEngine {
+  static Set<String> get knownMusicDirectors => _knownMusicDirectors;
   static final Set<String> _knownMusicDirectors = {
     'a r rahman',
     'ar rahman',
@@ -321,9 +323,8 @@ class RadioEngine {
 
       // 4. Target language lockdown
       if (targetLang != null && targetLang.isNotEmpty) {
-        if (c.language != null && c.language!.isNotEmpty) {
-          final cLang = c.language!.toLowerCase().trim();
-          if (cLang != targetLang) continue;
+        if (!LanguageDetector.isLanguageCompatible(c, targetLang)) {
+          continue;
         }
       }
 

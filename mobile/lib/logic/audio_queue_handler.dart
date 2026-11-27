@@ -85,6 +85,7 @@ class AudioQueueHandler {
   String? _lastCompletedTrackId;
   bool _isAdvancing = false;
   bool _isTransitioning = false;
+  bool _isHandlingCompleted = false;
 
   // Active track state
   TrackEntity? _currentTrack;
@@ -154,10 +155,12 @@ class AudioQueueHandler {
   bool _isRecovering = false;
   bool _hasTriggered25PctRecs = false;
   bool _hasTriggered70PctPrecache = false;
+  bool _hasSentPartyLookahead = false;
 
   void _resetTrackMilestones() {
     _hasTriggered25PctRecs = false;
     _hasTriggered70PctPrecache = false;
+    _hasSentPartyLookahead = false;
   }
   bool _wasStalledByNetwork = false;
   Duration _networkStallOffset = Duration.zero;
@@ -378,8 +381,8 @@ class AudioQueueHandler {
   // ================= Track Navigation & Consumption ================= //
 
   /// Skip to next track: consumes _userQueue first, then advances _contextQueue
-  Future<void> skipToNext({bool isUserInitiated = true}) =>
-      _skipToNextImpl(isUserInitiated: isUserInitiated);
+  Future<void> skipToNext({bool isUserInitiated = true, bool bypassTransitionLock = false}) =>
+      _skipToNextImpl(isUserInitiated: isUserInitiated, bypassTransitionLock: bypassTransitionLock);
 
   /// Skip to previous track in playback history or context sequence
   Future<void> skipToPrevious() => _skipToPreviousImpl();
@@ -414,8 +417,11 @@ class AudioQueueHandler {
 
   // ================= Auto-Suggestions & Recommendations ================= //
 
-  Future<void> addAutoSuggestions(List<dynamic> tracks) =>
-      _addAutoSuggestionsImpl(tracks);
+  Future<void> addAutoSuggestions(List<dynamic> tracks, {bool autoAdvanceIfCompleted = false}) =>
+      _addAutoSuggestionsImpl(tracks, autoAdvanceIfCompleted: autoAdvanceIfCompleted);
+
+  Future<void> updateContextQueuePreservingCurrent(List<dynamic> tracks, {required int currentIndex}) =>
+      _updateContextQueuePreservingCurrentImpl(tracks, currentIndex: currentIndex);
 
   /// Replaces upcoming auto-suggested context tracks while preserving manual user queue
   /// and original album tracks.

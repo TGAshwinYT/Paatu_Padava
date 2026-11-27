@@ -148,7 +148,7 @@ void main() {
     });
 
     test('Hysteresis deadband prevents hunting when previously in sync', () {
-      // Drift is 35ms (above normal 30ms deadband), but wasInSync = true allows deadband + 10ms (40ms)
+      // Drift is 35ms (above normal 30ms deadband), but wasInSync = true allows deadband + 15ms (45ms)
       final action = DriftReconciler.reconcileDrift(
         currentPositionMs: 15035,
         expectedPositionMs: 15000, // drift = +35ms
@@ -158,15 +158,52 @@ void main() {
       expect(action.type, equals(DriftActionType.inSync));
       expect(action.playbackSpeed, equals(1.0));
 
-      // Once drift exceeds 40ms, hysteresis allows transition to micro-adjust
+      // Once drift reaches/exceeds 45ms, hysteresis allows transition to micro-adjust
       final actionExceeded = DriftReconciler.reconcileDrift(
-        currentPositionMs: 15045,
-        expectedPositionMs: 15000, // drift = +45ms
+        currentPositionMs: 15050,
+        expectedPositionMs: 15000, // drift = +50ms
         deadbandMs: 30,
         wasInSync: true,
       );
       expect(actionExceeded.type, equals(DriftActionType.slowDown));
       expect(actionExceeded.playbackSpeed, equals(0.992));
+    });
+
+    test('Adaptive deadband uses 40ms LAN and 60ms Cloud floor', () {
+      expect(DriftReconciler.calculateAdaptiveDeadband(rttMs: 10, isLan: true), equals(40));
+      expect(DriftReconciler.calculateAdaptiveDeadband(rttMs: 50, isLan: false), equals(60));
+    });
+
+    test('DriftSmoother gates micro-adjust to 2 consecutive samples and hard-seeks immediately', () {
+      final smoother = DriftSmoother();
+      smoother.addSample(50);
+      final first = smoother.computeAction(
+        currentPositionMs: 15050,
+        expectedPositionMs: 15000,
+        deadbandMs: 40,
+        microAdjustMaxMs: 1000,
+        wasInSync: false,
+      );
+      expect(first.type, equals(DriftActionType.inSync));
+
+      smoother.addSample(55);
+      final second = smoother.computeAction(
+        currentPositionMs: 15055,
+        expectedPositionMs: 15000,
+        deadbandMs: 40,
+        microAdjustMaxMs: 1000,
+        wasInSync: false,
+      );
+      expect(second.isMicroAdjusting, isTrue);
+
+      final macro = smoother.computeAction(
+        currentPositionMs: 17000,
+        expectedPositionMs: 15000,
+        deadbandMs: 40,
+        microAdjustMaxMs: 1000,
+        wasInSync: false,
+      );
+      expect(macro.isHardSeek, isTrue);
     });
 
     test('Macro-drift (>= 1500ms) triggers seamless hard seek', () {

@@ -117,6 +117,7 @@ void main() {
         seedSong: seedSong,
         candidates: candidates,
         mode: QueueTunerMode.discover,
+        sameLanguageLock: false,
       );
 
       // familiarSong must be pruned completely

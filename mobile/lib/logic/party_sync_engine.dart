@@ -148,9 +148,9 @@ class DriftReconciler {
   /// On local Wi-Fi / Hotspot (LAN), keeps a crisp 25ms window for multi-speaker acoustic alignment.
   /// On cellular / cloud, scales with RTT (35ms floor up to 110ms ceiling) to absorb jitter and prevent pitch warble.
   static int calculateAdaptiveDeadband({required int rttMs, bool isLan = false}) {
-    if (isLan) return 25;
-    // Cellular / Cloud: 35ms floor up to 110ms ceiling based on 40% of RTT
-    return max(35, min(110, (rttMs * 0.4).round()));
+    if (isLan) return 40;
+    // Cellular / Cloud: 60ms floor up to 110ms ceiling based on 40% of RTT
+    return max(60, min(110, (rttMs * 0.4).round()));
   }
 
   /// Computes the micro-adjustment ceiling threshold before falling back to hard seek.
@@ -182,9 +182,9 @@ class DriftReconciler {
     final drift = currentPositionMs - expectedPositionMs;
     final absDrift = drift.abs();
 
-    // Hysteresis deadband: if previously in sync, allow slightly larger margin (deadband + 10ms)
+    // Hysteresis deadband: if previously in sync, allow slightly larger margin (deadband + 15ms)
     // before kicking out of inSync, preventing hunting/oscillation on boundary.
-    final effectiveDeadband = wasInSync ? (deadbandMs + 10) : deadbandMs;
+    final effectiveDeadband = wasInSync ? (deadbandMs + 15) : deadbandMs;
 
     if (absDrift < effectiveDeadband) {
       return DriftAction(
@@ -308,5 +308,76 @@ class ScheduledPlaybackCalculator {
     }
     final elapsedMs = estimatedHostTimeMs - startAtEpochMs;
     return max(0, positionMs + elapsedMs + bluetoothDelayMs + hardwareLatencyMs);
+  }
+}
+
+/// Sliding-window median smoother + 2-sample gate for micro-speed adjustments.
+class DriftSmoother {
+  final List<int> _samples = <int>[];
+  int _consecutiveOutOfDeadband = 0;
+
+  void addSample(int driftMs) {
+    _samples.add(driftMs);
+    if (_samples.length > 3) {
+      _samples.removeAt(0);
+    }
+  }
+
+  DriftAction computeAction({
+    required int currentPositionMs,
+    required int expectedPositionMs,
+    required int deadbandMs,
+    required int microAdjustMaxMs,
+    required bool wasInSync,
+  }) {
+    final rawDrift = currentPositionMs - expectedPositionMs;
+    if (rawDrift.abs() >= microAdjustMaxMs) {
+      return DriftReconciler.reconcileDrift(
+        currentPositionMs: currentPositionMs,
+        expectedPositionMs: expectedPositionMs,
+        deadbandMs: deadbandMs,
+        microAdjustMaxMs: microAdjustMaxMs,
+        seekLatencyMs: 80,
+        wasInSync: wasInSync,
+      );
+    }
+
+    int medianDrift = rawDrift;
+    if (_samples.isNotEmpty) {
+      final sorted = List<int>.from(_samples)..sort();
+      medianDrift = sorted[sorted.length ~/ 2];
+    }
+
+    final effectiveDeadband = wasInSync ? (deadbandMs + 15) : deadbandMs;
+    if (medianDrift.abs() < effectiveDeadband) {
+      _consecutiveOutOfDeadband = 0;
+      return DriftAction(
+        type: DriftActionType.inSync,
+        playbackSpeed: 1.0,
+        driftMs: medianDrift,
+      );
+    }
+
+    _consecutiveOutOfDeadband++;
+    if (_consecutiveOutOfDeadband < 2) {
+      return DriftAction(
+        type: DriftActionType.inSync,
+        playbackSpeed: 1.0,
+        driftMs: medianDrift,
+      );
+    }
+
+    return DriftReconciler.reconcileDrift(
+      currentPositionMs: expectedPositionMs + medianDrift,
+      expectedPositionMs: expectedPositionMs,
+      deadbandMs: deadbandMs,
+      microAdjustMaxMs: microAdjustMaxMs,
+      wasInSync: wasInSync,
+    );
+  }
+
+  void reset() {
+    _samples.clear();
+    _consecutiveOutOfDeadband = 0;
   }
 }

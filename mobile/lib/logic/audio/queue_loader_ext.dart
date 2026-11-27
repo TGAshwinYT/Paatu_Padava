@@ -8,9 +8,6 @@ extension QueueLoaderExt on AudioQueueHandler {
     bool isPartyDriven = false,
     bool preserveUserQueue = false,
   }) async {
-    if (isPartyDriven) {
-      isPartyDrivenLoad = true;
-    }
     if (tracks.isEmpty) {
       _isLoading = false;
       return;
@@ -33,6 +30,7 @@ extension QueueLoaderExt on AudioQueueHandler {
     final token = ++_sessionToken;
     _activeLoadSessionToken = token;
     _isLoading = true;
+    isPartyDrivenLoad = isPartyDriven;
 
     try {
       AppLogger.log('AudioQueueHandler', 'loadQueue: ${orderedTracks.length} tracks (rotated from initialIndex=$initialIndex), autoPlay=$autoPlay');
@@ -103,11 +101,13 @@ extension QueueLoaderExt on AudioQueueHandler {
 
       if (activeSrc != null) {
         sources.add(activeSrc);
-        final next = nextTrack;
-        if (next != null) {
-          final nextSrc = await _buildAudioSource(next.toSong(), allowNetworkResolve: true);
-          if (nextSrc != null && token == _sessionToken) {
-            sources.add(nextSrc);
+        if (!PartySyncCoordinator.isActive) {
+          final next = nextTrack;
+          if (next != null) {
+            final nextSrc = await _buildAudioSource(next.toSong(), allowNetworkResolve: true);
+            if (nextSrc != null && token == _sessionToken) {
+              sources.add(nextSrc);
+            }
           }
         }
       } else {
@@ -198,6 +198,7 @@ extension QueueLoaderExt on AudioQueueHandler {
       _isPreparing = false;
       if (_activeLoadSessionToken == token) {
         _isLoading = false;
+        isPartyDrivenLoad = false;
       }
     }
   }

@@ -62,6 +62,9 @@ Future<bool> _joinPartyImpl(String rawCode, {String? pin}) async {
       case 'sync_prepare':
         await PartySyncCoordinator._handleRemotePrepare(payload);
         break;
+      case 'sync_prepare_next':
+        await PartySyncCoordinator._handleRemotePrepareNext(payload);
+        break;
       case 'sync_play':
         await PartySyncCoordinator._handleRemotePlay(payload);
         break;
@@ -97,6 +100,15 @@ Future<bool> _joinPartyImpl(String rawCode, {String? pin}) async {
         if (!PartySyncCoordinator._isValidSessionPayload(payload)) return;
         if (!PartySyncCoordinator._shouldProcessEvent('sync_prepare', payload)) return;
         await PartySyncCoordinator._handleRemotePrepare(payload);
+      },
+    );
+
+    channel.onBroadcast(
+      event: 'sync_prepare_next',
+      callback: (payload) async {
+        if (!PartySyncCoordinator._isValidSessionPayload(payload)) return;
+        if (!PartySyncCoordinator._shouldProcessEvent('sync_prepare_next', payload)) return;
+        await PartySyncCoordinator._handleRemotePrepareNext(payload);
       },
     );
 

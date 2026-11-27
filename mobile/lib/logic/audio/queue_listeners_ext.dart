@@ -14,6 +14,7 @@ extension QueueListenersExt on AudioQueueHandler {
           activeSong = Song.fromMediaItem(tag);
         }
         if (activeSong != null && activeSong.id != currentSongNotifier.value?.id) {
+          if (PartySyncCoordinator.isActive) return;
           currentSongNotifier.value = activeSong;
           onSongChanged?.call(activeSong);
           onQueueProgress?.call(currentIndex, queue.length);
@@ -22,7 +23,7 @@ extension QueueListenersExt on AudioQueueHandler {
     });
 
     _currentIndexSub = player.currentIndexStream.listen((index) {
-      if (index == null || _isDisposed || _isTransitioning) return;
+      if (index == null || _isDisposed || _isTransitioning || PartySyncCoordinator.isActive) return;
       if (index > 0) {
         String? playingId;
         if (index < _playlistSource.length) {
@@ -71,6 +72,7 @@ extension QueueListenersExt on AudioQueueHandler {
 
           final remainingUpcoming = upcomingCount;
           if (remainingUpcoming <= 2 &&
+              !PartySyncCoordinator.isJoiner &&
               SettingsManager.isAutoplayEnabled &&
               !SleepTimerService.instance.isActive &&
               isAudioHandlerInitialized) {
@@ -89,6 +91,21 @@ extension QueueListenersExt on AudioQueueHandler {
           if (hasNext) {
             preloadUpcomingTracks();
           }
+        }
+      }
+
+      if (dur != null && dur.inSeconds > 4) {
+        final remainingSec = dur.inSeconds - pos.inSeconds;
+        if (remainingSec <= 10 &&
+            !_hasSentPartyLookahead &&
+            PartySyncCoordinator.isHost &&
+            nextTrack != null) {
+          _hasSentPartyLookahead = true;
+          PartySyncCoordinator.notifyHostLookaheadPrepare(
+            nextTrack!.toSong(),
+            queue: queue,
+            currentIndex: currentIndex + 1,
+          );
         }
       }
     });
@@ -145,80 +162,85 @@ extension QueueListenersExt on AudioQueueHandler {
       }
 
       if (state.processingState == ProcessingState.completed) {
-        if (_isAdvancing || _isTransitioning || (_currentTrack != null && _lastCompletedTrackId == _currentTrack!.id)) {
-          AppLogger.log('AudioQueueHandler', 'ProcessingState.completed ignored: already advancing/transitioning or track ${_currentTrack?.id} already completed');
-          return;
-        }
-        _lastCompletedTrackId = _currentTrack?.id;
-        _isAdvancing = true;
-
-        if (_currentTrack != null) {
-          _lastCompletedSeedSong = _currentTrack!.toSong();
-          if (!_actuallyPlayedInSession.any((t) => t.id == _currentTrack!.id)) {
-            _actuallyPlayedInSession.add(_currentTrack!);
-          }
-        }
-
-        final current = currentSong;
-        if (current != null) {
-          final dur = player.duration ?? const Duration(seconds: 180);
-          if (isAudioHandlerInitialized) {
-            audioHandler.smartShuffleController.recordPlaybackFeedback(
-              current,
-              listenedSeconds: dur.inSeconds,
-              totalSeconds: dur.inSeconds,
-            );
-          }
-        }
-
-        if (_effectiveLoopMode == LoopMode.one) {
-          if (_currentTrack != null) {
-            _isAdvancing = false;
-            _crossfadeEngine.reset();
-            _hasEnforcedInitialVolume = false;
-            _lastCompletedTrackId = null;
-            final targetVol = getEffectiveVolumeForSong(_currentTrack!.toSong());
-            unawaited(() async {
-              await player.setVolume(targetVol);
-              await player.seek(Duration.zero);
-              player.play().catchError((e, st) => AppLogger.recordError(e, st, context: 'loop one replay'));
-            }());
-            return;
-          }
-        }
-
-        if (SleepTimerService.instance.stopAtEndOfTrack) {
-          _isAdvancing = false;
-          SleepTimerService.instance.triggerSleepNow();
-          return;
-        }
-
-        if (PartySyncCoordinator.isJoiner) {
-          _isAdvancing = false;
-          AppLogger.log('AudioQueueHandler', 'Joiner reached track end - holding for host transition barrier');
-          player.pause();
-          return;
-        }
-
-        if (hasNext) {
-          skipToNext(isUserInitiated: false);
-        } else if (SleepTimerService.instance.stopAtEndOfQueue) {
-          _isAdvancing = false;
-          SleepTimerService.instance.triggerSleepNow();
-          startIdleTimer();
-        } else if (_effectiveLoopMode == LoopMode.all && _contextQueue.isNotEmpty) {
-          handleRepeatAllLoop();
-        } else if (SettingsManager.isAutoplayEnabled &&
-            !SleepTimerService.instance.isActive &&
-            current != null &&
-            isAudioHandlerInitialized) {
-          _isAdvancing = false;
-          audioHandler.handleAutoplayQueueEnd(_lastCompletedSeedSong ?? current).whenComplete(() => _isAdvancing = false);
-        } else {
-          _isAdvancing = false;
-          startIdleTimer();
-        }
+        unawaited(_onTrackCompleted(currentSong));
       }
     });
+  }
+
+  Future<void> _onTrackCompleted(Song? current) async {
+    if (_isHandlingCompleted ||
+        _isAdvancing ||
+        _isTransitioning ||
+        (_currentTrack != null && _lastCompletedTrackId == _currentTrack!.id)) {
+      AppLogger.log(
+        'AudioQueueHandler',
+        'ProcessingState.completed ignored: already handling/advancing/transitioning or track ${_currentTrack?.id} already completed',
+      );
+      return;
+    }
+    _isHandlingCompleted = true;
+    _isAdvancing = true;
+    _lastCompletedTrackId = _currentTrack?.id;
+
+    try {
+      if (_currentTrack != null) {
+        _lastCompletedSeedSong = _currentTrack!.toSong();
+        if (!_actuallyPlayedInSession.any((t) => t.id == _currentTrack!.id)) {
+          _actuallyPlayedInSession.add(_currentTrack!);
+        }
+      }
+
+      if (current != null) {
+        final dur = player.duration ?? const Duration(seconds: 180);
+        if (isAudioHandlerInitialized) {
+          audioHandler.smartShuffleController.recordPlaybackFeedback(
+            current,
+            listenedSeconds: dur.inSeconds,
+            totalSeconds: dur.inSeconds,
+          );
+        }
+      }
+
+      if (_effectiveLoopMode == LoopMode.one && _currentTrack != null) {
+        _crossfadeEngine.reset();
+        _hasEnforcedInitialVolume = false;
+        _lastCompletedTrackId = null;
+        final targetVol = getEffectiveVolumeForSong(_currentTrack!.toSong());
+        await player.setVolume(targetVol);
+        await player.seek(Duration.zero);
+        player.play().catchError((e, st) => AppLogger.recordError(e, st, context: 'loop one replay'));
+        return;
+      }
+
+      if (SleepTimerService.instance.stopAtEndOfTrack) {
+        SleepTimerService.instance.triggerSleepNow();
+        return;
+      }
+
+      if (PartySyncCoordinator.isJoiner) {
+        AppLogger.log('AudioQueueHandler', 'Joiner reached track end - holding for host transition barrier');
+        await player.pause();
+        return;
+      }
+
+      if (hasNext) {
+        await skipToNext(isUserInitiated: false);
+      } else if (SleepTimerService.instance.stopAtEndOfQueue) {
+        SleepTimerService.instance.triggerSleepNow();
+        startIdleTimer();
+      } else if (_effectiveLoopMode == LoopMode.all && _contextQueue.isNotEmpty) {
+        await handleRepeatAllLoop();
+      } else if (SettingsManager.isAutoplayEnabled &&
+          !SleepTimerService.instance.isActive &&
+          current != null &&
+          isAudioHandlerInitialized) {
+        await audioHandler.handleAutoplayQueueEnd(_lastCompletedSeedSong ?? current);
+      } else {
+        startIdleTimer();
+      }
+    } finally {
+      _isHandlingCompleted = false;
+      _isAdvancing = false;
+    }
   }
 }

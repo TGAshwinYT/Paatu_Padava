@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../services/settings_manager.dart';
 import '../widgets/mini_player.dart';
+import '../widgets/settings/next_song_preferences_card.dart';
+import '../widgets/settings/playback_transitions_card.dart';
 
 class AudioQualitySettingsScreen extends StatelessWidget {
   const AudioQualitySettingsScreen({Key? key}) : super(key: key);
@@ -30,11 +32,9 @@ class AudioQualitySettingsScreen extends StatelessWidget {
               const SizedBox(height: 20),
               _buildVolumeNormalizationSection(),
               const SizedBox(height: 20),
-              _buildAutoplaySection(),
+              const NextSongPreferencesCard(),
               const SizedBox(height: 20),
-              _buildCrossfadeSection(),
-              const SizedBox(height: 20),
-              _buildPersistentBackgroundPlaybackSection(),
+              const PlaybackTransitionsCard(),
             ],
           ),
           const Positioned(

@@ -42,7 +42,7 @@ Future<void> _notifyHostPlayImpl(
   if (hasRemotePeers) {
     PartySyncCoordinator._peerReadyCompleter = Completer<void>();
     final isLan = PartyLanAccelerator.isLanActiveNotifier.value;
-    final barrierTimeoutMs = isLan ? 1200 : 3500;
+    final barrierTimeoutMs = _lookaheadAckedSongIds.contains(song.id) ? 350 : (isLan ? 1200 : 3500);
     try {
       await PartySyncCoordinator._peerReadyCompleter!.future
           .timeout(Duration(milliseconds: barrierTimeoutMs));
@@ -57,6 +57,7 @@ Future<void> _notifyHostPlayImpl(
         'Prepare cycle for $cmdId superseded; aborting stale play broadcast.');
     return;
   }
+  PartySyncCoordinator._pendingPrepareCmdId = null;
 
   final peerRtts = PartySyncCoordinator._knownPeers.values
       .where((p) => !p.isSelf)
@@ -109,12 +110,14 @@ Future<void> _notifyHostPlayImpl(
     PartySyncCoordinator._pendingScheduledPlayTimer?.cancel();
     PartySyncCoordinator._pendingScheduledPlayTimer = Timer(Duration(milliseconds: remainingDelay), () {
       if (PartySyncCoordinator.isHost) {
+        _lastScheduledPlayActualEpochMs = DateTime.now().millisecondsSinceEpoch;
         audioHandler.player.play().catchError((e) {
           AppLogger.debug('PartySyncCoordinator', 'Host scheduled play error: $e');
         });
       }
     });
   } else {
+    _lastScheduledPlayActualEpochMs = DateTime.now().millisecondsSinceEpoch;
     audioHandler.player.play().catchError((e) {
       AppLogger.debug('PartySyncCoordinator', 'Host immediate play error: $e');
     });
@@ -280,16 +283,45 @@ Future<void> _hostTransitionToNextImpl(
   await PartySyncCoordinator.notifyHostPlay(nextSong, positionMs: 0, queue: queue, currentIndex: currentIndex);
 }
 
+Future<void> _notifyHostLookaheadPrepareImpl(
+  Song song, {
+  List<Song>? queue,
+  int? currentIndex,
+}) async {
+  if (!PartySyncCoordinator.isHost) return;
+  final cmdId = PartySyncCoordinator._uuid.v4();
+  final seq = ++PartySyncCoordinator._currentHostSeq;
+  final directUrl = song.streamUrl ??
+      DefaultStreamResolver.getCachedStream(song.id);
+
+  final payload = {
+    'cmdId': cmdId,
+    'seq': seq,
+    'token': PartySyncCoordinator._sessionSecret,
+    'song': song.toMap(),
+    'songId': song.id,
+    'streamUrl': directUrl,
+    'currentIndex': currentIndex ?? 0,
+  };
+
+  PartySyncCoordinator._partyChannel?.sendBroadcastMessage(
+    event: 'sync_prepare_next',
+    payload: payload,
+  );
+  PartyLanAccelerator.sendSyncEvent('sync_prepare_next', payload);
+}
+
 void _notifyHostQueueUpdatedImpl(List<Song> queue, int currentIndex) {
-  if (!PartySyncCoordinator.isHost || PartySyncCoordinator._partyChannel == null) return;
+  if (!PartySyncCoordinator.isHost) return;
   final curSong = audioHandler.currentSong;
   final isPlaying = audioHandler.playbackState.value.playing;
   final seq = ++PartySyncCoordinator._currentHostSeq;
 
+  final fullQueue = queue.take(30).map((s) => s.toMap()).toList();
   final payload = {
     'seq': seq,
     'token': PartySyncCoordinator._sessionSecret,
-    'queue': queue.take(30).map((s) => s.toMap()).toList(),
+    'queue': fullQueue,
     'currentIndex': currentIndex,
     'activeSongId': curSong?.id,
     'isPlaying': isPlaying,
@@ -299,4 +331,23 @@ void _notifyHostQueueUpdatedImpl(List<Song> queue, int currentIndex) {
     event: 'sync_queue',
     payload: payload,
   );
+
+  final compactQueue = queue.take(30).map((s) {
+    final m = Map<String, dynamic>.from(s.toMap());
+    m.remove('lyrics');
+    m.remove('encryptedMediaUrl');
+    m.remove('coverUrl');
+    if (s.id != curSong?.id) {
+      m.remove('streamUrl');
+    }
+    return m;
+  }).toList();
+  PartyLanAccelerator.sendSyncEvent('sync_queue', {
+    'seq': seq,
+    'token': PartySyncCoordinator._sessionSecret,
+    'queue': compactQueue,
+    'currentIndex': currentIndex,
+    'activeSongId': curSong?.id,
+    'isPlaying': isPlaying,
+  });
 }

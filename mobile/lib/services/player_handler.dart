@@ -22,6 +22,8 @@ import 'api_client.dart';
 import 'history_manager.dart';
 import 'queue_cooldown_manager.dart';
 import 'equalizer_service.dart';
+import 'radio_engine.dart';
+import 'saavn_client.dart';
 import 'youtube_client.dart';
 import 'favorites_manager.dart';
 import 'download_manager.dart';
@@ -43,6 +45,7 @@ part 'player/player_streams_ext.dart';
 part 'player/player_playback_ext.dart';
 part 'player/player_controls_ext.dart';
 part 'player/player_media_browser_ext.dart';
+part 'player/player_party_ext.dart';
 
 /// Context describing where audio playback originated from (e.g. Playlist, Album, Mix, Liked Songs).
 class PlaybackContext {
@@ -364,63 +367,7 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
     _broadcastState();
   }
 
-  void _onActiveTrackChanged(Song song) {
-    if (BlacklistManager.isBlacklisted(song)) {
-      AppLogger.log('PlayerHandler', 'Active track is blacklisted: "${song.title}". Auto-skipping.');
-      skipToNext();
-      return;
-    }
-    AppLogger.log('PlayerHandler', 'Active track changed: "${song.title}" (${song.artist}) [id=${song.id}]');
-    // Synchronously update system notification metadata
-    mediaItem.add(song.toMediaItem());
-    _syncWidgetState(song: song);
-
-    // Update cached favorite status once for new song
-    _cachedFavSongId = song.id;
-    _cachedIsFav = FavoritesManager.isFavorite(song.id);
-
-    // Smart shuffle taste profile tracking
-    _smartShuffleController.recordRecentlyPlayed(song);
-
-    // Reset scrobble threshold state & load saved lyrics offset for this track
-    _hasRecordedHistory = false;
-    _hasRecordedListen = false;
-    lyricsOffsetMsNotifier.value = 0;
-    LyricsClient.instance.getLyricsOffset(song.id).then((savedOffset) {
-      if (currentSong?.id == song.id) {
-        lyricsOffsetMsNotifier.value = savedOffset;
-      }
-    });
-
-    // In-Place Karaoke: Re-push stored attenuation if karaoke mode is active
-    if (isKaraokeModeNotifier.value && vocalAttenuationNotifier.value > 0.0) {
-      EqualizerService.setVocalAttenuation(vocalAttenuationNotifier.value);
-    } else {
-      EqualizerService.setVocalAttenuation(0.0);
-    }
-
-    // Debounce lyrics resolution by 300ms so rapid track transitions / skips do not trigger duplicate LRCLIB calls
-    _lyricsDebounceTimer?.cancel();
-    _lyricsDebounceTimer = Timer(const Duration(milliseconds: 300), () {
-      if (currentSong?.id == song.id) {
-        reloadLyrics(targetSong: song);
-      }
-    });
-
-    // Predictive Smart Caching for upcoming 2 queue and radio tracks
-    SmartCacheService.instance.onQueueUpdated(song, _queueHandler.queue, preloadCount: 2);
-
-    // Synchronize automatic or skip track transitions to all party speakers (natural advances only)
-    if (PartySyncCoordinator.isHost && !_queueHandler.isPartyDrivenLoad) {
-      PartySyncCoordinator.notifyHostTrackTransition(
-        song,
-        queue: _queueHandler.queue,
-        currentIndex: _queueHandler.currentIndex,
-      );
-    }
-
-    _broadcastState();
-  }
+  void _onActiveTrackChanged(Song song) => _onActiveTrackChangedImpl(song);
 
   int? _lastReselectedDurationSec;
 
@@ -572,6 +519,10 @@ class PaatuAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler,
   }
 
   bool _isPrefetchingRecommendations = false;
+  Future<void>? _inFlightPrefetchFuture;
+
+  @override
+  Future<void> setSpeed(double speed) => _player.setSpeed(speed);
 
   // ================= Sleep Timer ================= //
 

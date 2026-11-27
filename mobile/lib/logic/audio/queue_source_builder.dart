@@ -10,7 +10,7 @@ extension AudioQueueHandlerSourceBuilder on AudioQueueHandler {
       }
     }
 
-    final next = nextTrack;
+    final next = PartySyncCoordinator.isActive ? null : nextTrack;
     if (next == null || _isDisposed) {
       final currentPlayingIdx = getSafeCurrentIndex() ?? 0;
       while (_playlistSource.length > currentPlayingIdx + 1) {

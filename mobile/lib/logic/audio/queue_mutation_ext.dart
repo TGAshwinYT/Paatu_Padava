@@ -1,6 +1,34 @@
 part of '../audio_queue_handler.dart';
 
 extension QueueMutationExt on AudioQueueHandler {
+  Future<void> _updateContextQueuePreservingCurrentImpl(
+    List<dynamic> tracks, {
+    required int currentIndex,
+  }) async {
+    final entities = tracks.map((t) => AudioQueueHandler._toEntity(t)).toList();
+    _contextQueue
+      ..clear()
+      ..addAll(entities);
+    if (_isShuffleEnabled) {
+      _contextShuffleIndices
+        ..clear()
+        ..addAll(List<int>.generate(_contextQueue.length, (i) => i));
+    }
+    if (_currentTrack != null) {
+      final match = _contextQueue.indexWhere((t) => t.id == _currentTrack!.id);
+      _contextIndex = match != -1
+          ? match
+          : (_contextQueue.isEmpty ? 0 : currentIndex.clamp(0, _contextQueue.length - 1));
+    } else {
+      _contextIndex = _contextQueue.isEmpty ? 0 : currentIndex.clamp(0, _contextQueue.length - 1);
+    }
+    _syncState();
+    onQueueProgress?.call(this.currentIndex, queue.length);
+    if (!PartySyncCoordinator.isJoiner) {
+      preloadUpcomingTracks();
+    }
+  }
+
   Future<void> _playNextImpl(dynamic track) async {
     final entity = AudioQueueHandler._toEntity(track).copyWith(isUserEnqueued: true);
     AppLogger.log('AudioQueueHandler', 'playNext: "${entity.title}" [id=${entity.id}]');

@@ -217,6 +217,7 @@ class MarkovCosineRadioStrategy implements NextTrackStrategy {
     required List<Song> queue,
     required List<Song> history,
     int count = 20,
+    bool allowLocalFallback = true,
   }) async {
     _lastSeedSong = seedSong;
     final existingIds = queue.map((s) => s.id).toSet();

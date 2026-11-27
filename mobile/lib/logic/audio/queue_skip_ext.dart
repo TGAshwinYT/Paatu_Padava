@@ -1,16 +1,17 @@
 part of '../audio_queue_handler.dart';
 
 extension QueueSkipExt on AudioQueueHandler {
-  Future<void> _skipToNextImpl({bool isUserInitiated = true}) async {
+  Future<void> _skipToNextImpl({bool isUserInitiated = true, bool bypassTransitionLock = false}) async {
     if (!isUserInitiated && SleepTimerService.instance.stopAtEndOfTrack) {
       _isTransitioning = false;
       SleepTimerService.instance.triggerSleepNow();
       return;
     }
-    if (_isTransitioning) {
+    if (!bypassTransitionLock && _isTransitioning) {
       AppLogger.log('AudioQueueHandler', 'skipToNext ignored: transition currently in progress');
       return;
     }
+    final acquiredLock = !_isTransitioning;
     _isTransitioning = true;
 
     try {
@@ -120,7 +121,9 @@ extension QueueSkipExt on AudioQueueHandler {
         await audioHandler.handleAutoplayQueueEnd(_lastCompletedSeedSong ?? _currentTrack!.toSong());
       }
     } finally {
-      _isTransitioning = false;
+      if (acquiredLock) {
+        _isTransitioning = false;
+      }
     }
   }
 }

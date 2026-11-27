@@ -2,6 +2,7 @@ part of '../audio_queue_handler.dart';
 
 extension QueuePlaybackExt on AudioQueueHandler {
   void _advanceToNextTrackFromPlayerStreamImpl([String? expectedId]) {
+    if (PartySyncCoordinator.isHost) return;
     if (SleepTimerService.instance.stopAtEndOfTrack) {
       _isTransitioning = false;
       SleepTimerService.instance.triggerSleepNow();
@@ -166,7 +167,9 @@ extension QueuePlaybackExt on AudioQueueHandler {
       _hasRetriedCurrentTrack = false;
       _resetTrackMilestones();
       _syncState();
-      onSongChanged?.call(song);
+      if (!PartySyncCoordinator.isHost) {
+        onSongChanged?.call(song);
+      }
 
       final activeSrc = await _buildAudioSource(song, allowNetworkResolve: true);
       if (token != _sessionToken || activeToken != _activeLoadToken) return;
@@ -210,12 +213,14 @@ extension QueuePlaybackExt on AudioQueueHandler {
 
       final sources = <AudioSource>[activeSrc];
 
-      final next = nextTrack;
-      if (next != null) {
-        final nextSong = next.toSong();
-        final nextSrc = await _buildAudioSource(nextSong, allowNetworkResolve: true);
-        if (nextSrc != null && token == _sessionToken && activeToken == _activeLoadToken) {
-          sources.add(nextSrc);
+      if (!PartySyncCoordinator.isActive) {
+        final next = nextTrack;
+        if (next != null) {
+          final nextSong = next.toSong();
+          final nextSrc = await _buildAudioSource(nextSong, allowNetworkResolve: true);
+          if (nextSrc != null && token == _sessionToken && activeToken == _activeLoadToken) {
+            sources.add(nextSrc);
+          }
         }
       }
 
@@ -236,7 +241,17 @@ extension QueuePlaybackExt on AudioQueueHandler {
         _isAdvancing = false;
         if (token != _sessionToken || activeToken != _activeLoadToken) return;
         await _ensureAudioSessionActive();
-        player.play().catchError((e, st) => AppLogger.recordError(e, st, context: 'track advance play'));
+        if (PartySyncCoordinator.isHost) {
+          await PartySyncCoordinator.notifyHostPlay(
+            song,
+            positionMs: 0,
+            queue: queue,
+            currentIndex: currentIndex,
+          );
+          onSongChanged?.call(song);
+        } else {
+          player.play().catchError((e, st) => AppLogger.recordError(e, st, context: 'track advance play'));
+        }
         _crossfadeEngine.onIncomingTrackStarted(player);
         _consecutivePlaybackErrors = 0;
         _hasRetriedCurrentTrack = false;

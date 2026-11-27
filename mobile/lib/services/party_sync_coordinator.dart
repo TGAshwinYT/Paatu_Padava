@@ -21,6 +21,7 @@ part 'party/party_ntp_sync.dart';
 part 'party/party_host_controls.dart';
 part 'party/party_host_flow.dart';
 part 'party/party_joiner_flow.dart';
+part 'party/party_drift_controller.dart';
 
 enum PartyRole { none, host, joiner }
 
@@ -219,6 +220,16 @@ class PartySyncCoordinator {
   }) =>
       _notifyHostPlayImpl(song, positionMs: positionMs, queue: queue, currentIndex: currentIndex);
 
+  static Future<void> notifyHostLookaheadPrepare(
+    Song song, {
+    List<Song>? queue,
+    int? currentIndex,
+  }) =>
+      _notifyHostLookaheadPrepareImpl(song, queue: queue, currentIndex: currentIndex);
+
+  static Future<void> _handleRemotePrepareNext(Map<String, dynamic> payload) =>
+      _handleRemotePrepareNextImpl(payload);
+
   /// Host: Notifies connected speakers when active track transitions automatically or via skip
   static Future<void> notifyHostTrackTransition(
     Song song, {
@@ -365,12 +376,9 @@ class PartySyncCoordinator {
         final targetSong = songs[targetIndex];
 
         if (currentSong?.id == targetSong.id) {
-          await audioHandler.playSong(
-            targetSong,
-            queue: songs,
-            preserveUserQueue: false,
-            autoPlay: false,
-            isPartySyncInternal: true,
+          await audioHandler.queueHandler.updateContextQueuePreservingCurrent(
+            songs,
+            currentIndex: targetIndex,
           );
         } else if (isPlaying) {
           await audioHandler.playSong(

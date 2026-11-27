@@ -25,6 +25,8 @@ extension PlayerRecommendationsExt on PaatuAudioHandler {
   Future<void> prefetchNextRecommendations(Song seedSong) async {
     if (_isPrefetchingRecommendations) return;
     _isPrefetchingRecommendations = true;
+    final completer = Completer<void>();
+    _inFlightPrefetchFuture = completer.future;
     try {
       final strategy = NextTrackStrategyFactory.getStrategy(SettingsManager.nextTrackStrategy);
       const count = 20;
@@ -37,7 +39,7 @@ extension PlayerRecommendationsExt on PaatuAudioHandler {
       );
       if (tracks.isNotEmpty && !_isForegroundDowngraded) {
         final toAdd = tracks.take(5).toList();
-        await _queueHandler.addAutoSuggestions(toAdd);
+        await _queueHandler.addAutoSuggestions(toAdd, autoAdvanceIfCompleted: true);
         if (_queueHandler.hasNext) {
           await _queueHandler.preloadUpcomingTracks(_queueHandler.currentIndex);
         }
@@ -46,24 +48,68 @@ extension PlayerRecommendationsExt on PaatuAudioHandler {
       debugPrint('[PlayerHandler] prefetchNextRecommendations error: $e');
     } finally {
       _isPrefetchingRecommendations = false;
+      if (!completer.isCompleted) completer.complete();
+      _inFlightPrefetchFuture = null;
     }
   }
 
   Future<void> handleAutoplayQueueEnd(Song current) async {
     try {
+      if (_inFlightPrefetchFuture != null) {
+        await _inFlightPrefetchFuture;
+        if (_queueHandler.hasNext) {
+          await _queueHandler.preloadUpcomingTracks(_queueHandler.currentIndex);
+          await _queueHandler.skipToNext(isUserInitiated: false, bypassTransitionLock: true);
+          return;
+        }
+      }
+
       final strategy = NextTrackStrategyFactory.getStrategy(SettingsManager.nextTrackStrategy);
-      final tracks = await strategy.getUpcomingTracks(
+      var tracks = await strategy.getUpcomingTracks(
         seedSong: current,
         queue: _queueHandler.queue,
         history: HistoryManager.getHistory(),
         count: 6,
+        allowLocalFallback: false,
       );
+
+      if (tracks.isEmpty) {
+        final radioTracks = await RadioEngine.buildSongRadio(current);
+        tracks = radioTracks.where((s) => s.id != current.id).toList();
+      }
+
+      if (tracks.isEmpty) {
+        final q = current.artist.trim().isNotEmpty ? '${current.artist} ${current.title}' : current.title;
+        try {
+          final saavn = await SaavnClient.search(q, limit: 6);
+          tracks = saavn.where((s) => s.id != current.id).toList();
+        } catch (_) {}
+      }
+
+      if (tracks.isEmpty) {
+        final q = current.artist.trim().isNotEmpty ? '${current.artist} ${current.title}' : current.title;
+        try {
+          final yt = await YouTubeClient.search(q, limit: 6);
+          tracks = yt.where((s) => s.id != current.id).toList();
+        } catch (_) {}
+      }
+
+      if (tracks.isEmpty) {
+        tracks = await strategy.getUpcomingTracks(
+          seedSong: current,
+          queue: _queueHandler.queue,
+          history: HistoryManager.getHistory(),
+          count: 6,
+          allowLocalFallback: true,
+        );
+      }
+
       if (tracks.isNotEmpty) {
         final toAdd = tracks.take(5).toList();
-        await _queueHandler.addAutoSuggestions(toAdd);
+        await _queueHandler.addAutoSuggestions(toAdd, autoAdvanceIfCompleted: false);
         if (_queueHandler.hasNext) {
           await _queueHandler.preloadUpcomingTracks(_queueHandler.currentIndex);
-          await _queueHandler.skipToNext(isUserInitiated: false);
+          await _queueHandler.skipToNext(isUserInitiated: false, bypassTransitionLock: true);
           return;
         }
       }

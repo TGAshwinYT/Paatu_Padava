@@ -3,6 +3,8 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'auth_manager.dart';
 import 'connectivity_service.dart';
 
+part 'settings_manager_eq_ext.dart';
+
 enum NextTrackStrategyMode {
   unifiedSmartRadio,
   spotifyStyle,
@@ -48,6 +50,8 @@ class SettingsManager {
   static final ValueNotifier<bool> persistentBackgroundPlaybackNotifier = ValueNotifier<bool>(true);
   static final ValueNotifier<bool> smartDownloadsEnabledNotifier = ValueNotifier<bool>(true);
   static final ValueNotifier<int> smartDownloadsCapNotifier = ValueNotifier<int>(50);
+  static final ValueNotifier<bool> sameLanguageLockNotifier = ValueNotifier<bool>(true);
+  static final ValueNotifier<String> preferredTunerModeNotifier = ValueNotifier<String>('mix');
 
   static String get streamingQuality => streamingQualityNotifier.value;
   /// Returns the resolved bitrate string ('320kbps', '160kbps', '96kbps').
@@ -90,6 +94,8 @@ class SettingsManager {
   static bool get isPersistentBackgroundPlaybackEnabled => persistentBackgroundPlaybackNotifier.value;
   static bool get isSmartDownloadsEnabled => smartDownloadsEnabledNotifier.value;
   static int get smartDownloadsCap => smartDownloadsCapNotifier.value;
+  static bool get sameLanguageLock => sameLanguageLockNotifier.value;
+  static String get preferredTunerMode => preferredTunerModeNotifier.value;
 
   /// Single coordinated preferred languages accessor:
   /// Uses AuthManager profile preferences as the source of truth,
@@ -128,28 +134,7 @@ class SettingsManager {
     crossfadeDurationNotifier.value = (_box.get('crossfade_seconds', defaultValue: 0) as num).toInt().clamp(0, 12);
     beatMatchedTransitionsNotifier.value = _box.get('beat_match_transitions_enabled', defaultValue: true) as bool;
     transitionPhraseBeatsNotifier.value = (_box.get('transition_phrase_beats', defaultValue: 8) as num).toInt();
-    eqPresetNotifier.value = _box.get('eq_preset', defaultValue: 'flat') as String;
-
-    final rawBands = _box.get('eq_bands');
-    if (rawBands is List) {
-      eqBandsNotifier.value = rawBands.map((e) => (e as num).toDouble().clamp(-10.0, 10.0)).toList();
-    } else {
-      eqBandsNotifier.value = presets['flat']!;
-    }
-
-    bassBoostNotifier.value = (_box.get('bass_boost_strength', defaultValue: 0.0) as num).toDouble().clamp(0.0, 1.0);
-    virtualizerNotifier.value = (_box.get('virtualizer_strength', defaultValue: 0.0) as num).toDouble().clamp(0.0, 1.0);
-
-    final rawCustomPresets = _box.get('custom_eq_presets');
-    if (rawCustomPresets is Map) {
-      final parsed = <String, List<double>>{};
-      rawCustomPresets.forEach((k, v) {
-        if (v is List) {
-          parsed[k.toString()] = v.map((e) => (e as num).toDouble().clamp(-10.0, 10.0)).toList();
-        }
-      });
-      customEqPresetsNotifier.value = parsed;
-    }
+    _initEqFromBoxImpl(_box);
 
     final rawLangs = _box.get('languages');
     if (rawLangs is List) {
@@ -180,15 +165,23 @@ class SettingsManager {
     smartDownloadsCapNotifier.value = _box.get('smart_downloads_cap', defaultValue: 50) as int;
     persistentBackgroundPlaybackNotifier.value =
         _box.get('persistent_background_playback', defaultValue: false) as bool;
-    stereoBalanceNotifier.value =
-        ((_box.get('stereo_balance', defaultValue: 0.0) as num).toDouble()).clamp(-1.0, 1.0);
+    sameLanguageLockNotifier.value =
+        _box.get('same_language_lock', defaultValue: true) as bool;
+    preferredTunerModeNotifier.value =
+        _box.get('preferred_tuner_mode', defaultValue: 'mix') as String;
   }
 
-  static Future<void> setStereoBalance(double balance) async {
-    final clamped = balance.clamp(-1.0, 1.0);
-    stereoBalanceNotifier.value = clamped;
-    await _box.put('stereo_balance', clamped);
+  static Future<void> setSameLanguageLock(bool enabled) async {
+    sameLanguageLockNotifier.value = enabled;
+    await _box.put('same_language_lock', enabled);
   }
+
+  static Future<void> setPreferredTunerMode(String mode) async {
+    preferredTunerModeNotifier.value = mode;
+    await _box.put('preferred_tuner_mode', mode);
+  }
+
+  static Future<void> setStereoBalance(double balance) => _setStereoBalanceImpl(balance);
 
   static Future<void> setPersistentBackgroundPlayback(bool enabled) async {
     persistentBackgroundPlaybackNotifier.value = enabled;
@@ -324,69 +317,13 @@ class SettingsManager {
     await _box.put('transition_phrase_beats', clamped);
   }
 
-  static Future<void> setEqPreset(String presetKey) async {
-    if (presets.containsKey(presetKey)) {
-      eqPresetNotifier.value = presetKey;
-      eqBandsNotifier.value = List<double>.from(presets[presetKey]!);
-      await _box.put('eq_preset', presetKey);
-      await _box.put('eq_bands', eqBandsNotifier.value);
-    } else if (presetKey.startsWith('custom_')) {
-      final name = presetKey.substring(7);
-      await applyCustomEqPreset(name);
-    }
-  }
-
-  static Future<void> setEqBand(int index, double gain) async {
-    if (index >= 0 && index < eqBandsNotifier.value.length) {
-      final updated = List<double>.from(eqBandsNotifier.value);
-      updated[index] = gain.clamp(-10.0, 10.0);
-      eqBandsNotifier.value = updated;
-      eqPresetNotifier.value = 'custom';
-      await _box.put('eq_preset', 'custom');
-      await _box.put('eq_bands', updated);
-    }
-  }
-
-  static Future<void> setBassBoost(double value) async {
-    final clamped = value.clamp(0.0, 1.0);
-    bassBoostNotifier.value = clamped;
-    await _box.put('bass_boost_strength', clamped);
-  }
-
-  static Future<void> setVirtualizer(double value) async {
-    final clamped = value.clamp(0.0, 1.0);
-    virtualizerNotifier.value = clamped;
-    await _box.put('virtualizer_strength', clamped);
-  }
-
-  static Future<void> applyCustomEqPreset(String name) async {
-    final currentCustom = customEqPresetsNotifier.value;
-    if (currentCustom.containsKey(name)) {
-      final bands = List<double>.from(currentCustom[name]!);
-      eqPresetNotifier.value = 'custom_$name';
-      eqBandsNotifier.value = bands;
-      await _box.put('eq_preset', 'custom_$name');
-      await _box.put('eq_bands', bands);
-    }
-  }
-
-  static Future<void> saveCustomEqPreset(String name, List<double> bands) async {
-    final updated = Map<String, List<double>>.from(customEqPresetsNotifier.value);
-    updated[name] = List<double>.from(bands);
-    customEqPresetsNotifier.value = updated;
-    await _box.put('custom_eq_presets', updated);
-    await applyCustomEqPreset(name);
-  }
-
-  static Future<void> deleteCustomEqPreset(String name) async {
-    final updated = Map<String, List<double>>.from(customEqPresetsNotifier.value);
-    updated.remove(name);
-    customEqPresetsNotifier.value = updated;
-    await _box.put('custom_eq_presets', updated);
-    if (eqPresetNotifier.value == 'custom_$name') {
-      await setEqPreset('flat');
-    }
-  }
+  static Future<void> setEqPreset(String presetKey) => _setEqPresetImpl(presetKey);
+  static Future<void> setEqBand(int index, double gain) => _setEqBandImpl(index, gain);
+  static Future<void> setBassBoost(double value) => _setBassBoostImpl(value);
+  static Future<void> setVirtualizer(double value) => _setVirtualizerImpl(value);
+  static Future<void> applyCustomEqPreset(String name) => _applyCustomEqPresetImpl(name);
+  static Future<void> saveCustomEqPreset(String name, List<double> bands) => _saveCustomEqPresetImpl(name, bands);
+  static Future<void> deleteCustomEqPreset(String name) => _deleteCustomEqPresetImpl(name);
 
   static Future<void> setPreferredLanguages(List<String> langs) async {
     languagesNotifier.value = List<String>.from(langs);

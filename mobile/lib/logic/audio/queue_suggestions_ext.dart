@@ -45,7 +45,7 @@ extension QueueSuggestionsExt on AudioQueueHandler {
     }
   }
 
-  Future<void> _addAutoSuggestionsImpl(List<dynamic> tracks) async {
+  Future<void> _addAutoSuggestionsImpl(List<dynamic> tracks, {bool autoAdvanceIfCompleted = false}) async {
     if (tracks.isEmpty) return;
     final existingTitleKeys = <String>{};
     for (final t in _contextQueue) {
@@ -87,6 +87,17 @@ extension QueueSuggestionsExt on AudioQueueHandler {
     _syncState();
     preloadUpcomingTracks();
     onQueueProgress?.call(currentIndex, queue.length);
+
+    if (autoAdvanceIfCompleted &&
+        !_isHandlingCompleted &&
+        player.processingState == ProcessingState.completed &&
+        !player.playing &&
+        !PartySyncCoordinator.isJoiner &&
+        SettingsManager.isAutoplayEnabled &&
+        hasNext) {
+      await preloadUpcomingTracks(currentIndex);
+      await skipToNext(isUserInitiated: false, bypassTransitionLock: true);
+    }
   }
 
   Future<void> _replaceAutoSuggestionsImpl(List<dynamic> newSuggestions) async {

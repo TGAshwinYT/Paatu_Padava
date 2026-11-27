@@ -10,6 +10,7 @@ import '../../services/radio_engine.dart';
 import '../../services/saavn_client.dart';
 import '../../services/settings_manager.dart';
 import '../audio_queue_handler.dart';
+import '../language_detector.dart';
 import '../markov_cosine_radio_strategy.dart';
 import '../next_track_strategy.dart';
 import '../track_quality_filter.dart';
@@ -19,7 +20,12 @@ import 'queue_tuner_mode.dart';
 /// Acts as the presentation layer above NextTrackStrategy (Option A over Option C).
 class QueueTunerController {
   final AudioQueueHandler? queueHandler;
-  final ValueNotifier<QueueTunerMode> modeNotifier = ValueNotifier(QueueTunerMode.mix);
+  final ValueNotifier<QueueTunerMode> modeNotifier = ValueNotifier(
+    QueueTunerMode.values.firstWhere(
+      (m) => m.name == SettingsManager.preferredTunerMode,
+      orElse: () => QueueTunerMode.mix,
+    ),
+  );
 
   QueueTunerMode get mode => modeNotifier.value;
   bool _isTuning = false;
@@ -27,9 +33,10 @@ class QueueTunerController {
   QueueTunerController({this.queueHandler});
 
   /// Changes active tuner mode and instantly recalculates upcoming auto-suggestions.
-  Future<void> setTunerMode(QueueTunerMode newMode) async {
-    if (modeNotifier.value == newMode && !_isTuning) return;
+  Future<void> setTunerMode(QueueTunerMode newMode, {bool forceRefresh = false}) async {
+    if (!forceRefresh && modeNotifier.value == newMode && !_isTuning) return;
     modeNotifier.value = newMode;
+    SettingsManager.setPreferredTunerMode(newMode.name);
 
     if (queueHandler == null) return;
     final currentSong = queueHandler!.currentSong;
@@ -39,18 +46,24 @@ class QueueTunerController {
     try {
       AppLogger.log('QueueTunerController', 'Switching tuner mode to "${newMode.name}" for "${currentSong.title}"');
 
-      // 1. Fetch fresh candidate pool from the user's active backend strategy
-      final strategy = NextTrackStrategyFactory.getStrategy(SettingsManager.nextTrackStrategy);
-      List<Song> baseCandidates = await strategy.getUpcomingTracks(
-        seedSong: currentSong,
-        queue: queueHandler!.queue,
-        history: HistoryManager.getHistory(),
-        count: 24,
-      );
-
-      // Safe fallback if active strategy yielded empty list
-      if (baseCandidates.isEmpty) {
-        baseCandidates = await RadioEngine.buildSongRadio(currentSong, limit: 20);
+      List<Song> baseCandidates;
+      if (newMode == QueueTunerMode.familiar) {
+        // Familiar intentionally surfaces history & favorites; bypass upstream applyHardFiltering.
+        baseCandidates = [
+          ...FavoritesManager.getFavorites(),
+          ...HistoryManager.getHistory(),
+        ];
+      } else {
+        final strategy = NextTrackStrategyFactory.getStrategy(SettingsManager.nextTrackStrategy);
+        baseCandidates = await strategy.getUpcomingTracks(
+          seedSong: currentSong,
+          queue: queueHandler!.queue,
+          history: HistoryManager.getHistory(),
+          count: 24,
+        );
+        if (baseCandidates.isEmpty) {
+          baseCandidates = await RadioEngine.buildSongRadio(currentSong, limit: 20);
+        }
       }
 
       // 2. Apply active Tuner lens
@@ -77,8 +90,13 @@ class QueueTunerController {
     required Song seedSong,
     required List<Song> candidates,
     required QueueTunerMode mode,
+    bool? sameLanguageLock,
   }) async {
-    final List<Song> pool = List<Song>.from(candidates);
+    final bool lockLang = sameLanguageLock ?? SettingsManager.sameLanguageLock;
+    final String? targetLang = lockLang ? LanguageDetector.inferSongLanguage(seedSong) : null;
+    final List<Song> pool = targetLang != null
+        ? candidates.where((s) => LanguageDetector.isLanguageCompatible(s, targetLang)).toList()
+        : List<Song>.from(candidates);
 
     switch (mode) {
       case QueueTunerMode.mix:
